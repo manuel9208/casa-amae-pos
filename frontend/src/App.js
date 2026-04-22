@@ -25,7 +25,7 @@ const App = () => {
   const [configGlobal, setConfigGlobal] = useState({ 
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b' 
   });
-  const apiUrl = 'http://localhost:4000/api';
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
   const iniciarSesionPersistente = (tipo, data) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
