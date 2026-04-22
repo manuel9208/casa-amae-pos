@@ -1,0 +1,187 @@
+-- =========================================================================
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.0)
+-- =========================================================================
+
+-- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
+-- DROP TABLE IF EXISTS compras_insumos CASCADE;
+-- DROP TABLE IF EXISTS recetas CASCADE;
+-- DROP TABLE IF EXISTS insumos CASCADE;
+-- DROP TABLE IF EXISTS detalle_pedidos CASCADE;
+-- DROP TABLE IF EXISTS pedidos CASCADE;
+-- DROP TABLE IF EXISTS catalogo_ingredientes CASCADE;
+-- DROP TABLE IF EXISTS clasificaciones CASCADE;
+-- DROP TABLE IF EXISTS clientes CASCADE;
+-- DROP TABLE IF EXISTS productos CASCADE;
+-- DROP TABLE IF EXISTS usuarios CASCADE;
+-- DROP TABLE IF EXISTS configuracion CASCADE;
+
+-- -------------------------------------------------------------------------
+-- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca y Branding)
+-- -------------------------------------------------------------------------
+CREATE TABLE configuracion (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    -- Información del Negocio
+    nombre_negocio VARCHAR(100) DEFAULT 'Mi Restaurante',
+    logo_url TEXT,
+    whatsapp VARCHAR(20) DEFAULT '6721238015',
+    banco VARCHAR(50) DEFAULT 'BBVA Bancomer',
+    cuenta VARCHAR(50) DEFAULT '012345678901234567',
+    titular VARCHAR(100) DEFAULT 'Restaurante POS SA de CV',
+    -- Colores y Branding (Kiosco y TV)
+    color_primario VARCHAR(20) DEFAULT '#2563eb',
+    color_secundario VARCHAR(20) DEFAULT '#10b981',
+    color_fondo VARCHAR(20) DEFAULT '#f1f5f9',
+    color_fondo_tarjetas VARCHAR(20) DEFAULT '#ffffff',
+    color_texto_principal VARCHAR(20) DEFAULT '#1e293b',
+    color_texto_secundario VARCHAR(20) DEFAULT '#64748b',
+    -- Tipografías
+    fuente_titulos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
+    fuente_textos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
+    -- Mensajes Personalizados
+    kiosco_mensaje VARCHAR(100) DEFAULT '¿Qué se te antoja hoy?',
+    color_texto_kiosco VARCHAR(20) DEFAULT '#1e293b',
+    tv_msg_cola VARCHAR(50) DEFAULT 'EN COLA',
+    tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
+    tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!'
+);
+
+-- -------------------------------------------------------------------------
+-- 3. TABLAS DE USUARIOS Y CLIENTES
+-- -------------------------------------------------------------------------
+CREATE TABLE usuarios (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    usuario VARCHAR(50) UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv')),
+    permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
+    telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
+    -- Candado de sesión única
+    dispositivo_id VARCHAR(100),
+    ultimo_acceso TIMESTAMP,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE clientes (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(50) NOT NULL,
+    apellido VARCHAR(50) NOT NULL,
+    telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
+    correo VARCHAR(100),
+    fecha_nacimiento DATE,
+    puntos INTEGER DEFAULT 0,
+    nip VARCHAR(4) DEFAULT '0000', -- Para canje seguro de puntos
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- -------------------------------------------------------------------------
+-- 4. CATÁLOGOS DEL MENÚ
+-- -------------------------------------------------------------------------
+CREATE TABLE clasificaciones (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(50) UNIQUE NOT NULL,
+    destino VARCHAR(20) DEFAULT 'Cocina', -- Cocina o Barra
+    emoji VARCHAR(20),
+    imagen_url TEXT
+);
+
+CREATE TABLE productos (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    descripcion TEXT,
+    precio_base DECIMAL(10,2) NOT NULL,
+    emoji VARCHAR(10),
+    imagen_url TEXT,
+    categoria VARCHAR(50) DEFAULT 'General',
+    opciones JSONB DEFAULT '[]'::jsonb, -- Tallas, extras rápidos, etc.
+    tiempo_preparacion INTEGER DEFAULT 15, -- NUEVO: Tiempo estimado
+    rendimiento DECIMAL(10,2) DEFAULT 1,   -- NUEVO: Porciones por receta
+    stock_preparado INTEGER DEFAULT 0,     -- NUEVO: Lotes/Tandas horneadas listas
+    estado VARCHAR(20) DEFAULT 'Activo',
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE catalogo_ingredientes (
+    id SERIAL PRIMARY KEY,
+    clasificacion_id INTEGER REFERENCES clasificaciones(id) ON DELETE CASCADE,
+    nombre VARCHAR(100) NOT NULL,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('base', 'extra')),
+    precio_extra DECIMAL(10,2) DEFAULT 0,
+    permite_extra BOOLEAN DEFAULT true
+);
+
+-- -------------------------------------------------------------------------
+-- 5. MÓDULO DE INVENTARIO Y RECETAS (MATERIA PRIMA)
+-- -------------------------------------------------------------------------
+CREATE TABLE insumos (
+    id SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    unidad_medida VARCHAR(10) NOT NULL, -- Pz, GR, KL, ML, LT
+    cantidad_presentacion DECIMAL(10,2) NOT NULL, -- Ej: 1000 (gr)
+    costo_presentacion DECIMAL(10,2) NOT NULL,    -- Ej: 25.00
+    stock_actual DECIMAL(10,2) DEFAULT 0           -- En unidades mínimas (gr, ml, etc)
+);
+
+CREATE TABLE compras_insumos (
+    id SERIAL PRIMARY KEY,
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE, -- Relacionado al insumo
+    paquetes DECIMAL(10,2),
+    costo_unitario DECIMAL(10,2),
+    costo_total DECIMAL(10,2),
+    fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE recetas (
+    id SERIAL PRIMARY KEY,
+    producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE,
+    cantidad_usada DECIMAL(10,2) NOT NULL -- Cuánto gasta este producto del insumo
+);
+
+-- -------------------------------------------------------------------------
+-- 6. TABLAS TRANSACCIONALES (PEDIDOS)
+-- -------------------------------------------------------------------------
+CREATE TABLE pedidos (
+    id SERIAL PRIMARY KEY,
+    numero_pedido INT NOT NULL,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+    chef_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL, -- Quién lo preparó
+    origen VARCHAR(20) DEFAULT 'Web',
+    tipo_consumo VARCHAR(20), -- Local, Para llevar, Domicilio
+    direccion_entrega TEXT,
+    metodo_pago VARCHAR(20),
+    total DECIMAL(10,2),
+    descuento_puntos INTEGER DEFAULT 0,
+    carrito JSONB, -- NUEVO: El cerebro de la orden con todos sus items y variaciones
+    estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
+    tiempo_inicio_preparacion TIMESTAMP, -- NUEVO: Para el cronómetro de la TV/KDS
+    alerta_cocina TEXT DEFAULT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE detalle_pedidos (
+    id SERIAL PRIMARY KEY,
+    pedido_id INT REFERENCES pedidos(id) ON DELETE CASCADE,
+    nombre_producto VARCHAR(100),
+    precio DECIMAL(10,2),
+    extras JSONB 
+);
+
+-- =========================================================================
+-- DATOS INICIALES (SEMILLAS)
+-- =========================================================================
+
+-- Iniciar configuración única
+INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING;
+
+-- Admin por defecto (Cambiar password en producción)
+INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) 
+VALUES ('Administrador Global', 'admin', 'admin123', 'admin', '{"ventas": true, "inventario": true, "usuarios": true}'::jsonb, 6721190608)
+ON CONFLICT (usuario) DO NOTHING;
+
+-- Clasificaciones base
+INSERT INTO clasificaciones (nombre, destino, emoji) VALUES 
+('Cafes', 'Barra', '☕'), 
+('Sushis', 'Cocina', '🍣'), 
+('Postres', 'Cocina', '🍰')
+ON CONFLICT (nombre) DO NOTHING;
