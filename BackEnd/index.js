@@ -6,8 +6,14 @@ const apiRoutes = require('./routes/api');
 
 const app = express();
 
-// Habilitar CORS para que el frontend pueda comunicarse sin bloqueos
-app.use(cors());
+// --- CONFIGURACIÓN DE CORS MEJORADA ---
+// Esto permite que cualquier dispositivo (PC, Celular, Tablet) se conecte
+app.use(cors({
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 // Tus rutas de API
@@ -18,6 +24,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // El puerto ahora es dinámico para la nube (Render) o 4000 en local
 const PORT = process.env.PORT || 4000;
+
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });
