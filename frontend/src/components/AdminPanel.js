@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGrid, ShoppingCart, Users, Plus, Trash2, Edit, LogOut, MonitorPlay, BookOpen, AlertTriangle, CheckCircle2, Settings, Package, ShoppingBag, RotateCcw } from 'lucide-react';
+import { LayoutGrid, ShoppingCart, Users, Plus, Trash2, Edit, LogOut, MonitorPlay, BookOpen, AlertTriangle, CheckCircle2, Settings, Package, ShoppingBag, RotateCcw, Menu, X } from 'lucide-react';
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -13,6 +13,7 @@ const EMOJIS_POR_GIRO = {
 
 const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [seccion, setSeccion] = useState('menu'); 
+  const [menuAbierto, setMenuAbierto] = useState(false); // Estado para el menú desplegable móvil
   const [productos, setProductos] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
@@ -109,7 +110,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
-  // Auto-Refrescar inventario cada 5 segundos
   useEffect(() => {
     let intervalo;
     if (seccion === 'inventario') {
@@ -228,7 +228,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       } catch(e) {} 
   };
 
-  // NUEVO: FUNCION DE MERMA / REINICIAR STOCK
   const reiniciarStockInsumo = (insumo) => {
     showConfirm(
       "Reiniciar a 0",
@@ -269,38 +268,58 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-800 font-sans relative">
+    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       
+      {/* ================= OVERLAY MÓVIL (Fondo oscuro) ================= */}
+      {menuAbierto && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setMenuAbierto(false)}
+        />
+      )}
+
       {/* ================= SIDEBAR ================= */}
-      <div className="w-64 bg-slate-900 text-white p-6 flex flex-col border-r border-slate-800">
-        <div className="flex items-center gap-3 mb-8 px-2">
+      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white p-6 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shrink-0 ${menuAbierto ? 'translate-x-0' : '-translate-x-full'}`}>
+        
+        {/* Botón cerrar solo visible en móvil */}
+        <button 
+          onClick={() => setMenuAbierto(false)}
+          className="lg:hidden absolute top-5 right-5 text-slate-400 hover:text-white"
+        >
+          <X size={24} />
+        </button>
+
+        <div className="flex items-center gap-3 mb-8 px-2 mt-2 lg:mt-0">
           <div className="bg-blue-600 p-2 rounded-lg"><ShoppingCart size={24}/></div>
           <h1 className="text-xl font-black tracking-tighter">POS ADMIN</h1>
         </div>
+        
         <button onClick={onGoToKiosco} className="w-full flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 p-3 rounded-xl font-black mb-8 shadow-lg transition">
           <MonitorPlay size={20}/> IR AL KIOSCO
         </button>
-        <nav className="space-y-2 flex-1">
-          <button onClick={() => setSeccion('menu')} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'menu' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+        
+        <nav className="space-y-2 flex-1 overflow-y-auto pr-2">
+          <button onClick={() => { setSeccion('menu'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'menu' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
             <LayoutGrid size={20} /> Gestión Menú
           </button>
-          <button onClick={() => setSeccion('inventario')} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'inventario' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => { setSeccion('inventario'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'inventario' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
             <Package size={20} /> Inventario & Recetas
           </button>
-          <button onClick={() => setSeccion('catalogos')} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'catalogos' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+          <button onClick={() => { setSeccion('catalogos'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'catalogos' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
             <BookOpen size={20} /> Extras y Modificadores
           </button>
           {isSuperAdmin && (
             <>
-              <button onClick={() => setSeccion('usuarios')} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <button onClick={() => { setSeccion('usuarios'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
                 <Users size={20} /> Usuarios
               </button>
-              <button onClick={() => setSeccion('configuracion')} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'configuracion' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <button onClick={() => { setSeccion('configuracion'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'configuracion' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
                 <Settings size={20} /> Configuración
               </button>
             </>
           )}
         </nav>
+        
         <div className="mt-auto pt-6 border-t border-slate-800 text-center">
           <p className="text-sm font-bold text-blue-400 mb-4">{user?.nombre}</p>
           <button onClick={onLogout} className="w-full flex items-center justify-center gap-3 p-3 rounded-xl text-red-400 hover:bg-red-500/10 font-bold transition">
@@ -309,7 +328,22 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         </div>
       </div>
 
-      <div className="flex-1 p-8 overflow-y-auto">
+      {/* ================= CONTENIDO PRINCIPAL ================= */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        
+        {/* Encabezado Móvil (Menu Hamburguesa) */}
+        <div className="lg:hidden flex items-center justify-between bg-slate-900 text-white p-4 shadow-md z-30">
+          <div className="flex items-center gap-2">
+            <ShoppingCart size={20} className="text-blue-500" />
+            <h1 className="text-lg font-black tracking-tighter">POS ADMIN</h1>
+          </div>
+          <button onClick={() => setMenuAbierto(true)} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition">
+            <Menu size={24} />
+          </button>
+        </div>
+
+        {/* Área scrolleable de formularios */}
+        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
         
         {/* ================= SECCIÓN MENÚ ================= */}
         {seccion === 'menu' && (
@@ -434,7 +468,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
               <h2 className="text-3xl font-black text-slate-800">Control de Insumos y Recetas</h2>
             </div>
             
-            <div className="flex bg-slate-200 p-1 rounded-2xl w-fit mb-8">
+            <div className="flex flex-col sm:flex-row bg-slate-200 p-1 rounded-2xl w-fit mb-8 gap-1">
               <button onClick={() => setSubSeccionInventario('insumos')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionInventario === 'insumos' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Materia Prima (Insumos)</button>
               <button onClick={() => setSubSeccionInventario('recetas')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionInventario === 'recetas' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Escandallos (Recetas)</button>
             </div>
@@ -444,7 +478,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                 
                 {/* ALERTA DE STOCK CRÍTICO */}
                 {insumosCriticos.length > 0 && (
-                  <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl flex items-start gap-4 shadow-sm animate-in fade-in">
+                  <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl flex flex-col md:flex-row items-start gap-4 shadow-sm animate-in fade-in">
                     <AlertTriangle className="text-red-500 w-10 h-10 flex-shrink-0" />
                     <div>
                       <h4 className="text-red-700 font-black text-lg uppercase tracking-widest">¡Alerta de Inventario Crítico!</h4>
@@ -481,9 +515,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                         <input required type="number" step="0.01" placeholder="Ej. 50.00" value={nuevoInsumo.costo_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, costo_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-slate-700 text-xl" />
                       </div>
                     </div>
-                    <div className="pt-2 flex gap-4">
+                    <div className="pt-2 flex flex-col md:flex-row gap-4">
                       {editandoInsumoId && (
-                        <button type="button" onClick={cancelarEdicionInsumo} className="w-1/3 p-4 bg-slate-100 text-slate-600 rounded-xl font-black hover:bg-slate-200 transition">Cancelar</button>
+                        <button type="button" onClick={cancelarEdicionInsumo} className="w-full md:w-1/3 p-4 bg-slate-100 text-slate-600 rounded-xl font-black hover:bg-slate-200 transition">Cancelar</button>
                       )}
                       <button type="submit" className={`flex-1 p-4 text-white rounded-xl font-black shadow-lg transition ${editandoInsumoId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
                         {editandoInsumoId ? 'Actualizar Insumo' : 'Guardar Insumo en Inventario'}
@@ -492,18 +526,18 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   </form>
                 </div>
                 
-                <div className="bg-white p-8 rounded-[30px] shadow-sm border border-slate-200">
+                <div className="bg-white p-4 md:p-8 rounded-[30px] shadow-sm border border-slate-200">
                   <h3 className="text-xl font-bold mb-6 text-slate-800">Catálogo y Existencias</h3>
                   {(insumosDB || []).length === 0 ? ( 
                     <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl p-12 text-center"><Package size={48} className="mx-auto text-slate-300 mb-4" /><p className="text-slate-500 font-bold text-lg">Aún no has registrado insumos.</p></div> 
                   ) : ( 
                     <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                      <table className="w-full text-left border-collapse">
+                      <table className="w-full text-left border-collapse min-w-max">
                         <thead>
                           <tr className="bg-slate-100 text-slate-500 text-xs uppercase font-black">
                             <th className="p-4">Insumo / Presentación</th>
                             <th className="p-4">Stock Actual</th>
-                            <th className="p-4">Costo Ult. Compra</th>
+                            <th className="p-4 hidden sm:table-cell">Costo Ult. Compra</th>
                             <th className="p-4 text-center">Acciones</th>
                           </tr>
                         </thead>
@@ -520,7 +554,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                             return ( 
                               <tr key={ins.id} className="border-b border-slate-100 hover:bg-slate-50">
                                 <td className="p-4">
-                                  <p className="font-bold text-slate-800 text-lg">{ins.nombre}</p>
+                                  <p className="font-bold text-slate-800 text-base md:text-lg">{ins.nombre}</p>
                                   <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">{ins.cantidad_presentacion} {ins.unidad_medida}</p>
                                 </td>
                                 <td className="p-4">
@@ -528,9 +562,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                                     {Number(ins.stock_actual).toFixed(2)} {ins.unidad_medida}
                                   </span>
                                 </td>
-                                <td className="p-4 font-black text-slate-600">${ins.costo_presentacion}</td>
+                                <td className="p-4 font-black text-slate-600 hidden sm:table-cell">${ins.costo_presentacion}</td>
                                 <td className="p-4 flex justify-center gap-2">
-                                  <button onClick={() => {setModalCompra(ins); setCompraCosto(ins.costo_presentacion);}} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white px-3 py-2 rounded-xl font-bold text-sm transition flex items-center gap-2"><ShoppingBag size={16}/> Comprar</button>
+                                  <button onClick={() => {setModalCompra(ins); setCompraCosto(ins.costo_presentacion);}} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white px-3 py-2 rounded-xl font-bold text-sm transition flex items-center gap-2"><ShoppingBag size={16}/> <span className="hidden md:inline">Comprar</span></button>
                                   <button onClick={() => reiniciarStockInsumo(ins)} className="bg-orange-100 text-orange-600 hover:bg-orange-500 hover:text-white p-2 rounded-xl transition" title="Reiniciar a 0 (Merma)"><RotateCcw size={18}/></button>
                                   <button onClick={() => prepararEdicionInsumo(ins)} className="bg-slate-100 text-blue-500 hover:bg-blue-500 hover:text-white p-2 rounded-xl transition" title="Editar"><Edit size={18}/></button>
                                   <button onClick={() => eliminarInsumo(ins.id)} className="bg-slate-100 text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-xl transition" title="Eliminar"><Trash2 size={18}/></button>
@@ -600,9 +634,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                 {!recetaActivaId ? ( 
                    <div className="bg-white p-10 rounded-[30px] text-center opacity-50 border border-slate-200"><p className="text-xl font-bold text-slate-400">Selecciona un platillo arriba para armar su receta.</p></div> 
                 ) : ( 
-                   <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200">
-                     <div className="border rounded-2xl overflow-hidden mb-6">
-                       <table className="w-full text-left border-collapse">
+                   <div className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
+                     <div className="border rounded-2xl overflow-x-auto mb-6">
+                       <table className="w-full text-left border-collapse min-w-max">
                          <thead>
                            <tr className="bg-slate-100 text-slate-500 text-xs uppercase font-black">
                              <th className="p-4">Ingrediente</th><th className="p-4">Uso</th><th className="p-4">Costo Calc.</th><th className="p-4 text-center">Acción</th>
@@ -653,7 +687,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           <div className="max-w-6xl mx-auto space-y-8 pb-12">
             <h2 className="text-3xl font-black mb-6 text-slate-800">Gestión de Extras y Modificadores</h2>
             
-            <div className="flex bg-slate-200 p-1 rounded-2xl w-fit mb-8">
+            <div className="flex flex-col sm:flex-row bg-slate-200 p-1 rounded-2xl w-fit mb-8 gap-1">
               <button onClick={() => setSubSeccionCatalogos('clasificaciones')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionCatalogos === 'clasificaciones' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Clasificaciones</button>
               <button onClick={() => setSubSeccionCatalogos('modificadores')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionCatalogos === 'modificadores' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Modificadores (Extras)</button>
             </div>
@@ -680,15 +714,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                 
                 <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                   {(clasificaciones || []).map(c => ( 
-                    <div key={c.id} className={`flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoClasifId === c.id ? 'border-orange-300 bg-orange-50' : ''}`}>
-                      <div className="flex items-center gap-4">
-                        {c.imagen_url ? (<img src={`http://localhost:4000${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> ) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-xl shadow-sm">{c.emoji || '🍽️'}</span>)}
+                    <div key={c.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoClasifId === c.id ? 'border-orange-300 bg-orange-50' : ''}`}>
+                      <div className="flex items-center gap-4 w-full sm:w-auto">
+                        {c.imagen_url ? (<img src={`http://localhost:4000${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> ) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-xl shadow-sm shrink-0">{c.emoji || '🍽️'}</span>)}
                         <div>
                           <span className="font-black text-xl text-slate-800 block mb-1">{c.nombre}</span>
                           <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-widest ${c.destino==='Barra' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>Destino: {c.destino || 'Cocina'}</span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 w-full sm:w-auto justify-end">
                         <button onClick={() => prepararEdicionClasif(c)} className="text-blue-500 hover:text-white bg-blue-50 hover:bg-blue-500 p-3 rounded-xl transition"><Edit size={20}/></button>
                         <button onClick={() => eliminarClasif(c.id)} className="text-red-500 hover:text-white bg-red-50 hover:bg-red-500 p-3 rounded-xl transition"><Trash2 size={20}/></button>
                       </div>
@@ -731,7 +765,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   
                   <div className="flex gap-4 pt-4">
                     <button type="submit" className={`flex-1 text-white py-4 rounded-xl font-bold text-lg transition shadow-sm ${editandoIngId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>{editandoIngId ? 'Actualizar Modificador' : 'Guardar Modificador'}</button>
-                    {editandoIngId && (<button type="button" onClick={cancelarEdicionIngrediente} className="bg-slate-200 text-slate-700 px-8 rounded-xl hover:bg-slate-300 font-bold text-lg">Cancelar</button>)}
+                    {editandoIngId && (<button type="button" onClick={cancelarEdicionIngrediente} className="w-full md:w-auto bg-slate-200 text-slate-700 px-8 rounded-xl hover:bg-slate-300 font-bold text-lg">Cancelar</button>)}
                   </div>
                 </form>
                 
@@ -744,14 +778,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                         <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-center"><p className="text-slate-400 font-bold">No hay extras aún.</p></div> 
                       ) : ( 
                         ingsFiltradosVisual.map(i => ( 
-                          <div key={i.id} className={`flex justify-between items-center p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoIngId === i.id ? 'border-orange-300 bg-orange-50' : 'bg-slate-50'}`}>
-                            <div className="flex items-center gap-4">
+                          <div key={i.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoIngId === i.id ? 'border-orange-300 bg-orange-50' : 'bg-slate-50'}`}>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                               <span className="font-black text-lg text-slate-700">{i.nombre}</span>
-                              <span className={`text-[10px] px-3 py-1 rounded-md font-black uppercase tracking-widest ${i.tipo==='extra'?'bg-orange-100 text-orange-600':'bg-emerald-100 text-emerald-600'}`}>
+                              <span className={`text-[10px] w-fit px-3 py-1 rounded-md font-black uppercase tracking-widest ${i.tipo==='extra'?'bg-orange-100 text-orange-600':'bg-emerald-100 text-emerald-600'}`}>
                                 {i.tipo} {(i.tipo==='extra' || (i.tipo==='base' && i.permite_extra)) && `+$${i.precio_extra}`}{i.tipo==='base' && !i.permite_extra && ` (No Extra)`}
                               </span>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 w-full sm:w-auto justify-end">
                               <button onClick={() => prepararEdicionIngrediente(i)} className="text-blue-500 hover:text-white bg-blue-100 hover:bg-blue-500 p-2.5 rounded-xl transition"><Edit size={18}/></button>
                               <button onClick={() => eliminarIng(i.id)} className="text-red-500 hover:text-white bg-red-100 hover:bg-red-500 p-2.5 rounded-xl transition"><Trash2 size={18}/></button>
                             </div>
@@ -770,7 +804,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         {seccion === 'configuracion' && isSuperAdmin && ( 
           <div className="max-w-4xl mx-auto space-y-8">
             <h2 className="text-3xl font-black mb-6">Configuración del Restaurante</h2>
-            <form onSubmit={guardarConfiguracion} className="bg-white p-8 rounded-3xl shadow-sm border space-y-8">
+            <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-3xl shadow-sm border space-y-8">
               <div>
                 <h3 className="text-xl font-bold mb-4 border-b pb-2">1. Marca e Identidad</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
@@ -810,12 +844,12 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Color Botones</label><div className="flex gap-2"><input type="color" value={configGlobal.color_primario} onChange={e => setConfigGlobal({...configGlobal, color_primario: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_primario} onChange={e => setConfigGlobal({...configGlobal, color_primario: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Secundario (Éxito)</label><div className="flex gap-2"><input type="color" value={configGlobal.color_secundario} onChange={e => setConfigGlobal({...configGlobal, color_secundario: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_secundario} onChange={e => setConfigGlobal({...configGlobal, color_secundario: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Fondo Pantallas</label><div className="flex gap-2"><input type="color" value={configGlobal.color_fondo} onChange={e => setConfigGlobal({...configGlobal, color_fondo: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_fondo} onChange={e => setConfigGlobal({...configGlobal, color_fondo: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Fondo Tarjetas</label><div className="flex gap-2"><input type="color" value={configGlobal.color_fondo_tarjetas} onChange={e => setConfigGlobal({...configGlobal, color_fondo_tarjetas: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_fondo_tarjetas} onChange={e => setConfigGlobal({...configGlobal, color_fondo_tarjetas: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Texto Principal</label><div className="flex gap-2"><input type="color" value={configGlobal.color_texto_principal} onChange={e => setConfigGlobal({...configGlobal, color_texto_principal: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_texto_principal} onChange={e => setConfigGlobal({...configGlobal, color_texto_principal: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
-                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Texto Secundario</label><div className="flex gap-2"><input type="color" value={configGlobal.color_texto_secundario} onChange={e => setConfigGlobal({...configGlobal, color_texto_secundario: e.target.value})} className="h-12 w-12 rounded cursor-pointer" /><input type="text" value={configGlobal.color_texto_secundario} onChange={e => setConfigGlobal({...configGlobal, color_texto_secundario: e.target.value})} className="flex-1 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Color Botones</label><div className="flex gap-2"><input type="color" value={configGlobal.color_primario} onChange={e => setConfigGlobal({...configGlobal, color_primario: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_primario} onChange={e => setConfigGlobal({...configGlobal, color_primario: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Secundario (Éxito)</label><div className="flex gap-2"><input type="color" value={configGlobal.color_secundario} onChange={e => setConfigGlobal({...configGlobal, color_secundario: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_secundario} onChange={e => setConfigGlobal({...configGlobal, color_secundario: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Fondo Pantallas</label><div className="flex gap-2"><input type="color" value={configGlobal.color_fondo} onChange={e => setConfigGlobal({...configGlobal, color_fondo: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_fondo} onChange={e => setConfigGlobal({...configGlobal, color_fondo: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Fondo Tarjetas</label><div className="flex gap-2"><input type="color" value={configGlobal.color_fondo_tarjetas} onChange={e => setConfigGlobal({...configGlobal, color_fondo_tarjetas: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_fondo_tarjetas} onChange={e => setConfigGlobal({...configGlobal, color_fondo_tarjetas: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Texto Principal</label><div className="flex gap-2"><input type="color" value={configGlobal.color_texto_principal} onChange={e => setConfigGlobal({...configGlobal, color_texto_principal: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_texto_principal} onChange={e => setConfigGlobal({...configGlobal, color_texto_principal: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
+                  <div><label className="block text-sm font-bold text-slate-600 mb-1">Texto Secundario</label><div className="flex gap-2"><input type="color" value={configGlobal.color_texto_secundario} onChange={e => setConfigGlobal({...configGlobal, color_texto_secundario: e.target.value})} className="h-12 w-12 rounded cursor-pointer shrink-0" /><input type="text" value={configGlobal.color_texto_secundario} onChange={e => setConfigGlobal({...configGlobal, color_texto_secundario: e.target.value})} className="flex-1 w-full min-w-0 p-3 bg-slate-50 border rounded-xl outline-none font-bold uppercase text-sm" /></div></div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 pt-6 border-t border-slate-100">
                   <div><label className="block text-sm font-bold text-slate-600 mb-1">Tipografía para Títulos</label><select value={configGlobal.fuente_titulos} onChange={e => setConfigGlobal({...configGlobal, fuente_titulos: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none font-bold text-sm"><option value="system-ui, sans-serif">Predeterminada del Sistema</option><option value="'Cinzel', serif">Cinzel (Clásica Elegante)</option><option value="'Playfair Display', serif">Playfair Display (Gourmet)</option><option value="'Poppins', sans-serif">Poppins (Moderna)</option></select></div>
@@ -824,7 +858,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
               </div>
               <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
                 <button type="button" onClick={restablecerBranding} className="w-full md:w-auto px-6 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition border border-slate-200">↺ Restablecer Diseño</button>
-                <button type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-black text-lg shadow-lg transition">Guardar Configuración Global</button>
+                <button type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-black text-lg shadow-lg transition">Guardar Configuración</button>
               </div>
             </form>
           </div> 
@@ -859,12 +893,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   <h3 className="text-xl font-bold mb-4">Plantilla Registrada</h3>
                   <div className="grid gap-3">
                     {usuariosDB.map(u => (
-                      <div key={u.id} className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <div key={u.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 gap-4">
                         <div>
-                          <p className="font-bold text-lg text-slate-800">{u.nombre} <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ml-2 uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>{u.rol === 'tv' ? '📺 TV KDS' : u.rol}</span></p>
+                          <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
+                            {u.nombre} 
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>{u.rol === 'tv' ? '📺 TV KDS' : u.rol}</span>
+                          </p>
                           <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono}</span></p>
                         </div>
-                        {u.usuario !== 'admin' && (<button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition shadow-sm bg-white"><Trash2 size={20}/></button>)}
+                        {u.usuario !== 'admin' && (<button onClick={() => eliminarUsuario(u.id)} className="w-full sm:w-auto p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition shadow-sm bg-white border border-red-100 sm:border-none flex justify-center"><Trash2 size={20}/></button>)}
                       </div>
                     ))}
                   </div>
@@ -873,6 +910,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             </div>
           </div> 
         )}
+        </div>
       </div>
 
       {/* ================= MODALES ================= */}
@@ -908,7 +946,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             {modalUI.tipo === 'info' && <AlertTriangle className="text-blue-500 w-16 h-16 mb-4" />}
             <h3 className="text-2xl font-black text-slate-800 mb-2">{modalUI.titulo}</h3>
             <p className="text-slate-500 font-medium mb-8 whitespace-pre-line">{modalUI.mensaje}</p>
-            <div className="flex gap-4 w-full">
+            <div className="flex flex-col sm:flex-row gap-4 w-full">
               {modalUI.tipo === 'confirm' ? (
                 <>
                   <button onClick={closeModalUI} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>

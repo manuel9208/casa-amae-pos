@@ -47,7 +47,7 @@ const App = () => {
       } catch(e) {}
     }
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { if(data) setConfigGlobal(data); }).catch(console.error);
-  }, []);
+  }, [apiUrl]);
 
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
