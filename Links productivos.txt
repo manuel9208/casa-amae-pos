@@ -1,0 +1,9 @@
+--Links de neo es mi base de datos
+
+postgresql://neondb_owner:npg_u0y3JveZjYQo@ep-muddy-haze-amtk3tle-pooler.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+--Render mi back
+https://casa-amae-pos.onrender.com
+
+--En el Front para  local
+REACT_APP_API_URL=http://localhost:4000/api
