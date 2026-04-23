@@ -28,7 +28,8 @@ const upload = multer({ storage: storage });
 
 // RUTAS DE CONFIGURACIÓN Y MARCA BLANCA
 router.get('/configuracion', configCtrl.obtenerConfiguracion);
-router.put('/configuracion', upload.single('logo'), configCtrl.actualizarConfiguracion);
+// 👇 AQUÍ ESTÁ LA CORRECCIÓN: Solo una ruta PUT y con su prefijo configCtrl
+router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
 
 // AUTENTICACIÓN Y CLIENTES
 router.post('/identificar', authCtrl.identificar);
@@ -41,7 +42,7 @@ router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
-router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario); // CORREGIDO AQUÍ
+router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario);
 
 // CATÁLOGOS (Clasificaciones e Ingredientes/Extras)
 router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
@@ -74,7 +75,7 @@ router.get('/insumos', insumoCtrl.obtenerInsumos);
 router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo); 
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
-router.put('/insumos/:id/reiniciar', insumoCtrl.reiniciarStock); // NUEVA RUTA PARA MERMAS (REINICIAR A 0)
+router.put('/insumos/:id/reiniciar', insumoCtrl.reiniciarStock);
 router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);
 
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);

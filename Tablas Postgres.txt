@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.0)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.1)
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
@@ -16,10 +16,11 @@
 -- DROP TABLE IF EXISTS configuracion CASCADE;
 
 -- -------------------------------------------------------------------------
--- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca y Branding)
+-- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding y TV)
 -- -------------------------------------------------------------------------
 CREATE TABLE configuracion (
     id INTEGER PRIMARY KEY DEFAULT 1,
+    
     -- Información del Negocio
     nombre_negocio VARCHAR(100) DEFAULT 'Mi Restaurante',
     logo_url TEXT,
@@ -27,22 +28,34 @@ CREATE TABLE configuracion (
     banco VARCHAR(50) DEFAULT 'BBVA Bancomer',
     cuenta VARCHAR(50) DEFAULT '012345678901234567',
     titular VARCHAR(100) DEFAULT 'Restaurante POS SA de CV',
-    -- Colores y Branding (Kiosco y TV)
+    
+    -- Colores y Branding General
     color_primario VARCHAR(20) DEFAULT '#2563eb',
     color_secundario VARCHAR(20) DEFAULT '#10b981',
     color_fondo VARCHAR(20) DEFAULT '#f1f5f9',
     color_fondo_tarjetas VARCHAR(20) DEFAULT '#ffffff',
     color_texto_principal VARCHAR(20) DEFAULT '#1e293b',
     color_texto_secundario VARCHAR(20) DEFAULT '#64748b',
+    
     -- Tipografías
     fuente_titulos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
     fuente_textos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
-    -- Mensajes Personalizados
+    
+    -- Kiosco
     kiosco_mensaje VARCHAR(100) DEFAULT '¿Qué se te antoja hoy?',
     color_texto_kiosco VARCHAR(20) DEFAULT '#1e293b',
+    
+    -- Pantalla TV KDS
     tv_msg_cola VARCHAR(50) DEFAULT 'EN COLA',
     tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
-    tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!'
+    tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!',
+    
+    -- Nuevo: Carrusel TV Promocional
+    tv_carrusel_activo BOOLEAN DEFAULT false,
+    tv_carrusel_segundos INTEGER DEFAULT 10,
+    tv_imagen_1 VARCHAR(255),
+    tv_imagen_2 VARCHAR(255),
+    tv_imagen_3 VARCHAR(255)
 );
 
 -- -------------------------------------------------------------------------
@@ -94,9 +107,9 @@ CREATE TABLE productos (
     imagen_url TEXT,
     categoria VARCHAR(50) DEFAULT 'General',
     opciones JSONB DEFAULT '[]'::jsonb, -- Tallas, extras rápidos, etc.
-    tiempo_preparacion INTEGER DEFAULT 15, -- NUEVO: Tiempo estimado
-    rendimiento DECIMAL(10,2) DEFAULT 1,   -- NUEVO: Porciones por receta
-    stock_preparado INTEGER DEFAULT 0,     -- NUEVO: Lotes/Tandas horneadas listas
+    tiempo_preparacion INTEGER DEFAULT 15,
+    rendimiento DECIMAL(10,2) DEFAULT 1,
+    stock_preparado INTEGER DEFAULT 0,
     estado VARCHAR(20) DEFAULT 'Activo',
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -117,14 +130,14 @@ CREATE TABLE insumos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     unidad_medida VARCHAR(10) NOT NULL, -- Pz, GR, KL, ML, LT
-    cantidad_presentacion DECIMAL(10,2) NOT NULL, -- Ej: 1000 (gr)
-    costo_presentacion DECIMAL(10,2) NOT NULL,    -- Ej: 25.00
-    stock_actual DECIMAL(10,2) DEFAULT 0           -- En unidades mínimas (gr, ml, etc)
+    cantidad_presentacion DECIMAL(10,2) NOT NULL, 
+    costo_presentacion DECIMAL(10,2) NOT NULL,    
+    stock_actual DECIMAL(10,2) DEFAULT 0          
 );
 
 CREATE TABLE compras_insumos (
     id SERIAL PRIMARY KEY,
-    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE, -- Relacionado al insumo
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE, 
     paquetes DECIMAL(10,2),
     costo_unitario DECIMAL(10,2),
     costo_total DECIMAL(10,2),
@@ -135,7 +148,7 @@ CREATE TABLE recetas (
     id SERIAL PRIMARY KEY,
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
     insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE,
-    cantidad_usada DECIMAL(10,2) NOT NULL -- Cuánto gasta este producto del insumo
+    cantidad_usada DECIMAL(10,2) NOT NULL 
 );
 
 -- -------------------------------------------------------------------------
@@ -145,16 +158,16 @@ CREATE TABLE pedidos (
     id SERIAL PRIMARY KEY,
     numero_pedido INT NOT NULL,
     cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
-    chef_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL, -- Quién lo preparó
+    chef_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL, 
     origen VARCHAR(20) DEFAULT 'Web',
-    tipo_consumo VARCHAR(20), -- Local, Para llevar, Domicilio
+    tipo_consumo VARCHAR(20), 
     direccion_entrega TEXT,
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
     descuento_puntos INTEGER DEFAULT 0,
-    carrito JSONB, -- NUEVO: El cerebro de la orden con todos sus items y variaciones
+    carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
-    tiempo_inicio_preparacion TIMESTAMP, -- NUEVO: Para el cronómetro de la TV/KDS
+    tiempo_inicio_preparacion TIMESTAMP, 
     alerta_cocina TEXT DEFAULT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -17,18 +17,41 @@ exports.actualizarConfiguracion = async (req, res) => {
     color_fondo_tarjetas, color_texto_principal, color_texto_secundario,
     fuente_titulos, fuente_textos,
     kiosco_mensaje, color_texto_kiosco,
-    tv_msg_cola, tv_msg_progreso, tv_msg_listo 
+    tv_msg_cola, tv_msg_progreso, tv_msg_listo,
+    tv_carrusel_activo, tv_carrusel_segundos
   } = req.body;
   
-  let logo_url = req.body.logo_url_actual;
-  if (req.file) {
-    logo_url = '/uploads/' + req.file.filename;
+  // Variables para las rutas de las imágenes (inician en null)
+  let logo_url = null;
+  let tv_imagen_1 = null;
+  let tv_imagen_2 = null;
+  let tv_imagen_3 = null;
+
+  // Como ahora subimos múltiples archivos, multer los pone en req.files
+  if (req.files && req.files.length > 0) {
+    req.files.forEach(file => {
+      if (file.fieldname === 'logo') logo_url = '/uploads/' + file.filename;
+      if (file.fieldname === 'tv_imagen_1') tv_imagen_1 = '/uploads/' + file.filename;
+      if (file.fieldname === 'tv_imagen_2') tv_imagen_2 = '/uploads/' + file.filename;
+      if (file.fieldname === 'tv_imagen_3') tv_imagen_3 = '/uploads/' + file.filename;
+    });
   }
+
+  // Convertimos el valor del checkbox a booleano para la base de datos
+  const isCarruselActivo = tv_carrusel_activo === 'true' || tv_carrusel_activo === true;
 
   try {
     await db.query(`
-      INSERT INTO configuracion (id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url, color_primario, color_secundario, color_fondo, color_fondo_tarjetas, color_texto_principal, color_texto_secundario, fuente_titulos, fuente_textos, kiosco_mensaje, color_texto_kiosco, tv_msg_cola, tv_msg_progreso, tv_msg_listo)
-      VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      INSERT INTO configuracion (
+        id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url, 
+        color_primario, color_secundario, color_fondo, color_fondo_tarjetas, 
+        color_texto_principal, color_texto_secundario, fuente_titulos, fuente_textos, 
+        kiosco_mensaje, color_texto_kiosco, tv_msg_cola, tv_msg_progreso, tv_msg_listo,
+        tv_carrusel_activo, tv_carrusel_segundos, tv_imagen_1, tv_imagen_2, tv_imagen_3
+      )
+      VALUES (
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
+      )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
@@ -48,8 +71,19 @@ exports.actualizarConfiguracion = async (req, res) => {
         color_texto_kiosco = EXCLUDED.color_texto_kiosco,
         tv_msg_cola = EXCLUDED.tv_msg_cola,
         tv_msg_progreso = EXCLUDED.tv_msg_progreso,
-        tv_msg_listo = EXCLUDED.tv_msg_listo
-    `, [nombre_negocio, whatsapp, banco, cuenta, titular, req.file ? logo_url : null, color_primario, color_secundario, color_fondo, color_fondo_tarjetas, color_texto_principal, color_texto_secundario, fuente_titulos, fuente_textos, kiosco_mensaje, color_texto_kiosco, tv_msg_cola, tv_msg_progreso, tv_msg_listo]);
+        tv_msg_listo = EXCLUDED.tv_msg_listo,
+        tv_carrusel_activo = EXCLUDED.tv_carrusel_activo,
+        tv_carrusel_segundos = EXCLUDED.tv_carrusel_segundos,
+        tv_imagen_1 = COALESCE($22, configuracion.tv_imagen_1),
+        tv_imagen_2 = COALESCE($23, configuracion.tv_imagen_2),
+        tv_imagen_3 = COALESCE($24, configuracion.tv_imagen_3)
+    `, [
+      nombre_negocio, whatsapp, banco, cuenta, titular, logo_url, 
+      color_primario, color_secundario, color_fondo, color_fondo_tarjetas, 
+      color_texto_principal, color_texto_secundario, fuente_titulos, fuente_textos, 
+      kiosco_mensaje, color_texto_kiosco, tv_msg_cola, tv_msg_progreso, tv_msg_listo,
+      isCarruselActivo, tv_carrusel_segundos, tv_imagen_1, tv_imagen_2, tv_imagen_3
+    ]);
     
     res.json({ success: true, logo_url });
   } catch (error) {
