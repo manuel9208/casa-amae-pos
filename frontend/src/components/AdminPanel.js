@@ -513,9 +513,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                       const tieneTamanos = p.opciones?.some(o => o.categoria === 'Tamaño'); 
                       return (
                         <div key={p.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition group">
-                          <div className="flex items-center gap-4">
-                            {p.imagen_url ? (<img src={`http://localhost:4000${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" /> ) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji}</span>)}
-                            <div>
+                          <div className="flex items-center gap-4">{p.imagen_url ? (
+                            <img src={`${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" />) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji}</span>    )}
+                          <div>
                               <p className="font-bold text-lg leading-tight text-slate-800">{p.nombre}</p>
                               <span className="text-blue-600 font-black text-sm block mt-1">{tieneTamanos ? 'Varios Tamaños' : `$${p.precio_base}`} • ⏱️ {p.tiempo_preparacion || 15}m</span>
                             </div>
@@ -791,8 +791,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   {(clasificaciones || []).map(c => ( 
                     <div key={c.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoClasifId === c.id ? 'border-orange-300 bg-orange-50' : ''}`}>
                       <div className="flex items-center gap-4 w-full sm:w-auto">
-                        {c.imagen_url ? (<img src={`http://localhost:4000${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> ) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-xl shadow-sm shrink-0">{c.emoji || '🍽️'}</span>)}
-                        <div>
+                        {c.imagen_url ? (<img src={`${baseUrl}${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> ) : (<span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-xl shadow-sm shrink-0">{c.emoji || '🍽️'}</span>                      )}
+                      <div>
                           <span className="font-black text-xl text-slate-800 block mb-1">{c.nombre}</span>
                           <span className={`text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-widest ${c.destino==='Barra' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>Destino: {c.destino || 'Cocina'}</span>
                         </div>
@@ -889,7 +889,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                   </div>
                   <div className="flex flex-col items-center justify-center bg-slate-50 border border-dashed rounded-xl p-4">
                     <label className="text-sm font-bold text-slate-600 block mb-2">Logo Principal</label>
-                    {configGlobal.logo_url && !logoBlob && (<img src={`http://localhost:4000${configGlobal.logo_url}`} alt="Logo" className="h-16 object-contain mb-3" />)}
+                    {configGlobal.logo_url && !logoBlob && (<img src={`${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-16 object-contain mb-3" />)}
                     <input type="file" accept="image/png, image/jpeg" onChange={e => setLogoBlob(e.target.files[0])} className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700 file:shadow-sm hover:file:bg-slate-200" />
                   </div>
                 </div>

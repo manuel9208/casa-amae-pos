@@ -47,7 +47,7 @@ const Login = ({ onLogin, onInvitado }) => {
           {/* AQUÍ OCURRE LA MAGIA DEL LOGO */}
           {config.logo_url ? (
             <img 
-               src={`http://localhost:4000${config.logo_url}`} 
+               src={`${baseUrl}${config.logo_url}`}
                alt="Logo del Restaurante" 
                className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
             />

@@ -165,7 +165,7 @@ const App = () => {
         <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
-            {configGlobal.logo_url ? (<img src={`http://localhost:4000${configGlobal.logo_url}`} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />) : (<div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">🍔</div>)}
+            {configGlobal.logo_url ? (    <img src={`${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />) : (    <div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">🍔</div>)}
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
             <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
 
