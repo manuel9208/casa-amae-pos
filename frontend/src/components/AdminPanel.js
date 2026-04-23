@@ -76,8 +76,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [compraPaquetes, setCompraPaquetes] = useState('');
   const [compraCosto, setCompraCosto] = useState('');
 
-  // CORRECCIÓN: Forzamos la conexión a tu entorno local
-  const apiUrl = 'http://localhost:4000/api';
+  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+  const baseUrl = apiUrl.replace('/api', '');
   
   // Variables de Permisos Granulares
   const isGlobalAdmin = user?.usuario === 'admin';
