@@ -13,7 +13,7 @@ const EMOJIS_POR_GIRO = {
 
 const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [seccion, setSeccion] = useState('menu'); 
-  const [menuAbierto, setMenuAbierto] = useState(false); // Estado para el menú desplegable móvil
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const [productos, setProductos] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
@@ -52,13 +52,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [nuevoIng, setNuevoIng] = useState({ clasificacion_id: '', nombre: '', tipo: 'base', precio_extra: 0, permite_extra: true });
   const [editandoIngId, setEditandoIngId] = useState(null); 
   
+  // Estados para Usuarios
   const [usuariosDB, setUsuariosDB] = useState([]);
+  const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
   const [uNombre, setUNombre] = useState('');
   const [uUser, setUUser] = useState('');
   const [uPass, setUPass] = useState('');
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('cajero');
-  const [uPermisos, setUPermisos] = useState({ ventas: false, inventario: false, usuarios: false });
+  const [uPermisos, setUPermisos] = useState({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
 
   const [subSeccionInventario, setSubSeccionInventario] = useState('insumos');
   const [insumosDB, setInsumosDB] = useState([]);
@@ -74,8 +76,16 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [compraPaquetes, setCompraPaquetes] = useState('');
   const [compraCosto, setCompraCosto] = useState('');
 
-  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const isSuperAdmin = user?.permisos?.usuarios === true || user?.usuario === 'admin'; 
+  // CORRECCIÓN: Forzamos la conexión a tu entorno local
+  const apiUrl = 'http://localhost:4000/api';
+  
+  // Variables de Permisos Granulares
+  const isGlobalAdmin = user?.usuario === 'admin';
+  const canViewMenu = isGlobalAdmin || user?.permisos?.menu !== false;
+  const canViewInventario = isGlobalAdmin || user?.permisos?.inventario !== false;
+  const canViewCatalogos = isGlobalAdmin || user?.permisos?.catalogos !== false;
+  const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
+  const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
   const showAlert = (titulo, mensaje, tipo = 'info') => setModalUI({ isOpen: true, tipo, titulo, mensaje, onConfirm: null });
@@ -92,27 +102,29 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         }
       } catch (e) { console.error(`Error al cargar ${ruta}:`, e); }
     };
-    fetchSeguro('productos', setProductos);
-    fetchSeguro('clasificaciones', setClasificaciones);
-    fetchSeguro('ingredientes', setCatalogoIngredientes);
-    fetchSeguro('insumos', setInsumosDB);
+    if (canViewMenu) fetchSeguro('productos', setProductos);
+    if (canViewCatalogos || canViewMenu) fetchSeguro('clasificaciones', setClasificaciones);
+    if (canViewCatalogos || canViewMenu) fetchSeguro('ingredientes', setCatalogoIngredientes);
+    if (canViewInventario) fetchSeguro('insumos', setInsumosDB);
 
-    try {
-      const resConf = await fetch(`${apiUrl}/configuracion`);
-      if (resConf.ok) {
-        const dataConf = await resConf.json();
-        if (dataConf && !dataConf.error) setConfigGlobal(dataConf);
-      }
-    } catch (e) {}
+    if (canViewConfig || canViewMenu) {
+      try {
+        const resConf = await fetch(`${apiUrl}/configuracion`);
+        if (resConf.ok) {
+          const dataConf = await resConf.json();
+          if (dataConf && !dataConf.error) setConfigGlobal(dataConf);
+        }
+      } catch (e) {}
+    }
 
-    if (isSuperAdmin) fetchSeguro('usuarios', setUsuariosDB);
-  }, [apiUrl, isSuperAdmin]);
+    if (canViewUsuarios) fetchSeguro('usuarios', setUsuariosDB);
+  }, [apiUrl, canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios, canViewConfig]);
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
   useEffect(() => {
     let intervalo;
-    if (seccion === 'inventario') {
+    if (seccion === 'inventario' && canViewInventario) {
       intervalo = setInterval(() => {
         fetch(`${apiUrl}/insumos`)
           .then(r => r.json())
@@ -121,10 +133,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       }, 5000);
     }
     return () => clearInterval(intervalo);
-  }, [seccion, apiUrl]);
+  }, [seccion, apiUrl, canViewInventario]);
 
   useEffect(() => {
-    if (recetaActivaId) { 
+    if (recetaActivaId && canViewInventario) { 
       const productoEncontrado = productos.find(p => Number(p.id) === Number(recetaActivaId));
       if (productoEncontrado) setRendimientoCalculadora(productoEncontrado.rendimiento || 1);
       
@@ -136,7 +148,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       setRecetaItems([]); 
       setRendimientoCalculadora(1); 
     }
-  }, [recetaActivaId, productos, apiUrl]);
+  }, [recetaActivaId, productos, apiUrl, canViewInventario]);
 
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
@@ -202,11 +214,68 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const prepararEdicionIngrediente = (ing) => { setEditandoIngId(ing.id); setNuevoIng({ clasificacion_id: ing.clasificacion_id, nombre: ing.nombre, tipo: ing.tipo, precio_extra: ing.precio_extra, permite_extra: ing.permite_extra }); }; 
   const cancelarEdicionIngrediente = () => { setEditandoIngId(null); setNuevoIng({ clasificacion_id: nuevoIng.clasificacion_id, nombre: '', tipo: 'base', precio_extra: 0, permite_extra: true }); };
   const guardarIngrediente = async (e) => { e.preventDefault(); const duplicado = catalogoIngredientes.find(i => Number(i.clasificacion_id) === Number(nuevoIng.clasificacion_id) && i.nombre.trim().toLowerCase() === nuevoIng.nombre.trim().toLowerCase() && Number(i.id) !== Number(editandoIngId)); if (duplicado) return showAlert("Duplicado", "Ya existe.", "info"); try { const url = editandoIngId ? `${apiUrl}/ingredientes/${editandoIngId}` : `${apiUrl}/ingredientes`; const res = await fetch(url, { method: editandoIngId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoIng) }); if (res.ok) { cancelarEdicionIngrediente(); cargarDatos(); } } catch(e) {} };
-  const eliminarIng = (id) => { showConfirm("Eliminar", "¿Borrar ingrediente?", async () => { await fetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
+  const eliminarIng = (id) => { showConfirm("Eliminar", "¿Borrar ingrediente/extra?", async () => { await fetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
   
-  const guardarUsuario = async (e) => { e.preventDefault(); if(uTelefono.length !== 10) return showAlert("Atención", "Teléfono de 10 dígitos.", "info"); try { const res = await fetch(`${apiUrl}/usuarios`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: uNombre, usuario: uUser, password: uPass, rol: uRol, permisos: uPermisos, telefono: uTelefono }) }); if (res.ok) { showAlert("¡Excelente!", "Creado.", "success"); setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); cargarDatos(); } } catch (error) {} };
-  const eliminarUsuario = (id) => { showConfirm("Eliminar", "¿Borrar?", async () => { await fetch(`${apiUrl}/usuarios/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
-  const handleRolChange = (e) => { const nuevoRol = e.target.value; setURol(nuevoRol); if (nuevoRol === 'tv') { const uniqueId = Math.floor(1000 + Math.random() * 9000); setUNombre(`Pantalla TV ${uniqueId}`); setUUser(`tv_${uniqueId}`); setUPass('1234'); setUTelefono(`999${uniqueId}000`); } else { setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); } };
+  // FUNCIONES DE USUARIO MEJORADAS
+  const prepararEdicionUsuario = (u) => {
+    setEditandoUsuarioId(u.id);
+    setUNombre(u.nombre);
+    setUUser(u.usuario);
+    setUPass(''); // Se deja en blanco para no sobreescribir si no se escribe nada
+    setUTelefono(u.telefono || '');
+    setURol(u.rol);
+    setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+  };
+
+  const cancelarEdicionUsuario = () => {
+    setEditandoUsuarioId(null);
+    setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setURol('cajero');
+    setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+  };
+
+  const guardarUsuario = async (e) => { 
+    e.preventDefault(); 
+    if(uTelefono.length !== 10) return showAlert("Atención", "Teléfono debe ser de 10 dígitos.", "info"); 
+    
+    const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: uPermisos, telefono: uTelefono };
+    if (uPass) payload.password = uPass; // Solo enviar contraseña si se escribió una nueva
+
+    try { 
+      const url = editandoUsuarioId ? `${apiUrl}/usuarios/${editandoUsuarioId}` : `${apiUrl}/usuarios`;
+      const method = editandoUsuarioId ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, { 
+        method, 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
+      }); 
+      
+      if (res.ok) { 
+        showAlert("¡Excelente!", editandoUsuarioId ? "Usuario actualizado." : "Usuario creado.", "success"); 
+        cancelarEdicionUsuario();
+        cargarDatos(); 
+      } 
+    } catch (error) { showAlert("Error", "Error al guardar usuario.", "error"); } 
+  };
+  
+  const eliminarUsuario = (id) => { showConfirm("Eliminar", "¿Borrar empleado?", async () => { await fetch(`${apiUrl}/usuarios/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
+  
+  const handleRolChange = (e) => { 
+    const nuevoRol = e.target.value; 
+    setURol(nuevoRol); 
+    
+    if (nuevoRol === 'tv') { 
+      const uniqueId = Math.floor(1000 + Math.random() * 9000); 
+      setUNombre(`Pantalla TV ${uniqueId}`); setUUser(`tv_${uniqueId}`); setUPass('1234'); setUTelefono(`999${uniqueId}000`); 
+      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false });
+    } else if (nuevoRol === 'admin') {
+      setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
+      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+    } else { 
+      setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
+      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+    } 
+  };
   
   const prepararEdicionInsumo = (ins) => { setEditandoInsumoId(ins.id); setNuevoInsumo({ nombre: ins.nombre, unidad_medida: ins.unidad_medida, cantidad_presentacion: ins.cantidad_presentacion, costo_presentacion: ins.costo_presentacion }); };
   const cancelarEdicionInsumo = () => { setEditandoInsumoId(null); setNuevoInsumo({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' }); };
@@ -270,7 +339,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       
-      {/* ================= OVERLAY MÓVIL (Fondo oscuro) ================= */}
+      {/* ================= OVERLAY MÓVIL ================= */}
       {menuAbierto && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
@@ -281,7 +350,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       {/* ================= SIDEBAR ================= */}
       <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white p-6 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shrink-0 ${menuAbierto ? 'translate-x-0' : '-translate-x-full'}`}>
         
-        {/* Botón cerrar solo visible en móvil */}
         <button 
           onClick={() => setMenuAbierto(false)}
           className="lg:hidden absolute top-5 right-5 text-slate-400 hover:text-white"
@@ -299,24 +367,30 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         </button>
         
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2">
-          <button onClick={() => { setSeccion('menu'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'menu' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <LayoutGrid size={20} /> Gestión Menú
-          </button>
-          <button onClick={() => { setSeccion('inventario'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'inventario' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Package size={20} /> Inventario & Recetas
-          </button>
-          <button onClick={() => { setSeccion('catalogos'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'catalogos' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <BookOpen size={20} /> Extras y Modificadores
-          </button>
-          {isSuperAdmin && (
-            <>
-              <button onClick={() => { setSeccion('usuarios'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-                <Users size={20} /> Usuarios
-              </button>
-              <button onClick={() => { setSeccion('configuracion'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'configuracion' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-                <Settings size={20} /> Configuración
-              </button>
-            </>
+          {canViewMenu && (
+            <button onClick={() => { setSeccion('menu'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'menu' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <LayoutGrid size={20} /> Gestión Menú
+            </button>
+          )}
+          {canViewInventario && (
+            <button onClick={() => { setSeccion('inventario'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'inventario' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <Package size={20} /> Inventario & Recetas
+            </button>
+          )}
+          {canViewCatalogos && (
+            <button onClick={() => { setSeccion('catalogos'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'catalogos' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <BookOpen size={20} /> Ingredientes y Extras
+            </button>
+          )}
+          {canViewUsuarios && (
+            <button onClick={() => { setSeccion('usuarios'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <Users size={20} /> Usuarios
+            </button>
+          )}
+          {canViewConfig && (
+            <button onClick={() => { setSeccion('configuracion'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'configuracion' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <Settings size={20} /> Configuración
+            </button>
           )}
         </nav>
         
@@ -346,7 +420,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
         
         {/* ================= SECCIÓN MENÚ ================= */}
-        {seccion === 'menu' && (
+        {seccion === 'menu' && canViewMenu && (
           <div className="max-w-4xl mx-auto space-y-8 pb-12">
             <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200">
               <h2 className="text-3xl font-black mb-8 flex items-center gap-3 text-slate-800">
@@ -386,7 +460,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                            <label className="flex items-center gap-3 text-lg w-32 capitalize cursor-pointer font-medium">
                              <input type="checkbox" checked={tamanos[t].activo} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], activo: e.target.checked}})} className="w-5 h-5 accent-blue-600"/> {t}
                            </label>
-                           <input type="number" placeholder="Precio $" disabled={!tamanos[t].activo} value={tamanos[t].extra} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], extra: Number(e.target.value)}})} className="w-32 p-3 font-bold border border-slate-200 rounded-xl disabled:bg-slate-100 outline-none focus:border-blue-500" />
+                           {/* CORRECCIÓN: Evitamos que se force un 0 si el campo está vacío */}
+                           <input type="number" placeholder="Precio $" disabled={!tamanos[t].activo} value={tamanos[t].extra} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], extra: e.target.value === '' ? '' : Number(e.target.value)}})} className="w-32 p-3 font-bold border border-slate-200 rounded-xl disabled:bg-slate-100 outline-none focus:border-blue-500" />
                          </div>
                        ))}
                      </div>
@@ -395,7 +470,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
                  {categoriaSelect && (
                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
-                     <div className="mb-4"><h4 className="font-bold text-lg text-slate-800">Modificadores Base (Visibles al Kiosco)</h4></div>
+                     <div className="mb-4"><h4 className="font-bold text-lg text-slate-800">Ingredientes Base (Visibles al Kiosco)</h4></div>
                      {ingredientesParaClasifActiva.filter(i => i.tipo === 'base').length === 0 ? (
                        <p className="text-sm text-orange-600 font-bold bg-orange-100 p-3 rounded-xl border border-orange-200">Aún no agregas ingredientes "BASE" a esta categoría.</p>
                      ) : (
@@ -462,7 +537,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         )}
         
         {/* ================= SECCIÓN INVENTARIO Y RECETAS ================= */}
-        {seccion === 'inventario' && ( 
+        {seccion === 'inventario' && canViewInventario && ( 
           <div className="max-w-6xl mx-auto space-y-8 pb-12">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-3xl font-black text-slate-800">Control de Insumos y Recetas</h2>
@@ -683,13 +758,13 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         )}
         
         {/* ================= SECCIÓN CATÁLOGOS ================= */}
-        {seccion === 'catalogos' && ( 
+        {seccion === 'catalogos' && canViewCatalogos && ( 
           <div className="max-w-6xl mx-auto space-y-8 pb-12">
-            <h2 className="text-3xl font-black mb-6 text-slate-800">Gestión de Extras y Modificadores</h2>
+            <h2 className="text-3xl font-black mb-6 text-slate-800">Gestión de Ingredientes y Extras</h2>
             
             <div className="flex flex-col sm:flex-row bg-slate-200 p-1 rounded-2xl w-fit mb-8 gap-1">
               <button onClick={() => setSubSeccionCatalogos('clasificaciones')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionCatalogos === 'clasificaciones' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Clasificaciones</button>
-              <button onClick={() => setSubSeccionCatalogos('modificadores')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionCatalogos === 'modificadores' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Modificadores (Extras)</button>
+              <button onClick={() => setSubSeccionCatalogos('modificadores')} className={`px-8 py-3 rounded-xl font-bold transition-all ${subSeccionCatalogos === 'modificadores' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Ingredientes y Extras</button>
             </div>
 
             {subSeccionCatalogos === 'clasificaciones' ? (
@@ -732,8 +807,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
               </div>
             ) : (
               <div className="bg-white p-8 rounded-[30px] shadow-sm border border-slate-200 relative">
-                {editandoIngId && (<div className="absolute -top-3 left-6 bg-orange-500 text-white px-4 py-1 rounded-full text-xs font-black shadow-md uppercase tracking-widest">Editando Modificador</div>)}
-                <h3 className="text-xl font-bold mb-6 text-slate-800">Modificadores y Extras (Visual Kiosco)</h3>
+                {editandoIngId && (<div className="absolute -top-3 left-6 bg-orange-500 text-white px-4 py-1 rounded-full text-xs font-black shadow-md uppercase tracking-widest">Editando Ingrediente/Extra</div>)}
+                <h3 className="text-xl font-bold mb-6 text-slate-800">Ingredientes y Extras (Visual Kiosco)</h3>
                 
                 <form onSubmit={guardarIngrediente} className={`space-y-4 mb-8 p-6 rounded-3xl border ${editandoIngId ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-100'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -763,15 +838,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
                     )}
                   </div>
                   
-                  <div className="flex gap-4 pt-4">
-                    <button type="submit" className={`flex-1 text-white py-4 rounded-xl font-bold text-lg transition shadow-sm ${editandoIngId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>{editandoIngId ? 'Actualizar Modificador' : 'Guardar Modificador'}</button>
-                    {editandoIngId && (<button type="button" onClick={cancelarEdicionIngrediente} className="w-full md:w-auto bg-slate-200 text-slate-700 px-8 rounded-xl hover:bg-slate-300 font-bold text-lg">Cancelar</button>)}
+                  <div className="flex flex-col md:flex-row gap-4 pt-4">
+                    {editandoIngId && (<button type="button" onClick={cancelarEdicionIngrediente} className="w-full md:w-1/3 bg-slate-200 text-slate-700 p-4 rounded-xl hover:bg-slate-300 font-bold text-lg">Cancelar</button>)}
+                    <button type="submit" className={`flex-1 text-white p-4 rounded-xl font-bold text-lg transition shadow-sm ${editandoIngId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>{editandoIngId ? 'Actualizar Ingrediente/Extra' : 'Guardar Ingrediente/Extra'}</button>
                   </div>
                 </form>
                 
                 <div className="mt-8 border-t pt-6">
                   {!nuevoIng.clasificacion_id ? ( 
-                    <div className="bg-slate-50 p-10 rounded-3xl border border-slate-200 text-center"><p className="text-lg text-slate-400 font-bold">Selecciona una clasificación arriba para ver sus modificadores.</p></div> 
+                    <div className="bg-slate-50 p-10 rounded-3xl border border-slate-200 text-center"><p className="text-lg text-slate-400 font-bold">Selecciona una clasificación arriba para ver sus ingredientes/extras.</p></div> 
                   ) : ( 
                     <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
                       {ingsFiltradosVisual.length === 0 ? ( 
@@ -801,7 +876,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         )}
         
         {/* ================= SECCIÓN CONFIGURACIÓN ================= */}
-        {seccion === 'configuracion' && isSuperAdmin && ( 
+        {seccion === 'configuracion' && canViewConfig && ( 
           <div className="max-w-4xl mx-auto space-y-8">
             <h2 className="text-3xl font-black mb-6">Configuración del Restaurante</h2>
             <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-3xl shadow-sm border space-y-8">
@@ -865,43 +940,81 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         )}
         
         {/* ================= SECCIÓN USUARIOS ================= */}
-        {seccion === 'usuarios' && isSuperAdmin && ( 
-          <div className="max-w-6xl mx-auto space-y-8">
+        {seccion === 'usuarios' && canViewUsuarios && ( 
+          <div className="max-w-6xl mx-auto space-y-8 pb-12">
             <h2 className="text-3xl font-black mb-6">Gestión de Empleados</h2>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border lg:col-span-1">
-                <h3 className="text-xl font-bold mb-4">Nuevo Empleado</h3>
+              <div className="bg-white p-6 rounded-3xl shadow-sm border lg:col-span-1 h-fit">
+                {editandoUsuarioId && (
+                  <div className="bg-orange-500 text-white px-4 py-1 rounded-full text-xs font-black shadow-md uppercase tracking-widest w-fit mb-4">Editando Empleado</div>
+                )}
+                <h3 className="text-xl font-bold mb-4">{editandoUsuarioId ? 'Actualizar Información' : 'Nuevo Empleado'}</h3>
+                
                 <form onSubmit={guardarUsuario} className="space-y-4">
                   <input required placeholder="Nombre (Ej. Juan Pérez)" value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
                   <input required placeholder="Usuario para acceder" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
-                  <input required type="text" placeholder="Contraseña" value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+                  <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Nueva contraseña (Opcional)" : "Contraseña"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" title={editandoUsuarioId ? "Déjalo en blanco si no quieres cambiar la contraseña actual" : ""} />
                   <input required type="tel" maxLength="10" placeholder="Número Celular (10 dígitos)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
                   <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer">
                     <option value="cajero">Cajero (Caja)</option><option value="cocina">Chef (Cocina/Barra)</option><option value="admin">Administrador</option><option value="tv">📺 Pantalla TV (KDS Cliente)</option>
                   </select>
+                  
                   {uRol === 'admin' && (
-                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
-                      <p className="text-xs font-bold text-orange-600 mb-2 uppercase tracking-widest">Permisos de Admin</p>
-                      <label className="flex items-center gap-2 text-sm font-medium cursor-pointer"><input type="checkbox" checked={uPermisos.usuarios} onChange={e => setUPermisos({...uPermisos, usuarios: e.target.checked})} className="accent-orange-500 w-4 h-4" /> Puede crear/borrar empleados</label>
+                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
+                      <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
+                      <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                        <input type="checkbox" checked={uPermisos.menu !== false} onChange={e => setUPermisos({...uPermisos, menu: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Gestión de Menú
+                      </label>
+                      <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                        <input type="checkbox" checked={uPermisos.inventario !== false} onChange={e => setUPermisos({...uPermisos, inventario: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Inventario & Recetas
+                      </label>
+                      <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                        <input type="checkbox" checked={uPermisos.catalogos !== false} onChange={e => setUPermisos({...uPermisos, catalogos: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Ingredientes y Extras
+                      </label>
+                      <div className="border-t border-orange-200 my-2"></div>
+                      <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
+                        <input type="checkbox" checked={uPermisos.usuarios === true} onChange={e => setUPermisos({...uPermisos, usuarios: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Usuarios
+                      </label>
+                      <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
+                        <input type="checkbox" checked={uPermisos.configuracion === true} onChange={e => setUPermisos({...uPermisos, configuracion: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Configuración
+                      </label>
                     </div>
                   )}
-                  <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl font-black shadow-lg transition">Guardar</button>
+
+                  <div className="flex flex-col md:flex-row gap-4 pt-2">
+                    {editandoUsuarioId && (
+                      <button type="button" onClick={cancelarEdicionUsuario} className="w-full md:w-1/3 bg-slate-200 hover:bg-slate-300 text-slate-700 p-4 rounded-xl font-bold transition">Cancelar</button>
+                    )}
+                    <button type="submit" className={`flex-1 text-white p-4 rounded-xl font-black shadow-lg transition ${editandoUsuarioId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                      {editandoUsuarioId ? 'Actualizar Usuario' : 'Crear Empleado'}
+                    </button>
+                  </div>
                 </form>
               </div>
+
               <div className="lg:col-span-2">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border">
                   <h3 className="text-xl font-bold mb-4">Plantilla Registrada</h3>
-                  <div className="grid gap-3">
+                  <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2">
                     {usuariosDB.map(u => (
-                      <div key={u.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 gap-4">
+                      <div key={u.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-2xl border transition gap-4 ${editandoUsuarioId === u.id ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
                         <div>
                           <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
                             {u.nombre} 
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>{u.rol === 'tv' ? '📺 TV KDS' : u.rol}</span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>
+                              {u.rol === 'tv' ? '📺 TV KDS' : u.rol}
+                            </span>
+                            {u.usuario === 'admin' && <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded-md uppercase font-black tracking-widest">Admin Global</span>}
                           </p>
-                          <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono}</span></p>
+                          <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono || 'N/A'}</span></p>
                         </div>
-                        {u.usuario !== 'admin' && (<button onClick={() => eliminarUsuario(u.id)} className="w-full sm:w-auto p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition shadow-sm bg-white border border-red-100 sm:border-none flex justify-center"><Trash2 size={20}/></button>)}
+                        
+                        {u.usuario !== 'admin' && (
+                          <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
+                            <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition shadow-sm bg-blue-50 border border-blue-100 sm:border-none flex justify-center"><Edit size={20}/></button>
+                            <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition shadow-sm bg-red-50 border border-red-100 sm:border-none flex justify-center"><Trash2 size={20}/></button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

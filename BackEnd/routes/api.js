@@ -7,7 +7,7 @@ const path = require('path');
 const configCtrl = require('../controllers/configController');
 const authCtrl = require('../controllers/authController');
 const clienteCtrl = require('../controllers/clienteController');
-const usuarioCtrl = require('../controllers/usuarioController');
+const usuarioCtrl = require('../controllers/usuarioController'); // Usamos solo usuarioCtrl
 const productoCtrl = require('../controllers/productoController');
 const pedidoCtrl = require('../controllers/pedidoController');
 const clasificacionCtrl = require('../controllers/clasificacionController');
@@ -41,6 +41,7 @@ router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
+router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario); // CORREGIDO AQUÍ
 
 // CATÁLOGOS (Clasificaciones e Ingredientes/Extras)
 router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
