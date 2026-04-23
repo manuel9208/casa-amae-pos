@@ -5,6 +5,9 @@ import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV'; 
 
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const baseUrl = apiUrl.replace('/api', '');
+
 const App = () => {
   const [usuarioActivo, setUsuarioActivo] = useState(null);
   const [clienteActivo, setClienteActivo] = useState(null);

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const baseUrl = apiUrl.replace('/api', '');
+
 const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) => {
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
