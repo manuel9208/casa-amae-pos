@@ -7,3 +7,8 @@ https://casa-amae-pos.onrender.com
 
 --En el Front para  local
 REACT_APP_API_URL=http://localhost:4000/api
+
+--Fotos
+CLOUDINARY_CLOUD_NAME=dtaqomyn7
+CLOUDINARY_API_KEY=863867677771227
+CLOUDINARY_API_SECRET=lLHhWuh8PqTFD-0tYak1GJ1BOKI

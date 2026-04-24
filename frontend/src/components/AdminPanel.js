@@ -318,11 +318,23 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     if(uTelefono.length !== 10) return showAlert("Atención", "Teléfono debe ser de 10 dígitos.", "info"); 
     const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: uPermisos, telefono: uTelefono };
     if (uPass) payload.password = uPass; 
+    
     try { 
       const url = editandoUsuarioId ? `${apiUrl}/usuarios/${editandoUsuarioId}` : `${apiUrl}/usuarios`;
       const res = await fetch(url, { method: editandoUsuarioId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
-      if (res.ok) { showAlert("¡Excelente!", editandoUsuarioId ? "Usuario actualizado." : "Usuario creado.", "success"); cancelarEdicionUsuario(); cargarDatos(); } 
-    } catch (error) { showAlert("Error", "Error al guardar usuario.", "error"); } 
+      
+      if (res.ok) { 
+          showAlert("¡Excelente!", editandoUsuarioId ? "Usuario actualizado." : "Usuario creado.", "success"); 
+          cancelarEdicionUsuario(); 
+          cargarDatos(); 
+      } else {
+          // 👇 AQUÍ ESTÁ LA MAGIA: Leemos el mensaje de error del backend
+          const dataErr = await res.json();
+          showAlert("Atención", dataErr.error || "El usuario o teléfono ya existe. Intenta con otro.", "warning");
+      }
+    } catch (error) { 
+      showAlert("Error", "Error de conexión al guardar usuario.", "error"); 
+    } 
   };
   
   const eliminarUsuario = (id) => { showConfirm("Eliminar", "¿Borrar empleado?", async () => { await fetch(`${apiUrl}/usuarios/${id}`, { method: 'DELETE' }); cargarDatos(); }); };

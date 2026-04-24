@@ -24,11 +24,11 @@ const Cocina = ({ user, onLogout }) => {
     };
     cargarPedidos(); 
     const intervalo = setInterval(cargarPedidos, 3000); 
-    const timerReloj = setInterval(() => setAhora(Date.now()), 10000); 
+    // 👇 SOLUCIÓN 1: El reloj ahora se actualiza cada segundo para forzar la UI
+    const timerReloj = setInterval(() => setAhora(Date.now()), 1000); 
     return () => { clearInterval(intervalo); clearInterval(timerReloj); };
   }, [apiUrl]);
 
-  // LOGICA PARCIAL: Aplica Preparando o Listo SOLO al área actual
   const actualizarEstadoPedido = async (p, nuevoEstadoLocal) => {
     const area = filtroTab;
     
@@ -39,7 +39,6 @@ const Cocina = ({ user, onLogout }) => {
       return item;
     });
 
-    // Evaluar estado global del pedido completo
     const todosListos = nuevoCarrito.every(item => item.estado === 'Listo');
     const algunPreparando = nuevoCarrito.some(item => item.estado === 'Preparando' || item.estado === 'Listo');
 
@@ -65,7 +64,11 @@ const Cocina = ({ user, onLogout }) => {
 
   const enviarAlerta = async (e) => {
     e.preventDefault();
-    const mensaje = `Falta: ${faltanteSelec}. Propuesta: ${propuestaSelec || 'Ninguna'}`;
+    // 👇 SOLUCIÓN 2 (Parte 1): Armamos el nombre EXACTO con los modificadores
+    const extrasStr = (modalAlerta.item.extras || []).map(e => e.nombre).join(', ');
+    const identificadorPlatillo = `${modalAlerta.item.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
+    
+    const mensaje = `[En: ${identificadorPlatillo}] Falta: ${faltanteSelec}. Propuesta: ${propuestaSelec || 'Ninguna'}`;
     try {
       await fetch(`${apiUrl}/pedidos/${modalAlerta.pedido.id}/alerta`, { 
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
@@ -85,7 +88,6 @@ const Cocina = ({ user, onLogout }) => {
     const itemsDeEstaArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
     if (itemsDeEstaArea.length === 0) return false;
 
-    // Si TODO en ESTA ÁREA (Cocina/Barra) está Listo, ocúltalo de esta pantalla
     const estaAreaLista = itemsDeEstaArea.every(i => i.estado === 'Listo');
     if (estaAreaLista) return false;
 
@@ -113,7 +115,6 @@ const Cocina = ({ user, onLogout }) => {
         {pedidosVisibles.map(p => {
           const itemsDeEstaArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
           
-          // Detectar el estado ESPECÍFICO de esta pestaña (Cocina o Barra)
           const areaEstado = itemsDeEstaArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsDeEstaArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
 
           const itemsAgrupados = [];

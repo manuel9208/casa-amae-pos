@@ -21,7 +21,7 @@ const Configuracion = ({
             </div>
             <div className="flex flex-col items-center justify-center bg-slate-50 border border-dashed rounded-xl p-4">
               <label className="text-sm font-bold text-slate-600 block mb-2">Logo Principal</label>
-              {configGlobal.logo_url && !logoBlob && (<img src={`${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-16 object-contain mb-3" />)}
+              {configGlobal.logo_url && !logoBlob && (<img src={configGlobal.logo_url?.startsWith('http') ? configGlobal.logo_url : `${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-16 object-contain mb-3" />)}
               <input id="logo-upload" type="file" accept="image/png, image/jpeg" onChange={e => setLogoBlob(e.target.files[0])} className="w-full text-xs text-slate-500 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700" />
             </div>
           </div>
@@ -73,19 +73,19 @@ const Configuracion = ({
             {/* Imagen 1 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 1</span>
-              {configGlobal.tv_imagen_1 && <img src={`${baseUrl}${configGlobal.tv_imagen_1}`} className="h-12 object-contain mb-2" alt="promo1" />}
+              {configGlobal.tv_imagen_1 && <img src={configGlobal.tv_imagen_1?.startsWith('http') ? configGlobal.tv_imagen_1 : `${baseUrl}${configGlobal.tv_imagen_1}`} className="h-12 object-contain mb-2" alt="promo1" />}
               <input id="tv1-upload" type="file" accept="image/*" onChange={e => setTvBlob1(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
             {/* Imagen 2 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 2</span>
-              {configGlobal.tv_imagen_2 && <img src={`${baseUrl}${configGlobal.tv_imagen_2}`} className="h-12 object-contain mb-2" alt="promo2" />}
+              {configGlobal.tv_imagen_2 && <img src={configGlobal.tv_imagen_2?.startsWith('http') ? configGlobal.tv_imagen_2 : `${baseUrl}${configGlobal.tv_imagen_2}`} className="h-12 object-contain mb-2" alt="promo2" />}
               <input id="tv2-upload" type="file" accept="image/*" onChange={e => setTvBlob2(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
             {/* Imagen 3 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 3</span>
-              {configGlobal.tv_imagen_3 && <img src={`${baseUrl}${configGlobal.tv_imagen_3}`} className="h-12 object-contain mb-2" alt="promo3" />}
+              {configGlobal.tv_imagen_3 && <img src={configGlobal.tv_imagen_3?.startsWith('http') ? configGlobal.tv_imagen_3 : `${baseUrl}${configGlobal.tv_imagen_3}`} className="h-12 object-contain mb-2" alt="promo3" />}
               <input id="tv3-upload" type="file" accept="image/*" onChange={e => setTvBlob3(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
           </div>

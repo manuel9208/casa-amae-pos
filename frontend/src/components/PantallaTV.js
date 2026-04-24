@@ -103,7 +103,8 @@ const PantallaTV = ({ onLogout }) => {
         {imagenAMostrar ? (
           <img 
             key={imagenAMostrar} 
-            src={`${baseUrl}${imagenAMostrar}`} 
+            // 👇 AQUÍ ESTÁ EL CAMBIO PARA CLOUDINARY
+            src={imagenAMostrar?.startsWith('http') ? imagenAMostrar : `${baseUrl}${imagenAMostrar}`} 
             className="max-w-[70%] max-h-[70%] object-contain animate-in fade-in zoom-in duration-1000 mb-8 z-10" 
             alt="Publicidad"
           />
@@ -127,7 +128,8 @@ const PantallaTV = ({ onLogout }) => {
         </button>
         
         <div className="flex items-center gap-6">
-          {config.logo_url && <img src={`${baseUrl}${config.logo_url}`} className="h-16" alt="Logo" />}
+          {/* 👇 AQUÍ ESTÁ EL OTRO CAMBIO PARA CLOUDINARY */}
+          {config.logo_url && <img src={config.logo_url?.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`} className="h-16" alt="Logo" />}
           <h1 className="text-5xl font-black tracking-tight text-slate-800 flex items-center gap-4 uppercase" style={{ fontFamily: config.fuente_titulos, color: config.color_texto_principal }}>
             ESTADO DE TU ORDEN
           </h1>

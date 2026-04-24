@@ -30,10 +30,11 @@ exports.actualizarConfiguracion = async (req, res) => {
   // Como ahora subimos múltiples archivos, multer los pone en req.files
   if (req.files && req.files.length > 0) {
     req.files.forEach(file => {
-      if (file.fieldname === 'logo') logo_url = '/uploads/' + file.filename;
-      if (file.fieldname === 'tv_imagen_1') tv_imagen_1 = '/uploads/' + file.filename;
-      if (file.fieldname === 'tv_imagen_2') tv_imagen_2 = '/uploads/' + file.filename;
-      if (file.fieldname === 'tv_imagen_3') tv_imagen_3 = '/uploads/' + file.filename;
+      // 👇 CAMBIO CLOUDINARY: file.path
+      if (file.fieldname === 'logo') logo_url = file.path;
+      if (file.fieldname === 'tv_imagen_1') tv_imagen_1 = file.path;
+      if (file.fieldname === 'tv_imagen_2') tv_imagen_2 = file.path;
+      if (file.fieldname === 'tv_imagen_3') tv_imagen_3 = file.path;
     });
   }
 

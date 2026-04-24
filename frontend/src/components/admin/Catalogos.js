@@ -47,7 +47,7 @@ const Catalogos = ({
               <div key={c.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 transition hover:border-slate-200 ${editandoClasifId === c.id ? 'border-orange-300 bg-orange-50' : ''}`}>
                 <div className="flex items-center gap-4 w-full sm:w-auto">
                   {c.imagen_url ? (
-                      <img src={`${baseUrl}${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> 
+                      <img src={c.imagen_url?.startsWith('http') ? c.imagen_url : `${baseUrl}${c.imagen_url}`} alt={c.nombre} className="w-16 h-16 object-cover rounded-xl shadow-sm" /> 
                   ) : (
                       <span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-xl shadow-sm shrink-0">{c.emoji || '🍽️'}</span>
                   )}

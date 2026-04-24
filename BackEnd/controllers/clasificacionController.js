@@ -9,7 +9,8 @@ exports.obtenerClasificaciones = async (req, res) => {
 
 exports.crearClasificacion = async (req, res) => {
   const { nombre, destino, emoji } = req.body;
-  const imagen_url = req.file ? '/uploads/' + req.file.filename : null;
+  // 👇 CAMBIO CLOUDINARY: req.file.path
+  const imagen_url = req.file ? req.file.path : null;
   try {
     const result = await db.query('INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url) VALUES ($1, $2, $3, $4) RETURNING *', [nombre, destino, emoji, imagen_url]);
     res.json(result.rows[0]);
@@ -19,7 +20,8 @@ exports.crearClasificacion = async (req, res) => {
 exports.actualizarClasificacion = async (req, res) => {
   const { id } = req.params;
   const { nombre, destino, emoji } = req.body;
-  const imagen_url = req.file ? '/uploads/' + req.file.filename : null;
+  // 👇 CAMBIO CLOUDINARY: req.file.path
+  const imagen_url = req.file ? req.file.path : null;
   try {
     const result = await db.query('UPDATE clasificaciones SET nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url) WHERE id=$5 RETURNING *', [nombre, destino, emoji, imagen_url, id]);
     res.json(result.rows[0]);

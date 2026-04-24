@@ -7,7 +7,8 @@ exports.getClasificaciones = async (req, res) => {
 
 exports.crearClasificacion = async (req, res) => {
   const { nombre, destino, emoji } = req.body;
-  const imagen_url = req.file ? `/uploads/${req.file.filename}` : null;
+  // 👇 CAMBIO CLOUDINARY: req.file.path
+  const imagen_url = req.file ? req.file.path : null;
   try { 
     res.status(201).json((await db.query("INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url) VALUES ($1, $2, $3, $4) RETURNING *", [nombre, destino || 'Cocina', emoji || '🍽️', imagen_url])).rows[0]); 
   } catch (e) { res.status(500).json({error: 'Error'}); }
@@ -19,7 +20,8 @@ exports.actualizarClasificacion = async (req, res) => {
   try {
     let query, values;
     if (req.file) {
-      const imagen_url = `/uploads/${req.file.filename}`;
+      // 👇 CAMBIO CLOUDINARY: req.file.path
+      const imagen_url = req.file.path;
       query = "UPDATE clasificaciones SET nombre = $1, destino = $2, emoji = $3, imagen_url = $4 WHERE id = $5 RETURNING *";
       values = [nombre, destino || 'Cocina', emoji || '🍽️', imagen_url, id];
     } else {

@@ -161,7 +161,7 @@ const GestionMenu = ({
                 <div key={p.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition">
                   <div className="flex items-center gap-4">
                     {p.imagen_url ? (
-                        <img src={`${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" /> 
+                        <img src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" /> 
                     ) : (
                         <span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji}</span>
                     )}

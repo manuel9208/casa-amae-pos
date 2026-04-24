@@ -11,7 +11,8 @@ const Caja = ({ user, onLogout }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
   
   const [modalResolver, setModalResolver] = useState(null);
-  const [itemAfectado, setItemAfectado] = useState('');
+  // Identificador por índice para saber exactamente qué platillo tiene el problema
+  const [itemAfectadoIdx, setItemAfectadoIdx] = useState('');
   const [accionAlerta, setAccionAlerta] = useState('quitar');
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
 
@@ -39,23 +40,27 @@ const Caja = ({ user, onLogout }) => {
 
   const enviarRespuestaCocina = async (e) => {
     e.preventDefault();
-    let respuesta = `✅ CAJA RESPONDE: En ${itemAfectado}, `;
+    // Armamos la respuesta con el nombre exacto que seleccionaste
+    const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
+    const extrasStr = (itemSeleccionado.extras || []).map(ex => ex.nombre).join(', ');
+    const nombreCompleto = `${itemSeleccionado.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
+
+    let respuesta = `✅ CAJA RESPONDE: En ${nombreCompleto}, `;
     if (accionAlerta === 'quitar') respuesta += `preparar SIN el ingrediente faltante.`;
     if (accionAlerta === 'cambiar') respuesta += `CAMBIAR el faltante por: ${ingredienteReemplazo}.`;
     
-    // Novedad: Si se acepta la propuesta del chef
     const match = modalResolver.alerta_cocina.match(/Propuesta: (.*)/);
     const propuestaChef = match ? match[1] : null;
     if (accionAlerta === 'aceptar') respuesta += `ACEPTAR PROPUESTA (${propuestaChef}).`;
 
     try {
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/alerta`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: respuesta }) });
-      setModalResolver(null); setItemAfectado(''); setAccionAlerta('quitar'); setIngredienteReemplazo('');
+      setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta('quitar'); setIngredienteReemplazo('');
     } catch (error) { alert('Error al enviar respuesta a cocina.'); }
   };
 
   const abrirModalResolver = (p) => {
-    setModalResolver(p); setItemAfectado(''); setIngredienteReemplazo('');
+    setModalResolver(p); setItemAfectadoIdx(''); setIngredienteReemplazo('');
     const match = p.alerta_cocina.match(/Propuesta: (.*)/);
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
@@ -184,17 +189,20 @@ const Caja = ({ user, onLogout }) => {
             <div className="space-y-4 mb-8">
               <div>
                 <label className="block text-sm font-black text-slate-400 uppercase mb-2">1. Platillo con el problema</label>
-                <select required value={itemAfectado} onChange={(e) => {setItemAfectado(e.target.value); setIngredienteReemplazo('');}} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700">
+                <select required value={itemAfectadoIdx} onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700">
                   <option value="">Selecciona el platillo...</option>
-                  {(modalResolver.carrito || []).map((item, idx) => ( <option key={idx} value={item.nombre}>{item.nombre}</option> ))}
+                  {(modalResolver.carrito || []).map((item, idx) => {
+                    const extrasStr = (item.extras || []).map(e => e.nombre).join(', ');
+                    const nombreLabel = `${item.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
+                    return <option key={idx} value={idx}>{nombreLabel}</option>
+                  })}
                 </select>
               </div>
 
-              {itemAfectado && (
+              {itemAfectadoIdx !== '' && (
                 <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 animate-in fade-in">
                   <label className="block text-sm font-black text-slate-400 uppercase mb-3">2. ¿Qué decidió el cliente?</label>
                   <div className="flex flex-col gap-3 mb-4">
-                    {/* Opción Dinámica: Si la cocina mandó propuesta, se muestra el botón */}
                     {(() => {
                       const match = modalResolver.alerta_cocina.match(/Propuesta: (.*)/);
                       const propuestaChef = match ? match[1] : null;
@@ -221,7 +229,7 @@ const Caja = ({ user, onLogout }) => {
                       <select required value={ingredienteReemplazo} onChange={(e) => setIngredienteReemplazo(e.target.value)} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700 shadow-sm">
                         <option value="">Selecciona reemplazo...</option>
                         {(() => {
-                          const itemSeleccionado = modalResolver.carrito.find(i => i.nombre === itemAfectado);
+                          const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
                           if(!itemSeleccionado) return null;
                           const bases = catalogoIngredientes.filter(ing => ing.clasificacion_nombre === itemSeleccionado.categoria && ing.tipo === 'base');
                           return bases.length > 0 ? bases.map(b => <option key={b.id} value={b.nombre}>{b.nombre}</option>) : <option disabled>No hay ingredientes base registrados.</option>;
@@ -234,8 +242,8 @@ const Caja = ({ user, onLogout }) => {
             </div>
 
             <div className="flex gap-4">
-              <button type="button" onClick={() => {setModalResolver(null); setItemAfectado('');}} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-              <button type="submit" disabled={!itemAfectado || (accionAlerta==='cambiar' && !ingredienteReemplazo)} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition flex items-center justify-center gap-2"><MessageSquare size={24}/> Enviar Respuesta</button>
+              <button type="button" onClick={() => {setModalResolver(null); setItemAfectadoIdx('');}} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+              <button type="submit" disabled={itemAfectadoIdx === '' || (accionAlerta==='cambiar' && !ingredienteReemplazo)} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition flex items-center justify-center gap-2"><MessageSquare size={24}/> Enviar Respuesta</button>
             </div>
           </form>
         </div>

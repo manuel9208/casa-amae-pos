@@ -7,6 +7,7 @@ const Login = ({ onLogin, onInvitado }) => {
   // ESTADO PARA LA MARCA BLANCA
   const [config, setConfig] = useState({ nombre_negocio: '', logo_url: null });
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+  const baseUrl = apiUrl.replace('/api', '');
 
   useEffect(() => {
     // Función para ir a buscar la configuración al backend al abrir la página
@@ -23,7 +24,7 @@ const Login = ({ onLogin, onInvitado }) => {
       }
     };
     cargarConfig();
-  }, []);
+  }, [apiUrl]); // Se agregó apiUrl como dependencia
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -47,7 +48,8 @@ const Login = ({ onLogin, onInvitado }) => {
           {/* AQUÍ OCURRE LA MAGIA DEL LOGO */}
           {config.logo_url ? (
             <img 
-               src={`${baseUrl}${config.logo_url}`}
+               // 👇 AQUÍ ESTÁ EL CAMBIO PARA CLOUDINARY
+               src={config.logo_url?.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`}
                alt="Logo del Restaurante" 
                className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
             />

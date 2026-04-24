@@ -371,7 +371,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                     const portada = getPortadaCategoria(cat); 
                     return ( 
                       <button key={cat} onClick={() => setCategoriaActiva(cat)} className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 flex flex-col items-center justify-center active:scale-95 transition-all hover:shadow-lg min-h-[220px] group">
-                        {portada.imagen_url ? <img src={`${baseUrl}${portada.imagen_url}`} alt={cat} className="w-24 h-24 object-cover rounded-full shadow-md mb-6 group-hover:scale-110 transition-transform" /> : <span className="text-7xl mb-6 group-hover:scale-110 transition-transform">{portada.emoji}</span>}
+                        {portada.imagen_url ? <img src={portada.imagen_url?.startsWith('http') ? portada.imagen_url : `${baseUrl}${portada.imagen_url}`} alt={cat} className="w-24 h-24 object-cover rounded-full shadow-md mb-6 group-hover:scale-110 transition-transform" /> : <span className="text-7xl mb-6 group-hover:scale-110 transition-transform">{portada.emoji}</span>}
                         <h3 className="text-2xl font-black text-slate-700 tracking-tight">{cat}</h3>
                       </button> 
                     ); 
@@ -389,7 +389,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                     const tieneTamanos = p.opciones?.some(o => o.categoria === 'Tamaño'); 
                     return ( 
                       <button key={p.id} onClick={() => abrirModalProducto(p)} className="bg-white p-6 rounded-[30px] shadow-sm border border-gray-100 flex flex-col items-center active:scale-95 transition-transform hover:shadow-md hover:border-blue-200">
-                        {p.imagen_url ? (<img src={`${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-28 h-28 object-cover rounded-2xl shadow-sm mb-4" /> ) : (<span className="text-6xl mb-4 bg-slate-50 w-28 h-28 flex items-center justify-center rounded-2xl">{p.emoji}</span>)}
+                        {p.imagen_url ? (<img src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-28 h-28 object-cover rounded-2xl shadow-sm mb-4" /> ) : (<span className="text-6xl mb-4 bg-slate-50 w-28 h-28 flex items-center justify-center rounded-2xl">{p.emoji}</span>)}
                         <h3 className="text-xl font-bold text-center leading-tight text-slate-700">{p.nombre}</h3>
                         <span className={`mt-4 px-4 py-2 rounded-full font-black ${tieneTamanos ? 'bg-emerald-50 text-emerald-600 text-sm' : 'bg-slate-100 text-blue-600'}`}>{tieneTamanos ? 'Personalizar' : `$${p.precio_base}`}</span>
                       </button> 
