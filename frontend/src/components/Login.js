@@ -63,7 +63,7 @@ const Login = ({ onLogin, onInvitado }) => {
     if (strUrl.startsWith('http')) return strUrl;
 
     // 4. SOLO SI ES RUTA RELATIVA LOCAL
-    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
+    return `${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   return (
