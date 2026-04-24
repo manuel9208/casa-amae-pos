@@ -34,32 +34,23 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA REFORZADA: Repara URLs rotas o con dominios duplicados de forma infalible
+  // 👇 LA MAGIA CORREGIDA: Idéntica a Configuracion.js
+  // Esta lógica es infalible porque si detecta cloudinary, retorna inmediatamente
   const getImageUrl = (url) => {
     if (!url) return '';
-    
-    let cleanUrl = url.trim();
 
-    // 1. Si es de Cloudinary, forzamos a extraer la ruta exacta con Regex
-    // Esto ignora dominios base concatenados por error como https://dominio.comhttps://res...
-    if (cleanUrl.includes('cloudinary.com')) {
-      const match = cleanUrl.match(/res\.cloudinary\.com\/(.+)/);
-      if (match && match[1]) {
-        return `https://res.cloudinary.com/${match[1]}`;
-      }
+    // Si la URL contiene cloudinary, no importa lo que traiga antes, 
+    // lo limpiamos y devolvemos solo la ruta de cloudinary.
+    if (url.includes('cloudinary.com')) {
+      const parts = url.split('res.cloudinary.com/');
+      return `https://res.cloudinary.com/${parts[1]}`;
     }
 
-    // 2. Respaldo por si hay dobles "http" pegados en otro tipo de imágenes
-    const httpIndex = cleanUrl.lastIndexOf('http');
-    if (httpIndex > 0) {
-        cleanUrl = cleanUrl.substring(httpIndex);
-    }
+    // Si empieza con http (y no es cloudinary), se devuelve tal cual
+    if (url.startsWith('http')) return url;
 
-    // 3. Si ya es una ruta absoluta correcta
-    if (cleanUrl.startsWith('http')) return cleanUrl;
-    
-    // 4. Ruta local
-    return `${baseUrl}${cleanUrl.startsWith('/') ? '' : '/'}${cleanUrl}`;
+    // Solo si es una ruta local (ej: /uploads/foto.png) agregamos el baseUrl
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
   return (
@@ -71,7 +62,7 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {/* Implementación de la función segura */}
+          {/* Aplicación de la función corregida */}
           {config.logo_url ? (
             <img 
                src={getImageUrl(config.logo_url)}
