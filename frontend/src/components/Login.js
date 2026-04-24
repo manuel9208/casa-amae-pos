@@ -34,15 +34,32 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA: Exactamente la misma función que en Configuracion.js
+  // 👇 LA MAGIA REFORZADA: Repara URLs rotas o con dominios duplicados de forma infalible
   const getImageUrl = (url) => {
     if (!url) return '';
-    if (url.includes('cloudinary.com')) {
-      const parts = url.split('res.cloudinary.com/');
-      return `https://res.cloudinary.com/${parts[1]}`;
+    
+    let cleanUrl = url.trim();
+
+    // 1. Si es de Cloudinary, forzamos a extraer la ruta exacta con Regex
+    // Esto ignora dominios base concatenados por error como https://dominio.comhttps://res...
+    if (cleanUrl.includes('cloudinary.com')) {
+      const match = cleanUrl.match(/res\.cloudinary\.com\/(.+)/);
+      if (match && match[1]) {
+        return `https://res.cloudinary.com/${match[1]}`;
+      }
     }
-    if (url.startsWith('http')) return url;
-    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+
+    // 2. Respaldo por si hay dobles "http" pegados en otro tipo de imágenes
+    const httpIndex = cleanUrl.lastIndexOf('http');
+    if (httpIndex > 0) {
+        cleanUrl = cleanUrl.substring(httpIndex);
+    }
+
+    // 3. Si ya es una ruta absoluta correcta
+    if (cleanUrl.startsWith('http')) return cleanUrl;
+    
+    // 4. Ruta local
+    return `${baseUrl}${cleanUrl.startsWith('/') ? '' : '/'}${cleanUrl}`;
   };
 
   return (
@@ -54,7 +71,7 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {/* Implementamos la función aquí */}
+          {/* Implementación de la función segura */}
           {config.logo_url ? (
             <img 
                src={getImageUrl(config.logo_url)}
