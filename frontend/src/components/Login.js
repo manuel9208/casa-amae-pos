@@ -34,14 +34,27 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA: Esta función repara cualquier URL rota de Cloudinary
+  // 👇 LA MAGIA BLINDADA: Repara cualquier URL rota, sin importar cómo venga de la base de datos
   const getImageUrl = (url) => {
     if (!url) return '';
+    
+    // 1. Si es de Cloudinary, la forzamos a ser correcta extrayendo desde "res.cloudinary.com"
     if (url.includes('cloudinary.com')) {
-      const parts = url.split('res.cloudinary.com/');
-      return `https://res.cloudinary.com/${parts[1]}`;
+      const extract = url.substring(url.indexOf('res.cloudinary.com/'));
+      return `https://${extract}`;
     }
-    if (url.startsWith('http')) return url;
+    
+    // 2. Si es una URL completa válida
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    
+    // 3. Si viene un "https//" roto sin los dos puntos (el error exacto de tu captura)
+    if (url.startsWith('http') && !url.includes('://')) {
+      return url.replace('https//', 'https://').replace('http//', 'http://');
+    }
+    
+    // 4. Si es una imagen local vieja (/uploads/...)
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
