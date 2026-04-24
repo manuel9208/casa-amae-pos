@@ -34,18 +34,16 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LÓGICA DIRECTA: Cortamos cualquier rastro del baseUrl si es de Cloudinary
-  let urlLogoFinal = config.logo_url;
-  if (urlLogoFinal) {
-    if (urlLogoFinal.includes('cloudinary.com')) {
-       // Extraemos solo lo que importa, ignorando si el backend le pegó algo antes
-       const partes = urlLogoFinal.split('res.cloudinary.com/');
-       urlLogoFinal = `https://res.cloudinary.com/${partes[1]}`;
-    } else if (!urlLogoFinal.startsWith('http')) {
-       // Si es una imagen local de antes
-       urlLogoFinal = `${baseUrl}${urlLogoFinal.startsWith('/') ? '' : '/'}${urlLogoFinal}`;
+  // 👇 LA MAGIA: Exactamente la misma función que en Configuracion.js
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('cloudinary.com')) {
+      const parts = url.split('res.cloudinary.com/');
+      return `https://res.cloudinary.com/${parts[1]}`;
     }
-  }
+    if (url.startsWith('http')) return url;
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-slate-800">
@@ -56,10 +54,11 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {urlLogoFinal ? (
+          {/* Implementamos la función aquí */}
+          {config.logo_url ? (
             <img 
-               src={urlLogoFinal}
-               alt="Logo del Restaurante" 
+               src={getImageUrl(config.logo_url)}
+               alt="Logo" 
                className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
             />
           ) : (
