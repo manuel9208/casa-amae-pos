@@ -34,36 +34,34 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA: CORTADO DE RAÍZ (Nivel Experto)
+  // 👇 LA MAGIA DEFINITIVA: Reconstrucción absoluta con Regex
   const getImageUrl = (url) => {
     if (!url) return '';
     
     const strUrl = String(url).trim();
 
-    // 1. SI ES CLOUDINARY: Cortamos de raíz cualquier dominio previo
-    if (strUrl.includes('res.cloudinary.com')) {
-      // Buscamos dónde empieza realmente Cloudinary
-      const index = strUrl.indexOf('https://res.cloudinary.com');
-      if (index !== -1) {
-        // Retornamos DESDE ahí en adelante, eliminando el prefijo de Render
-        return strUrl.substring(index);
+    // 1. RECONSTRUCCIÓN BLINDADA PARA CLOUDINARY
+    if (strUrl.includes('cloudinary.com')) {
+      // Esta expresión regular ignora TODO lo que haya antes de res.cloudinary.com
+      // y captura únicamente la ruta de la imagen.
+      const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
+      if (match && match[1]) {
+        // Reconstruimos la URL limpia desde cero. Es imposible que se cuele el dominio de Render aquí.
+        return `https://res.cloudinary.com/${match[1]}`;
       }
-      // Respaldo por si no trae https
-      const simpleIndex = strUrl.indexOf('res.cloudinary.com');
-      return `https://${strUrl.substring(simpleIndex)}`;
     }
 
-    // 2. REPARACIÓN DE URLs DUPLICADAS: Si hay dos "http", nos quedamos con el último
+    // 2. Limpieza para otras URLs absolutas
     const lastHttp = strUrl.lastIndexOf('http');
     if (lastHttp > 0) {
       return strUrl.substring(lastHttp);
     }
 
-    // 3. SI ES UNA URL ABSOLUTA LIMPIA
+    // 3. URLs absolutas correctas
     if (strUrl.startsWith('http')) return strUrl;
 
-    // 4. SOLO SI ES RUTA RELATIVA LOCAL
-    return `${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
+    // 4. Archivos locales
+    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   return (
@@ -75,7 +73,7 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {/* Implementación de la función corregida */}
+          {/* Renderizado de Imagen */}
           {config.logo_url ? (
             <img 
                src={getImageUrl(config.logo_url)}
