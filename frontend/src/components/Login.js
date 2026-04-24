@@ -34,23 +34,36 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA CORREGIDA: Idéntica a Configuracion.js
-  // Esta lógica es infalible porque si detecta cloudinary, retorna inmediatamente
+  // 👇 LA MAGIA: CORTADO DE RAÍZ (Nivel Experto)
   const getImageUrl = (url) => {
     if (!url) return '';
+    
+    const strUrl = String(url).trim();
 
-    // Si la URL contiene cloudinary, no importa lo que traiga antes, 
-    // lo limpiamos y devolvemos solo la ruta de cloudinary.
-    if (url.includes('cloudinary.com')) {
-      const parts = url.split('res.cloudinary.com/');
-      return `https://res.cloudinary.com/${parts[1]}`;
+    // 1. SI ES CLOUDINARY: Cortamos de raíz cualquier dominio previo
+    if (strUrl.includes('res.cloudinary.com')) {
+      // Buscamos dónde empieza realmente Cloudinary
+      const index = strUrl.indexOf('https://res.cloudinary.com');
+      if (index !== -1) {
+        // Retornamos DESDE ahí en adelante, eliminando el prefijo de Render
+        return strUrl.substring(index);
+      }
+      // Respaldo por si no trae https
+      const simpleIndex = strUrl.indexOf('res.cloudinary.com');
+      return `https://${strUrl.substring(simpleIndex)}`;
     }
 
-    // Si empieza con http (y no es cloudinary), se devuelve tal cual
-    if (url.startsWith('http')) return url;
+    // 2. REPARACIÓN DE URLs DUPLICADAS: Si hay dos "http", nos quedamos con el último
+    const lastHttp = strUrl.lastIndexOf('http');
+    if (lastHttp > 0) {
+      return strUrl.substring(lastHttp);
+    }
 
-    // Solo si es una ruta local (ej: /uploads/foto.png) agregamos el baseUrl
-    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    // 3. SI ES UNA URL ABSOLUTA LIMPIA
+    if (strUrl.startsWith('http')) return strUrl;
+
+    // 4. SOLO SI ES RUTA RELATIVA LOCAL
+    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   return (
@@ -62,7 +75,7 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {/* Aplicación de la función corregida */}
+          {/* Implementación de la función corregida */}
           {config.logo_url ? (
             <img 
                src={getImageUrl(config.logo_url)}
