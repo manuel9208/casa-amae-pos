@@ -10,12 +10,10 @@ const Login = ({ onLogin, onInvitado }) => {
   const baseUrl = apiUrl.replace('/api', '');
 
   useEffect(() => {
-    // Función para ir a buscar la configuración al backend al abrir la página
     const cargarConfig = async () => {
       try {
         const res = await fetch(`${apiUrl}/configuracion`);
         const data = await res.json();
-        // Si el servidor nos devuelve datos, actualizamos la pantalla
         if (data && data.nombre_negocio) {
           setConfig(data);
         }
@@ -24,7 +22,7 @@ const Login = ({ onLogin, onInvitado }) => {
       }
     };
     cargarConfig();
-  }, [apiUrl]); // Se agregó apiUrl como dependencia
+  }, [apiUrl]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,6 +34,17 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
+  // 👇 LA MAGIA: Esta función repara cualquier URL rota de Cloudinary
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('cloudinary.com')) {
+      const parts = url.split('res.cloudinary.com/');
+      return `https://res.cloudinary.com/${parts[1]}`;
+    }
+    if (url.startsWith('http')) return url;
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-slate-800">
       <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border border-slate-100 relative overflow-hidden">
@@ -45,11 +54,9 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {/* AQUÍ OCURRE LA MAGIA DEL LOGO */}
           {config.logo_url ? (
             <img 
-               // 👇 AQUÍ ESTÁ EL CAMBIO PARA CLOUDINARY
-               src={config.logo_url?.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`}
+               src={getImageUrl(config.logo_url)}
                alt="Logo del Restaurante" 
                className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
             />
@@ -59,7 +66,6 @@ const Login = ({ onLogin, onInvitado }) => {
             </div>
           )}
 
-          {/* AQUÍ OCURRE LA MAGIA DEL NOMBRE */}
           <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">
             {config.nombre_negocio ? config.nombre_negocio : 'Bienvenido'}
           </h1>

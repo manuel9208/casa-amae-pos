@@ -6,6 +6,18 @@ const Configuracion = ({
   setTvBlob1, setTvBlob2, setTvBlob3,
   restablecerBranding, baseUrl
 }) => {
+
+  // 👇 LA MAGIA: Repara URLs rotas de Cloudinary
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('cloudinary.com')) {
+      const parts = url.split('res.cloudinary.com/');
+      return `https://res.cloudinary.com/${parts[1]}`;
+    }
+    if (url.startsWith('http')) return url;
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
       <h2 className="text-3xl font-black mb-6">Configuración del Restaurante</h2>
@@ -21,7 +33,7 @@ const Configuracion = ({
             </div>
             <div className="flex flex-col items-center justify-center bg-slate-50 border border-dashed rounded-xl p-4">
               <label className="text-sm font-bold text-slate-600 block mb-2">Logo Principal</label>
-              {configGlobal.logo_url && !logoBlob && (<img src={configGlobal.logo_url?.startsWith('http') ? configGlobal.logo_url : `${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-16 object-contain mb-3" />)}
+              {configGlobal.logo_url && !logoBlob && (<img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-16 object-contain mb-3" />)}
               <input id="logo-upload" type="file" accept="image/png, image/jpeg" onChange={e => setLogoBlob(e.target.files[0])} className="w-full text-xs text-slate-500 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700" />
             </div>
           </div>
@@ -55,7 +67,7 @@ const Configuracion = ({
           </div>
         </div>
 
-        {/* 4. PUBLICIDAD TV (ACTUALIZADO CON 3 IMÁGENES) */}
+        {/* 4. PUBLICIDAD TV */}
         <div className="bg-emerald-50/30 p-6 rounded-3xl border border-emerald-100 space-y-6">
           <h3 className="text-xl font-bold text-emerald-800 flex items-center gap-2">📺 4. Publicidad en Pantalla TV</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -70,22 +82,19 @@ const Configuracion = ({
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-emerald-100">
-            {/* Imagen 1 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 1</span>
-              {configGlobal.tv_imagen_1 && <img src={configGlobal.tv_imagen_1?.startsWith('http') ? configGlobal.tv_imagen_1 : `${baseUrl}${configGlobal.tv_imagen_1}`} className="h-12 object-contain mb-2" alt="promo1" />}
+              {configGlobal.tv_imagen_1 && <img src={getImageUrl(configGlobal.tv_imagen_1)} className="h-12 object-contain mb-2" alt="promo1" />}
               <input id="tv1-upload" type="file" accept="image/*" onChange={e => setTvBlob1(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
-            {/* Imagen 2 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 2</span>
-              {configGlobal.tv_imagen_2 && <img src={configGlobal.tv_imagen_2?.startsWith('http') ? configGlobal.tv_imagen_2 : `${baseUrl}${configGlobal.tv_imagen_2}`} className="h-12 object-contain mb-2" alt="promo2" />}
+              {configGlobal.tv_imagen_2 && <img src={getImageUrl(configGlobal.tv_imagen_2)} className="h-12 object-contain mb-2" alt="promo2" />}
               <input id="tv2-upload" type="file" accept="image/*" onChange={e => setTvBlob2(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
-            {/* Imagen 3 */}
             <div className="bg-white p-4 rounded-2xl border border-emerald-100 flex flex-col items-center text-center">
               <span className="text-xs font-black text-emerald-700 mb-2 uppercase">Imagen Promocional 3</span>
-              {configGlobal.tv_imagen_3 && <img src={configGlobal.tv_imagen_3?.startsWith('http') ? configGlobal.tv_imagen_3 : `${baseUrl}${configGlobal.tv_imagen_3}`} className="h-12 object-contain mb-2" alt="promo3" />}
+              {configGlobal.tv_imagen_3 && <img src={getImageUrl(configGlobal.tv_imagen_3)} className="h-12 object-contain mb-2" alt="promo3" />}
               <input id="tv3-upload" type="file" accept="image/*" onChange={e => setTvBlob3(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
           </div>
