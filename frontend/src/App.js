@@ -28,7 +28,6 @@ const App = () => {
   const [configGlobal, setConfigGlobal] = useState({ 
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b' 
   });
-  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
   const iniciarSesionPersistente = (tipo, data) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
@@ -50,7 +49,7 @@ const App = () => {
       } catch(e) {}
     }
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { if(data) setConfigGlobal(data); }).catch(console.error);
-  }, [apiUrl]);
+  }, []);
 
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
@@ -91,6 +90,26 @@ const App = () => {
     if (usuarioActivo) { try { await fetch(`${apiUrl}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario_id: usuarioActivo.id }) }); } catch (error) {} }
     localStorage.removeItem('pos_sesion'); 
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
+  };
+
+  // 👇 FUNCIÓN REPARADORA DE IMÁGENES INTEGRADA EN APP.JS
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    const strUrl = String(url).trim();
+
+    if (strUrl.includes('cloudinary.com')) {
+      const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
+      if (match && match[1]) {
+        return `https://res.cloudinary.com/${match[1]}`;
+      }
+    }
+
+    const lastHttp = strUrl.lastIndexOf('http');
+    if (lastHttp > 0) return strUrl.substring(lastHttp);
+    
+    if (strUrl.startsWith('http')) return strUrl;
+    
+    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   const inyectarEstilos = () => {
@@ -168,7 +187,13 @@ const App = () => {
         <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
-            {configGlobal.logo_url ? (    <img src={`${baseUrl}${configGlobal.logo_url}`} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />) : (    <div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">🍔</div>)}
+            {/* 👇 AQUÍ SE APLICA LA MAGIA DE getImageUrl EN LUGAR DE LA CONCATENACIÓN FORZADA 👇 */}
+            {configGlobal.logo_url ? (    
+              <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />
+            ) : (    
+              <div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">🍔</div>
+            )}
+            
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
             <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
 
