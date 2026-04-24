@@ -34,29 +34,18 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA BLINDADA: Repara cualquier URL rota, sin importar cómo venga de la base de datos
-  const getImageUrl = (url) => {
-    if (!url) return '';
-    
-    // 1. Si es de Cloudinary, la forzamos a ser correcta extrayendo desde "res.cloudinary.com"
-    if (url.includes('cloudinary.com')) {
-      const extract = url.substring(url.indexOf('res.cloudinary.com/'));
-      return `https://${extract}`;
+  // 👇 LÓGICA DIRECTA: Cortamos cualquier rastro del baseUrl si es de Cloudinary
+  let urlLogoFinal = config.logo_url;
+  if (urlLogoFinal) {
+    if (urlLogoFinal.includes('cloudinary.com')) {
+       // Extraemos solo lo que importa, ignorando si el backend le pegó algo antes
+       const partes = urlLogoFinal.split('res.cloudinary.com/');
+       urlLogoFinal = `https://res.cloudinary.com/${partes[1]}`;
+    } else if (!urlLogoFinal.startsWith('http')) {
+       // Si es una imagen local de antes
+       urlLogoFinal = `${baseUrl}${urlLogoFinal.startsWith('/') ? '' : '/'}${urlLogoFinal}`;
     }
-    
-    // 2. Si es una URL completa válida
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    
-    // 3. Si viene un "https//" roto sin los dos puntos (el error exacto de tu captura)
-    if (url.startsWith('http') && !url.includes('://')) {
-      return url.replace('https//', 'https://').replace('http//', 'http://');
-    }
-    
-    // 4. Si es una imagen local vieja (/uploads/...)
-    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
-  };
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-slate-800">
@@ -67,9 +56,9 @@ const Login = ({ onLogin, onInvitado }) => {
 
         <div className="relative z-10">
           
-          {config.logo_url ? (
+          {urlLogoFinal ? (
             <img 
-               src={getImageUrl(config.logo_url)}
+               src={urlLogoFinal}
                alt="Logo del Restaurante" 
                className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
             />
@@ -119,7 +108,6 @@ const Login = ({ onLogin, onInvitado }) => {
             Entrar directo como Invitado
           </button>
         </div>
-
       </div>
     </div>
   );
