@@ -11,7 +11,6 @@ const Caja = ({ user, onLogout }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
   
   const [modalResolver, setModalResolver] = useState(null);
-  // Identificador por índice para saber exactamente qué platillo tiene el problema
   const [itemAfectadoIdx, setItemAfectadoIdx] = useState('');
   const [accionAlerta, setAccionAlerta] = useState('quitar');
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
@@ -40,12 +39,11 @@ const Caja = ({ user, onLogout }) => {
 
   const enviarRespuestaCocina = async (e) => {
     e.preventDefault();
-    // Armamos la respuesta con el nombre exacto que seleccionaste
     const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
     const extrasStr = (itemSeleccionado.extras || []).map(ex => ex.nombre).join(', ');
     const nombreCompleto = `${itemSeleccionado.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
 
-    let respuesta = `✅ CAJA RESPONDE: En ${nombreCompleto}, `;
+    let respuesta = `[IDX:${itemAfectadoIdx}] ✅ CAJA RESPONDE: En ${nombreCompleto}, `;
     if (accionAlerta === 'quitar') respuesta += `preparar SIN el ingrediente faltante.`;
     if (accionAlerta === 'cambiar') respuesta += `CAMBIAR el faltante por: ${ingredienteReemplazo}.`;
     
@@ -60,7 +58,17 @@ const Caja = ({ user, onLogout }) => {
   };
 
   const abrirModalResolver = (p) => {
-    setModalResolver(p); setItemAfectadoIdx(''); setIngredienteReemplazo('');
+    setModalResolver(p); 
+    
+    // Leemos el índice oculto
+    const idxMatch = p.alerta_cocina.match(/\[IDX:(\d+)\]/);
+    if (idxMatch) {
+      setItemAfectadoIdx(idxMatch[1]);
+    } else {
+      setItemAfectadoIdx('');
+    }
+    
+    setIngredienteReemplazo('');
     const match = p.alerta_cocina.match(/Propuesta: (.*)/);
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
@@ -88,15 +96,17 @@ const Caja = ({ user, onLogout }) => {
       <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
         {pedidosConAlerta.length > 0 && (
           <div className="w-full p-4 space-y-2 z-10 shrink-0">
-            {pedidosConAlerta.map(p => (
+            {pedidosConAlerta.map(p => {
+              const mensajeVisible = p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '');
+              return (
               <div key={`alerta-${p.id}`} className="bg-red-500 text-white p-4 rounded-2xl shadow-lg flex justify-between items-center animate-in slide-in-from-top">
-                <div className="flex items-center gap-4"><BellRing className="animate-bounce" size={28} /><div><p className="font-black text-lg">⚠️ ALERTA EN ORDEN #{p.numero_pedido} ({p.cliente_nombre || 'Invitado'})</p><p className="font-medium text-red-100">{p.alerta_cocina}</p></div></div>
+                <div className="flex items-center gap-4"><BellRing className="animate-bounce" size={28} /><div><p className="font-black text-lg">⚠️ ALERTA EN ORDEN #{p.numero_pedido} ({p.cliente_nombre || 'Invitado'})</p><p className="font-medium text-red-100">{mensajeVisible}</p></div></div>
                 <div className="flex gap-2">
                   <button onClick={() => abrirModalResolver(p)} className="bg-white text-red-600 hover:bg-red-50 px-6 py-2 rounded-xl font-black shadow-sm transition flex items-center gap-2"><MessageSquare size={18}/> Resolver con Cliente</button>
                   <button onClick={() => limpiarAlerta(p.id)} className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded-xl font-bold shadow-sm transition" title="Ocultar sin responder"><XCircle size={18}/></button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
 
@@ -184,12 +194,19 @@ const Caja = ({ user, onLogout }) => {
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <form onSubmit={enviarRespuestaCocina} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl">
             <div className="flex items-center gap-3 mb-6 border-b pb-4"><BellRing className="text-red-500" size={32} /><h2 className="text-2xl font-black text-slate-800">Responder a Cocina</h2></div>
-            <div className="bg-red-50 p-4 rounded-2xl mb-6 border border-red-100"><p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Mensaje del Chef:</p><p className="text-lg font-black text-red-700">{modalResolver.alerta_cocina}</p></div>
+            <div className="bg-red-50 p-4 rounded-2xl mb-6 border border-red-100"><p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Mensaje del Chef:</p><p className="text-lg font-black text-red-700">{modalResolver.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '')}</p></div>
 
             <div className="space-y-4 mb-8">
               <div>
                 <label className="block text-sm font-black text-slate-400 uppercase mb-2">1. Platillo con el problema</label>
-                <select required value={itemAfectadoIdx} onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700">
+                <select 
+                  required 
+                  value={itemAfectadoIdx} 
+                  onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} 
+                  // 👇 TRUCO MAESTRO: Si la cocina mandó el ID exacto, se bloquea el selector.
+                  disabled={modalResolver.alerta_cocina.includes('[IDX:')}
+                  className={`w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none text-slate-700 ${modalResolver.alerta_cocina.includes('[IDX:') ? 'opacity-70 cursor-not-allowed' : 'focus:border-blue-500'}`}
+                >
                   <option value="">Selecciona el platillo...</option>
                   {(modalResolver.carrito || []).map((item, idx) => {
                     const extrasStr = (item.extras || []).map(e => e.nombre).join(', ');

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize } from 'lucide-react';
 
 const PantallaTV = ({ onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [config, setConfig] = useState({});
   const [mostrarPublicidad, setMostrarPublicidad] = useState(false);
-  const [indiceImagen, setIndiceImagen] = useState(0); // Para saber qué foto del carrusel toca
+  const [indiceImagen, setIndiceImagen] = useState(0); 
+  const [isFullscreen, setIsFullscreen] = useState(false); // 👈 Nuevo estado para pantalla completa
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const baseUrl = apiUrl.replace('/api', '');
@@ -27,33 +28,44 @@ const PantallaTV = ({ onLogout }) => {
     };
     
     cargarDatos();
-    const intervalo = setInterval(cargarDatos, 3000); // Consulta los pedidos cada 3 seg
+    const intervalo = setInterval(cargarDatos, 3000); 
     return () => clearInterval(intervalo);
   }, [apiUrl]);
 
-  // Extraemos las variables específicas para que el cronómetro NO se reinicie con las consultas
+  // Escuchar si el usuario sale de pantalla completa con la tecla ESC
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   const carruselActivo = config?.tv_carrusel_activo === true || config?.tv_carrusel_activo === 'true';
   const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;
 
-  // 2. LÓGICA DEL CARRUSEL (CORREGIDA)
+  // 2. LÓGICA DEL CARRUSEL
   useEffect(() => {
     if (carruselActivo) {
       const ms = carruselSegundos * 1000;
-      
       const timer = setInterval(() => {
-        // Alternamos entre la vista de columnas y la pantalla de foto
         setMostrarPublicidad(prev => !prev);
-        // Avanzamos al siguiente número de imagen para que rote el carrusel
         setIndiceImagen(i => i + 1);
       }, ms);
-      
       return () => clearInterval(timer);
     } else {
       setMostrarPublicidad(false);
     }
-  }, [carruselActivo, carruselSegundos]); // <- Ahora solo se reinicia si cambias la config de la TV
+  }, [carruselActivo, carruselSegundos]);
 
-  // 3. LÓGICA ORIGINAL PARA SEPARAR EN COCINA Y BARRA
+  // 👇 LÓGICA DE PANTALLA COMPLETA
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(e => console.error("Error al poner pantalla completa:", e));
+    } else {
+      if (document.exitFullscreen) document.exitFullscreen();
+    }
+  };
+
+  // 3. SEPARAR EN COCINA Y BARRA
   const subPedidos = [];
   pedidos.forEach(p => {
       if (p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Pendiente') return;
@@ -85,50 +97,68 @@ const PantallaTV = ({ onLogout }) => {
 
   // 4. FILTRAR IMÁGENES DEL CARRUSEL
   const imagenesPromocionales = [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3].filter(Boolean);
-  
-  // Decidimos forzar la pantalla negra si NO hay pedidos, o si toca carrusel
   const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && imagenesPromocionales.length > 0);
 
+  // ==========================================
   // MODO PUBLICIDAD / PANTALLA DE ESPERA
+  // ==========================================
   if (forzarPantallaCompleta) {
     let imagenAMostrar = config.logo_url; 
     
-    // Si hay imágenes promocionales y el carrusel está prendido, elegimos la que toca
     if (carruselActivo && imagenesPromocionales.length > 0) {
         imagenAMostrar = imagenesPromocionales[indiceImagen % imagenesPromocionales.length];
     }
 
     return (
       <div className="h-screen w-full bg-black flex flex-col items-center justify-center overflow-hidden relative">
+        
+        {/* Botón sutil de Pantalla Completa en la vista de publicidad */}
+        <button onClick={toggleFullScreen} className="absolute top-6 left-6 p-3 bg-black/30 hover:bg-black/60 rounded-xl text-white/50 hover:text-white transition z-50 shadow-lg backdrop-blur-sm" title="Pantalla Completa">
+          <Maximize size={24} />
+        </button>
+
         {imagenAMostrar ? (
-          <img 
-            key={imagenAMostrar} 
-            // 👇 AQUÍ ESTÁ EL CAMBIO PARA CLOUDINARY
-            src={imagenAMostrar?.startsWith('http') ? imagenAMostrar : `${baseUrl}${imagenAMostrar}`} 
-            className="max-w-[70%] max-h-[70%] object-contain animate-in fade-in zoom-in duration-1000 mb-8 z-10" 
-            alt="Publicidad"
-          />
+          <>
+            <img 
+              key={imagenAMostrar} 
+              src={imagenAMostrar?.startsWith('http') ? imagenAMostrar : `${baseUrl}${imagenAMostrar}`} 
+              // 👇 AQUÍ LA MAGIA: w-full h-full object-cover para abarcar 100% la pantalla
+              className="absolute inset-0 w-full h-full object-cover animate-in fade-in duration-1000 z-0" 
+              alt="Publicidad"
+            />
+            {/* Degradado negro inferior para que el texto siempre se lea bien */}
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent z-0 pointer-events-none"></div>
+          </>
         ) : (
           <h1 className="text-white text-8xl font-black z-10 uppercase">{config.nombre_negocio || 'BIENVENIDO'}</h1>
         )}
-        <div className="absolute bottom-10 text-white/30 font-black text-2xl tracking-[1em] uppercase z-10">
+        <div className="absolute bottom-10 text-white font-black text-2xl tracking-[1em] uppercase z-10 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)]">
           Esperando Órdenes...
         </div>
       </div>
     );
   }
 
-  // MODO PEDIDOS
+  // ==========================================
+  // MODO PEDIDOS (3 COLUMNAS)
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans" style={{ backgroundColor: config.color_fondo || '#f1f5f9' }}>
       {/* HEADER */}
       <div className="flex items-center justify-between p-6 bg-white shadow-sm border-b-4" style={{ borderColor: config.color_primario || '#2563eb' }}>
-        <button onClick={onLogout} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition shadow-sm">
-          <LogOut size={24} className="text-slate-500" />
-        </button>
+        
+        <div className="flex gap-4">
+          <button onClick={onLogout} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition shadow-sm text-slate-500" title="Salir">
+            <LogOut size={24} />
+          </button>
+          
+          {/* 👇 Botón de Pantalla Completa en el menú */}
+          <button onClick={toggleFullScreen} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition shadow-sm text-slate-500" title="Pantalla Completa">
+            <Maximize size={24} />
+          </button>
+        </div>
         
         <div className="flex items-center gap-6">
-          {/* 👇 AQUÍ ESTÁ EL OTRO CAMBIO PARA CLOUDINARY */}
           {config.logo_url && <img src={config.logo_url?.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`} className="h-16" alt="Logo" />}
           <h1 className="text-5xl font-black tracking-tight text-slate-800 flex items-center gap-4 uppercase" style={{ fontFamily: config.fuente_titulos, color: config.color_texto_principal }}>
             ESTADO DE TU ORDEN

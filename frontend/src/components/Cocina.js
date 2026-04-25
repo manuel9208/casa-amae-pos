@@ -24,7 +24,6 @@ const Cocina = ({ user, onLogout }) => {
     };
     cargarPedidos(); 
     const intervalo = setInterval(cargarPedidos, 3000); 
-    // 👇 SOLUCIÓN 1: El reloj ahora se actualiza cada segundo para forzar la UI
     const timerReloj = setInterval(() => setAhora(Date.now()), 1000); 
     return () => { clearInterval(intervalo); clearInterval(timerReloj); };
   }, [apiUrl]);
@@ -64,11 +63,12 @@ const Cocina = ({ user, onLogout }) => {
 
   const enviarAlerta = async (e) => {
     e.preventDefault();
-    // 👇 SOLUCIÓN 2 (Parte 1): Armamos el nombre EXACTO con los modificadores
     const extrasStr = (modalAlerta.item.extras || []).map(e => e.nombre).join(', ');
     const identificadorPlatillo = `${modalAlerta.item.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
     
-    const mensaje = `[En: ${identificadorPlatillo}] Falta: ${faltanteSelec}. Propuesta: ${propuestaSelec || 'Ninguna'}`;
+    const idxAfectado = modalAlerta.item.indices[0];
+    const mensaje = `[IDX:${idxAfectado}] [En: ${identificadorPlatillo}] Falta: ${faltanteSelec}. Propuesta: ${propuestaSelec || 'Ninguna'}`;
+    
     try {
       await fetch(`${apiUrl}/pedidos/${modalAlerta.pedido.id}/alerta`, { 
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
@@ -94,6 +94,13 @@ const Cocina = ({ user, onLogout }) => {
     return true;
   });
 
+  const hayPedidoEnPreparacion = pedidosVisibles.some(p => {
+    const itemsArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
+    if (itemsArea.length === 0) return false;
+    const estadoDeEstaArea = itemsArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
+    return estadoDeEstaArea === 'Preparando';
+  });
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-6">
       <div className="flex items-center justify-between bg-slate-800 p-4 rounded-3xl shadow-md border border-slate-700 mb-8">
@@ -114,36 +121,53 @@ const Cocina = ({ user, onLogout }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {pedidosVisibles.map(p => {
           const itemsDeEstaArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
-          
           const areaEstado = itemsDeEstaArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsDeEstaArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
 
           const itemsAgrupados = [];
-          itemsDeEstaArea.forEach(item => {
+          (p.carrito || []).forEach((item, idx) => {
+              if (filtroTab !== 'Todo' && item.destino !== filtroTab) return;
               const getExtrasStr = (extras) => (extras||[]).map(e => e.nombre).sort().join('|');
               const extStr = getExtrasStr(item.extras);
               const existente = itemsAgrupados.find(i => i.nombre === item.nombre && getExtrasStr(i.extras) === extStr);
               if (existente) {
-                  existente.cantidad_visual = (existente.cantidad_visual || 1) + 1;
+                  existente.cantidad_visual += 1;
+                  existente.indices.push(idx);
               } else {
-                  itemsAgrupados.push({ ...item, cantidad_visual: 1 });
+                  itemsAgrupados.push({ ...item, cantidad_visual: 1, indices: [idx] });
               }
           });
           
           const maxTiempo = Math.max(...itemsDeEstaArea.map(i => Number(i.tiempo_preparacion) || 15));
-          const inicio = p.tiempo_inicio_preparacion ? new Date(p.tiempo_inicio_preparacion).getTime() : new Date(p.fecha_creacion).getTime();
-          const minsTranscurridos = Math.floor((ahora - inicio) / 60000);
-          
-          let colorBorde = 'border-slate-700'; let sombra = '';
-          if (areaEstado === 'Preparando') {
-             if (minsTranscurridos > maxTiempo + 5) { colorBorde = 'border-red-500'; sombra = 'shadow-[0_0_20px_rgba(239,68,68,0.3)]'; } 
-             else if (minsTranscurridos > maxTiempo) { colorBorde = 'border-orange-500'; sombra = 'shadow-[0_0_20px_rgba(249,115,22,0.3)]'; } 
-             else { colorBorde = 'border-blue-600'; sombra = 'shadow-[0_0_15px_rgba(37,99,235,0.2)]'; } 
+
+          // 👇 LA MAGIA DEL TIEMPO: Forzamos la zona horaria a UTC para que coincida con la base de datos
+          let minsTranscurridos = 0;
+          if (p.tiempo_inicio_preparacion) {
+              // Convertimos la cadena de tiempo que viene de la base de datos a un objeto de Fecha.
+              // Si la cadena no termina en 'Z' (que indica UTC), se la añadimos para asegurar que 
+              // el navegador no intente aplicar la zona horaria local incorrectamente.
+              const timeString = p.tiempo_inicio_preparacion.endsWith('Z') ? p.tiempo_inicio_preparacion : `${p.tiempo_inicio_preparacion}Z`;
+              const inicioPrep = new Date(timeString).getTime();
+              
+              // Usamos Math.max para asegurarnos de que nunca dé números negativos (-420)
+              // si hay una ligera desincronización de milisegundos entre el servidor y el cliente.
+              minsTranscurridos = Math.max(0, Math.floor((ahora - inicioPrep) / 60000));
           }
-          if (p.alerta_cocina) { colorBorde = 'border-red-500'; sombra = ''; } 
+
+          let colorBorde = 'border-slate-700'; let shadow = '';
+          if (areaEstado === 'Preparando') {
+             if (minsTranscurridos > maxTiempo + 5) { colorBorde = 'border-red-500'; shadow = 'shadow-[0_0_20px_rgba(239,68,68,0.3)]'; } 
+             else if (minsTranscurridos > maxTiempo) { colorBorde = 'border-orange-500'; shadow = 'shadow-[0_0_20px_rgba(249,115,22,0.3)]'; } 
+             else { colorBorde = 'border-blue-600'; shadow = 'shadow-[0_0_15px_rgba(37,99,235,0.2)]'; } 
+          }
+          if (p.alerta_cocina) { colorBorde = 'border-red-500'; shadow = ''; } 
+          
+          // Corrección visual de la hora para que sí respete la zona de México
           const fechaHora = new Date(p.fecha_creacion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
+          const mensajeVisible = p.alerta_cocina ? p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '') : '';
+
           return (
-            <div key={p.id} className={`bg-slate-800 rounded-[30px] p-6 border-2 flex flex-col transition-all ${colorBorde} ${sombra}`}>
+            <div key={p.id} className={`bg-slate-800 rounded-[30px] p-6 border-2 flex flex-col transition-all ${colorBorde} ${shadow}`}>
               <div className="flex justify-between items-start mb-6">
                 <div>
                     <h2 className="text-4xl font-black text-white">#{p.numero_pedido}</h2>
@@ -160,9 +184,9 @@ const Cocina = ({ user, onLogout }) => {
 
               {p.alerta_cocina && (
                 <div className="bg-red-900/40 border border-red-500/50 p-4 rounded-2xl mb-6">
-                  <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1"><AlertTriangle size={14}/> {p.alerta_cocina.includes('CAJA RESPONDE:') ? 'Respuesta de Caja' : 'Esperando a Caja...'}</p>
-                  <p className="text-sm font-medium text-red-100">{p.alerta_cocina}</p>
-                  {p.alerta_cocina.includes('CAJA RESPONDE:') && (
+                  <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1"><AlertTriangle size={14}/> {mensajeVisible.includes('CAJA RESPONDE:') ? 'Respuesta de Caja' : 'Esperando a Caja...'}</p>
+                  <p className="text-sm font-medium text-red-100">{mensajeVisible}</p>
+                  {mensajeVisible.includes('CAJA RESPONDE:') && (
                     <button onClick={() => limpiarAlerta(p.id)} className="w-full mt-4 bg-red-500 hover:bg-red-600 text-white font-black py-3 rounded-xl transition flex justify-center items-center gap-2"><CheckCircle2 size={18}/> Aceptar y Continuar</button>
                   )}
                 </div>
@@ -179,7 +203,7 @@ const Cocina = ({ user, onLogout }) => {
                          <span key={i} className={`text-xs font-bold px-2 py-1 rounded-md ${e.nombre.startsWith('Sin ') ? 'bg-red-900/50 text-red-300 line-through' : e.nombre.startsWith('📝') ? 'bg-slate-800 text-slate-300 italic border border-slate-600 w-full mt-1' : e.nombre.startsWith('🔸') ? 'bg-blue-900/50 text-blue-300' : 'bg-emerald-900/50 text-emerald-300'}`}>
                            {e.nombre.startsWith('🔸') && <span className="text-[10px] text-blue-500 mr-1">♦</span>} {e.nombre.replace('🔸 ', '')}
                          </span>
-                      ))}
+                       ))}
                     </div>
                     {(areaEstado === 'Preparando' || areaEstado === 'Pagado') && !p.alerta_cocina && (
                       <button onClick={() => setModalAlerta({ pedido: p, item })} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold rounded-xl transition border border-slate-700 flex items-center justify-center gap-2">⚠️ Reportar Problema</button>
@@ -190,7 +214,14 @@ const Cocina = ({ user, onLogout }) => {
 
               <div className="pt-6 mt-4 border-t border-slate-700">
                 {areaEstado === 'Pagado' || !areaEstado ? (
-                  <button onClick={() => actualizarEstadoPedido(p, 'Preparando')} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-lg transition shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center justify-center gap-2"><ChefHat size={20}/> Preparar mi parte</button>
+                  <button 
+                    onClick={() => actualizarEstadoPedido(p, 'Preparando')} 
+                    disabled={hayPedidoEnPreparacion}
+                    className={`w-full py-4 rounded-2xl font-black text-lg transition flex items-center justify-center gap-2 ${hayPedidoEnPreparacion ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'}`}
+                  >
+                    <ChefHat size={20}/> 
+                    {hayPedidoEnPreparacion ? 'Termina tu pedido actual' : 'Preparar mi parte'}
+                  </button>
                 ) : areaEstado === 'Preparando' ? (
                   <button onClick={() => actualizarEstadoPedido(p, 'Listo')} disabled={!!p.alerta_cocina} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white py-4 rounded-2xl font-black text-lg transition disabled:opacity-30 flex items-center justify-center gap-2"><CheckCircle2 size={20}/> Terminar mi parte</button>
                 ) : null}
@@ -206,18 +237,27 @@ const Cocina = ({ user, onLogout }) => {
             <h3 className="text-2xl font-black text-white mb-2">Reportar en {modalAlerta.item.nombre}</h3>
             <p className="text-slate-400 font-bold mb-6 text-sm">Resuelve rápido con 3 toques</p>
             <div className="space-y-6">
+              
               <div className="bg-slate-900 p-6 rounded-3xl border border-slate-700">
                 <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">1. ¿Qué se terminó?</p>
                 <div className="flex flex-wrap gap-2">
                   {(() => {
-                    const bases = catalogoIngredientes.filter(i => i.clasificacion_nombre === modalAlerta.item.categoria && i.tipo === 'base');
-                    const opciones = [{ id: 'platillo_completo', nombre: `Todo el platillo (${modalAlerta.item.nombre})` }, ...bases];
-                    return opciones.map(b => (
-                      <button key={b.id} onClick={() => setFaltanteSelec(b.nombre)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${faltanteSelec === b.nombre ? 'bg-red-500 text-white border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>{b.nombre}</button>
+                    const removidos = (modalAlerta.item.extras || [])
+                        .filter(e => e.nombre.startsWith('Sin '))
+                        .map(e => e.nombre.replace('Sin ', ''));
+
+                    const basesDelPlatillo = (modalAlerta.item.opciones || [])
+                        .filter(o => o.tipo === 'base' && !removidos.includes(o.nombre));
+                    
+                    const opciones = [{ id: 'platillo_completo', nombre: `Todo el platillo (${modalAlerta.item.nombre})` }, ...basesDelPlatillo];
+                    
+                    return opciones.map((b, idx) => (
+                      <button key={idx} onClick={() => setFaltanteSelec(b.nombre)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${faltanteSelec === b.nombre ? 'bg-red-500 text-white border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>{b.nombre}</button>
                     ));
                   })()}
                 </div>
               </div>
+
               {faltanteSelec && (
                 <div className="bg-slate-900 p-6 rounded-3xl border border-slate-700 animate-in fade-in">
                   <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">2. ¿Qué propones?</p>
@@ -229,15 +269,31 @@ const Cocina = ({ user, onLogout }) => {
                       </>
                     ) : (
                       <>
-                        {catalogoIngredientes.filter(i => i.clasificacion_nombre === modalAlerta.item.categoria && i.tipo === 'base' && i.nombre !== faltanteSelec).map(b => (
-                          <button key={b.id} onClick={() => setPropuestaSelec(b.nombre)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === b.nombre ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>{b.nombre}</button>
-                        ))}
+                        {(() => {
+                          const opcionesCatalogo = catalogoIngredientes.filter(i => i.clasificacion_nombre === modalAlerta.item.categoria && i.tipo === 'base');
+                          const opcionesPlatillo = modalAlerta.item.opciones?.filter(o => o.tipo === 'base') || [];
+                          
+                          const propuestasMap = new Map();
+                          opcionesCatalogo.forEach(o => propuestasMap.set(o.nombre, o.nombre));
+                          opcionesPlatillo.forEach(o => propuestasMap.set(o.nombre, o.nombre));
+                          
+                          propuestasMap.delete(faltanteSelec);
+                          
+                          const propuestas = Array.from(propuestasMap.values());
+                          
+                          return propuestas.map(nombrePropuesta => (
+                            <button key={nombrePropuesta} onClick={() => setPropuestaSelec(nombrePropuesta)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === nombrePropuesta ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>
+                              {nombrePropuesta}
+                            </button>
+                          ));
+                        })()}
                         <button onClick={() => setPropuestaSelec('Solo quitarlo')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Solo quitarlo' ? 'bg-orange-500 text-white border-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Solo prepararlo sin {faltanteSelec}</button>
                       </>
                     )}
                   </div>
                 </div>
               )}
+
             </div>
             <div className="flex gap-4 mt-8">
               <button onClick={() => {setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');}} className="flex-1 py-4 bg-slate-700 text-white font-black rounded-2xl hover:bg-slate-600 transition">Cancelar</button>
