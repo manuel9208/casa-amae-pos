@@ -6,7 +6,6 @@ const PantallaTV = ({ onLogout }) => {
   const [config, setConfig] = useState({});
   const [mostrarPublicidad, setMostrarPublicidad] = useState(false);
   const [indiceImagen, setIndiceImagen] = useState(0); 
-  const [isFullscreen, setIsFullscreen] = useState(false); // 👈 Nuevo estado para pantalla completa
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const baseUrl = apiUrl.replace('/api', '');
@@ -31,13 +30,6 @@ const PantallaTV = ({ onLogout }) => {
     const intervalo = setInterval(cargarDatos, 3000); 
     return () => clearInterval(intervalo);
   }, [apiUrl]);
-
-  // Escuchar si el usuario sale de pantalla completa con la tecla ESC
-  useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
 
   const carruselActivo = config?.tv_carrusel_activo === true || config?.tv_carrusel_activo === 'true';
   const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;
@@ -122,11 +114,9 @@ const PantallaTV = ({ onLogout }) => {
             <img 
               key={imagenAMostrar} 
               src={imagenAMostrar?.startsWith('http') ? imagenAMostrar : `${baseUrl}${imagenAMostrar}`} 
-              // 👇 AQUÍ LA MAGIA: w-full h-full object-cover para abarcar 100% la pantalla
               className="absolute inset-0 w-full h-full object-cover animate-in fade-in duration-1000 z-0" 
               alt="Publicidad"
             />
-            {/* Degradado negro inferior para que el texto siempre se lea bien */}
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent z-0 pointer-events-none"></div>
           </>
         ) : (
@@ -152,7 +142,6 @@ const PantallaTV = ({ onLogout }) => {
             <LogOut size={24} />
           </button>
           
-          {/* 👇 Botón de Pantalla Completa en el menú */}
           <button onClick={toggleFullScreen} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition shadow-sm text-slate-500" title="Pantalla Completa">
             <Maximize size={24} />
           </button>

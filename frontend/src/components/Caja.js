@@ -15,6 +15,15 @@ const Caja = ({ user, onLogout }) => {
   const [accionAlerta, setAccionAlerta] = useState('quitar');
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
 
+  // 👇 ESTADOS PARA EL FONDO DE CAJA (FERIA INICIAL)
+  const hoyStr = new Date().toLocaleDateString();
+  const [fondoCaja, setFondoCaja] = useState(() => {
+    // Buscamos si el usuario ya registró su fondo hoy
+    const guardado = localStorage.getItem(`fondo_caja_${user?.id}_${hoyStr}`);
+    return guardado !== null ? Number(guardado) : null;
+  });
+  const [inputFondo, setInputFondo] = useState('');
+
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
   useEffect(() => {
@@ -24,6 +33,14 @@ const Caja = ({ user, onLogout }) => {
     };
     cargarPedidos(); const intervalo = setInterval(cargarPedidos, 3000); return () => clearInterval(intervalo);
   }, [apiUrl]);
+
+  // 👇 FUNCIÓN PARA GUARDAR EL FONDO AL INICIAR SESIÓN
+  const iniciarTurno = (e) => {
+    e.preventDefault();
+    const monto = Number(inputFondo);
+    localStorage.setItem(`fondo_caja_${user?.id}_${hoyStr}`, monto);
+    setFondoCaja(monto);
+  };
 
   const procesarPago = async (estadoFinal) => {
     try { const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: estadoFinal }) }); if (res.ok) { setModalPago(null); setMontoRecibido(''); } } catch (error) { alert('Error al procesar el pago.'); }
@@ -59,15 +76,8 @@ const Caja = ({ user, onLogout }) => {
 
   const abrirModalResolver = (p) => {
     setModalResolver(p); 
-    
-    // Leemos el índice oculto
     const idxMatch = p.alerta_cocina.match(/\[IDX:(\d+)\]/);
-    if (idxMatch) {
-      setItemAfectadoIdx(idxMatch[1]);
-    } else {
-      setItemAfectadoIdx('');
-    }
-    
+    if (idxMatch) { setItemAfectadoIdx(idxMatch[1]); } else { setItemAfectadoIdx(''); }
     setIngredienteReemplazo('');
     const match = p.alerta_cocina.match(/Propuesta: (.*)/);
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
@@ -80,8 +90,27 @@ const Caja = ({ user, onLogout }) => {
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-800">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 relative">
       
+      {/* 👇 MODAL BLOQUEANTE DE APERTURA DE CAJA (FONDO INICIAL) */}
+      {fondoCaja === null && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+          <form onSubmit={iniciarTurno} className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md text-center animate-in zoom-in">
+            <span className="text-6xl mb-6 block">💵</span>
+            <h2 className="text-3xl font-black text-slate-800 mb-2">Apertura de Caja</h2>
+            <p className="text-slate-500 font-medium mb-8">¿Con cuánta feria (efectivo) inicias tu turno hoy?</p>
+            <input 
+              type="number" required autoFocus min="0" step="0.5" 
+              value={inputFondo} 
+              onChange={e => setInputFondo(e.target.value)} 
+              className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-6 text-center text-4xl font-black outline-none focus:border-emerald-500 text-slate-800 mb-6" 
+              placeholder="$0.00" 
+            />
+            <button type="submit" disabled={inputFondo===''} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg transition disabled:opacity-50">Comenzar Turno</button>
+          </form>
+        </div>
+      )}
+
       <div className="w-72 bg-slate-900 text-white flex flex-col shadow-2xl z-20 relative">
         <div className="p-8 pb-4"><h1 className="text-2xl font-black flex items-center gap-3 text-emerald-400"><DollarSign /> CAJA</h1></div>
         <nav className="flex-1 px-4 space-y-2 mt-6">
@@ -118,13 +147,37 @@ const Caja = ({ user, onLogout }) => {
                 <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">Todo al día, no hay cobros pendientes.</p></div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                  {pendientesDePago.map(p => (
+                  {pendientesDePago.map(p => {
+                    // 👇 LÓGICA PARA EXTRAER LA DIRECCIÓN Y LA NOTA DE CAMBIO DEL REPARTIDOR
+                    let direccionPura = p.direccion_entrega;
+                    let notaCambio = null;
+                    if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('(Llevar cambio para:')) {
+                       const partes = p.direccion_entrega.split('|');
+                       direccionPura = partes[0].trim();
+                       notaCambio = partes[1] ? partes[1].trim() : null;
+                    }
+
+                    return (
                     <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
                       <div className="flex justify-between items-start mb-4"><h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3><span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{getIconoPago(p.metodo_pago)} {p.metodo_pago}</span></div>
-                      <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p><p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">{p.tipo_consumo}</p>
+                      <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
+                      <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">{p.tipo_consumo}</p>
+                      
+                      {/* 👇 AVISO DE DOMICILIO Y CAMBIO */}
+                      {p.tipo_consumo === 'Domicilio' && (
+                        <div className="mb-4">
+                          <div className="text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">📍 {direccionPura}</div>
+                          {notaCambio && (
+                            <div className="mt-2 bg-orange-100 border border-orange-200 text-orange-700 font-black px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
+                              <AlertTriangle size={16}/> {notaCambio}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       <div className="mt-auto pt-6 border-t border-slate-100"><p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p><button onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>{p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : <><CheckCircle2 size={24}/> Validar Pago</>}</button></div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </>
@@ -137,14 +190,19 @@ const Caja = ({ user, onLogout }) => {
                 <div className="text-center text-slate-400 mt-20"><ChefHat size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">La cocina aún está preparando los pedidos.</p></div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {listosParaEntregar.map(p => (
+                  {listosParaEntregar.map(p => {
+                    let direccionPura = p.direccion_entrega;
+                    if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('|')) {
+                       direccionPura = p.direccion_entrega.split('|')[0].trim();
+                    }
+                    return (
                     <div key={p.id} className="bg-orange-50 p-8 rounded-[40px] shadow-lg shadow-orange-500/20 border-2 border-orange-400 flex flex-col transition animate-pulse">
                       <div className="flex justify-between items-start mb-4"><h3 className="text-4xl font-black text-orange-600">#{p.numero_pedido}</h3><span className="bg-orange-600 text-white px-4 py-1 rounded-full font-black uppercase text-sm tracking-widest">{p.tipo_consumo}</span></div>
                       <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
-                      {p.tipo_consumo === 'Domicilio' && <p className="text-sm font-bold text-slate-500 mt-2 bg-white p-3 rounded-xl">📍 {p.direccion_entrega}</p>}
+                      {p.tipo_consumo === 'Domicilio' && <p className="text-sm font-bold text-slate-500 mt-2 bg-white p-3 rounded-xl">📍 {direccionPura}</p>}
                       <div className="mt-auto pt-6 border-t border-orange-200"><button onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95"><Check size={28}/> Marcar como Entregado</button></div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </>
@@ -177,12 +235,27 @@ const Caja = ({ user, onLogout }) => {
             <div>
               <h2 className="text-4xl font-black mb-10 text-slate-800">Corte de Caja</h2>
               <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
-                 <p className="text-slate-500 font-bold text-lg mb-4">Resumen del Turno</p>
-                 <div className="grid grid-cols-3 gap-6">
-                    <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100"><p className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-2">Efectivo Recibido</p><p className="text-4xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
-                    <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100"><p className="text-sm font-black text-blue-600 uppercase tracking-widest mb-2">Tarjetas / Terminal</p><p className="text-4xl font-black text-blue-700">${pedidos.filter(p => p.metodo_pago === 'Tarjeta' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
-                    <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100"><p className="text-sm font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p><p className="text-4xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
+                 <p className="text-slate-500 font-bold text-lg mb-6">Resumen del Turno</p>
+                 
+                 {/* 👇 CORTE DE CAJA MEJORADO CON EL FONDO INICIAL */}
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200"><p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo Inicial</p><p className="text-3xl font-black text-slate-700">${(fondoCaja || 0).toFixed(2)}</p></div>
+                    <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100"><p className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-2">Cobros Efectivo</p><p className="text-3xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
+                    <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100"><p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Tarjetas</p><p className="text-3xl font-black text-blue-700">${pedidos.filter(p => p.metodo_pago === 'Tarjeta' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
+                    <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100"><p className="text-xs font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p><p className="text-3xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
                  </div>
+
+                 {/* BLOQUE GIGANTE DEL EFECTIVO TOTAL */}
+                 <div className="bg-emerald-600 p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white">
+                    <div>
+                       <p className="text-emerald-200 font-black uppercase tracking-widest mb-1 text-sm">Efectivo Físico en Cajón</p>
+                       <p className="text-xs font-medium text-emerald-100 opacity-80">Fondo Inicial + Cobros en Efectivo</p>
+                    </div>
+                    <p className="text-6xl font-black mt-4 md:mt-0">
+                       ${((fondoCaja || 0) + pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0)).toFixed(2)}
+                    </p>
+                 </div>
+
               </div>
             </div>
           )}
@@ -203,7 +276,6 @@ const Caja = ({ user, onLogout }) => {
                   required 
                   value={itemAfectadoIdx} 
                   onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} 
-                  // 👇 TRUCO MAESTRO: Si la cocina mandó el ID exacto, se bloquea el selector.
                   disabled={modalResolver.alerta_cocina.includes('[IDX:')}
                   className={`w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none text-slate-700 ${modalResolver.alerta_cocina.includes('[IDX:') ? 'opacity-70 cursor-not-allowed' : 'focus:border-blue-500'}`}
                 >

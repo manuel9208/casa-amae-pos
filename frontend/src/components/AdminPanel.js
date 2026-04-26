@@ -49,6 +49,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [imagenBlob, setImagenBlob] = useState(null);
   const [aplicaTamanos, setAplicaTamanos] = useState(false);
   const [tamanos, setTamanos] = useState({ chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 15 }, grande: { activo: false, extra: 25 } });
+  
+  const [aplicaSabores, setAplicaSabores] = useState(false);
+  const [listaSabores, setListaSabores] = useState([{ nombre: '', extra: 0 }]);
+  
   const [checkedIngredientes, setCheckedIngredientes] = useState([]);
   
   const [subSeccionCatalogos, setSubSeccionCatalogos] = useState('clasificaciones');
@@ -193,7 +197,12 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   // =============== GESTIÓN DE MENÚ ===============
   const limpiarFormularioMenu = () => { 
     setEditandoId(null); setNombre(''); setDescripcion(''); setPrecio(''); setTiempoPreparacion(15); setEmoji('🍽️'); 
-    setImagenBlob(null); setAplicaTamanos(false); setTamanos({ chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 15 }, grande: { activo: false, extra: 25 } }); 
+    setImagenBlob(null); 
+    setAplicaTamanos(false); setTamanos({ chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 15 }, grande: { activo: false, extra: 25 } }); 
+    
+    // Resetear Sabores
+    setAplicaSabores(false); setListaSabores([{ nombre: '', extra: 0 }]);
+    
     setCheckedIngredientes([]); 
     const fileInput = document.getElementById('imagen-producto-upload');
     if (fileInput) fileInput.value = '';
@@ -212,6 +221,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       if (tamanos.mediano.activo) opcionesArmadas.push({ nombre: 'Mediano', precioExtra: tamanos.mediano.extra, tipo: 'variacion', categoria: 'Tamaño' }); 
       if (tamanos.grande.activo) opcionesArmadas.push({ nombre: 'Grande', precioExtra: tamanos.grande.extra, tipo: 'variacion', categoria: 'Tamaño' }); 
     }
+
+    if (aplicaSabores) {
+      listaSabores.forEach(sabor => {
+        if (sabor.nombre.trim() !== '') {
+          // Se guarda hardcodeado bajo la categoría "Sabor" internamente
+          opcionesArmadas.push({ nombre: sabor.nombre.trim(), precioExtra: Number(sabor.extra || 0), tipo: 'variacion', categoria: 'Sabor' });
+        }
+      });
+    }
     
     checkedIngredientes.forEach(id => { 
       const ing = catalogoIngredientes.find(i => Number(i.id) === Number(id)); 
@@ -219,7 +237,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     });
     
     const nombreCategoria = clasificaciones.find(c => Number(c.id) === Number(categoriaSelect))?.nombre || 'General';
-    const formData = new FormData(); formData.append('nombre', nombre); formData.append('descripcion', descripcion); formData.append('precio_base', aplicaTamanos ? 0 : precio); formData.append('tiempo_preparacion', tiempoPreparacion); formData.append('emoji', emoji); formData.append('categoria', nombreCategoria); formData.append('opciones', JSON.stringify(opcionesArmadas)); if (imagenBlob) formData.append('imagen', imagenBlob);
+    const formData = new FormData(); formData.append('nombre', nombre); formData.append('descripcion', descripcion); formData.append('precio_base', (aplicaTamanos || aplicaSabores) && (!precio) ? 0 : precio); formData.append('tiempo_preparacion', tiempoPreparacion); formData.append('emoji', emoji); formData.append('categoria', nombreCategoria); formData.append('opciones', JSON.stringify(opcionesArmadas)); if (imagenBlob) formData.append('imagen', imagenBlob);
     try { 
       const url = editandoId ? `${apiUrl}/productos/${editandoId}` : `${apiUrl}/productos`; const res = await fetch(url, { method: editandoId ? 'PUT' : 'POST', body: formData }); 
       if (res.ok) { limpiarFormularioMenu(); cargarDatos(); showAlert("¡Éxito!", "Producto guardado.", "success"); } 
@@ -231,6 +249,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     const clasifEncontrada = clasificaciones.find(c => c.nombre === p.categoria); setCategoriaSelect(clasifEncontrada ? clasifEncontrada.id : ''); 
     
     let tieneTamanos = false; 
+    let tieneSabores = false;
+    const tempSabores = [];
+    
     const newTamanos = { chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 0 }, grande: { activo: false, extra: 0 } }; 
     const newChecks = []; 
     
@@ -239,6 +260,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         tieneTamanos = true; 
         const key = o.nombre.toLowerCase(); 
         if (newTamanos[key] !== undefined) { newTamanos[key].activo = true; newTamanos[key].extra = o.precioExtra; } 
+      } else if (o.tipo === 'variacion' && o.categoria !== 'Tamaño') {
+        tieneSabores = true;
+        tempSabores.push({ nombre: o.nombre, extra: o.precioExtra });
       } else { 
         const catItem = catalogoIngredientes.find(ci => ci.nombre === o.nombre && ci.tipo === o.tipo); 
         if (catItem) newChecks.push(catItem.id); 
@@ -247,8 +271,12 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     
     setAplicaTamanos(tieneTamanos); 
     setTamanos(newTamanos); 
+    
+    setAplicaSabores(tieneSabores);
+    setListaSabores(tempSabores.length > 0 ? tempSabores : [{ nombre: '', extra: 0 }]);
+
     setCheckedIngredientes(newChecks); 
-    setPrecio(tieneTamanos ? '' : p.precio_base); 
+    setPrecio(tieneTamanos || tieneSabores ? p.precio_base : p.precio_base); 
   };
 
   const eliminarProducto = (id) => { showConfirm("Eliminar", "¿Seguro que deseas borrar este platillo?", async () => { await fetch(`${apiUrl}/productos/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
@@ -272,8 +300,12 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   
   const guardarIngrediente = async (e) => { 
     e.preventDefault(); 
-    const duplicado = catalogoIngredientes.find(i => i.nombre.trim().toLowerCase() === nuevoIng.nombre.trim().toLowerCase() && i.id !== editandoIngId); 
-    if (duplicado) return showAlert("Atención", "Este ingrediente o extra ya existe en el catálogo.", "warning"); 
+    const duplicado = catalogoIngredientes.find(i => 
+      i.nombre.trim().toLowerCase() === nuevoIng.nombre.trim().toLowerCase() && 
+      Number(i.clasificacion_id) === Number(nuevoIng.clasificacion_id) &&
+      i.id !== editandoIngId
+    ); 
+    if (duplicado) return showAlert("Atención", "Este ingrediente o extra ya existe en esta clasificación.", "warning"); 
     
     try { 
       const url = editandoIngId ? `${apiUrl}/ingredientes/${editandoIngId}` : `${apiUrl}/ingredientes`; 
@@ -281,6 +313,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       if (res.ok) { cancelarEdicionIngrediente(); cargarDatos(); } 
     } catch(e) {} 
   };
+
   const eliminarIng = (id) => { showConfirm("Eliminar", "¿Borrar ingrediente/extra?", async () => { await fetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); cargarDatos(); }); };
   
   // =============== USUARIOS ===============
@@ -328,7 +361,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           cancelarEdicionUsuario(); 
           cargarDatos(); 
       } else {
-          // 👇 AQUÍ ESTÁ LA MAGIA: Leemos el mensaje de error del backend
           const dataErr = await res.json();
           showAlert("Atención", dataErr.error || "El usuario o teléfono ya existe. Intenta con otro.", "warning");
       }
@@ -409,6 +441,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             editandoId={editandoId} guardarProducto={guardarProducto} categoriaSelect={categoriaSelect} setCategoriaSelect={setCategoriaSelect}
             clasificaciones={clasificaciones} nombre={nombre} setNombre={setNombre} descripcion={descripcion} setDescripcion={setDescripcion}
             aplicaTamanos={aplicaTamanos} setAplicaTamanos={setAplicaTamanos} precio={precio} setPrecio={setPrecio} emoji={emoji} setEmoji={setEmoji}
+            
+            aplicaSabores={aplicaSabores} setAplicaSabores={setAplicaSabores}
+            listaSabores={listaSabores} setListaSabores={setListaSabores}
+            
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO} tiempoPreparacion={tiempoPreparacion} setTiempoPreparacion={setTiempoPreparacion} tamanos={tamanos} setTamanos={setTamanos}
             ingredientesParaClasifActiva={ingredientesParaClasifActiva} checkedIngredientes={checkedIngredientes} setCheckedIngredientes={setCheckedIngredientes}
             setImagenBlob={setImagenBlob} limpiarFormularioMenu={limpiarFormularioMenu} nombreCategoriaSeleccionada={nombreCategoriaSeleccionada}

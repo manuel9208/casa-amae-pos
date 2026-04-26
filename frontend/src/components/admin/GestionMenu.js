@@ -1,15 +1,25 @@
 import React from 'react';
-import { Edit, Plus, Trash2 } from 'lucide-react';
+import { Edit, Plus, Trash2, XCircle } from 'lucide-react';
 
 const GestionMenu = ({
   editandoId, guardarProducto, categoriaSelect, setCategoriaSelect, 
   clasificaciones, nombre, setNombre, descripcion, setDescripcion, 
   aplicaTamanos, setAplicaTamanos, precio, setPrecio, emoji, setEmoji, 
+  aplicaSabores, setAplicaSabores, listaSabores, setListaSabores, 
   EMOJIS_POR_GIRO, tiempoPreparacion, setTiempoPreparacion, tamanos, setTamanos, 
   ingredientesParaClasifActiva, checkedIngredientes, setCheckedIngredientes, 
   setImagenBlob, limpiarFormularioMenu, nombreCategoriaSeleccionada, 
   productosEnCategoria, baseUrl, prepararEdicion, eliminarProducto
 }) => {
+  
+  const agregarSabor = () => setListaSabores([...listaSabores, { nombre: '', extra: 0 }]);
+  const removerSabor = (index) => setListaSabores(listaSabores.filter((_, i) => i !== index));
+  const actualizarSabor = (index, campo, valor) => {
+    const nuevosSabores = [...listaSabores];
+    nuevosSabores[index][campo] = valor;
+    setListaSabores(nuevosSabores);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
       {/* FORMULARIO DE PRODUCTO */}
@@ -35,7 +45,7 @@ const GestionMenu = ({
              {/* 2. NOMBRE */}
              <input 
                required 
-               placeholder="2. Nombre (Ej. Moka Frapuccino)" 
+               placeholder="2. Nombre (Ej. Moka Frapuccino o Alitas)" 
                value={nombre} 
                onChange={e => setNombre(e.target.value)} 
                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg" 
@@ -50,15 +60,15 @@ const GestionMenu = ({
              />
              
              <div className="grid grid-cols-2 gap-4">
-               {/* 4. PRECIO */}
+               {/* 4. PRECIO (Se bloquea si hay Tamaños o Sabores) */}
                <input 
-                 required={!aplicaTamanos} 
+                 required={!aplicaTamanos && !aplicaSabores} 
                  type="number" 
                  placeholder="Precio Base $" 
                  value={precio} 
                  onChange={e => setPrecio(e.target.value)} 
-                 disabled={aplicaTamanos} 
-                 className={`p-4 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg ${aplicaTamanos ? 'bg-slate-200 text-slate-400' : 'bg-slate-50'}`} 
+                 disabled={aplicaTamanos || aplicaSabores} 
+                 className={`p-4 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg ${aplicaTamanos || aplicaSabores ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-50'}`} 
                />
                
                {/* 5. EMOJI */}
@@ -93,7 +103,7 @@ const GestionMenu = ({
            {/* TAMAÑOS */}
            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
              <label className="flex items-center gap-3 font-bold text-slate-700 cursor-pointer mb-4 text-lg">
-               <input type="checkbox" checked={aplicaTamanos} onChange={e => setAplicaTamanos(e.target.checked)} className="w-6 h-6 accent-blue-600" /> ¿Aplica Tamaños? (Chico/Med/Gde)
+               <input type="checkbox" checked={aplicaTamanos} onChange={e => setAplicaTamanos(e.target.checked)} className="w-6 h-6 accent-blue-600" /> ¿Aplica Tamaños Fijos? (Chico/Med/Gde)
              </label>
              {aplicaTamanos && (
                <div className="space-y-3 mt-4 bg-white p-5 rounded-2xl border border-slate-200">
@@ -102,9 +112,36 @@ const GestionMenu = ({
                      <label className="flex items-center gap-3 text-lg w-32 capitalize cursor-pointer font-medium">
                        <input type="checkbox" checked={tamanos[t].activo} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], activo: e.target.checked}})} className="w-5 h-5 accent-blue-600"/> {t}
                      </label>
-                     <input type="number" placeholder="Precio $" disabled={!tamanos[t].activo} value={tamanos[t].extra} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], extra: Number(e.target.value)}})} className="w-32 p-3 font-bold border border-slate-200 rounded-xl outline-none focus:border-blue-500" />
+                     <input type="number" placeholder="Precio Extra $" disabled={!tamanos[t].activo} value={tamanos[t].extra} onChange={e => setTamanos({...tamanos, [t]: {...tamanos[t], extra: Number(e.target.value)}})} className="w-32 p-3 font-bold border border-slate-200 rounded-xl outline-none focus:border-blue-500" />
                    </div>
                  ))}
+               </div>
+             )}
+           </div>
+
+           {/* SABORES / VARIACIONES LIBRES */}
+           <div className="bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
+             <label className="flex items-center gap-3 font-bold text-blue-900 cursor-pointer mb-4 text-lg">
+               <input type="checkbox" checked={aplicaSabores} onChange={e => setAplicaSabores(e.target.checked)} className="w-6 h-6 accent-blue-600" /> ¿Lleva Sabores o Variaciones libres?
+             </label>
+             
+             {aplicaSabores && (
+               <div className="mt-4 bg-white p-5 rounded-2xl border border-blue-200 space-y-4">
+                 <div className="space-y-3">
+                   <label className="block text-xs font-black text-slate-400 uppercase mb-1">Opciones disponibles</label>
+                   {listaSabores.map((sabor, index) => (
+                     <div key={index} className="flex items-center gap-3">
+                       <input type="text" placeholder="Sabor (Ej. Búfalo)" required={aplicaSabores} value={sabor.nombre} onChange={e => actualizarSabor(index, 'nombre', e.target.value)} className="flex-1 p-3 font-bold border border-slate-200 rounded-xl outline-none focus:border-blue-500" />
+                       <input type="number" placeholder="Precio $" value={sabor.extra} onChange={e => actualizarSabor(index, 'extra', e.target.value)} className="w-28 p-3 font-bold border border-slate-200 rounded-xl outline-none focus:border-blue-500" />
+                       {listaSabores.length > 1 && (
+                         <button type="button" onClick={() => removerSabor(index)} className="p-3 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition"><XCircle size={20}/></button>
+                       )}
+                     </div>
+                   ))}
+                   <button type="button" onClick={agregarSabor} className="w-full mt-2 py-3 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold rounded-xl transition border border-dashed border-blue-300">
+                     + Agregar otra opción
+                   </button>
+                 </div>
                </div>
              )}
            </div>

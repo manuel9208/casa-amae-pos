@@ -40,14 +40,13 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const [errorNip, setErrorNip] = useState('');
   const [metodoPagoFinal, setMetodoPagoFinal] = useState(null);
 
-  const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-
+  // 👇 WARNINGS CORREGIDOS: Se quitó apiUrl de las dependencias
   useEffect(() => { 
     fetch(`${apiUrl}/productos`).then(r => r.json()).then(data => setProductos(Array.isArray(data) ? data : [])).catch(console.error); 
     fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
     fetch(`${apiUrl}/clasificaciones`).then(r => r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : [])).catch(console.error);
     fetch(`${apiUrl}/configuracion`).then(r => r.json()).then(data => { if(data && !data.error) setConfigGlobal(data); }).catch(console.error);
-  }, [apiUrl]);
+  }, []);
 
   // Cargar direcciones guardadas del cliente al iniciar sesión
   useEffect(() => {
@@ -84,6 +83,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   useEffect(() => { if (ordenExterna) modificarPedido(ordenExterna); }, [ordenExterna, modificarPedido]);
 
+  // 👇 WARNINGS CORREGIDOS: Se quitó apiUrl de las dependencias
   useEffect(() => {
     let intervaloPedidos;
     const verificarMisPedidos = async (esCargaInicial = false) => {
@@ -105,7 +105,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setPantallaActual('menu'); 
     }
     return () => clearInterval(intervaloPedidos);
-  }, [clienteActivo, ordenExterna, apiUrl]);
+  }, [clienteActivo, ordenExterna]);
 
   const reiniciarKiosco = useCallback(() => {
     if(user && user.rol === 'cajero') { 
@@ -157,7 +157,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const toggleExtra = (extra) => { setExtrasAgregados(prev => prev.find(e => e.nombre === extra.nombre) ? prev.filter(e => e.nombre !== extra.nombre) : [...prev, extra]); };
   const seleccionarVariacion = (categoria, opcion) => { setVariacionesSeleccionadas({ ...variacionesSeleccionadas, [categoria]: opcion }); };
 
-  // NUEVO: CAMBIAR CANTIDAD DIRECTO EN EL CARRITO
   const cambiarCantidadCart = (idTicket, delta) => {
     setCarrito(carrito.map(item => {
         if (item.idTicket === idTicket) {
@@ -168,7 +167,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     }));
   };
 
-  // MEJORA: AGRUPACIÓN INTELIGENTE DE PRODUCTOS EN EL CARRITO
   const confirmarYAgregar = () => {
     const categoriasObligatorias = [...new Set(productoEnEspera.opciones?.filter(o => o.tipo === 'variacion').map(o => o.categoria))]; 
     for (let cat of categoriasObligatorias) { if (!variacionesSeleccionadas[cat]) return alert(`Por favor, selecciona una opción para: ${cat}`); }
@@ -196,10 +194,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
 
     if (itemEditandoIdTicket) {
-        // Modo Edición
         setCarrito(carrito.map(item => item.idTicket === itemEditandoIdTicket ? nuevoItem : item));
     } else {
-        // Modo Agregar: Buscar si ya existe uno exactamente igual para sumarlo
         const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
         const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
         
@@ -232,14 +228,13 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
   };
 
-  const guardarPedidoEnBD = async (metodoSeleccionado) => {
+  const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega) => {
     setErrorTransaccion(''); setMetodoPagoFinal(metodoSeleccionado);
     const idClienteAGuardar = ordenExterna ? ordenExterna.cliente_id : (clienteActivo?.id || null);
     let origenCalculado = 'Web'; 
     if (user?.rol === 'cajero') origenCalculado = 'Caja'; 
     else if (user?.usuario === 'kiosco' || user?.usuario === 'admin') origenCalculado = 'Kiosco'; 
     
-    // MEJORA: Expandir el carrito antes de enviar para que el inventario descuente por cada pieza
     const carritoExpandido = [];
     carrito.forEach(item => {
         const qty = item.cantidad || 1;
@@ -255,7 +250,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       total: calcularTotal(), 
       carrito: carritoExpandido, 
       origen: origenCalculado, 
-      direccion_entrega: tipoConsumo === 'Domicilio' ? direccionEntrega : null, 
+      direccion_entrega: tipoConsumo === 'Domicilio' ? direccionFinalConAviso : null, 
       descuento_puntos: descuentoPuntos 
     };
 
@@ -273,14 +268,13 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     else setPantallaActual('pago'); 
   };
 
-  // NUEVO: GUARDAR DIRECCIONES AL CONTINUAR A PAGO
   const continuarAPagoDesdeDireccion = () => {
     if (tipoConsumo === 'Domicilio' && direccionEntrega.trim()) {
         let nuevas = [...direccionesGuardadas];
         const dir = direccionEntrega.trim();
         if (!nuevas.includes(dir)) {
             nuevas.unshift(dir);
-            if (nuevas.length > 2) nuevas.pop(); // Mantener solo las 2 más recientes
+            if (nuevas.length > 2) nuevas.pop(); 
             setDireccionesGuardadas(nuevas);
             if (clienteActivo && clienteActivo.id) {
                 localStorage.setItem(`direcciones_${clienteActivo.id}`, JSON.stringify(nuevas));
@@ -290,13 +284,21 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     setPantallaActual('pago');
   };
 
-  const seleccionarPago = async (metodo) => { 
-    const ok = await guardarPedidoEnBD(metodo); 
+  const seleccionarPago = async (metodo, montoEfectivo = null) => { 
+    let dirModificada = direccionEntrega;
+    
+    // Si paga en efectivo a domicilio, le agregamos a la dirección con cuánto va a pagar para el repartidor
+    if (metodo === 'Efectivo' && tipoConsumo === 'Domicilio' && montoEfectivo) {
+        dirModificada = `${direccionEntrega} | (Llevar cambio para: ${montoEfectivo})`;
+    }
+    
+    const ok = await guardarPedidoEnBD(metodo, dirModificada); 
     if (ok) { 
       if (metodo === 'Transferencia') setPantallaActual('detalles_transferencia'); 
       else { setContador(15); setPantallaActual('finalizado'); } 
     } 
   };
+  
   const procesarTransferencia = () => { setContador(15); setPantallaActual('finalizado'); };
 
   const agruparVariaciones = (opciones) => { const grupos = {}; opciones?.filter(o => o.tipo === 'variacion').forEach(o => { if (!grupos[o.categoria]) grupos[o.categoria] = []; grupos[o.categoria].push(o); }); return grupos; };
@@ -409,7 +411,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                 <div key={item.idTicket} className="flex justify-between items-start mb-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
                   <div className="flex-1 pr-2">
                     <span className="font-black block text-lg text-slate-700">
-                      {/* MOSTRAR CANTIDAD SI ES MAYOR A 1 */}
                       {item.cantidad > 1 && <span className="text-blue-600 mr-2">{item.cantidad}x</span>}
                       {item.nombre}
                     </span>
@@ -421,7 +422,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                     <span className="font-black text-blue-600 block mt-2 text-xl">${item.precioFinal * (item.cantidad || 1)}</span>
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
-                    {/* BOTONES RÁPIDOS DE + Y - */}
                     <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                        <button onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="px-3 py-1 font-black text-slate-500 hover:bg-slate-100">-</button>
                        <span className="px-2 py-1 font-black text-slate-800 text-sm">{item.cantidad || 1}</span>
@@ -466,7 +466,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         </div>
       )}
 
-      {/* ================= VISTA DOMICILIO (CON MEMORIA DE DIRECCIONES) ================= */}
+      {/* ================= VISTA DOMICILIO ================= */}
       {pantallaActual === 'direccion' && (
         <div className="max-w-xl mx-auto mt-10 text-center">
           <div className="flex justify-start mb-6"><button onClick={() => setPantallaActual('consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200">⬅ Elegir otro método</button></div>
@@ -497,9 +497,36 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           <div className="flex justify-start mb-6"><button onClick={() => setPantallaActual(tipoConsumo === 'Domicilio' ? 'direccion' : 'consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200">⬅ Atrás</button></div>
           <h2 className="text-4xl font-black text-center mb-12 texto-destacado">Método de Pago</h2>
           <div className="grid grid-cols-1 gap-6">
-            <button onClick={() => seleccionarPago('Tarjeta')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-blue-50 transition-all hover:border-blue-200"><span className="text-3xl font-black text-slate-700">💳 Tarjeta / Terminal</span></button>
-            <button onClick={() => seleccionarPago('Efectivo')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-emerald-50 transition-all hover:border-emerald-200"><span className="text-3xl font-black text-slate-700">💵 Pago en Caja</span></button>
+            
+            {tipoConsumo !== 'Domicilio' && (
+               <button onClick={() => seleccionarPago('Tarjeta')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-blue-50 transition-all hover:border-blue-200"><span className="text-3xl font-black text-slate-700">💳 Tarjeta / Terminal</span></button>
+            )}
+            
+            {tipoConsumo === 'Domicilio' ? (
+               <button onClick={() => setPantallaActual('cambio_efectivo_domicilio')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-emerald-50 transition-all hover:border-emerald-200"><span className="text-3xl font-black text-slate-700">💵 Pago en Efectivo</span></button>
+            ) : (
+               <button onClick={() => seleccionarPago('Efectivo')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-emerald-50 transition-all hover:border-emerald-200"><span className="text-3xl font-black text-slate-700">💵 Pago en Caja</span></button>
+            )}
+
             <button onClick={() => seleccionarPago('Transferencia')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-purple-50 transition-all hover:border-purple-200"><span className="text-3xl font-black text-slate-700">📱 Transferencia</span></button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= NUEVA VISTA: ¿CON CUÁNTO PAGAS? ================= */}
+      {pantallaActual === 'cambio_efectivo_domicilio' && (
+        <div className="max-w-3xl mx-auto mt-10 text-center">
+          <div className="flex justify-start mb-6"><button onClick={() => setPantallaActual('pago')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200">⬅ Atrás</button></div>
+          <span className="text-6xl block mb-6">💵</span>
+          <h2 className="text-4xl font-black text-center mb-4 texto-destacado">¿Con cuánto vas a pagar?</h2>
+          <p className="text-slate-500 font-medium mb-8 text-xl">El repartidor te llevará el cambio exacto.</p>
+          <p className="text-2xl font-black text-blue-600 mb-8">Total de tu orden: ${calcularTotal()}</p>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <button onClick={() => seleccionarPago('Efectivo', 'Exacto')} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 hover:border-blue-500 hover:text-blue-600 transition-all">Exacto</button>
+            {[100, 200, 300, 400, 500, 1000].filter(monto => monto > calcularTotal()).map(monto => (
+              <button key={monto} onClick={() => seleccionarPago('Efectivo', `$${monto}`)} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 hover:border-emerald-500 hover:text-emerald-600 transition-all">${monto}</button>
+            ))}
           </div>
         </div>
       )}
@@ -539,7 +566,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         </div>
       )}
 
-      {/* ================= MODALES (PRODUCTO Y NIP) ================= */}
+      {/* ================= MODALES ================= */}
       {modalNip && ( 
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center">
