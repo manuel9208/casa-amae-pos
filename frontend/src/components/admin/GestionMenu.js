@@ -1,23 +1,169 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Edit, Plus, Trash2, XCircle } from 'lucide-react';
 
 const GestionMenu = ({
-  editandoId, guardarProducto, categoriaSelect, setCategoriaSelect, 
-  clasificaciones, nombre, setNombre, descripcion, setDescripcion, 
-  aplicaTamanos, setAplicaTamanos, precio, setPrecio, emoji, setEmoji, 
-  aplicaSabores, setAplicaSabores, listaSabores, setListaSabores, 
-  EMOJIS_POR_GIRO, tiempoPreparacion, setTiempoPreparacion, tamanos, setTamanos, 
-  ingredientesParaClasifActiva, checkedIngredientes, setCheckedIngredientes, 
-  setImagenBlob, limpiarFormularioMenu, nombreCategoriaSeleccionada, 
-  productosEnCategoria, baseUrl, prepararEdicion, eliminarProducto
+  // Props inyectadas por el AdminPanel
+  productos, clasificaciones, catalogoIngredientes, EMOJIS_POR_GIRO, 
+  baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
   
+  // === ESTADOS LOCALES DEL FORMULARIO ===
+  const [editandoId, setEditandoId] = useState(null);
+  const [nombre, setNombre] = useState('');
+  const [descripcion, setDescripcion] = useState(''); 
+  const [precio, setPrecio] = useState('');
+  const [tiempoPreparacion, setTiempoPreparacion] = useState(15);
+  const [emoji, setEmoji] = useState('🍽️'); 
+  const [categoriaSelect, setCategoriaSelect] = useState(''); 
+  const [imagenBlob, setImagenBlob] = useState(null);
+  const [checkedIngredientes, setCheckedIngredientes] = useState([]);
+  
+  // 👇 NUEVO ESTADO PARA HABILITAR/DESHABILITAR PLATILLOS
+  const [disponible, setDisponible] = useState(true);
+  
+  // Estados para Tamaños
+  const [aplicaTamanos, setAplicaTamanos] = useState(false);
+  const [tamanos, setTamanos] = useState({ 
+    chico: { activo: false, extra: 0 }, 
+    mediano: { activo: false, extra: 15 }, 
+    grande: { activo: false, extra: 25 } 
+  });
+  
+  // Estados para Sabores
+  const [aplicaSabores, setAplicaSabores] = useState(false);
+  const [listaSabores, setListaSabores] = useState([{ nombre: '', extra: 0 }]);
+
+  // === CÁLCULOS VISUALES ===
+  const ingredientesParaClasifActiva = (catalogoIngredientes || []).filter(i => Number(i.clasificacion_id) === Number(categoriaSelect));
+  const nombreCategoriaSeleccionada = (clasificaciones || []).find(c => Number(c.id) === Number(categoriaSelect))?.nombre;
+  const productosEnCategoria = (productos || []).filter(p => p.categoria === nombreCategoriaSeleccionada);
+
+  // === FUNCIONES AUXILIARES DE SABORES ===
   const agregarSabor = () => setListaSabores([...listaSabores, { nombre: '', extra: 0 }]);
   const removerSabor = (index) => setListaSabores(listaSabores.filter((_, i) => i !== index));
   const actualizarSabor = (index, campo, valor) => {
     const nuevosSabores = [...listaSabores];
     nuevosSabores[index][campo] = valor;
     setListaSabores(nuevosSabores);
+  };
+
+  // === LÓGICA DE LIMPIEZA ===
+  const limpiarFormularioMenu = () => { 
+    setEditandoId(null); setNombre(''); setDescripcion(''); setPrecio(''); setTiempoPreparacion(15); setEmoji('🍽️'); 
+    setImagenBlob(null); 
+    setDisponible(true); // Restablecemos a disponible por defecto
+    setAplicaTamanos(false); setTamanos({ chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 15 }, grande: { activo: false, extra: 25 } }); 
+    setAplicaSabores(false); setListaSabores([{ nombre: '', extra: 0 }]);
+    setCheckedIngredientes([]); 
+    const fileInput = document.getElementById('imagen-producto-upload');
+    if (fileInput) fileInput.value = '';
+  };
+
+  // === LÓGICA DE GUARDADO ===
+  const guardarProducto = async (e) => {
+    e.preventDefault(); 
+    if (!categoriaSelect) return showAlert("Atención", "Selecciona clasificación.", "info");
+    
+    const duplicado = productos.find(p => p.nombre.trim().toLowerCase() === nombre.trim().toLowerCase() && p.id !== editandoId);
+    if (duplicado) return showAlert("Atención", "Ya existe un platillo con ese nombre.", "warning");
+    
+    const opcionesArmadas = [];
+    
+    if (aplicaTamanos) { 
+      if (tamanos.chico.activo) opcionesArmadas.push({ nombre: 'Chico', precioExtra: tamanos.chico.extra, tipo: 'variacion', categoria: 'Tamaño' }); 
+      if (tamanos.mediano.activo) opcionesArmadas.push({ nombre: 'Mediano', precioExtra: tamanos.mediano.extra, tipo: 'variacion', categoria: 'Tamaño' }); 
+      if (tamanos.grande.activo) opcionesArmadas.push({ nombre: 'Grande', precioExtra: tamanos.grande.extra, tipo: 'variacion', categoria: 'Tamaño' }); 
+    }
+
+    if (aplicaSabores) {
+      listaSabores.forEach(sabor => {
+        if (sabor.nombre.trim() !== '') {
+          opcionesArmadas.push({ nombre: sabor.nombre.trim(), precioExtra: Number(sabor.extra || 0), tipo: 'variacion', categoria: 'Sabor' });
+        }
+      });
+    }
+    
+    checkedIngredientes.forEach(id => { 
+      const ing = catalogoIngredientes.find(i => Number(i.id) === Number(id)); 
+      if (ing) opcionesArmadas.push({ nombre: ing.nombre, precioExtra: Number(ing.precio_extra), tipo: ing.tipo }); 
+    });
+    
+    const nombreCategoria = clasificaciones.find(c => Number(c.id) === Number(categoriaSelect))?.nombre || 'General';
+    const formData = new FormData(); 
+    formData.append('nombre', nombre); 
+    formData.append('descripcion', descripcion); 
+    formData.append('precio_base', (aplicaTamanos || aplicaSabores) && (!precio) ? 0 : precio); 
+    formData.append('tiempo_preparacion', tiempoPreparacion); 
+    formData.append('emoji', emoji); 
+    formData.append('categoria', nombreCategoria); 
+    formData.append('opciones', JSON.stringify(opcionesArmadas)); 
+    formData.append('disponible', disponible); // 👇 Enviamos el estado de disponibilidad al servidor
+    if (imagenBlob) formData.append('imagen', imagenBlob);
+    
+    try { 
+      const url = editandoId ? `${apiUrl}/productos/${editandoId}` : `${apiUrl}/productos`; 
+      const res = await fetch(url, { method: editandoId ? 'PUT' : 'POST', body: formData }); 
+      if (res.ok) { 
+        limpiarFormularioMenu(); 
+        refrescarDatos(); 
+        showAlert("¡Éxito!", "Producto guardado correctamente.", "success"); 
+      } else {
+        showAlert("Error", "No se pudo guardar el producto.", "error");
+      }
+    } catch (error) { 
+      showAlert("Error", "Error de conexión.", "error"); 
+    }
+  };
+
+  // === LÓGICA DE EDICIÓN ===
+  const prepararEdicion = (p) => { 
+    setEditandoId(p.id); setNombre(p.nombre); setDescripcion(p.descripcion || ''); setEmoji(p.emoji || '🍽️'); setTiempoPreparacion(p.tiempo_preparacion || 15); setImagenBlob(null); 
+    const clasifEncontrada = clasificaciones.find(c => c.nombre === p.categoria); setCategoriaSelect(clasifEncontrada ? clasifEncontrada.id : ''); 
+    
+    // 👇 Recuperamos el estado de disponibilidad (si no existe, asumimos true)
+    setDisponible(p.disponible !== false); 
+
+    let tieneTamanos = false; 
+    let tieneSabores = false;
+    const tempSabores = [];
+    const newTamanos = { chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 0 }, grande: { activo: false, extra: 0 } }; 
+    const newChecks = []; 
+    
+    (p.opciones || []).forEach(o => { 
+      if (o.categoria === 'Tamaño') { 
+        tieneTamanos = true; 
+        const key = o.nombre.toLowerCase(); 
+        if (newTamanos[key] !== undefined) { newTamanos[key].activo = true; newTamanos[key].extra = o.precioExtra; } 
+      } else if (o.tipo === 'variacion' && o.categoria !== 'Tamaño') {
+        tieneSabores = true;
+        tempSabores.push({ nombre: o.nombre, extra: o.precioExtra });
+      } else { 
+        const catItem = catalogoIngredientes.find(ci => ci.nombre === o.nombre && ci.tipo === o.tipo); 
+        if (catItem) newChecks.push(catItem.id); 
+      } 
+    }); 
+    
+    setAplicaTamanos(tieneTamanos); 
+    setTamanos(newTamanos); 
+    
+    setAplicaSabores(tieneSabores);
+    setListaSabores(tempSabores.length > 0 ? tempSabores : [{ nombre: '', extra: 0 }]);
+
+    setCheckedIngredientes(newChecks); 
+    setPrecio(tieneTamanos || tieneSabores ? p.precio_base : p.precio_base); 
+  };
+
+  // === LÓGICA DE ELIMINACIÓN ===
+  const eliminarProducto = (id) => { 
+    showConfirm("Eliminar Platillo", "¿Seguro que deseas borrar este platillo permanentemente?", async () => { 
+      try {
+        await fetch(`${apiUrl}/productos/${id}`, { method: 'DELETE' }); 
+        refrescarDatos(); 
+        showAlert("Eliminado", "Platillo borrado correctamente.", "success");
+      } catch (error) {
+        showAlert("Error", "No se pudo eliminar.", "error");
+      }
+    }); 
   };
 
   return (
@@ -31,53 +177,19 @@ const GestionMenu = ({
         
         <form onSubmit={guardarProducto} className="space-y-6">
            <div className="space-y-4">
-             {/* 1. CLASIFICACIÓN */}
-             <select 
-               required 
-               value={categoriaSelect} 
-               onChange={e => setCategoriaSelect(e.target.value)} 
-               className="w-full p-4 bg-blue-50 border border-blue-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-black text-blue-900 text-lg cursor-pointer"
-             >
+             <select required value={categoriaSelect} onChange={e => setCategoriaSelect(e.target.value)} className="w-full p-4 bg-blue-50 border border-blue-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-black text-blue-900 text-lg cursor-pointer">
                <option value="">1. Selecciona Clasificación...</option>
                {(clasificaciones || []).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
              </select>
 
-             {/* 2. NOMBRE */}
-             <input 
-               required 
-               placeholder="2. Nombre (Ej. Moka Frapuccino o Alitas)" 
-               value={nombre} 
-               onChange={e => setNombre(e.target.value)} 
-               className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg" 
-             />
+             <input required placeholder="2. Nombre (Ej. Moka Frapuccino o Alitas)" value={nombre} onChange={e => setNombre(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg" />
 
-             {/* 3. DESCRIPCIÓN */}
-             <textarea 
-               placeholder="Descripción atractiva del platillo..." 
-               value={descripcion} 
-               onChange={e => setDescripcion(e.target.value)} 
-               className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none h-24" 
-             />
+             <textarea placeholder="Descripción atractiva del platillo..." value={descripcion} onChange={e => setDescripcion(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none h-24" />
              
              <div className="grid grid-cols-2 gap-4">
-               {/* 4. PRECIO (Se bloquea si hay Tamaños o Sabores) */}
-               <input 
-                 required={!aplicaTamanos && !aplicaSabores} 
-                 type="number" 
-                 placeholder="Precio Base $" 
-                 value={precio} 
-                 onChange={e => setPrecio(e.target.value)} 
-                 disabled={aplicaTamanos || aplicaSabores} 
-                 className={`p-4 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg ${aplicaTamanos || aplicaSabores ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-50'}`} 
-               />
+               <input required={!aplicaTamanos && !aplicaSabores} type="number" placeholder="Precio Base $" value={precio} onChange={e => setPrecio(e.target.value)} disabled={aplicaTamanos || aplicaSabores} className={`p-4 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg ${aplicaTamanos || aplicaSabores ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-50'}`} />
                
-               {/* 5. EMOJI */}
-               <select 
-                 required 
-                 value={emoji} 
-                 onChange={e => setEmoji(e.target.value)} 
-                 className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-3xl focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none"
-               >
+               <select required value={emoji} onChange={e => setEmoji(e.target.value)} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-3xl focus:ring-2 focus:ring-blue-500 cursor-pointer appearance-none">
                  {Object.entries(EMOJIS_POR_GIRO).map(([giro, emojis]) => (
                    <optgroup key={giro} label={giro}>
                      {emojis.map(em => <option key={em} value={em}>{em}</option>)}
@@ -86,18 +198,19 @@ const GestionMenu = ({
                </select>
              </div>
              
-             {/* 6. TIEMPO */}
              <div>
                <label className="block text-xs font-black text-slate-400 uppercase mb-2">Tiempo de preparación (Minutos)</label>
-               <input 
-                 required 
-                 type="number" 
-                 placeholder="Ej. 15" 
-                 value={tiempoPreparacion} 
-                 onChange={e => setTiempoPreparacion(e.target.value)} 
-                 className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg outline-none" 
-               />
+               <input required type="number" placeholder="Ej. 15" value={tiempoPreparacion} onChange={e => setTiempoPreparacion(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 font-bold text-lg outline-none" />
              </div>
+           </div>
+
+           {/* 👇 ESTADO DEL PRODUCTO (ACTIVO/INACTIVO) */}
+           <div className={`p-6 rounded-3xl border transition-all ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+             <label className={`flex items-center gap-3 font-bold cursor-pointer text-lg ${disponible ? 'text-emerald-800' : 'text-red-800'}`}>
+               <input type="checkbox" checked={disponible} onChange={e => setDisponible(e.target.checked)} className={`w-6 h-6 ${disponible ? 'accent-emerald-600' : 'accent-red-600'}`} /> 
+               {disponible ? '✅ Platillo Disponible para Venta' : '❌ Platillo Deshabilitado (Oculto)'}
+             </label>
+             {!disponible && <p className="text-red-600 text-sm mt-2 font-medium">Este platillo ya no se mostrará en el Kiosco hasta que lo vuelvas a habilitar.</p>}
            </div>
            
            {/* TAMAÑOS */}
@@ -153,12 +266,7 @@ const GestionMenu = ({
                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-48 overflow-y-auto pr-2">
                  {ingredientesParaClasifActiva.map(ing => (
                    <label key={ing.id} className="flex items-center gap-3 text-base cursor-pointer hover:bg-white p-2 rounded-xl transition border border-transparent hover:border-slate-200 shadow-sm">
-                     <input 
-                        type="checkbox" 
-                        checked={checkedIngredientes.includes(ing.id)} 
-                        onChange={e => e.target.checked ? setCheckedIngredientes([...checkedIngredientes, ing.id]) : setCheckedIngredientes(checkedIngredientes.filter(id => id !== ing.id))} 
-                        className="w-5 h-5 accent-blue-600"
-                     />
+                     <input type="checkbox" checked={checkedIngredientes.includes(ing.id)} onChange={e => e.target.checked ? setCheckedIngredientes([...checkedIngredientes, ing.id]) : setCheckedIngredientes(checkedIngredientes.filter(id => id !== ing.id))} className="w-5 h-5 accent-blue-600" />
                      <span className="flex-1 font-medium">{ing.nombre}</span>
                    </label>
                  ))}
@@ -195,7 +303,7 @@ const GestionMenu = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {productosEnCategoria.map(p => (
-                <div key={p.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition">
+                <div key={p.id} className={`bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition ${p.disponible === false ? 'opacity-60 grayscale' : ''}`}>
                   <div className="flex items-center gap-4">
                     {p.imagen_url ? (
                         <img src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" /> 
@@ -203,7 +311,10 @@ const GestionMenu = ({
                         <span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji}</span>
                     )}
                     <div>
-                      <p className="font-bold text-lg leading-tight text-slate-800">{p.nombre}</p>
+                      <p className="font-bold text-lg leading-tight text-slate-800 flex items-center flex-wrap gap-2">
+                        {p.nombre}
+                        {p.disponible === false && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-md uppercase font-black tracking-widest">Oculto</span>}
+                      </p>
                       <span className="text-blue-600 font-black text-sm block mt-1">${p.precio_base} • ⏱️ {p.tiempo_preparacion}m</span>
                     </div>
                   </div>

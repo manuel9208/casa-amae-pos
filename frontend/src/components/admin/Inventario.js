@@ -1,25 +1,168 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2 } from 'lucide-react';
 
 const Inventario = ({
-  subSeccionInventario, setSubSeccionInventario,
-  insumosCriticos,
-  editandoInsumoId,
-  nuevoInsumo, setNuevoInsumo,
-  guardarInsumo, cancelarEdicionInsumo,
-  insumosDB,
-  setModalCompra, setCompraCosto,
-  reiniciarStockInsumo, prepararEdicionInsumo, eliminarInsumo,
-  recetaCategoriaFiltro, setRecetaCategoriaFiltro,
-  recetaActivaId, setRecetaActivaId,
-  clasificaciones, productos,
-  rendimientoCalculadora, setRendimientoCalculadora,
-  guardarRendimiento,
-  nuevoItemReceta, setNuevoItemReceta,
-  guardarItemReceta, recetaItems, eliminarItemReceta
+  // Props recibidas desde AdminPanel
+  insumosDB, productos, clasificaciones, 
+  apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
   
-  // Cálculo interno del costo total de la receta en pantalla
+  // === ESTADOS LOCALES DE INVENTARIO Y RECETAS ===
+  const [subSeccionInventario, setSubSeccionInventario] = useState('insumos');
+  
+  // Estados para Insumos
+  const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' });
+  const [editandoInsumoId, setEditandoInsumoId] = useState(null);
+  
+  // Estados para Compras (Modal)
+  const [modalCompra, setModalCompra] = useState(null);
+  const [compraPaquetes, setCompraPaquetes] = useState('');
+  const [compraCosto, setCompraCosto] = useState('');
+
+  // Estados para Recetas
+  const [recetaCategoriaFiltro, setRecetaCategoriaFiltro] = useState('');
+  const [recetaActivaId, setRecetaActivaId] = useState('');
+  const [recetaItems, setRecetaItems] = useState([]);
+  const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
+  const [rendimientoCalculadora, setRendimientoCalculadora] = useState(1);
+
+  // === EFECTO PARA CARGAR ITEMS DE LA RECETA ACTIVA ===
+  useEffect(() => {
+    if (recetaActivaId) { 
+      const productoEncontrado = productos.find(p => Number(p.id) === Number(recetaActivaId));
+      if (productoEncontrado) setRendimientoCalculadora(productoEncontrado.rendimiento || 1);
+      
+      fetch(`${apiUrl}/recetas/${recetaActivaId}`)
+        .then(r => r.json())
+        .then(data => setRecetaItems(Array.isArray(data) ? data : []))
+        .catch(console.error); 
+    } else { 
+      setRecetaItems([]); 
+      setRendimientoCalculadora(1); 
+    }
+  }, [recetaActivaId, productos, apiUrl]);
+
+
+  // === LÓGICA DE INSUMOS ===
+  const prepararEdicionInsumo = (i) => { 
+    setEditandoInsumoId(i.id); 
+    setNuevoInsumo(i); 
+  };
+  
+  const cancelarEdicionInsumo = () => { 
+    setEditandoInsumoId(null); 
+    setNuevoInsumo({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' }); 
+  };
+  
+  const guardarInsumo = async (e) => { 
+      e.preventDefault(); 
+      try { 
+          const url = editandoInsumoId ? `${apiUrl}/insumos/${editandoInsumoId}` : `${apiUrl}/insumos`;
+          const res = await fetch(url, { method: editandoInsumoId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoInsumo) }); 
+          if (res.ok) { 
+            showAlert("¡Éxito!", editandoInsumoId ? "Insumo actualizado." : "Insumo registrado.", "success");
+            cancelarEdicionInsumo(); 
+            refrescarDatos(); 
+          } else {
+            showAlert("Error", "No se pudo guardar el insumo.", "error");
+          }
+      } catch(e) {
+          showAlert("Error", "Error de conexión al servidor.", "error");
+      } 
+  };
+  
+  const eliminarInsumo = (id) => { 
+    showConfirm("Eliminar Insumo", "Asegúrate de que este insumo no esté siendo utilizado en ninguna receta antes de eliminarlo.", async () => { 
+      try {
+        await fetch(`${apiUrl}/insumos/${id}`, { method: 'DELETE' }); 
+        refrescarDatos(); 
+        showAlert("Eliminado", "Insumo borrado de la base de datos.", "success");
+      } catch (error) {
+        showAlert("Error", "No se pudo borrar el insumo.", "error");
+      }
+    }); 
+  };
+  
+  const procesarCompraInsumo = async (e) => { 
+      e.preventDefault(); 
+      try { 
+          const res = await fetch(`${apiUrl}/insumos/${modalCompra.id}/comprar`, { 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ paquetes_comprados: compraPaquetes, nuevo_costo_paquete: compraCosto }) 
+          }); 
+          if (res.ok) { 
+            showAlert("Stock Actualizado", `Se ha sumado el stock correctamente.`, "success");
+            setModalCompra(null); 
+            setCompraPaquetes(''); 
+            setCompraCosto(''); 
+            refrescarDatos(); 
+          } else {
+            showAlert("Error", "No se pudo registrar la compra.", "error");
+          }
+      } catch(e) {
+          showAlert("Error", "Problema de conexión al procesar la compra.", "error");
+      } 
+  };
+
+  const reiniciarStockInsumo = (insumo) => {
+    showConfirm("Reiniciar a 0", `¿Deseas poner en 0 el stock de ${insumo.nombre}? \n\nÚsalo únicamente si se echó a perder, hubo merma o detectaste un descuadre en tu inventario.`, async () => {
+        try { 
+          const res = await fetch(`${apiUrl}/insumos/${insumo.id}/reiniciar`, { method: 'PUT' }); 
+          if (res.ok) { 
+            showAlert("Stock Reiniciado", `El inventario de ${insumo.nombre} ahora está en 0.`, "success");
+            refrescarDatos(); 
+          } 
+        } catch(e) {}
+    });
+  };
+  
+  // === LÓGICA DE RECETAS ===
+  const guardarItemReceta = async (e) => { 
+    e.preventDefault(); 
+    try { 
+      const payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: nuevoItemReceta.cantidad_usada }; 
+      const res = await fetch(`${apiUrl}/recetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
+      if (res.ok) { 
+        setNuevoItemReceta({ insumo_id: '', cantidad_usada: '' }); 
+        const r = await fetch(`${apiUrl}/recetas/${recetaActivaId}`); 
+        const dataR = await r.json(); 
+        setRecetaItems(Array.isArray(dataR) ? dataR : []); 
+      } else {
+        showAlert("Atención", "Ese insumo ya está en la receta o hubo un problema.", "warning");
+      }
+    } catch(e) {} 
+  };
+
+  const eliminarItemReceta = (id) => { 
+    fetch(`${apiUrl}/recetas/${id}`, { method: 'DELETE' }).then(() => { 
+      fetch(`${apiUrl}/recetas/${recetaActivaId}`)
+        .then(r => r.json())
+        .then(dataR => setRecetaItems(Array.isArray(dataR) ? dataR : [])); 
+    }); 
+  };
+
+  const guardarRendimiento = async () => {
+    if (!recetaActivaId) return;
+    try { 
+      const res = await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ rendimiento: rendimientoCalculadora }) 
+      }); 
+      if (res.ok) { 
+        showAlert("¡Éxito!", "Porciones (rendimiento) guardadas correctamente.", "success");
+        refrescarDatos(); 
+      } 
+    } catch (error) { 
+      showAlert("Error", "No se pudo guardar.", "error"); 
+    }
+  };
+
+  // === CÁLCULOS VISUALES ===
+  const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
+  const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
+
   let costoTotalRecetaCalculado = 0;
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
@@ -28,7 +171,7 @@ const Inventario = ({
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12">
+    <div className="max-w-6xl mx-auto space-y-8 pb-12 relative">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-black text-slate-800">Control de Insumos y Recetas</h2>
       </div>
@@ -84,7 +227,7 @@ const Inventario = ({
                 {editandoInsumoId && (
                   <button type="button" onClick={cancelarEdicionInsumo} className="w-full md:w-1/3 p-4 bg-slate-100 text-slate-600 rounded-xl font-black hover:bg-slate-200 transition">Cancelar</button>
                 )}
-                <button type="submit" className={`flex-1 p-4 text-white rounded-xl font-black shadow-lg transition ${editandoInsumoId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
+                <button type="submit" className={`flex-1 p-4 text-white rounded-xl font-black shadow-lg transition active:scale-95 ${editandoInsumoId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
                   {editandoInsumoId ? 'Actualizar Insumo' : 'Guardar Insumo en Inventario'}
                 </button>
               </div>
@@ -170,7 +313,7 @@ const Inventario = ({
                 <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Porciones por Receta</label>
                 <div className="flex gap-2">
                   <input type="number" min="1" step="0.01" value={rendimientoCalculadora} onChange={e => setRendimientoCalculadora(e.target.value)} className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" title="¿Cuántos platillos salen de esta receta?" />
-                  <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm" title="Guardar rendimiento en la base de datos">Guardar</button>
+                  <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95" title="Guardar rendimiento en la base de datos">Guardar</button>
                 </div>
               </div>
             </div>
@@ -189,7 +332,7 @@ const Inventario = ({
                     <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold" />
                     <span className="bg-slate-200 text-slate-600 px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap">Uso</span>
                   </div>
-                  <button type="submit" className="md:w-auto px-8 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition">Añadir a Receta</button>
+                  <button type="submit" className="md:w-auto px-8 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition active:scale-95">Añadir a Receta</button>
                 </form>
               </div>
             )}
@@ -241,6 +384,28 @@ const Inventario = ({
                )}
              </div>
           )}
+        </div> 
+      )}
+
+      {/* MODAL DE COMPRAS */}
+      {modalCompra && ( 
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
+          <form onSubmit={procesarCompraInsumo} className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-blue-200">
+            <h3 className="text-xl font-black text-slate-800 mb-2">Ingresar Stock</h3>
+            <p className="text-slate-500 font-medium mb-6">Insumo: <span className="font-bold text-blue-600">{modalCompra.nombre}</span> ({modalCompra.cantidad_presentacion} {modalCompra.unidad_medida})</p>
+            <div className="space-y-4">
+              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Paquetes / Cajas Compradas</label><input autoFocus required type="number" value={compraPaquetes} onChange={e => setCompraPaquetes(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center" placeholder="Ej. 2" /></div>
+              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Costo Nuevo del Paquete ($)</label><input required type="number" step="0.01" value={compraCosto} onChange={e => setCompraCosto(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center text-slate-700" /></div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mt-4 text-right">
+                <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-1">Costo Total Compra</p>
+                <p className="text-3xl font-black text-blue-700">${totalCalculadoModalCompra.toFixed(2)}</p>
+            </div>
+            <div className="flex gap-4 mt-8">
+              <button type="button" onClick={() => {setModalCompra(null); setCompraPaquetes(''); setCompraCosto('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>
+              <button type="submit" className="flex-1 py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95">Guardar</button>
+            </div>
+          </form>
         </div> 
       )}
     </div>

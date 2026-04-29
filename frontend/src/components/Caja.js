@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { LogOut, DollarSign, CreditCard, Smartphone, CheckCircle2, XCircle, AlertTriangle, Monitor, ShoppingBag, FileText, List, BellRing, Check, Clock, ChefHat, MessageSquare } from 'lucide-react';
+import { LogOut, DollarSign, CreditCard, Smartphone, CheckCircle2, XCircle, AlertTriangle, Monitor, ShoppingBag, FileText, List, BellRing, Check, Clock, ChefHat, MessageSquare, Phone } from 'lucide-react';
 
 const Caja = ({ user, onLogout }) => {
   const [vistaActiva, setVistaActiva] = useState('cobrar'); 
   const [subVistaHistorial, setSubVistaHistorial] = useState('Pagado'); 
   const [pedidos, setPedidos] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
+  
+  // ESTADO GLOBAL DE CONFIGURACIÓN
+  const [configGlobal, setConfigGlobal] = useState(null);
   
   const [modalPago, setModalPago] = useState(null);
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -15,10 +18,9 @@ const Caja = ({ user, onLogout }) => {
   const [accionAlerta, setAccionAlerta] = useState('quitar');
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
 
-  // 👇 ESTADOS PARA EL FONDO DE CAJA (FERIA INICIAL)
+  // ESTADOS PARA EL FONDO DE CAJA
   const hoyStr = new Date().toLocaleDateString();
   const [fondoCaja, setFondoCaja] = useState(() => {
-    // Buscamos si el usuario ya registró su fondo hoy
     const guardado = localStorage.getItem(`fondo_caja_${user?.id}_${hoyStr}`);
     return guardado !== null ? Number(guardado) : null;
   });
@@ -26,15 +28,48 @@ const Caja = ({ user, onLogout }) => {
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
+  // === CARGA DE DATOS ===
   useEffect(() => {
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
-    const cargarPedidos = async () => {
-      try { const res = await fetch(`${apiUrl}/pedidos/hoy`); const data = await res.json(); setPedidos(Array.isArray(data) ? data : []); } catch (error) { console.error('Error al cargar pedidos'); }
+    
+    const cargarConfig = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
+        const data = await res.json();
+        if(data && !data.error) setConfigGlobal(data);
+      } catch (error) { console.error('Error al cargar config'); }
     };
-    cargarPedidos(); const intervalo = setInterval(cargarPedidos, 3000); return () => clearInterval(intervalo);
+    cargarConfig();
+
+    const cargarPedidos = async () => {
+      try { const res = await fetch(`${apiUrl}/pedidos/hoy?t=${new Date().getTime()}`); const data = await res.json(); setPedidos(Array.isArray(data) ? data : []); } catch (error) { console.error('Error al cargar pedidos'); }
+    };
+    cargarPedidos(); 
+    
+    const intervalo = setInterval(cargarPedidos, 3000); 
+    return () => clearInterval(intervalo);
   }, [apiUrl]);
 
-  // 👇 FUNCIÓN PARA GUARDAR EL FONDO AL INICIAR SESIÓN
+  const toggleEstadoNegocio = async () => {
+    if (!configGlobal) return;
+    const nuevoEstado = !configGlobal.negocio_abierto;
+    setConfigGlobal(prev => ({ ...prev, negocio_abierto: nuevoEstado }));
+
+    const formData = new FormData();
+    Object.keys(configGlobal).forEach(key => {
+      if (key === 'negocio_abierto') formData.append(key, nuevoEstado);
+      else if (configGlobal[key] !== null && configGlobal[key] !== undefined) formData.append(key, configGlobal[key]);
+    });
+
+    try {
+      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      if (!res.ok) throw new Error("Error en servidor");
+    } catch (error) {
+      setConfigGlobal(prev => ({ ...prev, negocio_abierto: !nuevoEstado }));
+      alert('Error al cambiar el estado del negocio.');
+    }
+  };
+
   const iniciarTurno = (e) => {
     e.preventDefault();
     const monto = Number(inputFondo);
@@ -42,8 +77,31 @@ const Caja = ({ user, onLogout }) => {
     setFondoCaja(monto);
   };
 
-  const procesarPago = async (estadoFinal) => {
-    try { const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: estadoFinal }) }); if (res.ok) { setModalPago(null); setMontoRecibido(''); } } catch (error) { alert('Error al procesar el pago.'); }
+  // PROCESAR PAGO (ACTUALIZA TAMBIÉN EL MÉTODO DE PAGO FINAL)
+  const procesarPago = async (estadoRechazo = null) => {
+    const estadoFinal = estadoRechazo || (modalPago.estado_preparacion === 'Listo' ? 'Entregado' : 'Pagado');
+    try { 
+      const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ 
+          estado_preparacion: estadoFinal,
+          metodo_pago: modalPago.metodo_pago 
+        }) 
+      }); 
+      if (res.ok) { setModalPago(null); setMontoRecibido(''); } 
+    } catch (error) { alert('Error al procesar el pago.'); }
+  };
+
+  // CONFIRMAR PEDIDO TELEFÓNICO PARA MANDAR A COCINA (SIN COBRAR AÚN)
+  const confirmarPedidoRecoger = async (id) => {
+    try { 
+        await fetch(`${apiUrl}/pedidos/${id}/estado`, { 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ estado_preparacion: 'Pagado' }) 
+        }); 
+    } catch (error) {}
   };
 
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
@@ -83,16 +141,41 @@ const Caja = ({ user, onLogout }) => {
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
 
-  const getIconoPago = (metodo) => { if(metodo==='Tarjeta') return <CreditCard size={16}/>; if(metodo==='Transferencia') return <Smartphone size={16}/>; return <DollarSign size={16}/>; };
+  const getIconoPago = (metodo) => { 
+    if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
+    if(metodo==='Transferencia') return <Smartphone size={16}/>; 
+    if(metodo==='Pendiente') return <Clock size={16}/>;
+    return <DollarSign size={16}/>; 
+  };
 
-  const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente');
+  // Helper para renderizar los items en la tarjeta de confirmación
+  const renderItemsConfirmacion = (carritoRaw) => {
+      if (!carritoRaw) return null;
+      const items = typeof carritoRaw === 'string' ? JSON.parse(carritoRaw) : carritoRaw;
+      return items.map((item, idx) => (
+         <div key={idx} className="mb-2 text-left bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+           <p className="text-sm font-black text-slate-800">{item.cantidad || 1}x {item.nombre}</p>
+           {item.extras && item.extras.length > 0 && (
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1 ml-2 border-l-2 border-slate-200 pl-2">
+                 {item.extras.map(e => e.nombre).join(' • ')}
+               </p>
+           )}
+         </div>
+      ));
+  };
+
+  // 👇 FILTROS INTELIGENTES CORREGIDOS
+  // Si el pedido llega como Pendiente, pero es "Recoger en Local", va a Por Confirmar.
+  const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo === 'Recoger en Local');
+  // Los demás van a Cobrar Pedidos
+  const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local');
+  
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-800 relative">
       
-      {/* 👇 MODAL BLOQUEANTE DE APERTURA DE CAJA (FONDO INICIAL) */}
       {fondoCaja === null && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
           <form onSubmit={iniciarTurno} className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md text-center animate-in zoom-in">
@@ -111,9 +194,31 @@ const Caja = ({ user, onLogout }) => {
         </div>
       )}
 
-      <div className="w-72 bg-slate-900 text-white flex flex-col shadow-2xl z-20 relative">
-        <div className="p-8 pb-4"><h1 className="text-2xl font-black flex items-center gap-3 text-emerald-400"><DollarSign /> CAJA</h1></div>
-        <nav className="flex-1 px-4 space-y-2 mt-6">
+      <div className="w-72 bg-slate-900 text-white flex flex-col shadow-2xl z-20 relative shrink-0">
+        <div className="p-8 pb-4">
+          <h1 className="text-2xl font-black flex items-center gap-3 text-emerald-400"><DollarSign /> CAJA</h1>
+        </div>
+        
+        {configGlobal && (
+          <div className="px-4 mb-4 mt-2">
+            <button 
+              onClick={toggleEstadoNegocio} 
+              className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 ${
+                configGlobal.negocio_abierto 
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-900 shadow-emerald-500/30' 
+                  : 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/30'
+              }`}
+            >
+              {configGlobal.negocio_abierto ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              {configGlobal.negocio_abierto ? 'Recepción Abierta' : 'Pedidos Detenidos'}
+            </button>
+          </div>
+        )}
+
+        <nav className="flex-1 px-4 space-y-2 mt-2">
+          {/* PESTAÑA: POR CONFIRMAR */}
+          <button onClick={() => setVistaActiva('confirmar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'confirmar' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><Phone size={22}/> Por Confirmar{pedidosPorConfirmar.length > 0 && <span className="ml-auto bg-orange-700 text-white text-xs px-2 py-1 rounded-full">{pedidosPorConfirmar.length}</span>}</button>
+          
           <button onClick={() => setVistaActiva('cobrar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'cobrar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><ShoppingBag size={22}/> Cobrar Pedidos{pendientesDePago.length > 0 && <span className="ml-auto bg-blue-800 text-white text-xs px-2 py-1 rounded-full">{pendientesDePago.length}</span>}</button>
           <button onClick={() => setVistaActiva('entregas')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all relative ${vistaActiva === 'entregas' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><Monitor size={22}/> Monitor Entregas{listosParaEntregar.length > 0 && <span className="ml-auto bg-orange-500 text-white text-xs px-2 py-1 rounded-full animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.8)]">{listosParaEntregar.length}</span>}</button>
           <button onClick={() => setVistaActiva('historial')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'historial' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><List size={22}/> Ver Todos</button>
@@ -140,6 +245,48 @@ const Caja = ({ user, onLogout }) => {
         )}
 
         <div className="flex-1 overflow-y-auto p-10">
+          
+          {/* 👇 VISTA: CONFIRMAR PEDIDOS TELEFÓNICOS */}
+          {vistaActiva === 'confirmar' && (
+            <>
+              <h2 className="text-4xl font-black mb-10 text-slate-800">Verificar Pedidos de Recoger</h2>
+              {pedidosPorConfirmar.length === 0 ? (
+                <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">No hay pedidos esperando revisión.</p></div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                  {pedidosPorConfirmar.map(p => (
+                    <div key={p.id} className="bg-white p-6 rounded-[40px] shadow-sm border-2 border-orange-200 flex flex-col hover:shadow-md transition">
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
+                        <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest">En Revisión</span>
+                      </div>
+                      
+                      <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
+                      
+                      <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 mb-4 flex items-center gap-3">
+                         <Phone className="text-orange-500" size={20}/>
+                         <p className="font-black text-orange-700 text-xl tracking-wider">{p.direccion_entrega?.replace('PEDIDO POR TELÉFONO - CONTACTO: ', '')}</p>
+                      </div>
+
+                      {/* 👇 AQUÍ RENDERIZAMOS LO QUE PIDIÓ PARA QUE LO VERIFIQUES */}
+                      <div className="bg-slate-50 p-4 rounded-2xl mb-6 overflow-y-auto max-h-40 border border-slate-100 shadow-inner">
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Detalle del Pedido:</p>
+                        {renderItemsConfirmacion(p.carrito)}
+                      </div>
+
+                      <p className="text-4xl font-black text-blue-600 mb-6 text-center">${p.total}</p>
+                      
+                      <div className="mt-auto grid grid-cols-2 gap-3">
+                         <button onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition">Es falso (Rechazar)</button>
+                         <button onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95">Mandar a Cocina</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           {vistaActiva === 'cobrar' && (
             <>
               <h2 className="text-4xl font-black mb-10 text-slate-800">Pedidos Pendientes de Pago</h2>
@@ -148,7 +295,6 @@ const Caja = ({ user, onLogout }) => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                   {pendientesDePago.map(p => {
-                    // 👇 LÓGICA PARA EXTRAER LA DIRECCIÓN Y LA NOTA DE CAMBIO DEL REPARTIDOR
                     let direccionPura = p.direccion_entrega;
                     let notaCambio = null;
                     if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('(Llevar cambio para:')) {
@@ -159,11 +305,10 @@ const Caja = ({ user, onLogout }) => {
 
                     return (
                     <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
-                      <div className="flex justify-between items-start mb-4"><h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3><span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{getIconoPago(p.metodo_pago)} {p.metodo_pago}</span></div>
+                      <div className="flex justify-between items-start mb-4"><h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3><span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>{getIconoPago(p.metodo_pago)} {p.metodo_pago}</span></div>
                       <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
                       <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">{p.tipo_consumo}</p>
                       
-                      {/* 👇 AVISO DE DOMICILIO Y CAMBIO */}
                       {p.tipo_consumo === 'Domicilio' && (
                         <div className="mb-4">
                           <div className="text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">📍 {direccionPura}</div>
@@ -200,7 +345,14 @@ const Caja = ({ user, onLogout }) => {
                       <div className="flex justify-between items-start mb-4"><h3 className="text-4xl font-black text-orange-600">#{p.numero_pedido}</h3><span className="bg-orange-600 text-white px-4 py-1 rounded-full font-black uppercase text-sm tracking-widest">{p.tipo_consumo}</span></div>
                       <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
                       {p.tipo_consumo === 'Domicilio' && <p className="text-sm font-bold text-slate-500 mt-2 bg-white p-3 rounded-xl">📍 {direccionPura}</p>}
-                      <div className="mt-auto pt-6 border-t border-orange-200"><button onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95"><Check size={28}/> Marcar como Entregado</button></div>
+                      
+                      <div className="mt-auto pt-6 border-t border-orange-200">
+                         {p.metodo_pago === 'Pendiente' ? (
+                            <button onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95"><DollarSign size={28}/> Cobrar y Entregar</button>
+                         ) : (
+                            <button onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95"><Check size={28}/> Marcar como Entregado</button>
+                         )}
+                      </div>
                     </div>
                   )})}
                 </div>
@@ -237,7 +389,6 @@ const Caja = ({ user, onLogout }) => {
               <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
                  <p className="text-slate-500 font-bold text-lg mb-6">Resumen del Turno</p>
                  
-                 {/* 👇 CORTE DE CAJA MEJORADO CON EL FONDO INICIAL */}
                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                     <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200"><p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo Inicial</p><p className="text-3xl font-black text-slate-700">${(fondoCaja || 0).toFixed(2)}</p></div>
                     <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100"><p className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-2">Cobros Efectivo</p><p className="text-3xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
@@ -245,7 +396,6 @@ const Caja = ({ user, onLogout }) => {
                     <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100"><p className="text-xs font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p><p className="text-3xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
                  </div>
 
-                 {/* BLOQUE GIGANTE DEL EFECTIVO TOTAL */}
                  <div className="bg-emerald-600 p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white">
                     <div>
                        <p className="text-emerald-200 font-black uppercase tracking-widest mb-1 text-sm">Efectivo Físico en Cajón</p>
@@ -338,23 +488,71 @@ const Caja = ({ user, onLogout }) => {
         </div>
       )}
 
-      {/* ================= MODAL EMERGENTE DE COBRO ================= */}
+      {/* ================= MODAL EMERGENTE DE COBRO (RESTAURADO CON FLUJO "PENDIENTE") ================= */}
       {modalPago && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center mb-8 border-b pb-6"><h2 className="text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2><span className="bg-slate-100 text-slate-600 font-bold px-4 py-2 rounded-xl text-lg flex items-center gap-2">{getIconoPago(modalPago.metodo_pago)} {modalPago.metodo_pago}</span></div>
-            <div className="bg-slate-50 p-6 rounded-3xl mb-8 flex justify-between items-center border border-slate-100"><div><p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Total a Cobrar</p><p className="text-5xl font-black text-blue-600">${modalPago.total}</p></div><div className="text-right"><p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p><p className="text-xl font-bold text-slate-700">{modalPago.cliente_nombre || 'Invitado'}</p><p className="text-sm font-bold text-slate-500">{modalPago.tipo_consumo}</p></div></div>
-            {modalPago.metodo_pago === 'Efectivo' ? (
-              <div className="space-y-6">
+            <div className="flex justify-between items-center mb-8 border-b pb-6">
+              <h2 className="text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2>
+              <span className={`text-lg font-bold px-4 py-2 rounded-xl flex items-center gap-2 tracking-wide uppercase ${modalPago.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>
+                {getIconoPago(modalPago.metodo_pago)} {modalPago.metodo_pago}
+              </span>
+            </div>
+            
+            <div className="bg-slate-50 p-6 rounded-3xl mb-8 flex justify-between items-center border border-slate-100">
+              <div><p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Total a Cobrar</p><p className="text-5xl font-black text-blue-600">${modalPago.total}</p></div>
+              <div className="text-right"><p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p><p className="text-xl font-bold text-slate-700">{modalPago.cliente_nombre || 'Invitado'}</p><p className="text-sm font-bold text-slate-500">{modalPago.tipo_consumo}</p></div>
+            </div>
+
+            {/* SI ESTÁ PENDIENTE, PRIMERO ELEGIR MÉTODO DE PAGO */}
+            {modalPago.metodo_pago === 'Pendiente' ? (
+              <div className="space-y-6 text-center">
+                <p className="font-black text-slate-400 uppercase tracking-widest text-sm mb-4">Selecciona el método de pago final:</p>
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Efectivo'})} className="bg-emerald-50 hover:border-emerald-500 border-2 border-transparent text-emerald-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><DollarSign size={32}/> Efectivo</button>
+                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Tarjeta'})} className="bg-blue-50 hover:border-blue-500 border-2 border-transparent text-blue-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><CreditCard size={32}/> Tarjeta</button>
+                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Transferencia'})} className="bg-purple-50 hover:border-purple-500 border-2 border-transparent text-purple-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><Smartphone size={32}/> Transf.</button>
+                </div>
+                <div className="flex gap-4 pt-4 border-t border-slate-100">
+                    <button onClick={() => setModalPago(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                    <button onClick={() => procesarPago('Cancelado')} className="flex-1 py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition">Anular Pedido</button>
+                </div>
+              </div>
+            ) : modalPago.metodo_pago === 'Efectivo' ? (
+              /* RESTAURADO: CALCULADORA DE EFECTIVO */
+              <div className="space-y-6 animate-in fade-in">
                 <div><label className="block text-sm font-black text-slate-400 uppercase mb-3">Monto Recibido</label><input type="number" autoFocus value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl p-6 text-center text-4xl font-black outline-none focus:border-blue-500 text-slate-800" placeholder="$0.00" /></div>
-                <div className="grid grid-cols-4 gap-3"><button onClick={() => setMontoRecibido(modalPago.total)} className="bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">Exacto</button><button onClick={() => setMontoRecibido(100)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$100</button><button onClick={() => setMontoRecibido(200)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$200</button><button onClick={() => setMontoRecibido(500)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$500</button></div>
-                {montoRecibido && Number(montoRecibido) >= Number(modalPago.total) && ( <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-center"><p className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-1">Cambio a devolver</p><p className="text-5xl font-black text-emerald-500">${(Number(montoRecibido) - Number(modalPago.total)).toFixed(2)}</p></div> )}
-                <div className="flex gap-4 pt-4 border-t border-slate-100"><button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button><button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button><button onClick={() => procesarPago('Pagado')} disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total)} className="flex-1 py-5 bg-emerald-500 text-white font-black text-2xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Confirmar Cobro</button></div>
+                <div className="grid grid-cols-4 gap-3">
+                  <button onClick={() => setMontoRecibido(modalPago.total)} className="bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">Exacto</button>
+                  <button onClick={() => setMontoRecibido(100)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$100</button>
+                  <button onClick={() => setMontoRecibido(200)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$200</button>
+                  <button onClick={() => setMontoRecibido(500)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$500</button>
+                </div>
+                {montoRecibido && Number(montoRecibido) >= Number(modalPago.total) && ( 
+                  <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-center">
+                    <p className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-1">Cambio a devolver</p>
+                    <p className="text-5xl font-black text-emerald-500">${(Number(montoRecibido) - Number(modalPago.total)).toFixed(2)}</p>
+                  </div> 
+                )}
+                <div className="flex gap-4 pt-4 border-t border-slate-100">
+                  <button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                  <button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
+                  <button onClick={() => procesarPago()} disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total)} className="flex-1 py-5 bg-emerald-500 text-white font-black text-2xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Confirmar Cobro</button>
+                </div>
               </div>
             ) : (
-              <div className="text-center space-y-8">
-                <div className="bg-blue-50 border border-blue-200 p-8 rounded-3xl"><AlertTriangle className="mx-auto text-blue-500 mb-4" size={48}/><h3 className="text-2xl font-black text-blue-900 mb-2">Validación Manual Requerida</h3><p className="text-blue-700 font-medium">Verifica en la {modalPago.metodo_pago === 'Tarjeta' ? 'Terminal Bancaria' : 'App de tu Banco / WhatsApp'} que el cobro por <strong>${modalPago.total}</strong> haya sido exitoso.</p></div>
-                <div className="flex gap-4 pt-4 border-t border-slate-100"><button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button><button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button><button onClick={() => procesarPago('Pagado')} className="flex-1 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Pago Validado</button></div>
+              /* RESTAURADO: VALIDACIÓN TARJETA/TRANSFERENCIA */
+              <div className="text-center space-y-8 animate-in fade-in">
+                <div className="bg-blue-50 border border-blue-200 p-8 rounded-3xl">
+                  <AlertTriangle className="mx-auto text-blue-500 mb-4" size={48}/>
+                  <h3 className="text-2xl font-black text-blue-900 mb-2">Validación Manual Requerida</h3>
+                  <p className="text-blue-700 font-medium">Verifica en la {modalPago.metodo_pago === 'Tarjeta' ? 'Terminal Bancaria' : 'App de tu Banco / WhatsApp'} que el cobro por <strong>${modalPago.total}</strong> haya sido exitoso.</p>
+                </div>
+                <div className="flex gap-4 pt-4 border-t border-slate-100">
+                  <button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                  <button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
+                  <button onClick={() => procesarPago()} className="flex-1 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Pago Validado</button>
+                </div>
               </div>
             )}
           </div>

@@ -1,18 +1,130 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Edit, Trash2 } from 'lucide-react';
 
 const Catalogos = ({
-  subSeccionCatalogos, setSubSeccionCatalogos,
-  editandoClasifId, nuevaClasif, setNuevaClasif,
-  nuevaClasifDestino, setNuevaClasifDestino,
-  nuevaClasifEmoji, setNuevaClasifEmoji,
-  setNuevaClasifImagen, guardarClasificacion,
-  cancelarEdicionClasif, clasificaciones, baseUrl,
-  prepararEdicionClasif, eliminarClasif, EMOJIS_POR_GIRO,
-  editandoIngId, nuevoIng, setNuevoIng,
-  guardarIngrediente, cancelarEdicionIngrediente,
-  ingsFiltradosVisual, prepararEdicionIngrediente, eliminarIng
+  // Props inyectadas por el AdminPanel
+  clasificaciones, catalogoIngredientes, EMOJIS_POR_GIRO,
+  baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
+  
+  // === ESTADOS LOCALES DEL COMPONENTE ===
+  const [subSeccionCatalogos, setSubSeccionCatalogos] = useState('clasificaciones');
+
+  // Estados para Clasificaciones
+  const [editandoClasifId, setEditandoClasifId] = useState(null);
+  const [nuevaClasif, setNuevaClasif] = useState('');
+  const [nuevaClasifDestino, setNuevaClasifDestino] = useState('Cocina'); 
+  const [nuevaClasifEmoji, setNuevaClasifEmoji] = useState('🍽️');
+  const [imagenBlob, setImagenBlob] = useState(null);
+
+  // Estados para Ingredientes
+  const [editandoIngId, setEditandoIngId] = useState(null); 
+  const [nuevoIng, setNuevoIng] = useState({ clasificacion_id: '', nombre: '', tipo: 'base', precio_extra: 0, permite_extra: true });
+
+  // === LÓGICA DE CLASIFICACIONES ===
+  const prepararEdicionClasif = (c) => { 
+    setEditandoClasifId(c.id); 
+    setNuevaClasif(c.nombre); 
+    setNuevaClasifDestino(c.destino || 'Cocina'); 
+    setNuevaClasifEmoji(c.emoji || '🍽️'); 
+    setImagenBlob(null); 
+  }; 
+  
+  const cancelarEdicionClasif = () => { 
+    setEditandoClasifId(null); 
+    setNuevaClasif(''); 
+    setNuevaClasifDestino('Cocina'); 
+    setNuevaClasifEmoji('🍽️'); 
+    setImagenBlob(null); 
+  };
+  
+  const guardarClasificacion = async (e) => { 
+    e.preventDefault(); 
+    const formData = new FormData(); 
+    formData.append('nombre', nuevaClasif); 
+    formData.append('destino', nuevaClasifDestino); 
+    formData.append('emoji', nuevaClasifEmoji); 
+    if (imagenBlob) formData.append('imagen', imagenBlob); 
+    
+    try { 
+      const url = editandoClasifId ? `${apiUrl}/clasificaciones/${editandoClasifId}` : `${apiUrl}/clasificaciones`; 
+      const res = await fetch(url, { method: editandoClasifId ? 'PUT' : 'POST', body: formData }); 
+      if (res.ok) { 
+        showAlert("¡Éxito!", editandoClasifId ? "Clasificación actualizada." : "Clasificación guardada.", "success");
+        cancelarEdicionClasif(); 
+        refrescarDatos(); 
+      } else {
+        showAlert("Error", "No se pudo guardar la clasificación.", "error");
+      }
+    } catch(e) {
+        showAlert("Error", "Error de conexión al servidor.", "error");
+    } 
+  };
+
+  const eliminarClasif = (id) => { 
+    showConfirm("Eliminar Clasificación", "¿Estás seguro que deseas borrar esta clasificación? Esto podría afectar a los platillos que la usan.", async () => { 
+      try {
+        const res = await fetch(`${apiUrl}/clasificaciones/${id}`, { method: 'DELETE' }); 
+        if (res.ok) {
+            showAlert("Eliminada", "La clasificación fue borrada.", "success");
+            refrescarDatos(); 
+        }
+      } catch (error) {
+          showAlert("Error", "No se pudo eliminar.", "error");
+      }
+    }); 
+  };
+  
+  // === LÓGICA DE INGREDIENTES Y EXTRAS ===
+  const prepararEdicionIngrediente = (ing) => { 
+    setEditandoIngId(ing.id); 
+    setNuevoIng({ clasificacion_id: ing.clasificacion_id, nombre: ing.nombre, tipo: ing.tipo, precio_extra: ing.precio_extra, permite_extra: ing.permite_extra }); 
+  }; 
+  
+  const cancelarEdicionIngrediente = () => { 
+    setEditandoIngId(null); 
+    setNuevoIng({ clasificacion_id: '', nombre: '', tipo: 'base', precio_extra: 0, permite_extra: true }); 
+  };
+  
+  const guardarIngrediente = async (e) => { 
+    e.preventDefault(); 
+    
+    // Validación de duplicados (considerando nombre Y clasificación)
+    const duplicado = catalogoIngredientes.find(i => 
+      i.nombre.trim().toLowerCase() === nuevoIng.nombre.trim().toLowerCase() && 
+      Number(i.clasificacion_id) === Number(nuevoIng.clasificacion_id) &&
+      i.id !== editandoIngId
+    ); 
+    if (duplicado) return showAlert("Atención", "Este ingrediente o extra ya existe en esta clasificación.", "warning"); 
+    
+    try { 
+      const url = editandoIngId ? `${apiUrl}/ingredientes/${editandoIngId}` : `${apiUrl}/ingredientes`; 
+      const res = await fetch(url, { method: editandoIngId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoIng) }); 
+      if (res.ok) { 
+        showAlert("¡Éxito!", editandoIngId ? "Actualizado correctamente." : "Guardado correctamente.", "success");
+        cancelarEdicionIngrediente(); 
+        refrescarDatos(); 
+      } 
+    } catch(e) {
+        showAlert("Error", "Error de conexión.", "error");
+    } 
+  };
+
+  const eliminarIng = (id) => { 
+    showConfirm("Eliminar", "¿Estás seguro de borrar este ingrediente o extra?", async () => { 
+      try {
+        await fetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); 
+        refrescarDatos(); 
+        showAlert("Eliminado", "Borrado correctamente.", "success");
+      } catch (error) {
+        showAlert("Error", "No se pudo eliminar.", "error");
+      }
+    }); 
+  };
+
+  // === CÁLCULOS VISUALES ===
+  const ingsFiltradosVisual = (catalogoIngredientes || []).filter(i => Number(i.clasificacion_id) === Number(nuevoIng.clasificacion_id));
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <h2 className="text-3xl font-black mb-6 text-slate-800">Gestión de Ingredientes y Extras</h2>
@@ -36,7 +148,7 @@ const Catalogos = ({
               </select>
             </div>
             <div className="flex flex-col md:flex-row gap-4 items-center">
-              <input type="file" accept="image/png, image/jpeg" onChange={e => setNuevaClasifImagen(e.target.files[0])} className="flex-1 w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-4 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700 file:shadow-sm hover:file:bg-slate-100" />
+              <input type="file" accept="image/png, image/jpeg" onChange={e => setImagenBlob(e.target.files[0])} className="flex-1 w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-4 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700 file:shadow-sm hover:file:bg-slate-100" />
               <button type="submit" className={`w-full md:w-auto px-8 py-4 rounded-xl font-bold transition shadow-sm text-white ${editandoClasifId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>{editandoClasifId ? 'Guardar Cambios' : 'Agregar Clasificación'}</button>
               {editandoClasifId && (<button type="button" onClick={cancelarEdicionClasif} className="w-full md:w-auto bg-slate-200 text-slate-700 px-6 py-4 rounded-xl hover:bg-slate-300 font-bold">Cancelar</button>)}
             </div>

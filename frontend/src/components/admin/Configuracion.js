@@ -1,13 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const Configuracion = ({
-  configGlobal, setConfigGlobal, guardarConfiguracion,
-  logoBlob, setLogoBlob,
-  setTvBlob1, setTvBlob2, setTvBlob3,
-  restablecerBranding, baseUrl
+  // Props recibidas desde AdminPanel
+  configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
+  
+  // === ESTADOS LOCALES PARA MANEJO DE ARCHIVOS (BLOBS) ===
+  const [logoBlob, setLogoBlob] = useState(null);
+  const [tvBlob1, setTvBlob1] = useState(null);
+  const [tvBlob2, setTvBlob2] = useState(null);
+  const [tvBlob3, setTvBlob3] = useState(null);
 
-  // 👇 LA MAGIA: Repara URLs rotas de Cloudinary
+  // Helper para las URLs de Cloudinary
   const getImageUrl = (url) => {
     if (!url) return '';
     if (url.includes('cloudinary.com')) {
@@ -18,52 +22,186 @@ const Configuracion = ({
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
+  // === LÓGICA DE GUARDADO ===
+  const guardarConfiguracion = async (e) => {
+    e.preventDefault();
+    const formData = new FormData();
+    
+    // Agregamos los textos y configuraciones
+    Object.keys(configGlobal).forEach(key => formData.append(key, configGlobal[key]));
+    
+    // Agregamos los archivos si existen
+    if (logoBlob) formData.append('logo', logoBlob);
+    if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
+    if (tvBlob2) formData.append('tv_imagen_2', tvBlob2);
+    if (tvBlob3) formData.append('tv_imagen_3', tvBlob3);
+
+    try {
+      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      if (res.ok) { 
+        showAlert("¡Éxito!", "Configuración actualizada correctamente.", "success"); 
+        
+        // Limpiamos los inputs de archivos
+        setLogoBlob(null); setTvBlob1(null); setTvBlob2(null); setTvBlob3(null);
+        ['logo-upload', 'tv1-upload', 'tv2-upload', 'tv3-upload'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.value = '';
+        });
+        
+        refrescarDatos(); // Actualiza los datos globales en el AdminPanel
+      } else {
+        showAlert("Error", "No se pudo guardar la configuración.", "error");
+      }
+    } catch (error) { 
+      showAlert("Error", "Error de conexión con el servidor.", "error"); 
+    }
+  };
+
+  // === LÓGICA DE RESTABLECIMIENTO ===
+  const restablecerBranding = () => {
+    showConfirm("Restablecer Diseño", "¿Deseas borrar toda la configuración visual y volver a los valores de fábrica?", () => {
+      setConfigGlobal({ 
+        ...configGlobal, // Mantenemos datos de cuenta pero reseteamos visuales
+        color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', 
+        color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', 
+        fuente_titulos: 'system-ui, sans-serif', fuente_textos: 'system-ui, sans-serif', 
+        kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b', 
+        tv_msg_cola: 'EN COLA', tv_msg_progreso: 'PREPARANDO', tv_msg_listo: '¡LISTOS!', 
+        tv_carrusel_activo: false, tv_carrusel_segundos: 10,
+        // 👇 NUEVO VALOR PREDETERMINADO
+        mensaje_cierre: 'El negocio se encuentra cerrado temporalmente. Horario de atención: 8:00 AM - 10:00 PM.'
+      });
+      showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
+    });
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
-      <h2 className="text-3xl font-black mb-6">Configuración del Restaurante</h2>
-      <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-3xl shadow-sm border space-y-8">
+      <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
+      <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
         
         {/* 1. MARCA */}
         <div>
-          <h3 className="text-xl font-bold mb-4 border-b pb-2">1. Marca e Identidad</h3>
+          <h3 className="text-xl font-bold mb-4 border-b pb-2 text-slate-700">1. Marca e Identidad</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
             <div>
               <label className="block text-sm font-bold text-slate-600 mb-2">Nombre del Negocio</label>
-              <input required value={configGlobal.nombre_negocio} onChange={e => setConfigGlobal({...configGlobal, nombre_negocio: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-lg" />
+              <input required value={configGlobal.nombre_negocio || ''} onChange={e => setConfigGlobal({...configGlobal, nombre_negocio: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-lg" />
             </div>
-            <div className="flex flex-col items-center justify-center bg-slate-50 border border-dashed rounded-xl p-4">
+            <div className="flex flex-col items-center justify-center bg-slate-50 border border-dashed rounded-2xl p-4 border-slate-300">
               <label className="text-sm font-bold text-slate-600 block mb-2">Logo Principal</label>
               {configGlobal.logo_url && !logoBlob && (<img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-16 object-contain mb-3" />)}
-              <input id="logo-upload" type="file" accept="image/png, image/jpeg" onChange={e => setLogoBlob(e.target.files[0])} className="w-full text-xs text-slate-500 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700" />
+              <input id="logo-upload" type="file" accept="image/png, image/jpeg" onChange={e => setLogoBlob(e.target.files[0])} className="w-full text-xs text-slate-500 file:rounded-xl file:border-0 file:font-bold file:bg-white file:text-slate-700 file:shadow-sm" />
             </div>
           </div>
         </div>
 
         {/* 2. PAGOS */}
         <div>
-          <h3 className="text-xl font-bold mb-4 border-b pb-2">2. Transferencias y Contacto</h3>
+          <h3 className="text-xl font-bold mb-4 border-b pb-2 text-slate-700">2. Transferencias y Contacto</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-bold text-slate-600 mb-1">WhatsApp Pagos</label><input required type="tel" value={configGlobal.whatsapp} onChange={e => setConfigGlobal({...configGlobal, whatsapp: e.target.value.replace(/\D/g, '')})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
-            <div><label className="block text-sm font-bold text-slate-600 mb-1">Banco</label><input required value={configGlobal.banco} onChange={e => setConfigGlobal({...configGlobal, banco: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
-            <div className="md:col-span-2"><label className="block text-sm font-bold text-slate-600 mb-1">CLABE o Cuenta</label><input required value={configGlobal.cuenta} onChange={e => setConfigGlobal({...configGlobal, cuenta: e.target.value.replace(/\D/g, '')})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-black text-blue-600 tracking-widest text-lg" /></div>
-            <div className="md:col-span-2"><label className="block text-sm font-bold text-slate-600 mb-1">Titular</label><input required value={configGlobal.titular} onChange={e => setConfigGlobal({...configGlobal, titular: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
+            <div><label className="block text-sm font-bold text-slate-600 mb-1">WhatsApp Pagos</label><input required type="tel" value={configGlobal.whatsapp || ''} onChange={e => setConfigGlobal({...configGlobal, whatsapp: e.target.value.replace(/\D/g, '')})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
+            <div><label className="block text-sm font-bold text-slate-600 mb-1">Banco</label><input required value={configGlobal.banco || ''} onChange={e => setConfigGlobal({...configGlobal, banco: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
+            <div className="md:col-span-2"><label className="block text-sm font-bold text-slate-600 mb-1">CLABE o Cuenta</label><input required value={configGlobal.cuenta || ''} onChange={e => setConfigGlobal({...configGlobal, cuenta: e.target.value.replace(/\D/g, '')})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-black text-blue-600 tracking-widest text-lg" /></div>
+            <div className="md:col-span-2"><label className="block text-sm font-bold text-slate-600 mb-1">Titular</label><input required value={configGlobal.titular || ''} onChange={e => setConfigGlobal({...configGlobal, titular: e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold" /></div>
           </div>
         </div>
 
         {/* 3. BRANDING */}
         <div>
           <h3 className="text-xl font-bold mb-4 border-b pb-2 text-blue-600">🎨 3. Branding del Kiosco y TV</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
-            <div className="space-y-4">
-              <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Contenido Kiosco</p>
-              <input type="text" value={configGlobal.kiosco_mensaje} onChange={e => setConfigGlobal({...configGlobal, kiosco_mensaje: e.target.value})} className="w-full p-3 bg-white border rounded-xl outline-none font-bold" placeholder="Mensaje en Kiosco..." />
+          <div className="space-y-6 bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
+            
+            {/* TEXTOS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Contenido Kiosco</p>
+                <input type="text" value={configGlobal.kiosco_mensaje || ''} onChange={e => setConfigGlobal({...configGlobal, kiosco_mensaje: e.target.value})} className="w-full p-3 bg-white border rounded-xl outline-none font-bold" placeholder="Mensaje en Kiosco..." />
+                
+                {/* 👇 NUEVO CAMPO: MENSAJE DE CIERRE */}
+                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-4">Mensaje de Negocio Cerrado (Advertencia)</p>
+                <textarea 
+                  value={configGlobal.mensaje_cierre || ''} 
+                  onChange={e => setConfigGlobal({...configGlobal, mensaje_cierre: e.target.value})} 
+                  className="w-full p-3 bg-white border rounded-xl outline-none font-medium h-24 resize-none" 
+                  placeholder="Ej. Abierto de 8:00 AM a 10:00 PM..." 
+                />
+              </div>
+              <div className="space-y-3">
+                <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Títulos Pantalla TV</p>
+                <input type="text" value={configGlobal.tv_msg_cola || ''} onChange={e => setConfigGlobal({...configGlobal, tv_msg_cola: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 1" />
+                <input type="text" value={configGlobal.tv_msg_progreso || ''} onChange={e => setConfigGlobal({...configGlobal, tv_msg_progreso: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 2" />
+                <input type="text" value={configGlobal.tv_msg_listo || ''} onChange={e => setConfigGlobal({...configGlobal, tv_msg_listo: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 3" />
+              </div>
             </div>
-            <div className="space-y-3">
-              <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Títulos Pantalla TV</p>
-              <input type="text" value={configGlobal.tv_msg_cola} onChange={e => setConfigGlobal({...configGlobal, tv_msg_cola: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 1" />
-              <input type="text" value={configGlobal.tv_msg_progreso} onChange={e => setConfigGlobal({...configGlobal, tv_msg_progreso: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 2" />
-              <input type="text" value={configGlobal.tv_msg_listo} onChange={e => setConfigGlobal({...configGlobal, tv_msg_listo: e.target.value})} className="w-full p-2 bg-white border rounded-lg text-sm font-bold" placeholder="Columna 3" />
+
+            <div className="border-t border-blue-100 pt-4"></div>
+
+            {/* COLORES Y FUENTES */}
+            <div>
+              <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4">Colores y Tipografía (Apariencia visual)</p>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Color Primario</label>
+                  <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition">
+                    <input type="color" value={configGlobal.color_primario || '#2563eb'} onChange={e => setConfigGlobal({...configGlobal, color_primario: e.target.value})} className="w-8 h-8 rounded cursor-pointer border-0" />
+                    <span className="text-xs font-bold text-slate-500 uppercase">{configGlobal.color_primario}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Color Fondo</label>
+                  <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition">
+                    <input type="color" value={configGlobal.color_fondo || '#f1f5f9'} onChange={e => setConfigGlobal({...configGlobal, color_fondo: e.target.value})} className="w-8 h-8 rounded cursor-pointer border-0" />
+                    <span className="text-xs font-bold text-slate-500 uppercase">{configGlobal.color_fondo}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Texto Principal</label>
+                  <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition">
+                    <input type="color" value={configGlobal.color_texto_principal || '#1e293b'} onChange={e => setConfigGlobal({...configGlobal, color_texto_principal: e.target.value})} className="w-8 h-8 rounded cursor-pointer border-0" />
+                    <span className="text-xs font-bold text-slate-500 uppercase">{configGlobal.color_texto_principal}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Texto Secundario</label>
+                  <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:border-blue-300 transition">
+                    <input type="color" value={configGlobal.color_texto_secundario || '#64748b'} onChange={e => setConfigGlobal({...configGlobal, color_texto_secundario: e.target.value})} className="w-8 h-8 rounded cursor-pointer border-0" />
+                    <span className="text-xs font-bold text-slate-500 uppercase">{configGlobal.color_texto_secundario}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Fuente para Títulos</label>
+                  <select value={configGlobal.fuente_titulos || 'system-ui, sans-serif'} onChange={e => setConfigGlobal({...configGlobal, fuente_titulos: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-700 shadow-sm hover:border-blue-300 transition">
+                    <option value="system-ui, sans-serif">Predeterminada (System)</option>
+                    <option value="'Arial', sans-serif">Arial</option>
+                    <option value="'Verdana', sans-serif">Verdana</option>
+                    <option value="'Tahoma', sans-serif">Tahoma</option>
+                    <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                    <option value="'Georgia', serif">Georgia</option>
+                    <option value="'Times New Roman', serif">Times New Roman</option>
+                    <option value="'Courier New', monospace">Courier New</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">Fuente para Textos</label>
+                  <select value={configGlobal.fuente_textos || 'system-ui, sans-serif'} onChange={e => setConfigGlobal({...configGlobal, fuente_textos: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-700 shadow-sm hover:border-blue-300 transition">
+                    <option value="system-ui, sans-serif">Predeterminada (System)</option>
+                    <option value="'Arial', sans-serif">Arial</option>
+                    <option value="'Verdana', sans-serif">Verdana</option>
+                    <option value="'Tahoma', sans-serif">Tahoma</option>
+                    <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                    <option value="'Georgia', serif">Georgia</option>
+                    <option value="'Times New Roman', serif">Times New Roman</option>
+                    <option value="'Courier New', monospace">Courier New</option>
+                  </select>
+                </div>
+              </div>
             </div>
+            
           </div>
         </div>
 
@@ -101,8 +239,8 @@ const Configuracion = ({
         </div>
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
-          <button type="button" onClick={restablecerBranding} className="w-full md:w-auto px-6 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 transition">↺ Restablecer Diseño</button>
-          <button type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-xl font-black text-lg shadow-lg transition">Guardar Configuración</button>
+          <button type="button" onClick={restablecerBranding} className="w-full md:w-auto px-6 py-4 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 transition">↺ Restablecer Diseño</button>
+          <button type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-black text-lg shadow-lg shadow-blue-500/30 transition">Guardar Configuración</button>
         </div>
       </form>
     </div>

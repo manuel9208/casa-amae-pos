@@ -88,13 +88,19 @@ exports.actualizarPedido = async (req, res) => {
 // ================= MODIFICADO: ACTUALIZAR ESTADO PARCIAL =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
-  const { estado_preparacion, chef_id, carrito } = req.body;
+  const { estado_preparacion, chef_id, carrito, metodo_pago } = req.body;
   try {
     let query = 'UPDATE pedidos SET estado_preparacion = $1'; 
     let params = [estado_preparacion];
     let pIdx = 2;
 
-    // Si nos mandan el carrito actualizado con las áreas parciales, lo guardamos
+    // 👇 AQUÍ GUARDAMOS EL MÉTODO DE PAGO FINAL
+    if (metodo_pago) {
+      query += `, metodo_pago = $${pIdx}`;
+      params.push(metodo_pago);
+      pIdx++;
+    }
+
     if (carrito) {
       query += `, carrito = $${pIdx}`;
       params.push(JSON.stringify(carrito));
@@ -121,7 +127,6 @@ exports.actualizarEstado = async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar estado' }); 
   }
 };
-
 exports.actualizarAlerta = async (req, res) => { 
   try { 
     const result = await db.query('UPDATE pedidos SET alerta_cocina = $1 WHERE id = $2 RETURNING *', [req.body.alerta_cocina, req.params.id]); 
