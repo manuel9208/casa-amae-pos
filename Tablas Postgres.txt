@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.1)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.2)
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
@@ -50,12 +50,16 @@ CREATE TABLE configuracion (
     tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
     tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!',
     
-    -- Nuevo: Carrusel TV Promocional
+    -- Carrusel TV Promocional
     tv_carrusel_activo BOOLEAN DEFAULT false,
     tv_carrusel_segundos INTEGER DEFAULT 10,
     tv_imagen_1 VARCHAR(255),
     tv_imagen_2 VARCHAR(255),
-    tv_imagen_3 VARCHAR(255)
+    tv_imagen_3 VARCHAR(255),
+
+    -- 👇 NUEVOS CAMPOS: APERTURA Y CIERRE DEL NEGOCIO
+    negocio_abierto BOOLEAN DEFAULT TRUE,
+    mensaje_cierre TEXT
 );
 
 -- -------------------------------------------------------------------------
@@ -111,6 +115,7 @@ CREATE TABLE productos (
     rendimiento DECIMAL(10,2) DEFAULT 1,
     stock_preparado INTEGER DEFAULT 0,
     estado VARCHAR(20) DEFAULT 'Activo',
+    disponible BOOLEAN DEFAULT TRUE, -- 👇 NUEVO CAMPO: HABILITAR/DESHABILITAR
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
