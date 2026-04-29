@@ -20,6 +20,7 @@ const Caja = ({ user, onLogout }) => {
   const [accionAlerta, setAccionAlerta] = useState('quitar');
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
   const [ticketImprimir, setTicketImprimir] = useState(null);
+  const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
 
   // === ESTADOS DEL FONDO DE CAJA ===
   const hoyStr = new Date().toLocaleDateString();
@@ -61,8 +62,14 @@ const Caja = ({ user, onLogout }) => {
 
     const formData = new FormData();
     Object.keys(configGlobal).forEach(key => {
-      if (key === 'negocio_abierto') formData.append(key, nuevoEstado);
-      else if (configGlobal[key] !== null && configGlobal[key] !== undefined) formData.append(key, configGlobal[key]);
+      if (key === 'negocio_abierto') {
+        formData.append(key, nuevoEstado);
+      } else if (key === 'tarifas_envio') {
+        // 👇 AQUÍ ESTABA EL BUG: Evitamos que se envíe como [object Object]
+        formData.append(key, typeof configGlobal[key] === 'string' ? configGlobal[key] : JSON.stringify(configGlobal[key] || []));
+      } else if (configGlobal[key] !== null && configGlobal[key] !== undefined) {
+        formData.append(key, configGlobal[key]);
+      }
     });
 
     try {
@@ -72,6 +79,22 @@ const Caja = ({ user, onLogout }) => {
       setConfigGlobal(prev => ({ ...prev, negocio_abierto: !nuevoEstado }));
       alert('Error al cambiar el estado del negocio.');
     }
+  };
+
+  // 👇 NUEVA FUNCIÓN: Apagar negocio al salir
+  const cerrarCajaYSalir = async () => {
+    if (configGlobal && configGlobal.negocio_abierto) {
+      try {
+        const formData = new FormData();
+        Object.keys(configGlobal).forEach(key => {
+          if (key === 'negocio_abierto') formData.append(key, false);
+          else if (key === 'tarifas_envio') formData.append(key, typeof configGlobal[key] === 'string' ? configGlobal[key] : JSON.stringify(configGlobal[key] || []));
+          else if (configGlobal[key] !== null && configGlobal[key] !== undefined) formData.append(key, configGlobal[key]);
+        });
+        await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      } catch (error) { console.error('Error cerrando negocio', error); }
+    }
+    onLogout(); // Finalmente ejecuta la salida
   };
 
   const iniciarTurno = (e) => {
@@ -114,6 +137,24 @@ const Caja = ({ user, onLogout }) => {
     try { await fetch(`${apiUrl}/pedidos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: 'Pagado' }) }); } catch (error) {}
   };
 
+  const confirmarPedidoDomicilio = async (pedido, tarifa) => {
+    try {
+      const nuevoTotal = Number(pedido.total) + Number(tarifa.costo);
+      await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ 
+          estado_preparacion: 'Pagado', 
+          total: nuevoTotal, 
+          costo_envio: tarifa.costo 
+        }) 
+      }); 
+      setModalZonaEnvio(null);
+    } catch (error) {
+      alert("Error al confirmar el pedido a domicilio.");
+    }
+  };
+
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
     try { await fetch(`${apiUrl}/pedidos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: nuevoEstado }) }); } catch (error) {}
   };
@@ -151,9 +192,8 @@ const Caja = ({ user, onLogout }) => {
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
 
-  // === FILTROS DE PEDIDOS ===
-  const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo === 'Recoger en Local');
-  const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local');
+  const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
+  const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio');
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
 
@@ -161,9 +201,9 @@ const Caja = ({ user, onLogout }) => {
     <>
       <div className="flex h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden">
         
-        {/* BARRA LATERAL (SIDEBAR) */}
         <SidebarCaja 
-          user={user} onLogout={onLogout}
+          user={user} 
+          onLogout={cerrarCajaYSalir} // 👇 Usamos la nueva función aquí
           configGlobal={configGlobal} toggleEstadoNegocio={toggleEstadoNegocio}
           vistaActiva={vistaActiva} setVistaActiva={setVistaActiva}
           pedidosPorConfirmar={pedidosPorConfirmar}
@@ -171,7 +211,6 @@ const Caja = ({ user, onLogout }) => {
           listosParaEntregar={listosParaEntregar}
         />
 
-        {/* ÁREA PRINCIPAL (VISTAS) */}
         <VistasCaja 
           vistaActiva={vistaActiva}
           subVistaHistorial={subVistaHistorial} setSubVistaHistorial={setSubVistaHistorial}
@@ -190,9 +229,9 @@ const Caja = ({ user, onLogout }) => {
           actualizarEstadoPedido={actualizarEstadoPedido}
           confirmarPedidoRecoger={confirmarPedidoRecoger}
           lanzarImpresion={lanzarImpresion}
+          setModalZonaEnvio={setModalZonaEnvio}
         />
         
-        {/* MODALES Y CAPAS SUPERPUESTAS */}
         <ModalesCaja 
           fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo}
           modalResolver={modalResolver} setModalResolver={setModalResolver}
@@ -204,10 +243,14 @@ const Caja = ({ user, onLogout }) => {
           modalPago={modalPago} setModalPago={setModalPago}
           montoRecibido={montoRecibido} setMontoRecibido={setMontoRecibido}
           procesarPago={procesarPago}
+          
+          configGlobal={configGlobal}
+          modalZonaEnvio={modalZonaEnvio}
+          setModalZonaEnvio={setModalZonaEnvio}
+          confirmarPedidoDomicilio={confirmarPedidoDomicilio}
         />
       </div>
 
-      {/* DISEÑO DEL TICKET DE IMPRESIÓN (OCULTO) */}
       <TicketImpresion 
         ticketImprimir={ticketImprimir} 
         configGlobal={configGlobal} 

@@ -1,10 +1,11 @@
 import React from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone } from 'lucide-react';
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin } from 'lucide-react';
 
 const VistasCaja = ({
   vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, pedidosConAlerta, pedidosPorConfirmar,
   pendientesDePago, listosParaEntregar, fondoCaja, configGlobal,
-  abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion
+  abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion,
+  setModalZonaEnvio 
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -53,33 +54,70 @@ const VistasCaja = ({
         {/* VISTA: POR CONFIRMAR */}
         {vistaActiva === 'confirmar' && (
           <>
-            <h2 className="text-4xl font-black mb-10 text-slate-800">Verificar Pedidos de Recoger</h2>
+            <h2 className="text-4xl font-black mb-10 text-slate-800">Verificar Pedidos</h2>
             {pedidosPorConfirmar.length === 0 ? (
               <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">No hay pedidos esperando revisión.</p></div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                {pedidosPorConfirmar.map(p => (
-                  <div key={p.id} className="bg-white p-6 rounded-[40px] shadow-sm border-2 border-orange-200 flex flex-col hover:shadow-md transition">
+                {pedidosPorConfirmar.map(p => {
+                  let direccionPura = p.direccion_entrega;
+                  let notaCambio = null;
+                  
+                  if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('|')) {
+                     const partes = p.direccion_entrega.split('|');
+                     direccionPura = partes[0].trim();
+                     notaCambio = partes[1] ? partes[1].trim() : null;
+                  }
+
+                  const esDomicilio = p.tipo_consumo === 'Domicilio';
+                  const iconoConsumo = esDomicilio ? <MapPin size={20} className="text-purple-500" /> : <Phone size={20} className="text-orange-500" />;
+                  const colorBorde = esDomicilio ? 'border-purple-200' : 'border-orange-200';
+                  const colorFondoAviso = esDomicilio ? 'bg-purple-50 border-purple-100' : 'bg-orange-50 border-orange-100';
+                  const colorTextoAviso = esDomicilio ? 'text-purple-700' : 'text-orange-700';
+
+                  return (
+                  <div key={p.id} className={`bg-white p-6 rounded-[40px] shadow-sm border-2 ${colorBorde} flex flex-col hover:shadow-md transition`}>
                     <div className="flex justify-between items-start mb-4">
                       <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
-                      <span className="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest">En Revisión</span>
+                      <span className={`${esDomicilio ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700'} text-[10px] font-black px-2 py-1 rounded-md uppercase tracking-widest`}>
+                        {esDomicilio ? 'Domicilio' : 'Recoger'}
+                      </span>
                     </div>
                     <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
-                    <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 mb-4 flex items-center gap-3">
-                       <Phone className="text-orange-500" size={20}/>
-                       <p className="font-black text-orange-700 text-xl tracking-wider">{p.direccion_entrega?.replace('PEDIDO POR TELÉFONO - CONTACTO: ', '')}</p>
+                    
+                    <div className={`${colorFondoAviso} p-4 rounded-2xl border mb-4 flex items-start gap-3`}>
+                       {iconoConsumo}
+                       <div>
+                         <p className={`font-black ${colorTextoAviso} tracking-wider leading-tight`}>
+                           {direccionPura?.replace('PEDIDO POR TELÉFONO - CONTACTO: ', '')}
+                         </p>
+                         {notaCambio && (
+                           <p className="text-xs font-bold text-slate-500 mt-2 bg-white px-2 py-1 rounded-md shadow-sm border border-slate-200">💵 {notaCambio}</p>
+                         )}
+                         {esDomicilio && (
+                           <p className="text-xs font-black text-slate-400 mt-2 uppercase flex items-center gap-1">
+                             <DollarSign size={14} /> Pago: {p.metodo_pago}
+                           </p>
+                         )}
+                       </div>
                     </div>
+
                     <div className="bg-slate-50 p-4 rounded-2xl mb-6 overflow-y-auto max-h-40 border border-slate-100 shadow-inner">
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Detalle del Pedido:</p>
                       {renderItemsConfirmacion(p.carrito)}
                     </div>
                     <p className="text-4xl font-black text-blue-600 mb-6 text-center">${p.total}</p>
+                    
                     <div className="mt-auto grid grid-cols-2 gap-3">
-                       <button onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition">Es falso (Rechazar)</button>
-                       <button onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95">Mandar a Cocina</button>
+                       <button onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition">Rechazar</button>
+                       {esDomicilio ? (
+                          <button onClick={() => setModalZonaEnvio(p)} className="py-4 bg-purple-600 text-white font-black rounded-2xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition active:scale-95 text-sm leading-tight">Asignar Envío<br/>y Aceptar</button>
+                       ) : (
+                          <button onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95">Mandar a Cocina</button>
+                       )}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </>
@@ -96,7 +134,7 @@ const VistasCaja = ({
                 {pendientesDePago.map(p => {
                   let direccionPura = p.direccion_entrega;
                   let notaCambio = null;
-                  if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('(Llevar cambio para:')) {
+                  if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('|')) {
                      const partes = p.direccion_entrega.split('|');
                      direccionPura = partes[0].trim();
                      notaCambio = partes[1] ? partes[1].trim() : null;
@@ -125,7 +163,7 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* VISTA: ENTREGAS */}
+        {/* 👇 VISTA: ENTREGAS (Corregida con desglose visual de envío y billetes) */}
         {vistaActiva === 'entregas' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Listos para Entregar</h2>
@@ -135,14 +173,44 @@ const VistasCaja = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {listosParaEntregar.map(p => {
                   let direccionPura = p.direccion_entrega;
+                  let notaCambio = null;
+
                   if (p.tipo_consumo === 'Domicilio' && p.direccion_entrega?.includes('|')) {
-                     direccionPura = p.direccion_entrega.split('|')[0].trim();
+                     const partes = p.direccion_entrega.split('|');
+                     direccionPura = partes[0].trim();
+                     notaCambio = partes[1] ? partes[1].trim() : null;
                   }
+
                   return (
                   <div key={p.id} className="bg-orange-50 p-8 rounded-[40px] shadow-lg shadow-orange-500/20 border-2 border-orange-400 flex flex-col transition animate-pulse">
-                    <div className="flex justify-between items-start mb-4"><h3 className="text-4xl font-black text-orange-600">#{p.numero_pedido}</h3><span className="bg-orange-600 text-white px-4 py-1 rounded-full font-black uppercase text-sm tracking-widest">{p.tipo_consumo}</span></div>
+                    <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-4xl font-black text-orange-600">#{p.numero_pedido}</h3>
+                      <span className="bg-orange-600 text-white px-4 py-1 rounded-full font-black uppercase text-sm tracking-widest">{p.tipo_consumo}</span>
+                    </div>
+                    
                     <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
-                    {p.tipo_consumo === 'Domicilio' && <p className="text-sm font-bold text-slate-500 mt-2 bg-white p-3 rounded-xl">📍 {direccionPura}</p>}
+                    <p className="font-black text-blue-600 text-xl mb-4">Total de la Nota: ${p.total}</p>
+
+                    {/* Desglose de Domicilio */}
+                    {p.tipo_consumo === 'Domicilio' && (
+                      <div className="mb-4 flex flex-col gap-2">
+                        <p className="text-sm font-bold text-slate-600 bg-white p-3 rounded-xl shadow-sm border border-slate-200">
+                          📍 {direccionPura}
+                        </p>
+                        
+                        {Number(p.costo_envio) > 0 && (
+                          <p className="text-sm font-black text-purple-700 bg-purple-100 p-3 rounded-xl shadow-sm border border-purple-200 flex items-center gap-2">
+                            <MapPin size={18}/> Costo de Envío Cobrado: ${p.costo_envio}
+                          </p>
+                        )}
+
+                        {notaCambio && (
+                          <p className="text-sm font-black text-emerald-700 bg-emerald-100 p-3 rounded-xl shadow-sm border border-emerald-200 flex items-center gap-2">
+                            <DollarSign size={18}/> {notaCambio}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
                        {p.metodo_pago === 'Pendiente' ? (

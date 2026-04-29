@@ -6,6 +6,7 @@ import GestionUsuarios from './admin/GestionUsuarios';
 import Catalogos from './admin/Catalogos';
 import Inventario from './admin/Inventario';
 import GestionMenu from './admin/GestionMenu';
+import GestionClientes from './admin/GestionClientes';
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -22,7 +23,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [seccion, setSeccion] = useState('menu'); 
   const [menuAbierto, setMenuAbierto] = useState(false);
   
-  // === 1. DATOS CENTRALES (Compartidos por varias pestañas) ===
+  // === 1. DATOS CENTRALES ===
   const [productos, setProductos] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
@@ -40,12 +41,22 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewCatalogos = isGlobalAdmin || user?.permisos?.catalogos !== false;
   const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
+  const canViewClientes = isGlobalAdmin || user?.permisos?.usuarios === true || user?.permisos?.ventas === true;
   
-  // === 3. MODAL GLOBAL REUTILIZABLE ===
+  // === 3. MODAL GLOBAL REUTILIZABLE (CORREGIDO CON useCallback) ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
-  const showAlert = (titulo, mensaje, tipo = 'info') => setModalUI({ isOpen: true, tipo, titulo, mensaje, onConfirm: null });
-  const showConfirm = (titulo, mensaje, onConfirmCallback) => setModalUI({ isOpen: true, tipo: 'confirm', titulo, mensaje, onConfirm: onConfirmCallback });
-  const closeModalUI = () => setModalUI({ ...modalUI, isOpen: false });
+  
+  const showAlert = useCallback((titulo, mensaje, tipo = 'info') => {
+    setModalUI({ isOpen: true, tipo, titulo, mensaje, onConfirm: null });
+  }, []);
+
+  const showConfirm = useCallback((titulo, mensaje, onConfirmCallback) => {
+    setModalUI({ isOpen: true, tipo: 'confirm', titulo, mensaje, onConfirm: onConfirmCallback });
+  }, []);
+
+  const closeModalUI = useCallback(() => {
+    setModalUI(prev => ({ ...prev, isOpen: false }));
+  }, []);
 
   // === 4. CARGA DE DATOS CENTRALIZADA ===
   const cargarDatos = useCallback(async () => {
@@ -102,6 +113,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         user={user} onLogout={onLogout} onGoToKiosco={onGoToKiosco} seccion={seccion} setSeccion={setSeccion}
         menuAbierto={menuAbierto} setMenuAbierto={setMenuAbierto} canViewMenu={canViewMenu}
         canViewInventario={canViewInventario} canViewCatalogos={canViewCatalogos} canViewUsuarios={canViewUsuarios} canViewConfig={canViewConfig}
+        canViewClientes={canViewClientes}
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -147,6 +159,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
               usuariosDB={usuariosDB}
             />
           )}
+
+          {seccion === 'clientes' && canViewClientes && ( 
+            <GestionClientes 
+              apiUrl={apiUrl} 
+              showAlert={showAlert} 
+            />
+          )}
+
         </div>
       </div>
 

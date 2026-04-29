@@ -23,7 +23,7 @@ exports.crearUsuario = async (req, res) => {
   }
 };
 
-// NUEVA FUNCIÓN: Actualizar Usuario
+// Actualizar Usuario
 exports.actualizarUsuario = async (req, res) => {
   const { id } = req.params;
   const { nombre, usuario, password, rol, permisos, telefono } = req.body;
@@ -61,5 +61,46 @@ exports.eliminarUsuario = async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Error al eliminar usuario' });
+  }
+};
+
+// ==========================================
+// NUEVA FUNCIÓN: REPORTES DE RENDIMIENTO Y ASISTENCIA
+// ==========================================
+exports.obtenerReporteRendimiento = async (req, res) => {
+  try {
+    // 1. Obtener las asistencias del día actual
+    const asistenciasRes = await db.query(`
+      SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha
+      FROM registro_asistencias a
+      JOIN usuarios u ON a.usuario_id = u.id
+      WHERE a.fecha = CURRENT_DATE
+      ORDER BY a.hora_entrada DESC
+    `);
+
+    // 2. Calcular rendimiento de cocina del día actual
+    // Convierte la diferencia de timestamps a segundos (EPOCH), luego a minutos y saca el promedio
+    const rendimientoRes = await db.query(`
+      SELECT 
+        u.nombre AS chef, 
+        COUNT(p.id) AS pedidos_completados,
+        ROUND(AVG(EXTRACT(EPOCH FROM (p.tiempo_listo - p.tiempo_inicio_preparacion))/60)::numeric, 2) AS tiempo_promedio_minutos
+      FROM pedidos p
+      JOIN usuarios u ON p.chef_id = u.id
+      WHERE (p.estado_preparacion = 'Listo' OR p.estado_preparacion = 'Entregado')
+        AND p.tiempo_inicio_preparacion IS NOT NULL
+        AND p.tiempo_listo IS NOT NULL
+        AND DATE(p.fecha_creacion) = CURRENT_DATE
+      GROUP BY u.nombre
+      ORDER BY pedidos_completados DESC
+    `);
+
+    res.json({
+      asistencias: asistenciasRes.rows,
+      rendimientoCocina: rendimientoRes.rows
+    });
+  } catch (error) {
+    console.error("Error al obtener reportes de rendimiento:", error);
+    res.status(500).json({ error: 'Error al obtener reportes' });
   }
 };

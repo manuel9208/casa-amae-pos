@@ -10,16 +10,18 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 exports.crearPedido = async (req, res) => {
-  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos } = req.body;
+  // 👇 Agregamos costo_envio
+  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio } = req.body;
   
   try {
     await db.query('BEGIN');
 
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
+    // 👇 Insertamos el costo_envio (si no viene, por defecto es 0)
     const result = await db.query(
-      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *', 
-      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos]
+      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *', 
+      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0]
     );
 
     if (carrito && carrito.length > 0) { 
@@ -75,9 +77,10 @@ exports.crearPedido = async (req, res) => {
 
 exports.actualizarPedido = async (req, res) => { 
   try { 
+    // 👇 También lo agregamos aquí por si el pedido se modifica antes de confirmarse
     const result = await db.query(
-      'UPDATE pedidos SET tipo_consumo = $1, metodo_pago = $2, total = $3, carrito = $4, estado_preparacion = $5, direccion_entrega = $6 WHERE id = $7 RETURNING *', 
-      [req.body.tipo_consumo, req.body.metodo_pago, req.body.total, JSON.stringify(req.body.carrito), 'Pendiente', req.body.direccion_entrega, req.params.id]
+      'UPDATE pedidos SET tipo_consumo = $1, metodo_pago = $2, total = $3, carrito = $4, estado_preparacion = $5, direccion_entrega = $6, costo_envio = $7 WHERE id = $8 RETURNING *', 
+      [req.body.tipo_consumo, req.body.metodo_pago, req.body.total, JSON.stringify(req.body.carrito), 'Pendiente', req.body.direccion_entrega, req.body.costo_envio || 0, req.params.id]
     ); 
     res.json(result.rows[0]); 
   } catch (error) { 
@@ -85,16 +88,17 @@ exports.actualizarPedido = async (req, res) => {
   } 
 };
 
-// ================= MODIFICADO: ACTUALIZAR ESTADO PARCIAL =================
+// ================= MODIFICADO: ACTUALIZAR ESTADO PARCIAL (CON CRONÓMETRO Y COSTOS) =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
-  const { estado_preparacion, chef_id, carrito, metodo_pago } = req.body;
+  // 👇 Recibimos también total y costo_envio
+  const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio } = req.body;
+  
   try {
     let query = 'UPDATE pedidos SET estado_preparacion = $1'; 
     let params = [estado_preparacion];
     let pIdx = 2;
 
-    // 👇 AQUÍ GUARDAMOS EL MÉTODO DE PAGO FINAL
     if (metodo_pago) {
       query += `, metodo_pago = $${pIdx}`;
       params.push(metodo_pago);
@@ -106,9 +110,27 @@ exports.actualizarEstado = async (req, res) => {
       params.push(JSON.stringify(carrito));
       pIdx++;
     }
+    
+    // 👇 NUEVO: Si la caja manda un nuevo total (sumándole el envío), lo actualizamos
+    if (total !== undefined) {
+      query += `, total = $${pIdx}`;
+      params.push(total);
+      pIdx++;
+    }
+    
+    // 👇 NUEVO: Registramos cuánto fue de puro envío
+    if (costo_envio !== undefined) {
+      query += `, costo_envio = $${pIdx}`;
+      params.push(costo_envio);
+      pIdx++;
+    }
 
     if (estado_preparacion === 'Preparando') {
       query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
+    }
+    
+    if (estado_preparacion === 'Listo') {
+      query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`;
     }
     
     if (chef_id) {
@@ -127,6 +149,7 @@ exports.actualizarEstado = async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar estado' }); 
   }
 };
+
 exports.actualizarAlerta = async (req, res) => { 
   try { 
     const result = await db.query('UPDATE pedidos SET alerta_cocina = $1 WHERE id = $2 RETURNING *', [req.body.alerta_cocina, req.params.id]); 

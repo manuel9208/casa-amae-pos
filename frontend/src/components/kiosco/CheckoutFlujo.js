@@ -22,7 +22,8 @@ const CheckoutFlujo = ({
   const procesarTipoConsumo = (tipo) => { 
     setTipoConsumo(tipo); 
     if (tipo === 'Domicilio') {
-        setPantallaActual('direccion'); 
+        // 👇 NUEVO: Mostrar aviso de envío antes de pedir la dirección
+        setPantallaActual('aviso_domicilio'); 
     } else if (tipo === 'Recoger') {
         if (clienteActivo) {
             seleccionarPago('Pendiente');
@@ -131,7 +132,7 @@ const CheckoutFlujo = ({
 
   // === RENDERIZADO CONDICIONAL DE VISTAS ===
   
-  // 👇 PANTALLA: CAPTURA DE TELÉFONO PARA INVITADOS
+  // CAPTURA DE TELÉFONO PARA INVITADOS (RECOGER EN LOCAL)
   if (pasoTelefono) {
     return (
         <div className="max-w-xl mx-auto mt-10 text-center animate-in zoom-in">
@@ -159,6 +160,7 @@ const CheckoutFlujo = ({
     );
   }
 
+  // PANTALLA PRINCIPAL: ¿CÓMO DISFRUTARÁS TU PEDIDO?
   if (pantallaActual === 'consumo') {
     return (
       <div className="max-w-5xl mx-auto mt-10 text-center animate-in fade-in">
@@ -174,6 +176,26 @@ const CheckoutFlujo = ({
     );
   }
 
+  // 👇 NUEVA PANTALLA: AVISO DE COSTO DE ENVÍO
+  if (pantallaActual === 'aviso_domicilio') {
+    return (
+      <div className="max-w-lg mx-auto mt-20 text-center animate-in zoom-in">
+        <div className="bg-purple-100 text-purple-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 text-5xl shadow-inner">🛵</div>
+        <h2 className="text-3xl font-black mb-4 text-slate-800">Costo de Envío</h2>
+        <div className="bg-purple-50 border border-purple-200 p-8 rounded-3xl mb-8">
+           <p className="text-purple-800 font-bold text-lg leading-relaxed">
+             {configGlobal?.mensaje_envio || 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'}
+           </p>
+        </div>
+        <div className="flex gap-4">
+           <button onClick={() => setPantallaActual('consumo')} className="flex-1 bg-slate-100 text-slate-600 py-5 rounded-2xl font-bold hover:bg-slate-200 transition">Cancelar</button>
+           <button onClick={() => setPantallaActual('direccion')} className="flex-[2] bg-purple-600 text-white py-5 rounded-2xl font-black text-lg shadow-lg hover:bg-purple-700 transition active:scale-95">Entendido, Continuar</button>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA: DIRECCIÓN
   if (pantallaActual === 'direccion') {
     return (
       <div className="max-w-xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
@@ -200,6 +222,7 @@ const CheckoutFlujo = ({
     );
   }
 
+  // PANTALLA: SELECCIONAR PAGO
   if (pantallaActual === 'pago') {
     return (
       <div className="max-w-3xl mx-auto mt-10 animate-in fade-in">
@@ -220,6 +243,7 @@ const CheckoutFlujo = ({
     );
   }
 
+  // PANTALLA: EFECTIVO A DOMICILIO (CAMBIO)
   if (pantallaActual === 'cambio_efectivo_domicilio') {
     return (
       <div className="max-w-3xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
@@ -239,6 +263,7 @@ const CheckoutFlujo = ({
     );
   }
 
+  // PANTALLA: TRANSFERENCIA BANCARIA
   if (pantallaActual === 'detalles_transferencia') {
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-10 rounded-[40px] shadow-2xl border border-blue-100 text-center animate-in zoom-in">
@@ -257,7 +282,7 @@ const CheckoutFlujo = ({
     );
   }
 
-  // 👇 PANTALLA: FINALIZADO
+  // PANTALLA: FINALIZADO
   if (pantallaActual === 'finalizado') {
     return (
       <div className="max-w-2xl mx-auto mt-20 text-center animate-in zoom-in">
@@ -265,7 +290,6 @@ const CheckoutFlujo = ({
         <h2 className="text-6xl font-black mb-4 texto-destacado">¡Orden Registrada!</h2>
         <p className="text-3xl text-slate-500 mb-6">Tu número de orden es el <span className="text-slate-900 font-black text-6xl block mt-4 mb-8">#{numeroPedidoReal}</span></p>
         
-        {/* 👇 VISTA EXCLUSIVA PARA LOS PEDIDOS TELEFÓNICOS ("RECOGER EN LOCAL") */}
         {tipoConsumo === 'Recoger' ? (
              <div className="bg-orange-50 border border-orange-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
                 <p className="text-orange-800 font-black text-2xl mb-2">Pedido en revisión.</p>

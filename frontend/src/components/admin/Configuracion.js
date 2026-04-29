@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const Configuracion = ({
   // Props recibidas desde AdminPanel
   configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
   
-  // === ESTADOS LOCALES PARA MANEJO DE ARCHIVOS (BLOBS) ===
+  // === ESTADOS LOCALES PARA MANEJO DE ARCHIVOS (BLOBS) Y TARIFAS ===
   const [logoBlob, setLogoBlob] = useState(null);
   const [tvBlob1, setTvBlob1] = useState(null);
   const [tvBlob2, setTvBlob2] = useState(null);
   const [tvBlob3, setTvBlob3] = useState(null);
+  const [tarifasEnvio, setTarifasEnvio] = useState([]);
+
+  // Cargar las tarifas de envío desde configGlobal al iniciar
+  useEffect(() => {
+    if (configGlobal.tarifas_envio) {
+      try {
+        const parsed = typeof configGlobal.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio) : configGlobal.tarifas_envio;
+        setTarifasEnvio(Array.isArray(parsed) ? parsed : []);
+      } catch (e) {
+        setTarifasEnvio([]);
+      }
+    }
+  }, [configGlobal.tarifas_envio]);
 
   // Helper para las URLs de Cloudinary
   const getImageUrl = (url) => {
@@ -28,7 +41,15 @@ const Configuracion = ({
     const formData = new FormData();
     
     // Agregamos los textos y configuraciones
-    Object.keys(configGlobal).forEach(key => formData.append(key, configGlobal[key]));
+    Object.keys(configGlobal).forEach(key => {
+      // Excluimos las tarifas porque las manejaremos desde el estado local
+      if (key !== 'tarifas_envio') {
+        formData.append(key, configGlobal[key]);
+      }
+    });
+    
+    // Agregamos las tarifas de envío
+    formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
     
     // Agregamos los archivos si existen
     if (logoBlob) formData.append('logo', logoBlob);
@@ -69,19 +90,20 @@ const Configuracion = ({
         tv_msg_cola: 'EN COLA', tv_msg_progreso: 'PREPARANDO', tv_msg_listo: '¡LISTOS!', 
         tv_carrusel_activo: false, tv_carrusel_segundos: 10,
         mensaje_cierre: 'El negocio se encuentra cerrado temporalmente. Horario de atención: 8:00 AM - 10:00 PM.',
-        // NUEVOS VALORES PREDETERMINADOS DE TICKET
         ticket_impresion_activa: false,
         ticket_modo_impresion: 'pdf',
         ticket_domicilio: '',
         ticket_mensaje_final: '¡Gracias por su preferencia!',
-        ticket_firma_sistema: 'Powered by MiSistemaPOS' // 👇 Firma por defecto
+        ticket_firma_sistema: 'Powered by MiSistemaPOS',
+        mensaje_envio: 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
       });
+      setTarifasEnvio([]);
       showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
     });
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+    <div className="max-w-4xl mx-auto space-y-8 pb-12 animate-in fade-in">
       <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
       <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
         
@@ -123,7 +145,7 @@ const Configuracion = ({
                 <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Contenido Kiosco</p>
                 <input type="text" value={configGlobal.kiosco_mensaje || ''} onChange={e => setConfigGlobal({...configGlobal, kiosco_mensaje: e.target.value})} className="w-full p-3 bg-white border rounded-xl outline-none font-bold" placeholder="Mensaje en Kiosco..." />
                 
-                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-4">Mensaje de Negocio Cerrado (Advertencia)</p>
+                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-4">Mensaje de Negocio Cerrado</p>
                 <textarea 
                   value={configGlobal.mensaje_cierre || ''} 
                   onChange={e => setConfigGlobal({...configGlobal, mensaje_cierre: e.target.value})} 
@@ -274,7 +296,6 @@ const Configuracion = ({
                   <label className="block text-xs font-black text-orange-600 uppercase mb-1">Mensaje de Despedida</label>
                   <input type="text" value={configGlobal.ticket_mensaje_final || ''} onChange={e => setConfigGlobal({...configGlobal, ticket_mensaje_final: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-medium" placeholder="Ej. ¡Gracias por su compra!" />
                 </div>
-                {/* 👇 NUEVO INPUT PARA LA FIRMA DEL SISTEMA */}
                 <div>
                   <label className="block text-xs font-black text-orange-600 uppercase mb-1">Firma del Sistema (Opcional)</label>
                   <input type="text" value={configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS'} onChange={e => setConfigGlobal({...configGlobal, ticket_firma_sistema: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-medium text-slate-500" placeholder="Ej. Desarrollado por..." />
@@ -282,6 +303,79 @@ const Configuracion = ({
               </div>
             </div>
           )}
+        </div>
+
+        {/* 👇 6. NUEVA CONFIGURACIÓN DE ENVÍOS A DOMICILIO */}
+        <div className="bg-purple-50/30 p-6 rounded-3xl border border-purple-100 space-y-6">
+          <h3 className="text-xl font-bold text-purple-800 flex items-center gap-2">🛵 6. Costos de Envío a Domicilio</h3>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-black text-purple-600 uppercase mb-1">Aviso para el Cliente (Kiosco)</label>
+              <textarea 
+                value={configGlobal.mensaje_envio !== undefined ? configGlobal.mensaje_envio : 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'} 
+                onChange={e => setConfigGlobal({...configGlobal, mensaje_envio: e.target.value})} 
+                className="w-full p-3 bg-white border border-purple-200 rounded-xl outline-none font-medium resize-none h-20 text-slate-700" 
+                placeholder="Ej. El costo de envío varía entre $10 y $25..." 
+              />
+            </div>
+
+            <div className="pt-4 border-t border-purple-100">
+              <label className="block text-xs font-black text-purple-600 uppercase mb-3">Zonas y Tarifas de Envío</label>
+              
+              <div className="space-y-3 mb-4">
+                {tarifasEnvio.length === 0 && <p className="text-sm font-bold text-slate-400">No hay zonas configuradas. El envío a domicilio no tendrá costo extra.</p>}
+                
+                {tarifasEnvio.map((tarifa, index) => (
+                  <div key={index} className="flex flex-col md:flex-row gap-2 items-center bg-white p-3 rounded-xl border border-purple-100">
+                    <input 
+                      type="text" 
+                      placeholder="Nombre de Zona (Ej. Mismo Fraccionamiento)" 
+                      value={tarifa.zona} 
+                      onChange={(e) => {
+                        const nuevas = [...tarifasEnvio];
+                        nuevas[index].zona = e.target.value;
+                        setTarifasEnvio(nuevas);
+                      }} 
+                      className="flex-1 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" 
+                    />
+                    
+                    <div className="relative w-full md:w-32 shrink-0">
+                      <span className="absolute left-3 top-3 text-slate-400 font-bold">$</span>
+                      <input 
+                        type="number" 
+                        min="0"
+                        placeholder="Costo" 
+                        value={tarifa.costo} 
+                        onChange={(e) => {
+                          const nuevas = [...tarifasEnvio];
+                          nuevas[index].costo = Number(e.target.value);
+                          setTarifasEnvio(nuevas);
+                        }} 
+                        className="w-full p-3 pl-8 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" 
+                      />
+                    </div>
+                    
+                    <button 
+                      type="button" 
+                      onClick={() => setTarifasEnvio(tarifasEnvio.filter((_, i) => i !== index))} 
+                      className="w-full md:w-auto p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 font-bold transition flex justify-center shrink-0"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button 
+                type="button" 
+                onClick={() => setTarifasEnvio([...tarifasEnvio, { zona: '', costo: 0 }])} 
+                className="bg-purple-100 text-purple-700 font-bold px-4 py-3 rounded-xl text-sm hover:bg-purple-200 transition flex items-center gap-2"
+              >
+                ➕ Agregar Nueva Zona
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">

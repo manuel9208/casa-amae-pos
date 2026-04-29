@@ -48,11 +48,15 @@ router.post('/login', authCtrl.login);
 router.post('/logout', authCtrl.logout);
 router.post('/clientes/registro', clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
+router.get('/clientes', clienteCtrl.obtenerClientes);
+router.put('/clientes/:id', clienteCtrl.actualizarCliente);
+router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
 
 // ==========================================
 // USUARIOS (EMPLEADOS)
 // ==========================================
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
+router.get('/usuarios/rendimiento', usuarioCtrl.obtenerReporteRendimiento); // 👇 NUEVA RUTA DE RENDIMIENTO
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
 router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario);

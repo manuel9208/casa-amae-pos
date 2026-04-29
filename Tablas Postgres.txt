@@ -1,8 +1,9 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.3)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.4)
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
+-- DROP TABLE IF EXISTS registro_asistencias CASCADE;
 -- DROP TABLE IF EXISTS compras_insumos CASCADE;
 -- DROP TABLE IF EXISTS recetas CASCADE;
 -- DROP TABLE IF EXISTS insumos CASCADE;
@@ -61,16 +62,20 @@ CREATE TABLE configuracion (
     negocio_abierto BOOLEAN DEFAULT TRUE,
     mensaje_cierre TEXT,
 
-    -- 👇 NUEVOS CAMPOS: CONFIGURACIÓN DE TICKET DE VENTA
+    -- CONFIGURACIÓN DE TICKET DE VENTA
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
     ticket_modo_impresion VARCHAR(20) DEFAULT 'pdf',
     ticket_domicilio TEXT,
     ticket_mensaje_final TEXT,
-    ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS'
+    ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
+
+    -- 👇 NUEVOS CAMPOS: CONFIGURACIÓN DE ENVÍOS A DOMICILIO
+    tarifas_envio JSONB DEFAULT '[]'::jsonb,
+    mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
 );
 
 -- -------------------------------------------------------------------------
--- 3. TABLAS DE USUARIOS Y CLIENTES
+-- 3. TABLAS DE USUARIOS, ASISTENCIAS Y CLIENTES
 -- -------------------------------------------------------------------------
 CREATE TABLE usuarios (
     id SERIAL PRIMARY KEY,
@@ -80,10 +85,18 @@ CREATE TABLE usuarios (
     rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv')),
     permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
-    -- Candado de sesión única
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 👇 NUEVA TABLA: REGISTRO DE ASISTENCIAS Y RENDIMIENTO
+CREATE TABLE registro_asistencias (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
+    hora_entrada TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    hora_salida TIMESTAMP,
+    fecha DATE DEFAULT CURRENT_DATE
 );
 
 CREATE TABLE clientes (
@@ -94,7 +107,7 @@ CREATE TABLE clientes (
     correo VARCHAR(100),
     fecha_nacimiento DATE,
     puntos INTEGER DEFAULT 0,
-    nip VARCHAR(4) DEFAULT '0000', -- Para canje seguro de puntos
+    nip VARCHAR(4) DEFAULT '0000', 
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -104,7 +117,7 @@ CREATE TABLE clientes (
 CREATE TABLE clasificaciones (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(50) UNIQUE NOT NULL,
-    destino VARCHAR(20) DEFAULT 'Cocina', -- Cocina o Barra
+    destino VARCHAR(20) DEFAULT 'Cocina', 
     emoji VARCHAR(20),
     imagen_url TEXT
 );
@@ -117,12 +130,12 @@ CREATE TABLE productos (
     emoji VARCHAR(10),
     imagen_url TEXT,
     categoria VARCHAR(50) DEFAULT 'General',
-    opciones JSONB DEFAULT '[]'::jsonb, -- Tallas, extras rápidos, etc.
+    opciones JSONB DEFAULT '[]'::jsonb, 
     tiempo_preparacion INTEGER DEFAULT 15,
     rendimiento DECIMAL(10,2) DEFAULT 1,
-    stock_preparado INTEGER INTEGER DEFAULT 0,
+    stock_preparado INTEGER DEFAULT 0,
     estado VARCHAR(20) DEFAULT 'Activo',
-    disponible BOOLEAN DEFAULT TRUE, -- Habilitar/Deshabilitar Kiosco
+    disponible BOOLEAN DEFAULT TRUE, 
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -141,7 +154,7 @@ CREATE TABLE catalogo_ingredientes (
 CREATE TABLE insumos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
-    unidad_medida VARCHAR(10) NOT NULL, -- Pz, GR, KL, ML, LT
+    unidad_medida VARCHAR(10) NOT NULL, 
     cantidad_presentacion DECIMAL(10,2) NOT NULL, 
     costo_presentacion DECIMAL(10,2) NOT NULL,    
     stock_actual DECIMAL(10,2) DEFAULT 0          
@@ -176,10 +189,12 @@ CREATE TABLE pedidos (
     direccion_entrega TEXT,
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
+    costo_envio DECIMAL(10,2) DEFAULT 0, -- 👇 NUEVO CAMPO: COSTO DE ENVÍO A DOMICILIO
     descuento_puntos INTEGER DEFAULT 0,
     carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
+    tiempo_listo TIMESTAMP, -- 👇 NUEVO CAMPO: HORA DE FINALIZACIÓN EN COCINA
     alerta_cocina TEXT DEFAULT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

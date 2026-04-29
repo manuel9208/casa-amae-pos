@@ -53,7 +53,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
     fetch(`${apiUrl}/clasificaciones`).then(r => r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : [])).catch(console.error);
     
-    // 👇 SOLUCIÓN CACHÉ: Añadimos '?t=' con la hora actual para evitar que el navegador guarde la respuesta
+    // SOLUCIÓN CACHÉ: Añadimos '?t=' con la hora actual para evitar que el navegador guarde la respuesta
     const fetchConfig = () => {
       fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`)
         .then(r => r.json())
@@ -62,7 +62,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
     
     fetchConfig(); 
-    // 👇 Reducimos el tiempo a 5 segundos para que reaccione súper rápido a la Caja
+    // Reducimos el tiempo a 5 segundos para que reaccione súper rápido a la Caja
     const intervalConfig = setInterval(fetchConfig, 5000); 
     return () => clearInterval(intervalConfig);
 
@@ -188,7 +188,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         />
       )}
 
-      {['consumo', 'direccion', 'pago', 'cambio_efectivo_domicilio', 'detalles_transferencia', 'finalizado'].includes(pantallaActual) && (
+      {/* 👇 AÑADIDO: 'aviso_domicilio' PARA QUE RENDERICE EL COMPONENTE CHECKOUTFLUJO */}
+      {['consumo', 'aviso_domicilio', 'direccion', 'pago', 'cambio_efectivo_domicilio', 'detalles_transferencia', 'finalizado'].includes(pantallaActual) && (
         <CheckoutFlujo 
           pantallaActual={pantallaActual} setPantallaActual={setPantallaActual}
           tipoConsumo={tipoConsumo} setTipoConsumo={setTipoConsumo}
