@@ -68,8 +68,13 @@ const Configuracion = ({
         kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b', 
         tv_msg_cola: 'EN COLA', tv_msg_progreso: 'PREPARANDO', tv_msg_listo: '¡LISTOS!', 
         tv_carrusel_activo: false, tv_carrusel_segundos: 10,
-        // 👇 NUEVO VALOR PREDETERMINADO
-        mensaje_cierre: 'El negocio se encuentra cerrado temporalmente. Horario de atención: 8:00 AM - 10:00 PM.'
+        mensaje_cierre: 'El negocio se encuentra cerrado temporalmente. Horario de atención: 8:00 AM - 10:00 PM.',
+        // NUEVOS VALORES PREDETERMINADOS DE TICKET
+        ticket_impresion_activa: false,
+        ticket_modo_impresion: 'pdf',
+        ticket_domicilio: '',
+        ticket_mensaje_final: '¡Gracias por su preferencia!',
+        ticket_firma_sistema: 'Powered by MiSistemaPOS' // 👇 Firma por defecto
       });
       showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
     });
@@ -118,7 +123,6 @@ const Configuracion = ({
                 <p className="text-xs font-black text-blue-600 uppercase tracking-widest">Contenido Kiosco</p>
                 <input type="text" value={configGlobal.kiosco_mensaje || ''} onChange={e => setConfigGlobal({...configGlobal, kiosco_mensaje: e.target.value})} className="w-full p-3 bg-white border rounded-xl outline-none font-bold" placeholder="Mensaje en Kiosco..." />
                 
-                {/* 👇 NUEVO CAMPO: MENSAJE DE CIERRE */}
                 <p className="text-xs font-black text-blue-600 uppercase tracking-widest mt-4">Mensaje de Negocio Cerrado (Advertencia)</p>
                 <textarea 
                   value={configGlobal.mensaje_cierre || ''} 
@@ -236,6 +240,48 @@ const Configuracion = ({
               <input id="tv3-upload" type="file" accept="image/*" onChange={e => setTvBlob3(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
           </div>
+        </div>
+
+        {/* 5. CONFIGURACIÓN DE TICKET */}
+        <div className="bg-orange-50/30 p-6 rounded-3xl border border-orange-100 space-y-6">
+          <h3 className="text-xl font-bold text-orange-800 flex items-center gap-2">🧾 5. Configuración de Ticket</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <label className="flex items-center gap-3 font-bold text-slate-700 cursor-pointer bg-white p-4 rounded-2xl border border-orange-200">
+              <input type="checkbox" checked={configGlobal.ticket_impresion_activa === true || configGlobal.ticket_impresion_activa === 'true'} onChange={e => setConfigGlobal({...configGlobal, ticket_impresion_activa: e.target.checked})} className="w-6 h-6 accent-orange-500" /> 
+              Activar Impresión de Tickets
+            </label>
+
+            {configGlobal.ticket_impresion_activa && (
+              <div>
+                <label className="block text-xs font-black text-orange-600 uppercase mb-1">Modo de Impresión</label>
+                <select value={configGlobal.ticket_modo_impresion || 'pdf'} onChange={e => setConfigGlobal({...configGlobal, ticket_modo_impresion: e.target.value})} className="w-full p-4 bg-white border border-orange-200 rounded-2xl outline-none font-bold text-slate-700">
+                  <option value="pdf">Guardar como PDF (Pruebas/Manual)</option>
+                  <option value="impresora">Impresora Térmica Directa</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          {configGlobal.ticket_impresion_activa && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-orange-100">
+              <div>
+                <label className="block text-xs font-black text-orange-600 uppercase mb-1">Domicilio del Local</label>
+                <textarea value={configGlobal.ticket_domicilio || ''} onChange={e => setConfigGlobal({...configGlobal, ticket_domicilio: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-medium resize-none h-32" placeholder="Ej. Av. Principal #123, Col. Centro" />
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-black text-orange-600 uppercase mb-1">Mensaje de Despedida</label>
+                  <input type="text" value={configGlobal.ticket_mensaje_final || ''} onChange={e => setConfigGlobal({...configGlobal, ticket_mensaje_final: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-medium" placeholder="Ej. ¡Gracias por su compra!" />
+                </div>
+                {/* 👇 NUEVO INPUT PARA LA FIRMA DEL SISTEMA */}
+                <div>
+                  <label className="block text-xs font-black text-orange-600 uppercase mb-1">Firma del Sistema (Opcional)</label>
+                  <input type="text" value={configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS'} onChange={e => setConfigGlobal({...configGlobal, ticket_firma_sistema: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none font-medium text-slate-500" placeholder="Ej. Desarrollado por..." />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">

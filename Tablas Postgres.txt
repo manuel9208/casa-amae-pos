@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.2)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.3)
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
@@ -16,7 +16,7 @@
 -- DROP TABLE IF EXISTS configuracion CASCADE;
 
 -- -------------------------------------------------------------------------
--- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding y TV)
+-- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Tickets)
 -- -------------------------------------------------------------------------
 CREATE TABLE configuracion (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -57,9 +57,16 @@ CREATE TABLE configuracion (
     tv_imagen_2 VARCHAR(255),
     tv_imagen_3 VARCHAR(255),
 
-    -- 👇 NUEVOS CAMPOS: APERTURA Y CIERRE DEL NEGOCIO
+    -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
-    mensaje_cierre TEXT
+    mensaje_cierre TEXT,
+
+    -- 👇 NUEVOS CAMPOS: CONFIGURACIÓN DE TICKET DE VENTA
+    ticket_impresion_activa BOOLEAN DEFAULT FALSE,
+    ticket_modo_impresion VARCHAR(20) DEFAULT 'pdf',
+    ticket_domicilio TEXT,
+    ticket_mensaje_final TEXT,
+    ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS'
 );
 
 -- -------------------------------------------------------------------------
@@ -113,9 +120,9 @@ CREATE TABLE productos (
     opciones JSONB DEFAULT '[]'::jsonb, -- Tallas, extras rápidos, etc.
     tiempo_preparacion INTEGER DEFAULT 15,
     rendimiento DECIMAL(10,2) DEFAULT 1,
-    stock_preparado INTEGER DEFAULT 0,
+    stock_preparado INTEGER INTEGER DEFAULT 0,
     estado VARCHAR(20) DEFAULT 'Activo',
-    disponible BOOLEAN DEFAULT TRUE, -- 👇 NUEVO CAMPO: HABILITAR/DESHABILITAR
+    disponible BOOLEAN DEFAULT TRUE, -- Habilitar/Deshabilitar Kiosco
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
