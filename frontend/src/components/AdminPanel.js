@@ -7,6 +7,7 @@ import Catalogos from './admin/Catalogos';
 import Inventario from './admin/Inventario';
 import GestionMenu from './admin/GestionMenu';
 import GestionClientes from './admin/GestionClientes';
+import ReporteVentas from './admin/ReporteVentas'; // 👇 NUEVO: Importamos el reporte
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -42,8 +43,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   const canViewClientes = isGlobalAdmin || user?.permisos?.usuarios === true || user?.permisos?.ventas === true;
+  // 👇 Asumimos que si puede ver inventario o es admin, puede ver finanzas
+  const canViewReportes = isGlobalAdmin || user?.permisos?.inventario === true; 
   
-  // === 3. MODAL GLOBAL REUTILIZABLE (CORREGIDO CON useCallback) ===
+  // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
   
   const showAlert = useCallback((titulo, mensaje, tipo = 'info') => {
@@ -113,7 +116,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         user={user} onLogout={onLogout} onGoToKiosco={onGoToKiosco} seccion={seccion} setSeccion={setSeccion}
         menuAbierto={menuAbierto} setMenuAbierto={setMenuAbierto} canViewMenu={canViewMenu}
         canViewInventario={canViewInventario} canViewCatalogos={canViewCatalogos} canViewUsuarios={canViewUsuarios} canViewConfig={canViewConfig}
-        canViewClientes={canViewClientes}
+        canViewClientes={canViewClientes} canViewReportes={canViewReportes}
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -162,6 +165,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
           {seccion === 'clientes' && canViewClientes && ( 
             <GestionClientes 
+              apiUrl={apiUrl} 
+              showAlert={showAlert} 
+            />
+          )}
+
+          {/* 👇 NUEVO: Componente de Reportes Financieros */}
+          {seccion === 'reportes' && canViewReportes && ( 
+            <ReporteVentas 
               apiUrl={apiUrl} 
               showAlert={showAlert} 
             />

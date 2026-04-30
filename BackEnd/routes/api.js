@@ -15,6 +15,7 @@ const clasificacionCtrl = require('../controllers/clasificacionController');
 const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
+const reporteCtrl = require('../controllers/reporteController'); // 👇 NUEVO: Controlador de reportes
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY (MODIFICADA PARA VIDEOS)
@@ -29,8 +30,8 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'pos_uploads', 
-    resource_type: 'auto', // 👇 NUEVO: Esto le dice a Cloudinary que acepte imágenes Y videos
-    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov'] // 👇 Añadimos formatos de video
+    resource_type: 'auto', // Esto le dice a Cloudinary que acepte imágenes Y videos
+    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov'] // Añadimos formatos de video
   }
 });
 const upload = multer({ storage: storage });
@@ -107,5 +108,10 @@ router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);
+
+// ==========================================
+// REPORTES Y ESTADÍSTICAS (NUEVO)
+// ==========================================
+router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 
 module.exports = router;

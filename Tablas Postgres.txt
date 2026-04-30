@@ -1,8 +1,8 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.5)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.0)
 -- =========================================================================
 
--- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
+-- 1. LIMPIEZA (Opcional: Descomentar para resetear la base de datos)
 -- DROP TABLE IF EXISTS registro_asistencias CASCADE;
 -- DROP TABLE IF EXISTS compras_insumos CASCADE;
 -- DROP TABLE IF EXISTS recetas CASCADE;
@@ -17,12 +17,13 @@
 -- DROP TABLE IF EXISTS configuracion CASCADE;
 
 -- CONFIGURACIÓN DE ENTORNO
+-- Establece la zona horaria para que coincida con el servidor local
 ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
 
 -- -------------------------------------------------------------------------
--- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Tickets)
+-- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Envíos)
 -- -------------------------------------------------------------------------
-CREATE TABLE configuracion (
+CREATE TABLE IF NOT EXISTS configuracion (
     id INTEGER PRIMARY KEY DEFAULT 1,
     
     -- Información del Negocio
@@ -49,31 +50,31 @@ CREATE TABLE configuracion (
     kiosco_mensaje VARCHAR(100) DEFAULT '¿Qué se te antoja hoy?',
     color_texto_kiosco VARCHAR(20) DEFAULT '#1e293b',
     
-    -- Pantalla TV KDS
+    -- Pantalla TV KDS (Gestión de Pedidos)
     tv_msg_cola VARCHAR(50) DEFAULT 'EN COLA',
     tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
     tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!',
     
-    -- Carrusel TV Promocional (Imágenes y Video)
+    -- Carrusel TV Promocional (Multimedia)
     tv_carrusel_activo BOOLEAN DEFAULT false,
     tv_carrusel_segundos INTEGER DEFAULT 10,
     tv_imagen_1 VARCHAR(255),
     tv_imagen_2 VARCHAR(255),
     tv_imagen_3 VARCHAR(255),
-    tv_video VARCHAR(255), -- Espacio para video promocional de 10s
+    tv_video VARCHAR(255), -- Ruta del video de 10s
 
     -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
     mensaje_cierre TEXT,
 
-    -- CONFIGURACIÓN DE TICKET DE VENTA
+    -- Configuración de Ticket de Venta
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
     ticket_modo_impresion VARCHAR(20) DEFAULT 'pdf',
     ticket_domicilio TEXT,
     ticket_mensaje_final TEXT,
     ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
 
-    -- CONFIGURACIÓN DE ENVÍOS A DOMICILIO
+    -- Configuración de Envíos a Domicilio (NUEVO)
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
     mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
 );
@@ -81,7 +82,7 @@ CREATE TABLE configuracion (
 -- -------------------------------------------------------------------------
 -- 3. TABLAS DE USUARIOS, ASISTENCIAS Y CLIENTES
 -- -------------------------------------------------------------------------
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     usuario VARCHAR(50) UNIQUE NOT NULL,
@@ -94,8 +95,8 @@ CREATE TABLE usuarios (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- TABLA PARA REGISTRO DE ASISTENCIAS (RELOJ CHECADOR)
-CREATE TABLE registro_asistencias (
+-- Tabla Reloj Checador: Registro de Entradas y Salidas (NUEVO)
+CREATE TABLE IF NOT EXISTS registro_asistencias (
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
     hora_entrada TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,7 +104,7 @@ CREATE TABLE registro_asistencias (
     fecha DATE DEFAULT CURRENT_DATE
 );
 
-CREATE TABLE clientes (
+CREATE TABLE IF NOT EXISTS clientes (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
     apellido VARCHAR(50) NOT NULL,
@@ -118,7 +119,7 @@ CREATE TABLE clientes (
 -- -------------------------------------------------------------------------
 -- 4. CATÁLOGOS DEL MENÚ
 -- -------------------------------------------------------------------------
-CREATE TABLE clasificaciones (
+CREATE TABLE IF NOT EXISTS clasificaciones (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(50) UNIQUE NOT NULL,
     destino VARCHAR(20) DEFAULT 'Cocina', 
@@ -126,7 +127,7 @@ CREATE TABLE clasificaciones (
     imagen_url TEXT
 );
 
-CREATE TABLE productos (
+CREATE TABLE IF NOT EXISTS productos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     descripcion TEXT,
@@ -143,7 +144,7 @@ CREATE TABLE productos (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE catalogo_ingredientes (
+CREATE TABLE IF NOT EXISTS catalogo_ingredientes (
     id SERIAL PRIMARY KEY,
     clasificacion_id INTEGER REFERENCES clasificaciones(id) ON DELETE CASCADE,
     nombre VARCHAR(100) NOT NULL,
@@ -155,7 +156,7 @@ CREATE TABLE catalogo_ingredientes (
 -- -------------------------------------------------------------------------
 -- 5. MÓDULO DE INVENTARIO Y RECETAS (MATERIA PRIMA)
 -- -------------------------------------------------------------------------
-CREATE TABLE insumos (
+CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     unidad_medida VARCHAR(10) NOT NULL, 
@@ -164,7 +165,7 @@ CREATE TABLE insumos (
     stock_actual DECIMAL(10,2) DEFAULT 0          
 );
 
-CREATE TABLE compras_insumos (
+CREATE TABLE IF NOT EXISTS compras_insumos (
     id SERIAL PRIMARY KEY,
     insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE, 
     paquetes DECIMAL(10,2),
@@ -173,7 +174,7 @@ CREATE TABLE compras_insumos (
     fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE recetas (
+CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
     insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE,
@@ -181,9 +182,9 @@ CREATE TABLE recetas (
 );
 
 -- -------------------------------------------------------------------------
--- 6. TABLAS TRANSACCIONALES (PEDIDOS)
+-- 6. TABLAS TRANSACCIONALES (PEDIDOS Y VENTAS)
 -- -------------------------------------------------------------------------
-CREATE TABLE pedidos (
+CREATE TABLE IF NOT EXISTS pedidos (
     id SERIAL PRIMARY KEY,
     numero_pedido INT NOT NULL,
     cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
@@ -193,17 +194,19 @@ CREATE TABLE pedidos (
     direccion_entrega TEXT,
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
-    costo_envio DECIMAL(10,2) DEFAULT 0, -- Costo adicional por zona
+    
+    -- Costos y Tiempos (ACTUALIZADO)
+    costo_envio DECIMAL(10,2) DEFAULT 0, 
     descuento_puntos INTEGER DEFAULT 0,
     carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
-    tiempo_listo TIMESTAMP, -- Hora de finalización en cocina/barra
+    tiempo_listo TIMESTAMP, -- Hora exacta de finalización en cocina
     alerta_cocina TEXT DEFAULT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE detalle_pedidos (
+CREATE TABLE IF NOT EXISTS detalle_pedidos (
     id SERIAL PRIMARY KEY,
     pedido_id INT REFERENCES pedidos(id) ON DELETE CASCADE,
     nombre_producto VARCHAR(100),
@@ -215,17 +218,19 @@ CREATE TABLE detalle_pedidos (
 -- DATOS INICIALES (SEMILLAS)
 -- =========================================================================
 
--- Iniciar configuración única
-INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING;
+-- Iniciar configuración única (Fila ID 1)
+INSERT INTO configuracion (id, nombre_negocio) 
+VALUES (1, 'Mi Restaurante') 
+ON CONFLICT (id) DO NOTHING;
 
--- Admin por defecto (Cambiar password en producción)
+-- Admin por defecto (Recuerda actualizar el password después de iniciar)
 INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) 
 VALUES ('Administrador Global', 'admin', 'admin123', 'admin', '{"ventas": true, "inventario": true, "usuarios": true}'::jsonb, 6721190608)
 ON CONFLICT (usuario) DO NOTHING;
 
--- Clasificaciones base
+-- Clasificaciones base para arranque
 INSERT INTO clasificaciones (nombre, destino, emoji) VALUES 
-('Cafes', 'Barra', '☕'), 
+('Bebidas', 'Barra', '🥤'), 
 ('Sushis', 'Cocina', '🍣'), 
-('Postres', 'Cocina', '🍰')
+('Postres', 'Barra', '🍰')
 ON CONFLICT (nombre) DO NOTHING;

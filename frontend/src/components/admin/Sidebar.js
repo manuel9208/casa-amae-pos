@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X } from 'lucide-react';
+import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp } from 'lucide-react'; // 👇 Añadí TrendingUp
 
 const Sidebar = ({ 
   user, 
@@ -14,7 +14,8 @@ const Sidebar = ({
   canViewCatalogos, 
   canViewUsuarios, 
   canViewConfig,
-  canViewClientes // 👇 NUEVO PROP RECIBIDO DESDE ADMINPANEL
+  canViewClientes,
+  canViewReportes // 👇 NUEVO PROP RECIBIDO DESDE ADMINPANEL
 }) => {
   return (
     <>
@@ -46,6 +47,17 @@ const Sidebar = ({
         </button>
         
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2">
+          
+          {/* 👇 NUEVO BOTÓN: REPORTES FINANCIEROS */}
+          {canViewReportes && (
+            <button 
+              onClick={() => { setSeccion('reportes'); setMenuAbierto(false); }} 
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'reportes' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/50' : 'hover:bg-slate-800 text-slate-400'}`}
+            >
+              <TrendingUp size={20} /> Finanzas y Reportes
+            </button>
+          )}
+
           {canViewMenu && (
             <button onClick={() => { setSeccion('menu'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'menu' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}>
               <LayoutGrid size={20} /> Gestión Menú
@@ -61,19 +73,19 @@ const Sidebar = ({
               <BookOpen size={20} /> Ingredientes y Extras
             </button>
           )}
-          {canViewUsuarios && (
-            <button onClick={() => { setSeccion('usuarios'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}>
-              <Users size={20} /> Usuarios
-            </button>
-          )}
           
-          {/* 👇 NUEVO BOTÓN: CLIENTES (CRM) */}
           {canViewClientes && (
             <button 
               onClick={() => { setSeccion('clientes'); setMenuAbierto(false); }} 
               className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'clientes' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}
             >
               <span className="text-xl leading-none">👥</span> Clientes (CRM)
+            </button>
+          )}
+
+          {canViewUsuarios && (
+            <button onClick={() => { setSeccion('usuarios'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'usuarios' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <Users size={20} /> Usuarios
             </button>
           )}
 

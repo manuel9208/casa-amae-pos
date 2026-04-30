@@ -11,6 +11,7 @@ const Caja = ({ user, onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
   const [configGlobal, setConfigGlobal] = useState(null);
+  const [insumosDB, setInsumosDB] = useState([]); // 👇 NUEVO: Estado para el catálogo de insumos
   
   // === ESTADOS DE LOS MODALES ===
   const [modalPago, setModalPago] = useState(null);
@@ -21,6 +22,11 @@ const Caja = ({ user, onLogout }) => {
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
   const [ticketImprimir, setTicketImprimir] = useState(null);
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
+  
+  // 👇 NUEVOS ESTADOS PARA COMPRA RÁPIDA
+  const [modalCompraRapida, setModalCompraRapida] = useState(false);
+  const [insumoComprar, setInsumoComprar] = useState(null);
+  const [paquetesComprados, setPaquetesComprados] = useState('');
 
   // === ESTADOS DEL FONDO DE CAJA ===
   const hoyStr = new Date().toLocaleDateString();
@@ -36,6 +42,16 @@ const Caja = ({ user, onLogout }) => {
   useEffect(() => {
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
     
+    // 👇 NUEVO: Cargar los insumos para la compra rápida
+    const cargarInsumos = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/insumos`);
+        const data = await res.json();
+        setInsumosDB(Array.isArray(data) ? data : []);
+      } catch (error) { console.error('Error cargando insumos'); }
+    };
+    cargarInsumos();
+
     const cargarConfig = async () => {
       try {
         const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
@@ -65,7 +81,6 @@ const Caja = ({ user, onLogout }) => {
       if (key === 'negocio_abierto') {
         formData.append(key, nuevoEstado);
       } else if (key === 'tarifas_envio') {
-        // 👇 AQUÍ ESTABA EL BUG: Evitamos que se envíe como [object Object]
         formData.append(key, typeof configGlobal[key] === 'string' ? configGlobal[key] : JSON.stringify(configGlobal[key] || []));
       } else if (configGlobal[key] !== null && configGlobal[key] !== undefined) {
         formData.append(key, configGlobal[key]);
@@ -81,7 +96,6 @@ const Caja = ({ user, onLogout }) => {
     }
   };
 
-  // 👇 NUEVA FUNCIÓN: Apagar negocio al salir
   const cerrarCajaYSalir = async () => {
     if (configGlobal && configGlobal.negocio_abierto) {
       try {
@@ -94,7 +108,7 @@ const Caja = ({ user, onLogout }) => {
         await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
       } catch (error) { console.error('Error cerrando negocio', error); }
     }
-    onLogout(); // Finalmente ejecuta la salida
+    onLogout();
   };
 
   const iniciarTurno = (e) => {
@@ -192,6 +206,38 @@ const Caja = ({ user, onLogout }) => {
     if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
 
+  // 👇 NUEVA FUNCIÓN: Registrar Compra Rápida de Insumos
+  const registrarCompraRapida = async (e) => {
+    e.preventDefault();
+    if (!insumoComprar || !paquetesComprados) return;
+
+    try {
+      const res = await fetch(`${apiUrl}/insumos/${insumoComprar.id}/comprar`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paquetes: Number(paquetesComprados),
+          costo_unitario: Number(insumoComprar.costo_presentacion) // Usamos el costo que ya tiene guardado
+        })
+      });
+
+      if (res.ok) {
+        // Refrescamos la lista de insumos
+        const resInsumos = await fetch(`${apiUrl}/insumos`);
+        const dataInsumos = await resInsumos.json();
+        setInsumosDB(Array.isArray(dataInsumos) ? dataInsumos : []);
+        
+        setInsumoComprar(null);
+        setPaquetesComprados('');
+        alert('Compra registrada correctamente en el inventario.');
+      } else {
+        alert('Error al registrar la compra rápida.');
+      }
+    } catch (error) {
+      alert('Problema de conexión al guardar la compra.');
+    }
+  };
+
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
   const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio');
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
@@ -203,12 +249,13 @@ const Caja = ({ user, onLogout }) => {
         
         <SidebarCaja 
           user={user} 
-          onLogout={cerrarCajaYSalir} // 👇 Usamos la nueva función aquí
+          onLogout={cerrarCajaYSalir} 
           configGlobal={configGlobal} toggleEstadoNegocio={toggleEstadoNegocio}
           vistaActiva={vistaActiva} setVistaActiva={setVistaActiva}
           pedidosPorConfirmar={pedidosPorConfirmar}
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
+          setModalCompraRapida={setModalCompraRapida} // Pasamos la función para abrir el modal
         />
 
         <VistasCaja 
@@ -248,6 +295,16 @@ const Caja = ({ user, onLogout }) => {
           modalZonaEnvio={modalZonaEnvio}
           setModalZonaEnvio={setModalZonaEnvio}
           confirmarPedidoDomicilio={confirmarPedidoDomicilio}
+
+          // 👇 NUEVAS PROPS PARA COMPRA RÁPIDA
+          modalCompraRapida={modalCompraRapida}
+          setModalCompraRapida={setModalCompraRapida}
+          insumosDB={insumosDB}
+          insumoComprar={insumoComprar}
+          setInsumoComprar={setInsumoComprar}
+          paquetesComprados={paquetesComprados}
+          setPaquetesComprados={setPaquetesComprados}
+          registrarCompraRapida={registrarCompraRapida}
         />
       </div>
 
