@@ -166,10 +166,12 @@ const App = () => {
     `;
   };
   
-  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onVolver={() => setVistaTV(false)} /></div></>;
+  // 👇 AQUÍ ESTABA EL DETALLE, cambiado 'onVolver' por 'onLogout'
+  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;
 
   if (usuarioActivo) {
-    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onVolver={cerrarSesion} /></div></>;
+    // 👇 AQUÍ TAMBIÉN ESTABA EL DETALLE, cambiado 'onVolver' por 'onLogout'
+    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;
     if (usuarioActivo.rol === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
@@ -187,7 +189,6 @@ const App = () => {
         <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
-            {/* 👇 AQUÍ SE APLICA LA MAGIA DE getImageUrl EN LUGAR DE LA CONCATENACIÓN FORZADA 👇 */}
             {configGlobal.logo_url ? (    
               <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />
             ) : (    
