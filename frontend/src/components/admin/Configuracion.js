@@ -10,6 +10,7 @@ const Configuracion = ({
   const [tvBlob1, setTvBlob1] = useState(null);
   const [tvBlob2, setTvBlob2] = useState(null);
   const [tvBlob3, setTvBlob3] = useState(null);
+  const [tvVideoBlob, setTvVideoBlob] = useState(null); // NUEVO ESTADO PARA VIDEO
   const [tarifasEnvio, setTarifasEnvio] = useState([]);
 
   // Cargar las tarifas de envío desde configGlobal al iniciar
@@ -35,6 +36,31 @@ const Configuracion = ({
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
+  // 👇 NUEVA FUNCIÓN: Validar duración del video (Máx 10 segundos)
+  const handleVideoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Crear un elemento de video invisible para medir la duración
+    const videoElement = document.createElement('video');
+    videoElement.preload = 'metadata';
+
+    videoElement.onloadedmetadata = () => {
+      window.URL.revokeObjectURL(videoElement.src);
+      const duracion = videoElement.duration;
+
+      if (duracion > 10.5) { // Damos medio segundo de margen
+        showAlert("Video muy largo", `El video dura ${Math.round(duracion)}s. La regla es un máximo de 10 segundos.`, "warning");
+        e.target.value = ''; // Limpiar el input
+        setTvVideoBlob(null);
+      } else {
+        setTvVideoBlob(file);
+      }
+    };
+
+    videoElement.src = URL.createObjectURL(file);
+  };
+
   // === LÓGICA DE GUARDADO ===
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
@@ -56,6 +82,7 @@ const Configuracion = ({
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
     if (tvBlob2) formData.append('tv_imagen_2', tvBlob2);
     if (tvBlob3) formData.append('tv_imagen_3', tvBlob3);
+    if (tvVideoBlob) formData.append('tv_video', tvVideoBlob); // 👇 ENVIAMOS EL VIDEO
 
     try {
       const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
@@ -63,8 +90,8 @@ const Configuracion = ({
         showAlert("¡Éxito!", "Configuración actualizada correctamente.", "success"); 
         
         // Limpiamos los inputs de archivos
-        setLogoBlob(null); setTvBlob1(null); setTvBlob2(null); setTvBlob3(null);
-        ['logo-upload', 'tv1-upload', 'tv2-upload', 'tv3-upload'].forEach(id => {
+        setLogoBlob(null); setTvBlob1(null); setTvBlob2(null); setTvBlob3(null); setTvVideoBlob(null);
+        ['logo-upload', 'tv1-upload', 'tv2-upload', 'tv3-upload', 'tv-video-upload'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.value = '';
         });
@@ -98,6 +125,7 @@ const Configuracion = ({
         mensaje_envio: 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
       });
       setTarifasEnvio([]);
+      setTvVideoBlob(null);
       showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
     });
   };
@@ -261,6 +289,22 @@ const Configuracion = ({
               {configGlobal.tv_imagen_3 && <img src={getImageUrl(configGlobal.tv_imagen_3)} className="h-12 object-contain mb-2" alt="promo3" />}
               <input id="tv3-upload" type="file" accept="image/*" onChange={e => setTvBlob3(e.target.files[0])} className="w-full text-[10px] text-slate-500 file:rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700" />
             </div>
+          </div>
+
+          {/* 👇 NUEVA SECCIÓN DE VIDEO PROMO */}
+          <div className="pt-6 border-t border-emerald-100">
+             <div className="bg-slate-900 text-white p-6 rounded-3xl flex flex-col md:flex-row items-center gap-6 shadow-xl">
+                <div className="flex-1">
+                   <p className="text-emerald-400 font-black uppercase tracking-widest text-xs mb-1">Opcional: Video Promocional</p>
+                   <p className="text-slate-400 text-sm font-bold">Aparecerá en el carrusel de la TV. Máximo 10 segundos.</p>
+                </div>
+                <div className="w-full md:w-auto flex flex-col items-center">
+                   {configGlobal.tv_video && !tvVideoBlob && (
+                      <video src={getImageUrl(configGlobal.tv_video)} className="h-20 rounded-lg mb-2 border border-slate-700" muted />
+                   )}
+                   <input id="tv-video-upload" type="file" accept="video/mp4,video/webm" onChange={handleVideoChange} className="w-full md:w-48 text-[10px] text-slate-400 file:rounded-xl file:border-0 file:bg-slate-800 file:text-white file:px-4 file:py-2" />
+                </div>
+             </div>
           </div>
         </div>
 

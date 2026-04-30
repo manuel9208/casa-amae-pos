@@ -48,7 +48,7 @@ const PantallaTV = ({ onLogout }) => {
     }
   }, [carruselActivo, carruselSegundos]);
 
-  // 👇 LÓGICA DE PANTALLA COMPLETA
+  // LÓGICA DE PANTALLA COMPLETA
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(e => console.error("Error al poner pantalla completa:", e));
@@ -87,19 +87,23 @@ const PantallaTV = ({ onLogout }) => {
   const preparando = subPedidos.filter(p => p.subEstado === 'Preparando');
   const listos = subPedidos.filter(p => p.subEstado === 'Listo');
 
-  // 4. FILTRAR IMÁGENES DEL CARRUSEL
-  const imagenesPromocionales = [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3].filter(Boolean);
-  const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && imagenesPromocionales.length > 0);
+  // 👇 4. FILTRAR IMÁGENES Y VIDEO DEL CARRUSEL
+  const mediosPromocionales = [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video].filter(Boolean);
+  const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && mediosPromocionales.length > 0);
 
   // ==========================================
   // MODO PUBLICIDAD / PANTALLA DE ESPERA
   // ==========================================
   if (forzarPantallaCompleta) {
-    let imagenAMostrar = config.logo_url; 
+    let medioAMostrar = config.logo_url; 
     
-    if (carruselActivo && imagenesPromocionales.length > 0) {
-        imagenAMostrar = imagenesPromocionales[indiceImagen % imagenesPromocionales.length];
+    if (carruselActivo && mediosPromocionales.length > 0) {
+        medioAMostrar = mediosPromocionales[indiceImagen % mediosPromocionales.length];
     }
+
+    const urlCompleta = medioAMostrar?.startsWith('http') ? medioAMostrar : `${baseUrl}${medioAMostrar}`;
+    // 👇 Comprobamos si el elemento en turno es exactamente el que guardamos como video
+    const esVideo = medioAMostrar && medioAMostrar === config.tv_video;
 
     return (
       <div className="h-screen w-full bg-black flex flex-col items-center justify-center overflow-hidden relative">
@@ -109,14 +113,26 @@ const PantallaTV = ({ onLogout }) => {
           <Maximize size={24} />
         </button>
 
-        {imagenAMostrar ? (
+        {medioAMostrar ? (
           <>
-            <img 
-              key={imagenAMostrar} 
-              src={imagenAMostrar?.startsWith('http') ? imagenAMostrar : `${baseUrl}${imagenAMostrar}`} 
-              className="absolute inset-0 w-full h-full object-cover animate-in fade-in duration-1000 z-0" 
-              alt="Publicidad"
-            />
+            {esVideo ? (
+              <video 
+                key={medioAMostrar} 
+                src={urlCompleta} 
+                autoPlay 
+                muted 
+                loop 
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover animate-in fade-in duration-1000 z-0" 
+              />
+            ) : (
+              <img 
+                key={medioAMostrar} 
+                src={urlCompleta} 
+                className="absolute inset-0 w-full h-full object-cover animate-in fade-in duration-1000 z-0" 
+                alt="Publicidad"
+              />
+            )}
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/80 to-transparent z-0 pointer-events-none"></div>
           </>
         ) : (

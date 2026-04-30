@@ -17,7 +17,7 @@ const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
 
 // ==========================================
-// CONFIGURACIÓN DE CLOUDINARY
+// CONFIGURACIÓN DE CLOUDINARY (MODIFICADA PARA VIDEOS)
 // ==========================================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -28,8 +28,9 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'pos_uploads', // Todas tus fotos se guardarán en esta carpeta en Cloudinary
-    allowedFormats: ['jpeg', 'png', 'jpg', 'webp']
+    folder: 'pos_uploads', 
+    resource_type: 'auto', // 👇 NUEVO: Esto le dice a Cloudinary que acepte imágenes Y videos
+    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov'] // 👇 Añadimos formatos de video
   }
 });
 const upload = multer({ storage: storage });
@@ -56,7 +57,7 @@ router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
 // USUARIOS (EMPLEADOS)
 // ==========================================
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
-router.get('/usuarios/rendimiento', usuarioCtrl.obtenerReporteRendimiento); // 👇 NUEVA RUTA DE RENDIMIENTO
+router.get('/usuarios/rendimiento', usuarioCtrl.obtenerReporteRendimiento); 
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
 router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario);

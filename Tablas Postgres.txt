@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.4)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V2.5)
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar si deseas resetear todo)
@@ -15,6 +15,9 @@
 -- DROP TABLE IF EXISTS productos CASCADE;
 -- DROP TABLE IF EXISTS usuarios CASCADE;
 -- DROP TABLE IF EXISTS configuracion CASCADE;
+
+-- CONFIGURACIÓN DE ENTORNO
+ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
 
 -- -------------------------------------------------------------------------
 -- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Tickets)
@@ -51,12 +54,13 @@ CREATE TABLE configuracion (
     tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
     tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!',
     
-    -- Carrusel TV Promocional
+    -- Carrusel TV Promocional (Imágenes y Video)
     tv_carrusel_activo BOOLEAN DEFAULT false,
     tv_carrusel_segundos INTEGER DEFAULT 10,
     tv_imagen_1 VARCHAR(255),
     tv_imagen_2 VARCHAR(255),
     tv_imagen_3 VARCHAR(255),
+    tv_video VARCHAR(255), -- Espacio para video promocional de 10s
 
     -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
@@ -69,7 +73,7 @@ CREATE TABLE configuracion (
     ticket_mensaje_final TEXT,
     ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
 
-    -- 👇 NUEVOS CAMPOS: CONFIGURACIÓN DE ENVÍOS A DOMICILIO
+    -- CONFIGURACIÓN DE ENVÍOS A DOMICILIO
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
     mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
 );
@@ -90,7 +94,7 @@ CREATE TABLE usuarios (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 👇 NUEVA TABLA: REGISTRO DE ASISTENCIAS Y RENDIMIENTO
+-- TABLA PARA REGISTRO DE ASISTENCIAS (RELOJ CHECADOR)
 CREATE TABLE registro_asistencias (
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -189,12 +193,12 @@ CREATE TABLE pedidos (
     direccion_entrega TEXT,
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
-    costo_envio DECIMAL(10,2) DEFAULT 0, -- 👇 NUEVO CAMPO: COSTO DE ENVÍO A DOMICILIO
+    costo_envio DECIMAL(10,2) DEFAULT 0, -- Costo adicional por zona
     descuento_puntos INTEGER DEFAULT 0,
     carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
-    tiempo_listo TIMESTAMP, -- 👇 NUEVO CAMPO: HORA DE FINALIZACIÓN EN COCINA
+    tiempo_listo TIMESTAMP, -- Hora de finalización en cocina/barra
     alerta_cocina TEXT DEFAULT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
