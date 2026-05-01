@@ -27,17 +27,20 @@ exports.obtenerReporteVentas = async (req, res) => {
 
   try {
     /**
-     * EXPLICACIÓN DE LA CONSULTA:
+     * EXPLICACIÓN DE LA CONSULTA (CON CORRECCIÓN DE COLUMNA):
      * 1. Desglosamos el carrito (JSONB) para contar cada producto vendido.
-     * 2. Calculamos el COSTO DE RECETA unitario: Suma de (costo_insumo / cantidad_presentacion * cantidad_usada).
-     * 3. Multiplicamos por la cantidad vendida para obtener Inversión Total y Ganancia.
+     * 2. CORRECCIÓN: Usamos COALESCE para buscar primero 'precio_base', y si no existe (manga vieja), busca 'precio_final'.
+     * Esto corrige el error donde el reporte salía en blanco.
+     * 3. Calculamos el COSTO DE RECETA unitario: Suma de (costo_insumo / cantidad_presentacion * cantidad_usada).
+     * 4. Multiplicamos por la cantidad vendida para obtener Inversión Total y Ganancia.
      */
     const sql = `
       WITH ventas_desglosadas AS (
         SELECT 
           (item->>'nombre')::varchar AS producto_nombre,
           (item->>'id')::integer AS producto_id,
-          (item->>'precio')::decimal AS precio_venta,
+          -- 👇 CORRECCIÓN CLAVE: Buscar precio_base como se muestra en la captura
+          COALESCE((item->>'precio_base'), (item->>'precio_final'))::decimal AS precio_venta,
           COUNT(*)::integer AS cantidad_vendida
         FROM pedidos p,
         jsonb_array_elements(p.carrito) AS item
