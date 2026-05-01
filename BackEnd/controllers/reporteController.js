@@ -27,21 +27,20 @@ exports.obtenerReporteVentas = async (req, res) => {
 
   try {
     /**
-     * EXPLICACIÓN DE LA CONSULTA (CON CORRECCIÓN DE COLUMNA):
-     * 1. Desglosamos el carrito (JSONB) para contar cada producto vendido.
-     * 2. CORRECCIÓN: Usamos COALESCE para buscar primero 'precio_base', y si no existe (manga vieja), busca 'precio_final'.
-     * Esto corrige el error donde el reporte salía en blanco.
-     * 3. Calculamos el COSTO DE RECETA unitario: Suma de (costo_insumo / cantidad_presentacion * cantidad_usada).
-     * 4. Multiplicamos por la cantidad vendida para obtener Inversión Total y Ganancia.
+     * EXPLICACIÓN DE LA CONSULTA (SÚPER BLINDADA):
+     * 1. PRECIO: Buscamos primero 'precioFinal' (que incluye tamaños y extras). Si no está, 'precio_base', y si no, 'precio'.
+     * 2. CANTIDAD: Sumamos la llave 'cantidad' si existe, de lo contrario vale 1. Así evitamos contar mal.
+     * 3. COSTOS: Cruzamos con la tabla de recetas e insumos.
      */
     const sql = `
       WITH ventas_desglosadas AS (
         SELECT 
           (item->>'nombre')::varchar AS producto_nombre,
           (item->>'id')::integer AS producto_id,
-          -- 👇 CORRECCIÓN CLAVE: Buscar precio_base como se muestra en la captura
-          COALESCE((item->>'precio_base'), (item->>'precio_final'))::decimal AS precio_venta,
-          COUNT(*)::integer AS cantidad_vendida
+          -- 👇 CORRECCIÓN 1: Prioridad absoluta al precioFinal (Dinero real pagado)
+          COALESCE((item->>'precioFinal'), (item->>'precio_base'), (item->>'precio'), '0')::decimal AS precio_venta,
+          -- 👇 CORRECCIÓN 2: Sumar la cantidad correctamente
+          SUM(COALESCE((item->>'cantidad')::integer, 1))::integer AS cantidad_vendida
         FROM pedidos p,
         jsonb_array_elements(p.carrito) AS item
         WHERE p.estado_preparacion != 'Cancelado'
@@ -76,7 +75,7 @@ exports.obtenerReporteVentas = async (req, res) => {
       ventas_totales: result.rows.reduce((sum, r) => sum + parseFloat(r.subtotal_ventas), 0),
       inversion_total: result.rows.reduce((sum, r) => sum + parseFloat(r.subtotal_inversion), 0),
       ganancia_total: result.rows.reduce((sum, r) => sum + parseFloat(r.ganancia_neta), 0),
-      productos_vendidos: result.rows.reduce((sum, r) => sum + r.cantidad_vendida, 0)
+      productos_vendidos: result.rows.reduce((sum, r) => sum + parseInt(r.cantidad_vendida), 0) // ParseInt para asegurar que suma números
     };
 
     res.json({
