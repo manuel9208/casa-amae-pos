@@ -1,4 +1,8 @@
 require('dotenv').config();
+
+// 👇 SOLUCIÓN ZONA HORARIA NODE.JS: Obligamos al servidor a usar tu hora local
+process.env.TZ = 'America/Mazatlan';
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
