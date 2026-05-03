@@ -1,11 +1,13 @@
 import React from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin } from 'lucide-react';
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle } from 'lucide-react'; // 👇 Añadimos PlusCircle para el botón
 
 const VistasCaja = ({
   vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, pedidosConAlerta, pedidosPorConfirmar,
   pendientesDePago, listosParaEntregar, fondoCaja, configGlobal,
+  gastosDia, 
   abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion,
-  setModalZonaEnvio 
+  setModalZonaEnvio,
+  setModalAgregarExtra // 👇 NUEVO: Recibimos la función para abrir el modal
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -29,6 +31,38 @@ const VistasCaja = ({
          </div>
       ));
   };
+
+  // 👇 NUEVA FUNCIÓN: Renderiza los platillos con el botón de "Agregar Extra" en Entregas
+  const renderItemsEntregas = (pedido) => {
+      if (!pedido.carrito) return null;
+      const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
+      
+      return items.map((item, idx) => (
+         <div key={idx} className="mb-3 text-left bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+           <div className="flex justify-between items-start gap-2">
+             <div>
+               <p className="text-base font-black text-slate-800">{item.cantidad || 1}x {item.nombre}</p>
+               {item.extras && item.extras.length > 0 && (
+                   <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1 ml-2 border-l-2 border-slate-200 pl-2 leading-relaxed">
+                     {item.extras.map(e => e.nombre).join(' • ')}
+                   </p>
+               )}
+             </div>
+             
+             {/* 👇 EL NUEVO BOTÓN PARA EL UPSELL */}
+             <button 
+                onClick={() => setModalAgregarExtra({ pedidoOriginal: pedido, itemIndex: idx, itemSeleccionado: item })}
+                className="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1 shrink-0 border border-emerald-200"
+                title="Agregar extra de último minuto"
+             >
+                <PlusCircle size={14} /> Extra
+             </button>
+           </div>
+         </div>
+      ));
+  };
+
+  const totalGastos = (gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
@@ -163,7 +197,7 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* 👇 VISTA: ENTREGAS (Corregida con desglose visual de envío y billetes) */}
+        {/* VISTA: ENTREGAS (MODIFICADA CON EL BOTÓN UPSELL) */}
         {vistaActiva === 'entregas' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Listos para Entregar</h2>
@@ -190,6 +224,12 @@ const VistasCaja = ({
                     
                     <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
                     <p className="font-black text-blue-600 text-xl mb-4">Total de la Nota: ${p.total}</p>
+
+                    {/* 👇 NUEVO: DESGLOSE DEL PEDIDO PARA PODER AGREGAR EXTRAS DE ÚLTIMO MINUTO */}
+                    <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200">
+                      <p className="text-xs font-black text-orange-700 uppercase tracking-widest mb-3">Detalle (Upsell):</p>
+                      {renderItemsEntregas(p)}
+                    </div>
 
                     {/* Desglose de Domicilio */}
                     {p.tipo_consumo === 'Domicilio' && (
@@ -267,21 +307,59 @@ const VistasCaja = ({
             <h2 className="text-4xl font-black mb-10 text-slate-800">Corte de Caja</h2>
             <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
                <p className="text-slate-500 font-bold text-lg mb-6">Resumen del Turno</p>
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200"><p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Fondo Inicial</p><p className="text-3xl font-black text-slate-700">${(fondoCaja || 0).toFixed(2)}</p></div>
-                  <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100"><p className="text-xs font-black text-emerald-600 uppercase tracking-widest mb-2">Cobros Efectivo</p><p className="text-3xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
-                  <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100"><p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Tarjetas</p><p className="text-3xl font-black text-blue-700">${pedidos.filter(p => p.metodo_pago === 'Tarjeta' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
-                  <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100"><p className="text-xs font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p><p className="text-3xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p></div>
+               
+               <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Fondo Inicial</p>
+                    <p className="text-2xl font-black text-slate-700">${(fondoCaja || 0).toFixed(2)}</p>
+                  </div>
+                  
+                  <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Cobros Efectivo</p>
+                    <p className="text-2xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                  </div>
+                  
+                  <div className="bg-red-50 p-6 rounded-3xl border border-red-100 relative overflow-hidden group">
+                    <div className="absolute top-2 right-2 text-red-200 group-hover:scale-110 transition"><TrendingDown size={32}/></div>
+                    <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 relative z-10">Gastos (Compras)</p>
+                    <p className="text-2xl font-black text-red-700 relative z-10">-${totalGastos.toFixed(2)}</p>
+                  </div>
+
+                  <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Tarjetas</p>
+                    <p className="text-2xl font-black text-blue-700">${pedidos.filter(p => p.metodo_pago === 'Tarjeta' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                  </div>
+                  
+                  <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100">
+                    <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p>
+                    <p className="text-2xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                  </div>
                </div>
+
                <div className="bg-emerald-600 p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white">
                   <div>
                      <p className="text-emerald-200 font-black uppercase tracking-widest mb-1 text-sm">Efectivo Físico en Cajón</p>
-                     <p className="text-xs font-medium text-emerald-100 opacity-80">Fondo Inicial + Cobros en Efectivo</p>
+                     <p className="text-[11px] font-bold text-emerald-100 opacity-80 uppercase tracking-wider">(Fondo Inicial + Ventas Efectivo) - Gastos</p>
                   </div>
                   <p className="text-6xl font-black mt-4 md:mt-0">
-                     ${((fondoCaja || 0) + pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0)).toFixed(2)}
+                     ${((fondoCaja || 0) + pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0) - totalGastos).toFixed(2)}
                   </p>
                </div>
+
+               {gastosDia && gastosDia.length > 0 && (
+                 <div className="mt-8 border-t border-slate-100 pt-8 animate-in fade-in">
+                   <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Desglose de Salidas de Efectivo</p>
+                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                     {gastosDia.map((gasto, index) => (
+                       <div key={index} className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                         <span className="font-bold text-slate-600 text-sm line-clamp-1">{gasto.nombre}</span>
+                         <span className="font-black text-red-500 bg-red-50 px-2 py-1 rounded-lg text-sm">-${Number(gasto.costo_total).toFixed(2)}</span>
+                       </div>
+                     ))}
+                   </div>
+                 </div>
+               )}
+
             </div>
           </div>
         )}

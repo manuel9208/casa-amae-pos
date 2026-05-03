@@ -99,6 +99,7 @@ router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);
 // INSUMOS Y RECETAS (Inventario)
 // ==========================================
 router.get('/insumos', insumoCtrl.obtenerInsumos);
+router.get('/insumos/compras/hoy', insumoCtrl.obtenerComprasHoy); // 👇 NUEVA RUTA PARA EL CORTE DE CAJA AÑADIDA
 router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo); 
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);

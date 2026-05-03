@@ -1,14 +1,16 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus } from 'lucide-react';
+import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle } from 'lucide-react'; 
 
 const ModalesCaja = ({
   fondoCaja, iniciarTurno, inputFondo, setInputFondo,
   modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx, accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo, enviarRespuestaCocina, catalogoIngredientes,
   modalPago, setModalPago, montoRecibido, setMontoRecibido, procesarPago,
   configGlobal, modalZonaEnvio, setModalZonaEnvio, confirmarPedidoDomicilio,
-  // 👇 PROPS NUEVAS COMPRAS RÁPIDAS
   modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
-  paquetesComprados, setPaquetesComprados, registrarCompraRapida
+  paquetesComprados, setPaquetesComprados, registrarCompraRapida,
+  alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
+  // 👇 NUEVOS PROPS PARA LA ALERTA GIGANTE DE COBRO
+  alertaCobroExtra, setAlertaCobroExtra
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -26,6 +28,67 @@ const ModalesCaja = ({
 
   return (
     <>
+      {/* COMPONENTE DE ALERTA FLOTANTE (ESTILO TOAST) */}
+      {alertaCaja && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[999] animate-in slide-in-from-top-4 fade-in duration-300">
+          <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${
+            alertaCaja.tipo === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' :
+            alertaCaja.tipo === 'error' ? 'bg-red-50 border-red-500 text-red-800' :
+            'bg-blue-50 border-blue-500 text-blue-800'
+          }`}>
+            {alertaCaja.tipo === 'success' && <CheckCircle2 className="text-emerald-500" size={24} />}
+            {alertaCaja.tipo === 'error' && <XCircle className="text-red-500" size={24} />}
+            {alertaCaja.tipo !== 'success' && alertaCaja.tipo !== 'error' && <BellRing className="text-blue-500" size={24} />}
+            
+            <div>
+              <p className="font-black text-sm uppercase tracking-widest">{alertaCaja.titulo}</p>
+              <p className="font-bold text-sm opacity-80">{alertaCaja.mensaje}</p>
+            </div>
+            
+            <button onClick={() => setAlertaCaja(null)} className="ml-4 opacity-50 hover:opacity-100 transition"><XCircle size={20}/></button>
+          </div>
+        </div>
+      )}
+
+      {/* 👇 NUEVO: ALERTA GIGANTE DE COBRO EN EFECTIVO */}
+      {alertaCobroExtra && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[999] p-4">
+          <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-lg text-center animate-in zoom-in duration-300 border-4 border-orange-500">
+            <div className="mx-auto bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mb-6 animate-pulse shadow-lg shadow-orange-500/30">
+               <DollarSign size={64} />
+            </div>
+            
+            <h2 className="text-5xl font-black text-slate-800 mb-2 uppercase tracking-tight">¡Cobrar Ahora!</h2>
+            <p className="text-xl font-bold text-slate-500 mb-8">El cliente ha solicitado un ingrediente extra de último minuto.</p>
+            
+            <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 mb-8 text-left">
+               <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-4">
+                  <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Orden</p>
+                  <p className="font-black text-xl text-slate-800">#{alertaCobroExtra.orden}</p>
+               </div>
+               <div className="mb-4">
+                  <p className="font-black text-slate-400 uppercase tracking-widest text-xs mb-1">Platillo modificado</p>
+                  <p className="font-bold text-lg text-slate-700">{alertaCobroExtra.platillo}</p>
+               </div>
+               <div>
+                  <p className="font-black text-emerald-600 uppercase tracking-widest text-xs mb-1">Extra Agregado</p>
+                  <div className="flex justify-between items-center">
+                     <p className="font-black text-2xl text-emerald-700">{alertaCobroExtra.extra}</p>
+                     <p className="font-black text-3xl text-emerald-600">+ ${Number(alertaCobroExtra.monto).toFixed(2)}</p>
+                  </div>
+               </div>
+            </div>
+
+            <button 
+               onClick={() => setAlertaCobroExtra(null)} 
+               className="w-full bg-orange-500 hover:bg-orange-600 text-white py-6 rounded-3xl font-black text-2xl shadow-xl shadow-orange-500/30 transition active:scale-95 flex items-center justify-center gap-3"
+            >
+               <CheckCircle2 size={32} /> ¡Entendido, ya lo cobré!
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* MODAL FONDO CAJA */}
       {fondoCaja === null && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
@@ -44,7 +107,7 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* 👇 NUEVO MODAL: PANEL DE COMPRAS RÁPIDAS */}
+      {/* MODAL: PANEL DE COMPRAS RÁPIDAS */}
       {modalCompraRapida && !insumoComprar && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in duration-200">
@@ -82,10 +145,10 @@ const ModalesCaja = ({
                         </td>
                         <td className="p-4 text-center">
                           <span className={`px-3 py-1 rounded-lg text-xs font-black ${Number(insumo.stock_actual) <= 0 ? 'bg-red-100 text-red-600' : 'bg-slate-200 text-slate-600'}`}>
-                            {Number(insumo.stock_actual).toFixed(2)} {insumo.unidad_medida}
+                            {Number(insumo.stock_actual || 0).toFixed(2)} {insumo.unidad_medida}
                           </span>
                         </td>
-                        <td className="p-4 text-center font-bold text-slate-600">${insumo.costo_presentacion}</td>
+                        <td className="p-4 text-center font-bold text-slate-600">${Number(insumo.costo_presentacion || 0).toFixed(2)}</td>
                         <td className="p-4 text-right">
                           <button 
                             onClick={() => { setInsumoComprar(insumo); setPaquetesComprados(''); }}
@@ -104,7 +167,7 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* 👇 NUEVO MODAL: INGRESAR CANTIDAD A COMPRAR */}
+      {/* MODAL: INGRESAR CANTIDAD A COMPRAR */}
       {insumoComprar && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <form onSubmit={registrarCompraRapida} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4">
@@ -126,20 +189,18 @@ const ModalesCaja = ({
                 />
               </div>
 
-              {/* El precio está bloqueado para el cajero */}
               <div>
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Costo Fijo del Paquete ($)</label>
                 <div className="w-full bg-slate-100 border border-slate-200 rounded-2xl p-4 text-center text-2xl font-black text-slate-500 cursor-not-allowed">
-                  ${insumoComprar.costo_presentacion}
+                  ${Number(insumoComprar.costo_presentacion) ? Number(insumoComprar.costo_presentacion).toFixed(2) : '0.00'}
                 </div>
                 <p className="text-[10px] text-center text-slate-400 mt-2 font-bold">*El costo unitario solo puede modificarse desde el panel de Administrador.</p>
               </div>
 
-              {/* Cálculo automático */}
               <div className="bg-blue-50 border border-blue-100 p-6 rounded-3xl text-center">
                 <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-1">Total Pagado a Proveedor</p>
                 <p className="text-5xl font-black text-blue-700">
-                  ${paquetesComprados ? (Number(paquetesComprados) * Number(insumoComprar.costo_presentacion)).toFixed(2) : '0.00'}
+                  ${paquetesComprados && Number(insumoComprar.costo_presentacion) ? (Number(paquetesComprados) * Number(insumoComprar.costo_presentacion)).toFixed(2) : '0.00'}
                 </p>
               </div>
             </div>
@@ -149,6 +210,62 @@ const ModalesCaja = ({
               <button type="submit" disabled={!paquetesComprados || Number(paquetesComprados) <= 0} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition flex justify-center items-center gap-2"><CheckCircle2 size={24}/> Guardar</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* MODAL: AGREGAR EXTRA DE ÚLTIMO MINUTO (FILTRADO POR PERMITE_EXTRA) */}
+      {modalAgregarExtra && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
+          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg animate-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-6 border-b pb-4">
+              <PlusCircle className="text-emerald-500" size={32} />
+              <div>
+                <h2 className="text-2xl font-black text-slate-800">Agregar Extra</h2>
+                <p className="text-sm font-bold text-slate-500">A {modalAgregarExtra.itemSeleccionado.nombre}</p>
+              </div>
+            </div>
+
+            <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Selecciona el extra a cobrar:</p>
+            
+            <div className="space-y-3 mb-8 max-h-60 overflow-y-auto pr-2">
+              {(() => {
+                const categoriaPlatillo = modalAgregarExtra.itemSeleccionado.categoria || modalAgregarExtra.itemSeleccionado.clasificacion || '';
+                const catLimpia = String(categoriaPlatillo).trim().toLowerCase();
+                
+                const extrasDisponibles = catalogoIngredientes.filter(ing => {
+                  const ingCatLimpia = String(ing.clasificacion_nombre || '').trim().toLowerCase();
+                  const permite = ing.permite_extra === true || ing.permite_extra === 'true' || ing.permite_extra === 't';
+                  return ingCatLimpia === catLimpia && permite;
+                });
+                
+                if (extrasDisponibles.length === 0) {
+                  return (
+                    <div className="bg-orange-50 text-orange-700 p-4 rounded-xl border border-orange-200 flex items-center gap-3">
+                      <AlertTriangle size={20} />
+                      <p className="font-bold text-sm">No hay extras permitidos para la categoría "{categoriaPlatillo}".</p>
+                    </div>
+                  );
+                }
+
+                return extrasDisponibles.map(extra => (
+                  <button 
+                    key={extra.id} 
+                    onClick={() => confirmarAgregarExtra(modalAgregarExtra.pedidoOriginal, modalAgregarExtra.itemIndex, extra)}
+                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition group text-left"
+                  >
+                    <span className="font-black text-slate-700 group-hover:text-emerald-800">{extra.nombre}</span>
+                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-emerald-600 group-hover:text-white transition">
+                      {Number(extra.precio_extra) > 0 ? `+ $${Number(extra.precio_extra).toFixed(2)}` : 'Gratis'}
+                    </span>
+                  </button>
+                ));
+              })()}
+            </div>
+
+            <div className="flex gap-4">
+              <button onClick={() => setModalAgregarExtra(null)} className="w-full py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+            </div>
+          </div>
         </div>
       )}
 

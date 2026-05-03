@@ -11,7 +11,8 @@ const Caja = ({ user, onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
   const [configGlobal, setConfigGlobal] = useState(null);
-  const [insumosDB, setInsumosDB] = useState([]); // 👇 NUEVO: Estado para el catálogo de insumos
+  const [insumosDB, setInsumosDB] = useState([]); 
+  const [gastosDia, setGastosDia] = useState([]); 
   
   // === ESTADOS DE LOS MODALES ===
   const [modalPago, setModalPago] = useState(null);
@@ -23,10 +24,15 @@ const Caja = ({ user, onLogout }) => {
   const [ticketImprimir, setTicketImprimir] = useState(null);
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
   
-  // 👇 NUEVOS ESTADOS PARA COMPRA RÁPIDA
+  // === ESTADOS PARA COMPRA RÁPIDA ===
   const [modalCompraRapida, setModalCompraRapida] = useState(false);
   const [insumoComprar, setInsumoComprar] = useState(null);
   const [paquetesComprados, setPaquetesComprados] = useState('');
+
+  // === NUEVOS ESTADOS: Alertas Bonitas, Extras y Cobro en Efectivo ===
+  const [alertaCaja, setAlertaCaja] = useState(null);
+  const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
+  const [alertaCobroExtra, setAlertaCobroExtra] = useState(null); // 👇 NUEVO ESTADO PARA EL AVISO DE COBRO
 
   // === ESTADOS DEL FONDO DE CAJA ===
   const hoyStr = new Date().toLocaleDateString();
@@ -42,7 +48,6 @@ const Caja = ({ user, onLogout }) => {
   useEffect(() => {
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
     
-    // 👇 NUEVO: Cargar los insumos para la compra rápida
     const cargarInsumos = async () => {
       try {
         const res = await fetch(`${apiUrl}/insumos`);
@@ -51,6 +56,15 @@ const Caja = ({ user, onLogout }) => {
       } catch (error) { console.error('Error cargando insumos'); }
     };
     cargarInsumos();
+
+    const cargarGastosDia = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/insumos/compras/hoy`);
+        const data = await res.json();
+        setGastosDia(Array.isArray(data) ? data : []);
+      } catch (error) { console.error('Error cargando gastos del día'); }
+    };
+    cargarGastosDia();
 
     const cargarConfig = async () => {
       try {
@@ -69,6 +83,11 @@ const Caja = ({ user, onLogout }) => {
     const intervalo = setInterval(cargarPedidos, 3000); 
     return () => clearInterval(intervalo);
   }, [apiUrl]);
+
+  const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => {
+    setAlertaCaja({ titulo, mensaje, tipo });
+    setTimeout(() => setAlertaCaja(null), 4000);
+  };
 
   // === FUNCIONES PRINCIPALES ===
   const toggleEstadoNegocio = async () => {
@@ -92,7 +111,7 @@ const Caja = ({ user, onLogout }) => {
       if (!res.ok) throw new Error("Error en servidor");
     } catch (error) {
       setConfigGlobal(prev => ({ ...prev, negocio_abierto: !nuevoEstado }));
-      alert('Error al cambiar el estado del negocio.');
+      mostrarAlertaCaja('Error', 'No se pudo cambiar el estado del negocio.', 'error');
     }
   };
 
@@ -141,10 +160,11 @@ const Caja = ({ user, onLogout }) => {
         if (!estadoRechazo && configGlobal?.ticket_impresion_activa) {
             lanzarImpresion(modalPago);
         }
+        mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
         setModalPago(null); 
         setMontoRecibido(''); 
       } 
-    } catch (error) { alert('Error al procesar el pago.'); }
+    } catch (error) { mostrarAlertaCaja('Error', 'Problema al procesar el pago.', 'error'); }
   };
 
   const confirmarPedidoRecoger = async (id) => {
@@ -163,9 +183,10 @@ const Caja = ({ user, onLogout }) => {
           costo_envio: tarifa.costo 
         }) 
       }); 
+      mostrarAlertaCaja('Zona Asignada', 'Se ha sumado el costo de envío a la orden.', 'success');
       setModalZonaEnvio(null);
     } catch (error) {
-      alert("Error al confirmar el pedido a domicilio.");
+      mostrarAlertaCaja('Error', 'Fallo al asignar domicilio.', 'error');
     }
   };
 
@@ -175,6 +196,15 @@ const Caja = ({ user, onLogout }) => {
 
   const limpiarAlerta = async (id) => {
     try { await fetch(`${apiUrl}/pedidos/${id}/alerta`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: null }) }); } catch (error) {}
+  };
+
+  const abrirModalResolver = (p) => {
+    setModalResolver(p); 
+    const idxMatch = p.alerta_cocina.match(/\[IDX:(\d+)\]/);
+    if (idxMatch) { setItemAfectadoIdx(idxMatch[1]); } else { setItemAfectadoIdx(''); }
+    setIngredienteReemplazo('');
+    const match = p.alerta_cocina.match(/Propuesta: (.*)/);
+    if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
   };
 
   const enviarRespuestaCocina = async (e) => {
@@ -193,20 +223,11 @@ const Caja = ({ user, onLogout }) => {
 
     try {
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/alerta`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: respuesta }) });
+      mostrarAlertaCaja('¡Respuesta Enviada!', 'El chef ya fue notificado.', 'success');
       setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta('quitar'); setIngredienteReemplazo('');
-    } catch (error) { alert('Error al enviar respuesta a cocina.'); }
+    } catch (error) { mostrarAlertaCaja('Error', 'No se pudo enviar la respuesta.', 'error'); }
   };
 
-  const abrirModalResolver = (p) => {
-    setModalResolver(p); 
-    const idxMatch = p.alerta_cocina.match(/\[IDX:(\d+)\]/);
-    if (idxMatch) { setItemAfectadoIdx(idxMatch[1]); } else { setItemAfectadoIdx(''); }
-    setIngredienteReemplazo('');
-    const match = p.alerta_cocina.match(/Propuesta: (.*)/);
-    if (match && match[1] && match[1] !== 'Ninguna' && match[1] !== 'Solo quitarlo') setAccionAlerta('aceptar'); else setAccionAlerta('quitar');
-  };
-
-  // 👇 NUEVA FUNCIÓN: Registrar Compra Rápida de Insumos
   const registrarCompraRapida = async (e) => {
     e.preventDefault();
     if (!insumoComprar || !paquetesComprados) return;
@@ -215,26 +236,83 @@ const Caja = ({ user, onLogout }) => {
       const res = await fetch(`${apiUrl}/insumos/${insumoComprar.id}/comprar`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paquetes: Number(paquetesComprados),
-          costo_unitario: Number(insumoComprar.costo_presentacion) // Usamos el costo que ya tiene guardado
-        })
+        body: JSON.stringify({ paquetes: Number(paquetesComprados), costo_unitario: Number(insumoComprar.costo_presentacion) })
       });
 
       if (res.ok) {
-        // Refrescamos la lista de insumos
         const resInsumos = await fetch(`${apiUrl}/insumos`);
         const dataInsumos = await resInsumos.json();
         setInsumosDB(Array.isArray(dataInsumos) ? dataInsumos : []);
+
+        const resGastos = await fetch(`${apiUrl}/insumos/compras/hoy`);
+        const dataGastos = await resGastos.json();
+        setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
         
         setInsumoComprar(null);
         setPaquetesComprados('');
-        alert('Compra registrada correctamente en el inventario.');
+        mostrarAlertaCaja('🛒 ¡Compra Exitosa!', 'El stock se actualizó y el gasto se descontó del corte.', 'success');
       } else {
-        alert('Error al registrar la compra rápida.');
+        mostrarAlertaCaja('Error', 'Fallo al registrar la compra.', 'error');
       }
     } catch (error) {
-      alert('Problema de conexión al guardar la compra.');
+      mostrarAlertaCaja('Error', 'Problema de conexión al guardar.', 'error');
+    }
+  };
+
+  // 👇 ACTUALIZADO: Copia profunda, actualización instantánea y disparo del Aviso de Cobro
+  const confirmarAgregarExtra = async (pedido, itemIndex, extraObj) => {
+    try {
+        // Deep Copy: Esto asegura que React detecte el cambio en el carrito y lo repinte
+        const carritoActual = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
+        const nuevoCarrito = JSON.parse(JSON.stringify(carritoActual));
+        
+        const item = nuevoCarrito[itemIndex];
+        
+        if (!item.extras) item.extras = [];
+        item.extras.push({
+            id: extraObj.id,
+            nombre: `+ ${extraObj.nombre}`,
+            precioExtra: Number(extraObj.precio_extra)
+        });
+        
+        // Sumamos el precio base (o final actual) con el nuevo extra
+        item.precioFinal = Number(item.precioFinal || item.precio_base || item.precio || 0) + Number(extraObj.precio_extra);
+        const nuevoTotal = Number(pedido.total) + Number(extraObj.precio_extra);
+
+        const res = await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, { 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ 
+                carrito: nuevoCarrito,
+                total: nuevoTotal,
+                estado_preparacion: pedido.estado_preparacion 
+            }) 
+        });
+
+        if(res.ok) {
+            // Actualización instantánea en la interfaz y en el ticket sin esperar los 3 segundos
+            setPedidos(prev => prev.map(p => 
+               p.id === pedido.id ? { ...p, carrito: nuevoCarrito, total: nuevoTotal } : p
+            ));
+            
+            // 👇 DISPARAMOS LA ALERTA GIGANTE DE COBRO EN CAJA
+            if (Number(extraObj.precio_extra) > 0) {
+               setAlertaCobroExtra({
+                  monto: extraObj.precio_extra,
+                  extra: extraObj.nombre,
+                  platillo: item.nombre,
+                  orden: pedido.numero_pedido
+               });
+            } else {
+               mostrarAlertaCaja('✅ Extra Agregado', `Se añadió ${extraObj.nombre} gratis.`, 'success');
+            }
+            
+            setModalAgregarExtra(null);
+        } else {
+            mostrarAlertaCaja('Error', 'No se pudo guardar el extra en la base de datos.', 'error');
+        }
+    } catch (error) {
+        mostrarAlertaCaja('Error', 'Hubo un problema de red.', 'error');
     }
   };
 
@@ -255,7 +333,7 @@ const Caja = ({ user, onLogout }) => {
           pedidosPorConfirmar={pedidosPorConfirmar}
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
-          setModalCompraRapida={setModalCompraRapida} // Pasamos la función para abrir el modal
+          setModalCompraRapida={setModalCompraRapida} 
         />
 
         <VistasCaja 
@@ -268,6 +346,7 @@ const Caja = ({ user, onLogout }) => {
           listosParaEntregar={listosParaEntregar}
           fondoCaja={fondoCaja}
           configGlobal={configGlobal}
+          gastosDia={gastosDia} 
           
           abrirModalResolver={abrirModalResolver}
           limpiarAlerta={limpiarAlerta}
@@ -277,6 +356,7 @@ const Caja = ({ user, onLogout }) => {
           confirmarPedidoRecoger={confirmarPedidoRecoger}
           lanzarImpresion={lanzarImpresion}
           setModalZonaEnvio={setModalZonaEnvio}
+          setModalAgregarExtra={setModalAgregarExtra} 
         />
         
         <ModalesCaja 
@@ -296,7 +376,6 @@ const Caja = ({ user, onLogout }) => {
           setModalZonaEnvio={setModalZonaEnvio}
           confirmarPedidoDomicilio={confirmarPedidoDomicilio}
 
-          // 👇 NUEVAS PROPS PARA COMPRA RÁPIDA
           modalCompraRapida={modalCompraRapida}
           setModalCompraRapida={setModalCompraRapida}
           insumosDB={insumosDB}
@@ -305,6 +384,16 @@ const Caja = ({ user, onLogout }) => {
           paquetesComprados={paquetesComprados}
           setPaquetesComprados={setPaquetesComprados}
           registrarCompraRapida={registrarCompraRapida}
+
+          alertaCaja={alertaCaja}
+          setAlertaCaja={setAlertaCaja}
+          modalAgregarExtra={modalAgregarExtra}
+          setModalAgregarExtra={setModalAgregarExtra}
+          confirmarAgregarExtra={confirmarAgregarExtra}
+          
+          // 👇 PASAMOS EL ESTADO DEL AVISO DE COBRO AL COMPONENTE DE MODALES
+          alertaCobroExtra={alertaCobroExtra}
+          setAlertaCobroExtra={setAlertaCobroExtra}
         />
       </div>
 
