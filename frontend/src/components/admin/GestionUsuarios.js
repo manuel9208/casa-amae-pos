@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trash2, Edit, Users, TrendingUp, Clock, ChefHat } from 'lucide-react';
+import { Trash2, Edit, Users, TrendingUp, Clock, ChefHat, Calendar, Printer, FileText } from 'lucide-react';
 
 const GestionUsuarios = ({
   // Props recibidas desde AdminPanel
@@ -8,7 +8,11 @@ const GestionUsuarios = ({
   
   // === ESTADOS DE NAVEGACIÓN Y REPORTES ===
   const [vista, setVista] = useState('directorio'); // 'directorio' | 'reportes'
-  const [reportes, setReportes] = useState({ asistencias: [], rendimientoCocina: [] });
+  const [reportes, setReportes] = useState({ asistenciasHoy: [], historialAsistencias: [], rendimientoCocina: [] });
+
+  // 👇 NUEVOS ESTADOS DE FILTRO
+  const [periodo, setPeriodo] = useState('dia'); // 'dia' | 'mes' | 'anio'
+  const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
 
   // === ESTADOS LOCALES PARA EL FORMULARIO ===
   const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
@@ -25,10 +29,11 @@ const GestionUsuarios = ({
     configuracion: false 
   });
 
-  // === CARGA DE REPORTES DE RENDIMIENTO ===
+  // === CARGA DE REPORTES DE RENDIMIENTO CON FILTROS ===
   const cargarReportes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/usuarios/rendimiento`);
+      // 👇 Añadimos las variables a la URL
+      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodo}&fecha=${fechaFiltro}`);
       if (res.ok) {
         const data = await res.json();
         setReportes(data);
@@ -36,9 +41,9 @@ const GestionUsuarios = ({
     } catch (error) {
       console.error("Error al cargar reportes de rendimiento", error);
     }
-  }, [apiUrl]);
+  }, [apiUrl, periodo, fechaFiltro]); // Re-ejecutar si cambian los filtros
 
-  // Cargamos los reportes solo cuando entramos a la pestaña de reportes
+  // Cargamos los reportes solo cuando entramos a la pestaña de reportes o cambian filtros
   useEffect(() => {
     if (vista === 'reportes') {
       cargarReportes();
@@ -140,7 +145,7 @@ const GestionUsuarios = ({
     <div className="max-w-6xl mx-auto space-y-8 pb-12 animate-in fade-in">
       
       {/* HEADER Y TABS */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 print:hidden">
         <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3"><Users /> Gestión de Empleados</h2>
         <div className="flex gap-2 bg-slate-200 p-1 rounded-2xl">
           <button onClick={() => setVista('directorio')} className={`px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${vista === 'directorio' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Users size={18}/> Plantilla</button>
@@ -238,17 +243,41 @@ const GestionUsuarios = ({
         </div>
       )}
 
-      {/* ================= VISTA: REPORTES Y RENDIMIENTO ================= */}
+      {/* ================= VISTA: REPORTES Y RENDIMIENTO (MODIFICADO) ================= */}
       {vista === 'reportes' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* 👇 BARRA DE CONTROL DE REPORTES AÑADIDA AQUÍ */}
+          <div className="bg-slate-900 text-white p-6 rounded-[32px] shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 print:hidden mb-8">
+            <div className="flex items-center gap-4">
+              <Calendar className="text-emerald-400" size={32}/>
+              <div>
+                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Controles de Reporte</p>
+                <h3 className="text-xl font-bold">Filtro de Historial</h3>
+              </div>
+            </div>
             
-            {/* TABLA DE ASISTENCIAS (RELOJ CHECADOR) */}
+            <div className="flex flex-wrap items-center gap-3">
+              <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
+                <option value="dia">Por Día</option>
+                <option value="mes">Por Mes</option>
+                <option value="anio">Por Año</option>
+              </select>
+              <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500 text-white" />
+              <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-6 py-3 rounded-xl font-black flex items-center gap-2 transition active:scale-95">
+                <Printer size={20}/> Imprimir
+              </button>
+            </div>
+          </div>
+
+          <div id="seccion-a-imprimir" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* TABLA DE ASISTENCIAS (RELOJ CHECADOR) - AHORA SOLO MUESTRA HOY SIEMPRE */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
-              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Clock className="text-blue-500"/> Entradas y Salidas (Hoy)</h3>
+              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Clock className="text-blue-500"/> Personal Activo (Hoy)</h3>
               <div className="space-y-3">
-                {reportes.asistencias?.length === 0 && <p className="text-slate-400 font-bold">Nadie ha iniciado sesión hoy.</p>}
-                {reportes.asistencias?.map((a, i) => (
+                {reportes.asistenciasHoy?.length === 0 && <p className="text-slate-400 font-bold">Nadie ha iniciado sesión hoy.</p>}
+                {reportes.asistenciasHoy?.map((a, i) => (
                   <div key={i} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-100">
                     <div>
                       <p className="font-bold text-slate-700">{a.nombre}</p>
@@ -269,9 +298,9 @@ const GestionUsuarios = ({
 
             {/* TABLA DE RENDIMIENTO DE COCINA */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
-              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><ChefHat className="text-orange-500"/> Rendimiento en Cocina (Hoy)</h3>
+              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><ChefHat className="text-orange-500"/> Rendimiento en Cocina ({periodo})</h3>
               <div className="space-y-3">
-                {reportes.rendimientoCocina?.length === 0 && <p className="text-slate-400 font-bold">Aún no se han completado pedidos hoy.</p>}
+                {reportes.rendimientoCocina?.length === 0 && <p className="text-slate-400 font-bold">Sin datos para este periodo.</p>}
                 {reportes.rendimientoCocina?.map((r, i) => (
                   <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -290,9 +319,52 @@ const GestionUsuarios = ({
               </div>
             </div>
 
+            {/* 👇 NUEVA TABLA: BITÁCORA DE ENTRADAS Y SALIDAS CUADRICULADA */}
+            <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2">
+              <div className="flex items-center gap-3 mb-6">
+                <FileText className="text-emerald-500" size={24}/>
+                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Bitácora Detallada de Asistencia ({periodo})</h3>
+              </div>
+              
+              <div className="overflow-x-auto rounded-3xl border border-slate-100">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-200">
+                      <th className="p-4 border-r border-slate-200">Empleado</th>
+                      <th className="p-4 border-r border-slate-200">Fecha</th>
+                      <th className="p-4 border-r border-slate-200">Entrada</th>
+                      <th className="p-4 border-r border-slate-200">Salida</th>
+                      <th className="p-4 text-center">Horas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {reportes.historialAsistencias?.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400 font-bold">No hay movimientos registrados en este periodo.</td></tr> : reportes.historialAsistencias?.map((h, i) => (
+                      <tr key={i} className="hover:bg-slate-50 transition">
+                        <td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700">{h.nombre}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{h.rol}</p></td>
+                        <td className="p-4 border-r border-slate-100 font-medium text-slate-600 text-sm">{new Date(h.fecha).toLocaleDateString()}</td>
+                        <td className="p-4 border-r border-slate-100 font-bold text-emerald-600 text-sm">{new Date(h.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
+                        <td className="p-4 border-r border-slate-100 font-bold text-red-500 text-sm">{h.hora_salida ? new Date(h.hora_salida).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--'}</td>
+                        <td className="p-4 text-center"><span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg font-black text-xs border border-blue-100">{h.horas_trabajadas} hrs</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
+
+      {/* ESTILO PARA IMPRESIÓN */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #seccion-a-imprimir, #seccion-a-imprimir * { visibility: visible; }
+          #seccion-a-imprimir { position: absolute; left: 0; top: 0; width: 100%; }
+          .print\\:hidden { display: none !important; }
+        }
+      `}</style>
 
     </div>
   );

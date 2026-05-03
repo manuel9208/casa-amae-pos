@@ -65,12 +65,31 @@ exports.eliminarUsuario = async (req, res) => {
 };
 
 // ==========================================
-// NUEVA FUNCIÓN: REPORTES DE RENDIMIENTO Y ASISTENCIA
+// REPORTES DE RENDIMIENTO Y ASISTENCIA (MODIFICADO PARA FILTROS HISTÓRICOS)
 // ==========================================
 exports.obtenerReporteRendimiento = async (req, res) => {
+  // Recibimos los filtros desde el Frontend (por defecto será el día de hoy)
+  const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
+
+  let queryFiltroFechaAsistencia = '';
+  let queryFiltroFechaPedido = '';
+  let params = [fecha];
+
+  // Configuración de los rangos de fecha en SQL
+  if (periodo === 'dia') {
+    queryFiltroFechaAsistencia = 'a.fecha::DATE = $1::DATE';
+    queryFiltroFechaPedido = 'p.fecha_creacion::DATE = $1::DATE';
+  } else if (periodo === 'mes') {
+    queryFiltroFechaAsistencia = "DATE_TRUNC('month', a.fecha::TIMESTAMP) = DATE_TRUNC('month', $1::TIMESTAMP)";
+    queryFiltroFechaPedido = "DATE_TRUNC('month', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('month', $1::TIMESTAMP)";
+  } else if (periodo === 'anio') {
+    queryFiltroFechaAsistencia = "DATE_TRUNC('year', a.fecha::TIMESTAMP) = DATE_TRUNC('year', $1::TIMESTAMP)";
+    queryFiltroFechaPedido = "DATE_TRUNC('year', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('year', $1::TIMESTAMP)";
+  }
+
   try {
-    // 1. Obtener las asistencias del día actual
-    const asistenciasRes = await db.query(`
+    // 1. Asistencias HOY (Este siempre será fijo para el cuadro superior de activos)
+    const asistenciasHoyRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha
       FROM registro_asistencias a
       JOIN usuarios u ON a.usuario_id = u.id
@@ -78,8 +97,18 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.hora_entrada DESC
     `);
 
-    // 2. Calcular rendimiento de cocina del día actual
-    // Convierte la diferencia de timestamps a segundos (EPOCH), luego a minutos y saca el promedio
+    // 2. Historial COMPLETO de Asistencias (Filtrado por día, mes o año)
+    // Calcula cuántas horas trabajó en cada sesión específica
+    const historialRes = await db.query(`
+      SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
+             ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2) AS horas_trabajadas
+      FROM registro_asistencias a
+      JOIN usuarios u ON a.usuario_id = u.id
+      WHERE ${queryFiltroFechaAsistencia}
+      ORDER BY a.fecha DESC, a.hora_entrada DESC
+    `, params);
+
+    // 3. Rendimiento en Cocina (Filtrado por día, mes o año)
     const rendimientoRes = await db.query(`
       SELECT 
         u.nombre AS chef, 
@@ -90,14 +119,15 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       WHERE (p.estado_preparacion = 'Listo' OR p.estado_preparacion = 'Entregado')
         AND p.tiempo_inicio_preparacion IS NOT NULL
         AND p.tiempo_listo IS NOT NULL
-        AND DATE(p.fecha_creacion) = CURRENT_DATE
+        AND ${queryFiltroFechaPedido}
       GROUP BY u.nombre
       ORDER BY pedidos_completados DESC
-    `);
+    `, params);
 
     res.json({
-      asistencias: asistenciasRes.rows,
-      rendimientoCocina: rendimientoRes.rows
+      asistenciasHoy: asistenciasHoyRes.rows,         // Array 1: Solo hoy, sin importar el filtro
+      historialAsistencias: historialRes.rows,        // Array 2: Histórico filtrado
+      rendimientoCocina: rendimientoRes.rows          // Array 3: Cocina filtrado
     });
   } catch (error) {
     console.error("Error al obtener reportes de rendimiento:", error);
