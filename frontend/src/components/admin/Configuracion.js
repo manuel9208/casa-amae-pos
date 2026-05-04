@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Trash2, Ticket } from 'lucide-react';
 
 const Configuracion = ({
   // Props recibidas desde AdminPanel
@@ -13,8 +14,13 @@ const Configuracion = ({
   const [tvVideoBlob, setTvVideoBlob] = useState(null);
   const [tarifasEnvio, setTarifasEnvio] = useState([]);
   
-  // 👇 NUEVO: Seguro anti-dobles clics al guardar
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 👇 NUEVOS ESTADOS PARA GESTIÓN DE CUPONES INDEPENDIENTES
+  const [cupones, setCupones] = useState([]);
+  const [nuevoCupon, setNuevoCupon] = useState({ 
+    codigo: '', tipo: 'porcentaje', valor: '', limite_usos: '', fecha_vencimiento: '' 
+  });
 
   // Cargar las tarifas de envío desde configGlobal al iniciar
   useEffect(() => {
@@ -27,6 +33,23 @@ const Configuracion = ({
       }
     }
   }, [configGlobal.tarifas_envio]);
+
+  // 👇 NUEVA FUNCIÓN: CARGAR CUPONES DESDE LA BD
+  const cargarCupones = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiUrl}/cupones`);
+      if (res.ok) {
+        const data = await res.json();
+        setCupones(Array.isArray(data) ? data : []);
+      }
+    } catch (error) { 
+      console.error("Error cargando cupones:", error); 
+    }
+  }, [apiUrl]);
+
+  useEffect(() => {
+    cargarCupones();
+  }, [cargarCupones]);
 
   // Helper para las URLs de Cloudinary
   const getImageUrl = (url) => {
@@ -63,7 +86,7 @@ const Configuracion = ({
     videoElement.src = URL.createObjectURL(file);
   };
 
-  // === LÓGICA DE GUARDADO ===
+  // === LÓGICA DE GUARDADO DE CONFIGURACIÓN GENERAL ===
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
     if(isSubmitting) return;
@@ -71,7 +94,7 @@ const Configuracion = ({
 
     const formData = new FormData();
     
-    // Agregamos los textos y configuraciones
+    // Agregamos los textos y configuraciones, incluyendo puntos
     Object.keys(configGlobal).forEach(key => {
       if (key !== 'tarifas_envio') {
         formData.append(key, configGlobal[key]);
@@ -127,7 +150,11 @@ const Configuracion = ({
         ticket_domicilio: '',
         ticket_mensaje_final: '¡Gracias por su preferencia!',
         ticket_firma_sistema: 'Powered by MiSistemaPOS',
-        mensaje_envio: 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
+        mensaje_envio: 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
+        puntos_porcentaje: 10,
+        puntos_valor_peso: 1.00,
+        puntos_activos: true, // 👇 Agregado al restablecer
+        puntos_canje_activo: true // 👇 Agregado al restablecer
       });
       setTarifasEnvio([]);
       setTvVideoBlob(null);
@@ -135,9 +162,69 @@ const Configuracion = ({
     });
   };
 
+  // 👇 NUEVAS FUNCIONES PARA CUPONES (INDEPENDIENTES DEL FORMULARIO PRINCIPAL)
+  const crearCupon = async (e) => {
+    e.preventDefault();
+    if(isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${apiUrl}/cupones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...nuevoCupon,
+          limite_usos: nuevoCupon.limite_usos ? Number(nuevoCupon.limite_usos) : null,
+          fecha_vencimiento: nuevoCupon.fecha_vencimiento || null
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showAlert("¡Cupón Creado!", "El código promocional está listo para usarse.", "success");
+        setNuevoCupon({ codigo: '', tipo: 'porcentaje', valor: '', limite_usos: '', fecha_vencimiento: '' });
+        cargarCupones();
+      } else {
+        showAlert("Atención", data.error || "No se pudo crear el cupón.", "warning");
+      }
+    } catch (error) {
+      showAlert("Error", "Error de conexión al servidor.", "error");
+    }
+    setIsSubmitting(false);
+  };
+
+  const toggleEstadoCupon = async (id, estadoActual) => {
+    try {
+      const res = await fetch(`${apiUrl}/cupones/${id}/estado`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activo: !estadoActual })
+      });
+      if (res.ok) cargarCupones();
+    } catch (error) { 
+      showAlert("Error", "No se pudo actualizar el estado del cupón.", "error"); 
+    }
+  };
+
+  const eliminarCupon = (id) => {
+    showConfirm("Eliminar Cupón", "¿Seguro que deseas borrar este código de descuento permanentemente?", async () => {
+      try {
+        const res = await fetch(`${apiUrl}/cupones/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showAlert("Eliminado", "Cupón borrado.", "success");
+          cargarCupones();
+        }
+      } catch (error) { 
+        showAlert("Error", "No se pudo eliminar el cupón.", "error"); 
+      }
+    });
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12 animate-in fade-in">
       <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
+      
+      {/* ========================================================= */}
+      {/* FORMULARIO 1: CONFIGURACIÓN GENERAL Y PUNTOS */}
+      {/* ========================================================= */}
       <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
         
         {/* 1. MARCA */}
@@ -432,7 +519,7 @@ const Configuracion = ({
           </div>
         </div>
 
-        {/* 👇 NUEVA SECCIÓN 7: NOTIFICACIONES DE WHATSAPP API */}
+        {/* 7. NOTIFICACIONES DE WHATSAPP API */}
         <div className="bg-green-50/30 p-6 rounded-3xl border border-green-200 space-y-6">
           <h3 className="text-xl font-bold text-green-800 flex items-center gap-2">💬 7. Notificaciones de WhatsApp (Oficial)</h3>
           
@@ -478,14 +565,76 @@ const Configuracion = ({
                     className="w-full p-3 bg-white border border-green-200 rounded-xl outline-none font-medium text-slate-700" 
                     placeholder="EAAI..." 
                   />
-                  <p className="text-[10px] text-slate-500 mt-1 font-bold">El token de acceso generado en el panel de Meta. (No uses el de 24 horas, genera uno del sistema).</p>
+                  <p className="text-[10px] text-slate-500 mt-1 font-bold">El token de acceso generado en el panel de Meta. (No uses el de 24 horas).</p>
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {/* BOTONES FINALES */}
+        {/* 👇 NUEVO 8: PROGRAMA DE LEALTAD (PUNTOS) */}
+        <div className="bg-yellow-50/30 p-6 rounded-3xl border border-yellow-200 space-y-6">
+          <h3 className="text-xl font-bold text-yellow-800 flex items-center gap-2">⭐ 8. Programa de Lealtad (Puntos)</h3>
+          
+          {/* NUEVOS SWITCHES MAESTROS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b border-yellow-200">
+            <label className="flex items-center gap-3 font-bold text-slate-700 cursor-pointer bg-white p-4 rounded-2xl border border-yellow-200 shadow-sm">
+              <input 
+                disabled={isSubmitting}
+                type="checkbox" 
+                checked={configGlobal.puntos_activos === undefined ? true : (configGlobal.puntos_activos === true || configGlobal.puntos_activos === 'true')} 
+                onChange={e => setConfigGlobal({...configGlobal, puntos_activos: e.target.checked})} 
+                className="w-6 h-6 accent-yellow-500" 
+              /> 
+              Habilitar Acumulación de Puntos
+            </label>
+
+            <label className="flex items-center gap-3 font-bold text-slate-700 cursor-pointer bg-white p-4 rounded-2xl border border-yellow-200 shadow-sm">
+              <input 
+                disabled={isSubmitting}
+                type="checkbox" 
+                checked={configGlobal.puntos_canje_activo === undefined ? true : (configGlobal.puntos_canje_activo === true || configGlobal.puntos_canje_activo === 'true')} 
+                onChange={e => setConfigGlobal({...configGlobal, puntos_canje_activo: e.target.checked})} 
+                className="w-6 h-6 accent-yellow-500" 
+              /> 
+              Permitir Canje de Puntos
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-black text-yellow-600 uppercase mb-1">Puntos Ganados por Compra (%)</label>
+              <input 
+                disabled={isSubmitting} 
+                type="number" 
+                min="0" 
+                max="100" 
+                value={configGlobal.puntos_porcentaje !== undefined ? configGlobal.puntos_porcentaje : 10} 
+                onChange={e => setConfigGlobal({...configGlobal, puntos_porcentaje: e.target.value})} 
+                className="w-full p-4 bg-white border border-yellow-200 rounded-2xl outline-none font-black text-slate-700 text-lg" 
+                placeholder="Ej. 10" 
+              />
+              <p className="text-[10px] text-slate-500 mt-2 font-bold leading-tight">Si pones 10%, un pedido de $100 MXN generará 10 puntos para el cliente.</p>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-black text-yellow-600 uppercase mb-1">Valor en Dinero de Cada Punto ($)</label>
+              <input 
+                disabled={isSubmitting} 
+                type="number" 
+                step="0.01" 
+                min="0.01" 
+                value={configGlobal.puntos_valor_peso !== undefined ? configGlobal.puntos_valor_peso : 1.00} 
+                onChange={e => setConfigGlobal({...configGlobal, puntos_valor_peso: e.target.value})} 
+                className="w-full p-4 bg-white border border-yellow-200 rounded-2xl outline-none font-black text-slate-700 text-lg" 
+                placeholder="Ej. 1.00" 
+              />
+              <p className="text-[10px] text-slate-500 mt-2 font-bold leading-tight">A cuánto dinero real equivale cada punto. Si pones $1.00, 10 puntos descontarán $10 MXN.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* BOTONES FINALES DE GUARDADO GENERAL */}
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
           <button disabled={isSubmitting} type="button" onClick={restablecerBranding} className="w-full md:w-auto px-6 py-4 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 transition disabled:opacity-50">↺ Restablecer Diseño</button>
           <button disabled={isSubmitting} type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-black text-lg shadow-lg shadow-blue-500/30 transition disabled:opacity-50 active:scale-95 flex justify-center items-center gap-2">
@@ -493,6 +642,83 @@ const Configuracion = ({
           </button>
         </div>
       </form>
+
+      {/* ========================================================= */}
+      {/* SECCIÓN 9: CUPONES DE DESCUENTO (GESTIÓN INDEPENDIENTE) */}
+      {/* ========================================================= */}
+      <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200 mt-8">
+        <h3 className="text-xl font-bold mb-6 text-rose-600 flex items-center gap-2 border-b pb-2">
+          <Ticket size={24}/> 9. Cupones de Descuento (Gestión Independiente)
+        </h3>
+
+        <form onSubmit={crearCupon} className="bg-rose-50/30 p-6 rounded-3xl border border-rose-100 mb-8 space-y-4">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div>
+                <label className="block text-xs font-black text-rose-600 uppercase mb-1">Código Promocional *</label>
+                <input required value={nuevoCupon.codigo} onChange={e => setNuevoCupon({...nuevoCupon, codigo: e.target.value.toUpperCase().replace(/\s+/g, '')})} className="w-full p-3 bg-white border border-rose-200 rounded-xl outline-none font-black text-slate-700 uppercase" placeholder="Ej. VERANO20" disabled={isSubmitting}/>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-rose-600 uppercase mb-1">Tipo de Descuento *</label>
+                <select required value={nuevoCupon.tipo} onChange={e => setNuevoCupon({...nuevoCupon, tipo: e.target.value})} className="w-full p-3 bg-white border border-rose-200 rounded-xl outline-none font-bold text-slate-700" disabled={isSubmitting}>
+                   <option value="porcentaje">Porcentaje (%)</option>
+                   <option value="fijo">Monto Fijo ($)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-rose-600 uppercase mb-1">Valor *</label>
+                <input required type="number" step="0.01" min="0.1" value={nuevoCupon.valor} onChange={e => setNuevoCupon({...nuevoCupon, valor: e.target.value})} className="w-full p-3 bg-white border border-rose-200 rounded-xl outline-none font-bold text-slate-700" placeholder="Ej. 15" disabled={isSubmitting}/>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-rose-600 uppercase mb-1">Límite Usos</label>
+                <input type="number" min="1" value={nuevoCupon.limite_usos} onChange={e => setNuevoCupon({...nuevoCupon, limite_usos: e.target.value})} className="w-full p-3 bg-white border border-rose-200 rounded-xl outline-none font-medium text-slate-700" placeholder="Ilimitado" disabled={isSubmitting}/>
+              </div>
+              <div>
+                <label className="block text-xs font-black text-rose-600 uppercase mb-1">Vencimiento</label>
+                <input type="date" value={nuevoCupon.fecha_vencimiento} onChange={e => setNuevoCupon({...nuevoCupon, fecha_vencimiento: e.target.value})} className="w-full p-3 bg-white border border-rose-200 rounded-xl outline-none font-medium text-slate-700" disabled={isSubmitting}/>
+              </div>
+           </div>
+           <div className="flex justify-end pt-2">
+              <button type="submit" disabled={isSubmitting || !nuevoCupon.codigo || !nuevoCupon.valor} className="bg-rose-500 hover:bg-rose-600 text-white px-8 py-3 rounded-xl font-black transition shadow-md disabled:opacity-50">
+                 ➕ Crear Cupón
+              </button>
+           </div>
+        </form>
+
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+           <table className="w-full text-left border-collapse min-w-max">
+              <thead>
+                 <tr className="bg-slate-100 text-slate-500 text-xs uppercase font-black">
+                    <th className="p-4">Código</th>
+                    <th className="p-4 text-center">Descuento</th>
+                    <th className="p-4 text-center">Usos</th>
+                    <th className="p-4 text-center">Vencimiento</th>
+                    <th className="p-4 text-center">Estado</th>
+                    <th className="p-4 text-center">Acciones</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                 {cupones.length === 0 ? (
+                   <tr><td colSpan="6" className="p-6 text-center text-slate-400 font-bold">No hay cupones registrados.</td></tr>
+                 ) : cupones.map(c => (
+                   <tr key={c.id} className="hover:bg-slate-50">
+                      <td className="p-4 font-black text-rose-600 text-lg">{c.codigo}</td>
+                      <td className="p-4 text-center font-bold text-slate-700">{c.tipo === 'porcentaje' ? `${c.valor}%` : `$${c.valor}`}</td>
+                      <td className="p-4 text-center font-bold text-slate-500">{c.usos_actuales} / {c.limite_usos || '∞'}</td>
+                      <td className="p-4 text-center font-bold text-slate-500">{c.fecha_vencimiento ? new Date(c.fecha_vencimiento).toLocaleDateString() : 'Nunca'}</td>
+                      <td className="p-4 text-center">
+                         <label className="flex items-center justify-center cursor-pointer">
+                           <input type="checkbox" checked={c.activo} onChange={() => toggleEstadoCupon(c.id, c.activo)} className="w-5 h-5 accent-emerald-500" disabled={isSubmitting}/>
+                         </label>
+                      </td>
+                      <td className="p-4 flex justify-center">
+                         <button onClick={() => eliminarCupon(c.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition" disabled={isSubmitting}><Trash2 size={20}/></button>
+                      </td>
+                   </tr>
+                 ))}
+              </tbody>
+           </table>
+        </div>
+      </div>
     </div>
   );
 };

@@ -57,11 +57,10 @@ exports.crearPedido = async (req, res) => {
       } 
     }
 
+    // AQUÍ SOLO DESCONTAMOS LOS PUNTOS USADOS PARA PAGAR
     if (cliente_id && descuento_puntos > 0) { 
       await db.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2', [descuento_puntos, cliente_id]); 
-    } else if (cliente_id) { 
-      await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [Math.floor(total * 0.10), cliente_id]); 
-    }
+    } 
 
     await db.query('COMMIT');
     res.status(201).json(result.rows[0]);
@@ -85,12 +84,18 @@ exports.actualizarPedido = async (req, res) => {
   } 
 };
 
-// ================= ACTUALIZAR ESTADO (MAGIA DE WHATSAPP CON TEMPLATE) =================
+// ================= ACTUALIZAR ESTADO =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio } = req.body;
   
   try {
+    // 1. Obtenemos el estado anterior del pedido ANTES de modificarlo
+    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total FROM pedidos WHERE id = $1', [id]);
+    if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
+    const pedidoPrevio = prevRes.rows[0];
+
+    // 2. Construimos la consulta dinámica de actualización
     let query = 'UPDATE pedidos SET estado_preparacion = $1'; 
     let params = [estado_preparacion];
     let pIdx = 2;
@@ -136,11 +141,49 @@ exports.actualizarEstado = async (req, res) => {
     query += ` WHERE id = $${pIdx} RETURNING *`;
     params.push(id);
     
+    // 3. Ejecutamos la actualización
     const result = await db.query(query, params); 
     const pedidoActual = result.rows[0];
 
-    // 👇 =========================================================================
-    // NUEVO: ENVÍO DE TEMPLATE APROBADO POR META (SOLO CUANDO ESTÁ "LISTO")
+    // =========================================================================
+    // LÓGICA DE PUNTOS: SE DAN AL PAGAR O ENTREGAR (SOBRE EL TOTAL FINAL)
+    // =========================================================================
+    if (pedidoActual.cliente_id) {
+      const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado');
+      const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado');
+      
+      // A) ABONAR PUNTOS (Solo ocurre una vez cuando pasa a Pagado/Entregado)
+      if (!yaEstabaPagado && ahoraEstaPagado) {
+          try {
+              // 👇 MODIFICACIÓN: Consultamos los nuevos switches de configuración
+              const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
+              if (confRes.rows.length > 0) {
+                  const config = confRes.rows[0];
+                  
+                  // Solo abonamos si el switch maestro "puntos_activos" está encendido
+                  if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
+                      const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
+                      
+                      // Se calculan sobre el TOTAL REAL que se pagó
+                      const puntosAGanar = Math.floor(Number(pedidoActual.total) * (porcentaje / 100));
+                      if (puntosAGanar > 0) {
+                          await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, pedidoActual.cliente_id]);
+                      }
+                  }
+              }
+          } catch(e) { console.log('Error abonando puntos de fidelidad:', e.message); }
+      }
+
+      // B) DEVOLVER PUNTOS (Si el pedido se cancela y el cliente había usado sus puntos para pagar)
+      if (estado_preparacion === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
+          if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0) {
+              await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
+          }
+      }
+    }
+
+    // =========================================================================
+    // LÓGICA DE WHATSAPP
     // =========================================================================
     if (estado_preparacion === 'Listo') {
       try {
@@ -180,17 +223,17 @@ exports.actualizarEstado = async (req, res) => {
               to: numeroDestino,
               type: "template",
               template: {
-                name: "alerta_pedido_listo", // 👈 ESTE NOMBRE ES VITAL PARA META
+                name: "alerta_pedido_listo", 
                 language: {
-                  code: "es_MX" // Español México
+                  code: "es_MX" 
                 },
                 components: [
                   {
                     type: "body",
                     parameters: [
-                      { type: "text", text: String(pedidoActual.numero_pedido) }, // {{1}}
-                      { type: "text", text: config.nombre_negocio || 'nuestro restaurante' }, // {{2}}
-                      { type: "text", text: instruccion } // {{3}}
+                      { type: "text", text: String(pedidoActual.numero_pedido) }, 
+                      { type: "text", text: config.nombre_negocio || 'nuestro restaurante' }, 
+                      { type: "text", text: instruccion } 
                     ]
                   }
                 ]
@@ -218,7 +261,6 @@ exports.actualizarEstado = async (req, res) => {
         console.error("Fallo interno en la lógica de WhatsApp (no afecta el pedido):", errWA.message);
       }
     }
-    // =========================================================================
 
     res.json(pedidoActual);
   } catch (error) { 

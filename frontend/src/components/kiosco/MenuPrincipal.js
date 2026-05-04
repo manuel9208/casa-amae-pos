@@ -1,14 +1,23 @@
 import React, { useState } from 'react';
+import { Ticket, XCircle, CheckCircle2 } from 'lucide-react'; 
 
 const MenuPrincipal = ({ 
   configGlobal, productos, clasificaciones, carrito, setCarrito, 
   baseUrl, setPantallaActual, pedidoEditandoId, clienteActivo, 
-  descuentoPuntos, setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar 
+  descuentoPuntos, setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar,
+  
+  calcularSubtotal, 
+  descuentoPuntosDinero, 
+  descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos,
+  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
 
+  const [inputCupon, setInputCupon] = useState('');
+  const [errorCupon, setErrorCupon] = useState('');
+  const [buscandoCupon, setBuscandoCupon] = useState(false);
+
   // === LÓGICA DE NEGOCIO CERRADO ===
-  // Verificamos si el backend nos dice que está cerrado (manejamos booleanos o strings por si acaso)
   const isCerrado = configGlobal.negocio_abierto === false || configGlobal.negocio_abierto === 'false' || configGlobal.negocio_abierto === 0;
   const mensajeCierre = configGlobal.mensaje_cierre || 'El negocio se encuentra cerrado temporalmente. Por favor, vuelve más tarde.';
 
@@ -27,7 +36,6 @@ const MenuPrincipal = ({
     setCarrito(carrito.filter(i => i.idTicket !== idTicket));
   };
 
-  // Prepara la edición abriendo el modal con los datos del item
   const editarItem = (item) => {
     const productoOriginal = productos.find(p => p.id === item.id || p.nombre === item.nombre);
     if (!productoOriginal) return alert("Este producto ya no existe.");
@@ -48,12 +56,39 @@ const MenuPrincipal = ({
     return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
   };
 
+  // === VALIDAR CUPÓN EN LA BASE DE DATOS ===
+  const validarCupon = async (e) => {
+    e.preventDefault();
+    setErrorCupon('');
+    if (!inputCupon.trim()) return;
+    
+    setBuscandoCupon(true);
+    try {
+      const res = await fetch(`${apiUrl}/cupones/validar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: inputCupon })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setCuponActivo(data);
+        setInputCupon('');
+      } else {
+        setErrorCupon(data.error || "Cupón inválido.");
+      }
+    } catch (error) {
+      setErrorCupon("Error al validar cupón.");
+    }
+    setBuscandoCupon(false);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-8 h-[75vh]">
       {/* SECCIÓN IZQUIERDA: MENÚ */}
       <div className="w-full lg:w-2/3 flex flex-col h-full">
         
-        {/* 👇 ALERTA DE NEGOCIO CERRADO */}
         {isCerrado && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center gap-4">
             <span className="text-4xl">⏸️</span>
@@ -111,7 +146,7 @@ const MenuPrincipal = ({
         )}
       </div>
 
-      {/* SECCIÓN DERECHA: CARRITO */}
+      {/* SECCIÓN DERECHA: CARRITO Y DESCUENTOS */}
       <div className="w-full lg:w-1/3 bg-white rounded-[40px] shadow-xl p-8 border flex flex-col h-full relative">
         {pedidoEditandoId && (<div className="absolute top-0 left-0 right-0 bg-orange-500 text-white text-center py-2 rounded-t-[40px] text-xs font-black uppercase tracking-widest shadow-md">Editando Orden Activa</div>)}
         <h2 className={`text-2xl font-black mb-6 border-b pb-4 text-slate-800 ${pedidoEditandoId ? 'mt-4' : ''}`}>Tu Orden</h2>
@@ -151,18 +186,88 @@ const MenuPrincipal = ({
         </div>
 
         <div className="pt-4 border-t mt-auto space-y-4">
-          {clienteActivo && clienteActivo.puntos > 0 && !descuentoPuntos && carrito.length > 0 && (
-            <div className="bg-blue-50 border border-blue-200 p-4 rounded-2xl flex justify-between items-center">
-              <div className="text-sm"><p className="font-black text-blue-900">🎁 Tienes {clienteActivo.puntos} Puntos</p><p className="text-blue-600 font-medium">Equivalen a ${clienteActivo.puntos} MXN</p></div>
-              <button onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700">Canjear</button>
-            </div>
-          )}
-          {descuentoPuntos > 0 && (
-            <div className="flex justify-between items-center text-emerald-600 font-black"><span className="uppercase tracking-widest text-xs">Puntos Aplicados:</span><span>-${descuentoPuntos}</span></div>
-          )}
-          <div className="flex justify-between items-center mb-2"><span className="text-slate-500 font-black uppercase tracking-widest">Total:</span><span className="text-4xl font-black text-slate-800">${calcularTotal()}</span></div>
           
-          {/* 👇 BOTÓN BLOQUEADO SI ESTÁ CERRADO */}
+          {/* SECCIÓN DE DESCUENTOS (CUPONES Y PUNTOS) */}
+          {carrito.length > 0 && (
+              <div className="space-y-3 border-b border-slate-100 pb-4 mb-2">
+                 
+                 {/* 1. SECCIÓN CUPÓN */}
+                 {!cuponActivo ? (
+                    <form onSubmit={validarCupon} className="flex gap-2 relative">
+                        <Ticket size={20} className="absolute left-3 top-3 text-slate-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Código de cupón" 
+                            value={inputCupon}
+                            onChange={e => { setInputCupon(e.target.value.toUpperCase()); setErrorCupon(''); }}
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold outline-none focus:border-rose-500 uppercase text-slate-700"
+                        />
+                        <button type="submit" disabled={!inputCupon || buscandoCupon} className="bg-rose-500 hover:bg-rose-600 text-white px-4 rounded-xl text-sm font-black disabled:opacity-50 transition active:scale-95 shadow-sm">
+                            {buscandoCupon ? '...' : 'Aplicar'}
+                        </button>
+                    </form>
+                 ) : (
+                    <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex justify-between items-center animate-in zoom-in duration-200">
+                        <div className="flex items-center gap-2">
+                            <div className="bg-rose-500 text-white p-1.5 rounded-lg"><CheckCircle2 size={16}/></div>
+                            <div>
+                                <p className="text-xs font-black text-rose-800 uppercase tracking-widest">{cuponActivo.codigo}</p>
+                                <p className="text-[10px] text-rose-600 font-bold leading-tight">Descuento aplicado</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setCuponActivo(null)} className="text-rose-400 hover:text-rose-600 p-2"><XCircle size={18}/></button>
+                    </div>
+                 )}
+                 {errorCupon && <p className="text-[10px] font-black text-red-500 bg-red-50 px-2 py-1 rounded text-center">{errorCupon}</p>}
+
+                 {/* 2. SECCIÓN PUNTOS FIDELIDAD */}
+                 {clienteActivo && clienteActivo.puntos > 0 && descuentoPuntosPuntosFisicos === 0 && (
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl flex justify-between items-center">
+                        <div className="text-xs">
+                           <p className="font-black text-blue-900 flex items-center gap-1.5">⭐ {clienteActivo.puntos} Pts. Disponibles</p>
+                           <p className="text-blue-600 font-medium">Equivalen a ${(clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2)}</p>
+                        </div>
+                        
+                        {/* 👇 AQUÍ ACTÚA EL SWITCH MAESTRO DE CANJE */}
+                        {(configGlobal.puntos_canje_activo === true || configGlobal.puntos_canje_activo === 'true' || configGlobal.puntos_canje_activo === undefined) ? (
+                            <button onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black text-xs hover:bg-blue-700 shadow-sm transition active:scale-95">Canjear</button>
+                        ) : (
+                            <span className="text-[10px] bg-slate-200 text-slate-500 font-bold px-2 py-1 rounded">No canjeable hoy</span>
+                        )}
+                    </div>
+                 )}
+              </div>
+          )}
+
+          {/* RESUMEN DE TOTALES */}
+          <div className="space-y-1">
+              {(descuentoCuponDinero > 0 || descuentoPuntosDinero > 0) && (
+                  <div className="flex justify-between items-center text-slate-400 text-sm font-bold mb-1">
+                      <span>Subtotal:</span>
+                      <span>${calcularSubtotal().toFixed(2)}</span>
+                  </div>
+              )}
+              
+              {descuentoCuponDinero > 0 && (
+                  <div className="flex justify-between items-center text-rose-500 font-black text-sm">
+                      <span className="uppercase tracking-widest text-xs">Cupón ({cuponActivo.codigo}):</span>
+                      <span>-${descuentoCuponDinero.toFixed(2)}</span>
+                  </div>
+              )}
+
+              {descuentoPuntosDinero > 0 && (
+                  <div className="flex justify-between items-center text-blue-500 font-black text-sm">
+                      <span className="uppercase tracking-widest text-xs flex items-center gap-1">⭐ Puntos ({descuentoPuntosPuntosFisicos}):</span>
+                      <span>-${descuentoPuntosDinero.toFixed(2)}</span>
+                  </div>
+              )}
+              
+              <div className="flex justify-between items-center pt-2">
+                 <span className="text-slate-500 font-black uppercase tracking-widest">Total:</span>
+                 <span className="text-4xl font-black text-slate-800">${calcularTotal().toFixed(2)}</span>
+              </div>
+          </div>
+          
           <button 
             onClick={() => setPantallaActual('consumo')} 
             disabled={carrito.length === 0 || isCerrado} 

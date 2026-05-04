@@ -49,6 +49,18 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
     window.print();
   };
 
+  // 👇 NUEVO: Función segura para convertir fechas sin que salga "Invalid Date"
+  const parseFechaSegura = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const [year, month, day] = dateStr.split('-');
+      const fechaObj = new Date(year, month - 1, day);
+      return fechaObj.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
       
@@ -91,16 +103,28 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
       <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex flex-col md:flex-row items-end gap-4 print:hidden">
         
         <div className="flex-1 w-full">
-          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2"><Calendar size={16}/> Fecha Referencia</label>
+          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
+            <Calendar size={16}/> Fecha Referencia
+          </label>
           <input 
-            type="date" disabled={cargando} value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)}
+            type="date" 
+            disabled={cargando} 
+            value={fechaCustom} 
+            onChange={(e) => setFechaCustom(e.target.value)}
             className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
           />
         </div>
 
         <div className="flex-1 w-full">
-          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2"><Filter size={16}/> Categoría</label>
-          <select disabled={cargando} value={filtroClasificacion} onChange={e => setFiltroClasificacion(e.target.value)} className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50">
+          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
+            <Filter size={16}/> Categoría
+          </label>
+          <select 
+            disabled={cargando} 
+            value={filtroClasificacion} 
+            onChange={e => setFiltroClasificacion(e.target.value)} 
+            className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
+          >
             <option value="Todas">Todas las categorías</option>
             <option value="Extras">🌟 Solo Extras</option>
             <option value="Envíos">🛵 Solo Envíos</option>
@@ -109,8 +133,15 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
         </div>
 
         <div className="flex-1 w-full">
-          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2"><PackageOpen size={16}/> Tipo de Consumo</label>
-          <select disabled={cargando} value={filtroConsumo} onChange={e => setFiltroConsumo(e.target.value)} className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50">
+          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
+            <PackageOpen size={16}/> Tipo de Consumo
+          </label>
+          <select 
+            disabled={cargando} 
+            value={filtroConsumo} 
+            onChange={e => setFiltroConsumo(e.target.value)} 
+            className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
+          >
             <option value="Todos">Todos</option>
             <option value="Local">Comer en Local</option>
             <option value="Recoger en Local">Recoger en Local</option>
@@ -120,7 +151,8 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
 
         <div className="w-full md:w-auto">
           <button 
-            disabled={cargando} onClick={() => setFiltroActivo('historico')}
+            disabled={cargando} 
+            onClick={() => setFiltroActivo('historico')}
             className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition disabled:opacity-50 ${filtroActivo === 'historico' ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-200 text-orange-800 hover:bg-orange-300'}`}
           >
             {cargando ? 'Buscando...' : <><Search size={16}/> Buscar Día Exacto</>}
@@ -148,8 +180,12 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
               {/* 👇 NUEVO: PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
               {reporte.insights && (
                 <div className="bg-slate-900 rounded-[32px] p-8 shadow-xl text-white print:hidden relative overflow-hidden">
-                   <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none"><TrendingUp size={200}/></div>
-                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-400"><BarChart2 size={24}/> Análisis Inteligente ({filtroActivo})</h3>
+                   <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
+                     <TrendingUp size={200}/>
+                   </div>
+                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-400">
+                     <BarChart2 size={24}/> Análisis Inteligente ({filtroActivo})
+                   </h3>
                    
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
                       
@@ -159,19 +195,33 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                           {reporte.insights.productoMasVendido ? (
                               <>
                                  <div className="flex justify-between items-center mb-3">
-                                    <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><Star size={16}/> Más Vendido</span>
-                                    <span className="font-black text-right pl-2 leading-tight">{reporte.insights.productoMasVendido.producto_nombre} <span className="text-emerald-300 ml-1 text-xs">({reporte.insights.productoMasVendido.cantidad_vendida})</span></span>
+                                    <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                      <Star size={16}/> Más Vendido
+                                    </span>
+                                    <span className="font-black text-right pl-2 leading-tight">
+                                      {reporte.insights.productoMasVendido.producto_nombre} 
+                                      <span className="text-emerald-300 ml-1 text-xs">({reporte.insights.productoMasVendido.cantidad_vendida})</span>
+                                    </span>
                                  </div>
                                  <div className="flex justify-between items-center mb-3">
-                                    <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><TrendingDown size={16}/> Menos Vendido</span>
-                                    <span className="font-black text-right pl-2 leading-tight">{reporte.insights.productoMenosVendido.producto_nombre} <span className="text-red-300 ml-1 text-xs">({reporte.insights.productoMenosVendido.cantidad_vendida})</span></span>
+                                    <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                      <TrendingDown size={16}/> Menos Vendido
+                                    </span>
+                                    <span className="font-black text-right pl-2 leading-tight">
+                                      {reporte.insights.productoMenosVendido.producto_nombre} 
+                                      <span className="text-red-300 ml-1 text-xs">({reporte.insights.productoMenosVendido.cantidad_vendida})</span>
+                                    </span>
                                  </div>
                               </>
-                          ) : <p className="text-sm text-slate-500">No hay platillos registrados.</p>}
+                          ) : (
+                            <p className="text-sm text-slate-500">No hay platillos registrados.</p>
+                          )}
                           
                           {reporte.insights.productosCeroVentas?.length > 0 && (
                               <div className="mt-4 pt-4 border-t border-slate-700">
-                                 <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2"><AlertTriangle size={14}/> Sin Ventas ({reporte.insights.productosCeroVentas.length})</span>
+                                 <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2">
+                                   <AlertTriangle size={14}/> Sin Ventas ({reporte.insights.productosCeroVentas.length})
+                                 </span>
                                  <p className="text-xs text-slate-400 leading-snug line-clamp-3" title={reporte.insights.productosCeroVentas.join(', ')}>
                                     {reporte.insights.productosCeroVentas.join(', ')}
                                  </p>
@@ -184,21 +234,37 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                           <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
                               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Diario</p>
                               <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-blue-400 flex items-center gap-1.5"><Activity size={16}/> Promedio/Día</span>
-                                 <span className="font-black text-lg">{formaterMoneda(reporte.insights.promedioDiario)}</span>
+                                 <span className="text-sm font-bold text-blue-400 flex items-center gap-1.5">
+                                   <Activity size={16}/> Promedio/Día
+                                 </span>
+                                 <span className="font-black text-lg">
+                                   {formaterMoneda(reporte.insights.promedioDiario)}
+                                 </span>
                               </div>
                               <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><CalendarDays size={16}/> Mejor Día</span>
+                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                   <CalendarDays size={16}/> Mejor Día
+                                 </span>
                                  <div className="text-right">
-                                     <span className="font-black block">{new Date(reporte.insights.mejorDia.fecha + 'T00:00:00').toLocaleDateString('es-MX', {weekday: 'short', day:'numeric'})}</span>
-                                     <span className="text-xs text-emerald-300 font-bold">{formaterMoneda(reporte.insights.mejorDia.total_dia)}</span>
+                                     <span className="font-black block capitalize">
+                                       {parseFechaSegura(reporte.insights.mejorDia.fecha_str)}
+                                     </span>
+                                     <span className="text-xs text-emerald-300 font-bold">
+                                       {formaterMoneda(reporte.insights.mejorDia.total_dia)}
+                                     </span>
                                  </div>
                               </div>
                               <div className="flex justify-between items-center">
-                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><CalendarDays size={16}/> Peor Día</span>
+                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                   <CalendarDays size={16}/> Peor Día
+                                 </span>
                                  <div className="text-right">
-                                     <span className="font-black block">{new Date(reporte.insights.peorDia.fecha + 'T00:00:00').toLocaleDateString('es-MX', {weekday: 'short', day:'numeric'})}</span>
-                                     <span className="text-xs text-red-300 font-bold">{formaterMoneda(reporte.insights.peorDia.total_dia)}</span>
+                                     <span className="font-black block capitalize">
+                                       {parseFechaSegura(reporte.insights.peorDia.fecha_str)}
+                                     </span>
+                                     <span className="text-xs text-red-300 font-bold">
+                                       {formaterMoneda(reporte.insights.peorDia.total_dia)}
+                                     </span>
                                  </div>
                               </div>
                           </div>
@@ -209,17 +275,29 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                           <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
                               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Mensual</p>
                               <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><Calendar size={16}/> Mejor Mes</span>
+                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                   <Calendar size={16}/> Mejor Mes
+                                 </span>
                                  <div className="text-right">
-                                     <span className="font-black block capitalize">{reporte.insights.mejorMes.mes}</span>
-                                     <span className="text-xs text-emerald-300 font-bold">{formaterMoneda(reporte.insights.mejorMes.total)}</span>
+                                     <span className="font-black block capitalize">
+                                       {reporte.insights.mejorMes.mes}
+                                     </span>
+                                     <span className="text-xs text-emerald-300 font-bold">
+                                       {formaterMoneda(reporte.insights.mejorMes.total)}
+                                     </span>
                                  </div>
                               </div>
                               <div className="flex justify-between items-center">
-                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><Calendar size={16}/> Peor Mes</span>
+                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                   <Calendar size={16}/> Peor Mes
+                                 </span>
                                  <div className="text-right">
-                                     <span className="font-black block capitalize">{reporte.insights.peorMes.mes}</span>
-                                     <span className="text-xs text-red-300 font-bold">{formaterMoneda(reporte.insights.peorMes.total)}</span>
+                                     <span className="font-black block capitalize">
+                                       {reporte.insights.peorMes.mes}
+                                     </span>
+                                     <span className="text-xs text-red-300 font-bold">
+                                       {formaterMoneda(reporte.insights.peorMes.total)}
+                                     </span>
                                  </div>
                               </div>
                           </div>
@@ -231,27 +309,43 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
               {/* Tarjetas de Resumen Financiero */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 print:hidden"><DollarSign size={24}/></div>
+                  <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 print:hidden">
+                    <DollarSign size={24}/>
+                  </div>
                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Ingresos Brutos</span>
-                  <span className="text-3xl font-black text-slate-800 print:text-xl">{formaterMoneda(reporte.resumen.ventas_totales)}</span>
+                  <span className="text-3xl font-black text-slate-800 print:text-xl">
+                    {formaterMoneda(reporte.resumen.ventas_totales)}
+                  </span>
                 </div>
                 
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3 print:hidden"><PackageOpen size={24}/></div>
+                  <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3 print:hidden">
+                    <PackageOpen size={24}/>
+                  </div>
                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Costo Inversión</span>
-                  <span className="text-3xl font-black text-red-600 print:text-xl">{formaterMoneda(reporte.resumen.inversion_total)}</span>
+                  <span className="text-3xl font-black text-red-600 print:text-xl">
+                    {formaterMoneda(reporte.resumen.inversion_total)}
+                  </span>
                 </div>
 
                 <div className="bg-emerald-500 p-6 rounded-3xl shadow-lg border border-emerald-400 flex flex-col items-center text-center transform hover:scale-105 transition print:bg-white print:border-slate-300 print:shadow-none print:transform-none print:p-4">
-                  <div className="w-12 h-12 bg-white/20 text-white rounded-full flex items-center justify-center mb-3 print:hidden"><TrendingUp size={24}/></div>
+                  <div className="w-12 h-12 bg-white/20 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
+                    <TrendingUp size={24}/>
+                  </div>
                   <span className="text-xs font-black text-emerald-100 uppercase tracking-widest print:text-slate-400 print:text-[10px]">Ganancia Neta</span>
-                  <span className="text-4xl font-black text-white print:text-emerald-600 print:text-2xl">{formaterMoneda(reporte.resumen.ganancia_total)}</span>
+                  <span className="text-4xl font-black text-white print:text-emerald-600 print:text-2xl">
+                    {formaterMoneda(reporte.resumen.ganancia_total)}
+                  </span>
                 </div>
 
                 <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col items-center text-center print:bg-white print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-white/10 text-white rounded-full flex items-center justify-center mb-3 print:hidden"><PackageOpen size={24}/></div>
+                  <div className="w-12 h-12 bg-white/10 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
+                    <PackageOpen size={24}/>
+                  </div>
                   <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Platillos Vendidos</span>
-                  <span className="text-4xl font-black text-white print:text-slate-800 print:text-2xl">{reporte.resumen.productos_vendidos}</span>
+                  <span className="text-4xl font-black text-white print:text-slate-800 print:text-2xl">
+                    {reporte.resumen.productos_vendidos}
+                  </span>
                 </div>
               </div>
 
@@ -284,11 +378,21 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                                {isEnvio && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-1 rounded-md uppercase">Envío</span>}
                                {p.producto_nombre}
                             </td>
-                            <td className="p-4 font-black text-slate-800 text-center text-lg print:p-2 print:text-sm">{p.cantidad_vendida}</td>
-                            <td className="p-4 font-medium text-slate-600 text-right print:p-2 print:text-sm">{formaterMoneda(p.precio_venta)}</td>
-                            <td className="p-4 font-medium text-red-500 text-right print:p-2 print:text-sm">{formaterMoneda(p.costo_unitario)}</td>
-                            <td className="p-4 font-bold text-emerald-600 text-right print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.precio_venta - p.costo_unitario)}</td>
-                            <td className="p-4 font-black text-slate-800 text-right print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.ganancia_neta)}</td>
+                            <td className="p-4 font-black text-slate-800 text-center text-lg print:p-2 print:text-sm">
+                              {p.cantidad_vendida}
+                            </td>
+                            <td className="p-4 font-medium text-slate-600 text-right print:p-2 print:text-sm">
+                              {formaterMoneda(p.precio_venta)}
+                            </td>
+                            <td className="p-4 font-medium text-red-500 text-right print:p-2 print:text-sm">
+                              {formaterMoneda(p.costo_unitario)}
+                            </td>
+                            <td className="p-4 font-bold text-emerald-600 text-right print:p-2 print:text-sm print:bg-transparent">
+                              {formaterMoneda(p.precio_venta - p.costo_unitario)}
+                            </td>
+                            <td className="p-4 font-black text-slate-800 text-right print:p-2 print:text-sm print:bg-transparent">
+                              {formaterMoneda(p.ganancia_neta)}
+                            </td>
                           </tr>
                         );
                       })}

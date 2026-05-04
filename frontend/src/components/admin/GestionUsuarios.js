@@ -13,6 +13,7 @@ const GestionUsuarios = ({
   // ESTADOS DE FILTRO
   const [periodo, setPeriodo] = useState('dia'); // 'dia' | 'semana' | 'mes' | 'anio'
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
+  const [filtroUsuario, setFiltroUsuario] = useState('Todos'); // 👇 NUEVO ESTADO PARA EL FILTRO
 
   // === ESTADOS LOCALES PARA EL FORMULARIO ===
   const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
@@ -22,7 +23,6 @@ const GestionUsuarios = ({
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('cajero');
   
-  // 👇 NUEVO: Objeto de permisos expandido para incluir CRM y Finanzas
   const [uPermisos, setUPermisos] = useState({ 
     menu: true, 
     inventario: true, 
@@ -36,7 +36,7 @@ const GestionUsuarios = ({
   // === CARGA DE REPORTES DE RENDIMIENTO CON FILTROS ===
   const cargarReportes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodo}&fecha=${fechaFiltro}`);
+      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodo}&fecha=${fechaFiltro}&usuario_id=${filtroUsuario}`);
       if (res.ok) {
         const data = await res.json();
         setReportes(data);
@@ -44,7 +44,7 @@ const GestionUsuarios = ({
     } catch (error) {
       console.error("Error al cargar reportes de rendimiento", error);
     }
-  }, [apiUrl, periodo, fechaFiltro]); 
+  }, [apiUrl, periodo, fechaFiltro, filtroUsuario]); 
 
   useEffect(() => {
     if (vista === 'reportes') {
@@ -73,7 +73,6 @@ const GestionUsuarios = ({
     setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
   };
 
-  // Lógica especial para roles
   const handleRolChange = (e) => { 
     const nuevoRol = e.target.value; 
     setURol(nuevoRol); 
@@ -86,7 +85,6 @@ const GestionUsuarios = ({
       setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false });
     } else if (nuevoRol === 'admin') {
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
-      // 👇 Admin por defecto tiene todo activado
       setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true, clientes: true, finanzas: true });
     } else { 
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
@@ -97,7 +95,7 @@ const GestionUsuarios = ({
   // === LÓGICA DE GUARDADO ===
   const guardarUsuario = async (e) => { 
     e.preventDefault(); 
-    if(uTelefono.length !== 10) return showAlert("Atención", "El teléfono debe tener exactamente 10 dígitos.", "info"); 
+    if(uTelefono && uTelefono.length !== 10) return showAlert("Atención", "El teléfono debe tener exactamente 10 dígitos.", "info"); 
     
     const payload = { 
       nombre: uNombre, 
@@ -171,7 +169,7 @@ const GestionUsuarios = ({
               <input required placeholder="Nombre (Ej. Juan Pérez)" value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
               <input required placeholder="Usuario para acceder" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
               <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Nueva contraseña (Opcional)" : "Contraseña"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" title={editandoUsuarioId ? "Déjalo en blanco si no quieres cambiar la contraseña actual" : ""} />
-              <input required type="tel" maxLength="10" placeholder="Número Celular (10 dígitos)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+              <input type="tel" maxLength="10" placeholder="Número Celular (Opcional)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
               
               <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer shadow-sm">
                 <option value="cajero">Cajero (Caja)</option>
@@ -184,7 +182,6 @@ const GestionUsuarios = ({
                 <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
                   <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
                   
-                  {/* 👇 NUEVOS PERMISOS AÑADIDOS A LA INTERFAZ */}
                   <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                     <input type="checkbox" checked={uPermisos.finanzas === true} onChange={e => setUPermisos({...uPermisos, finanzas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Finanzas y Reportes
                   </label>
@@ -270,6 +267,15 @@ const GestionUsuarios = ({
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
+              
+              {/* 👇 NUEVO: Selector de Empleados */}
+              <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
+                <option value="Todos">Todos los empleados</option>
+                {usuariosDB.map(u => (
+                   <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>
+                ))}
+              </select>
+
               <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
                 <option value="dia">Por Día</option>
                 <option value="semana">Por Semana</option>
@@ -353,7 +359,7 @@ const GestionUsuarios = ({
                     {reportes.historialAsistencias?.length === 0 ? <tr><td colSpan="5" className="p-8 text-center text-slate-400 font-bold">No hay movimientos registrados en este periodo.</td></tr> : reportes.historialAsistencias?.map((h, i) => (
                       <tr key={i} className="hover:bg-slate-50 transition">
                         <td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700">{h.nombre}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{h.rol}</p></td>
-                        <td className="p-4 border-r border-slate-100 font-medium text-slate-600 text-sm">{new Date(h.fecha).toLocaleDateString()}</td>
+                        <td className="p-4 border-r border-slate-100 font-medium text-slate-600 text-sm">{new Date(h.fecha).toLocaleDateString('es-MX', {weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'})}</td>
                         <td className="p-4 border-r border-slate-100 font-bold text-emerald-600 text-sm">{new Date(h.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
                         <td className="p-4 border-r border-slate-100 font-bold text-red-500 text-sm">{h.hora_salida ? new Date(h.hora_salida).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--'}</td>
                         <td className="p-4 text-center"><span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg font-black text-xs border border-blue-100">{h.horas_trabajadas} hrs</span></td>

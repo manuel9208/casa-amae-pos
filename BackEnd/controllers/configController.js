@@ -1,5 +1,40 @@
 const db = require('../config/db');
 
+// Función autoejecutable para asegurar que existan las nuevas columnas y tablas
+const asegurarEstructuraBaseDatos = async () => {
+  try {
+    // Aseguramos que existan las columnas de Puntos en configuración (NUEVO: Switches de encendido/apagado)
+    await db.query(`
+      ALTER TABLE configuracion 
+      ADD COLUMN IF NOT EXISTS puntos_porcentaje INTEGER DEFAULT 10,
+      ADD COLUMN IF NOT EXISTS puntos_valor_peso DECIMAL(10,2) DEFAULT 1.00,
+      ADD COLUMN IF NOT EXISTS puntos_activos BOOLEAN DEFAULT true,
+      ADD COLUMN IF NOT EXISTS puntos_canje_activo BOOLEAN DEFAULT true;
+    `);
+
+    // Aseguramos que exista la tabla de Cupones
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS cupones (
+        id SERIAL PRIMARY KEY,
+        codigo VARCHAR(20) UNIQUE NOT NULL,
+        tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('porcentaje', 'fijo')),
+        valor DECIMAL(10,2) NOT NULL,
+        limite_usos INTEGER DEFAULT NULL,
+        usos_actuales INTEGER DEFAULT 0,
+        fecha_vencimiento TIMESTAMP DEFAULT NULL,
+        activo BOOLEAN DEFAULT true,
+        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("Estructura de Puntos y Cupones verificada/creada.");
+  } catch (error) {
+    console.error("Error al asegurar la estructura de Puntos/Cupones:", error);
+  }
+};
+// Ejecutamos la función al arrancar el controlador
+asegurarEstructuraBaseDatos();
+
+
 exports.obtenerConfiguracion = async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -22,8 +57,11 @@ exports.actualizarConfiguracion = async (req, res) => {
     negocio_abierto, mensaje_cierre,
     ticket_impresion_activa, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
     mensaje_envio, tarifas_envio,
-    // 👇 NUEVAS VARIABLES DE WHATSAPP API
-    wa_api_activa, wa_api_token, wa_phone_id
+    wa_api_activa, wa_api_token, wa_phone_id,
+    
+    // VARIABLES DE FIDELIDAD (PUNTOS)
+    puntos_porcentaje, puntos_valor_peso,
+    puntos_activos, puntos_canje_activo
   } = req.body;
   
   // Variables para las rutas de los medios
@@ -47,10 +85,16 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isCarruselActivo = tv_carrusel_activo === 'true' || tv_carrusel_activo === true;
   const isNegocioAbierto = negocio_abierto === undefined ? true : (negocio_abierto === 'true' || negocio_abierto === true);
   const isTicketActivo = ticket_impresion_activa === 'true' || ticket_impresion_activa === true;
-  
-  // 👇 Parseo booleano de WhatsApp
   const isWaActiva = wa_api_activa === 'true' || wa_api_activa === true;
   
+  // Parseo de los valores de puntos
+  const porcentajeSeguro = puntos_porcentaje !== undefined ? Number(puntos_porcentaje) : 10;
+  const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
+  
+  // 👇 Parseo de los nuevos switches booleanos
+  const isPuntosActivos = puntos_activos === undefined ? true : (puntos_activos === 'true' || puntos_activos === true);
+  const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
+
   // Parseo seguro de tarifas de envío
   let tarifasParsed = '[]';
   try {
@@ -70,10 +114,11 @@ exports.actualizarConfiguracion = async (req, res) => {
         negocio_abierto, mensaje_cierre,
         ticket_impresion_activa, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
         mensaje_envio, tarifas_envio,
-        wa_api_activa, wa_api_token, wa_phone_id
+        wa_api_activa, wa_api_token, wa_phone_id,
+        puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo
       )
       VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41
       )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
@@ -112,7 +157,11 @@ exports.actualizarConfiguracion = async (req, res) => {
         tarifas_envio = EXCLUDED.tarifas_envio::jsonb,
         wa_api_activa = EXCLUDED.wa_api_activa,
         wa_api_token = EXCLUDED.wa_api_token,
-        wa_phone_id = EXCLUDED.wa_phone_id
+        wa_phone_id = EXCLUDED.wa_phone_id,
+        puntos_porcentaje = EXCLUDED.puntos_porcentaje,
+        puntos_valor_peso = EXCLUDED.puntos_valor_peso,
+        puntos_activos = EXCLUDED.puntos_activos,
+        puntos_canje_activo = EXCLUDED.puntos_canje_activo
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url, 
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas, 
@@ -122,12 +171,95 @@ exports.actualizarConfiguracion = async (req, res) => {
       isNegocioAbierto, mensaje_cierre,
       isTicketActivo, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
       mensaje_envio, tarifasParsed,
-      isWaActiva, wa_api_token, wa_phone_id
+      isWaActiva, wa_api_token, wa_phone_id,
+      porcentajeSeguro, valorPesoSeguro, isPuntosActivos, isCanjeActivo
     ]);
     
     res.json({ success: true, logo_url });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al actualizar configuración' });
+  }
+};
+
+// ==========================================================
+// CONTROLADOR DE CUPONES INTEGRADO
+// ==========================================================
+
+exports.obtenerCupones = async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM cupones ORDER BY id DESC');
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener cupones' });
+  }
+};
+
+exports.crearCupon = async (req, res) => {
+  const { codigo, tipo, valor, limite_usos, fecha_vencimiento } = req.body;
+  try {
+    // Todo a mayúsculas y sin espacios para evitar errores de escritura
+    const codigoLimpio = String(codigo).toUpperCase().replace(/\s+/g, '');
+    
+    const result = await db.query(
+      'INSERT INTO cupones (codigo, tipo, valor, limite_usos, fecha_vencimiento) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [codigoLimpio, tipo, valor, limite_usos || null, fecha_vencimiento || null]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    if(error.code === '23505') { // Error de código duplicado en PostgreSQL
+        return res.status(400).json({ error: 'Este código de cupón ya existe.' });
+    }
+    res.status(500).json({ error: 'Error al crear cupón' });
+  }
+};
+
+exports.actualizarCuponEstado = async (req, res) => {
+  const { id } = req.params;
+  const { activo } = req.body;
+  try {
+    const result = await db.query('UPDATE cupones SET activo = $1 WHERE id = $2 RETURNING *', [activo, id]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar cupón' });
+  }
+};
+
+exports.eliminarCupon = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await db.query('DELETE FROM cupones WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar cupón' });
+  }
+};
+
+exports.validarCupon = async (req, res) => {
+  const { codigo } = req.body;
+  try {
+    const codigoLimpio = String(codigo).toUpperCase().replace(/\s+/g, '');
+    const result = await db.query('SELECT * FROM cupones WHERE codigo = $1 AND activo = true', [codigoLimpio]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Cupón no encontrado o inactivo.' });
+    }
+
+    const cupon = result.rows[0];
+
+    // Verificar si ya venció
+    if (cupon.fecha_vencimiento && new Date(cupon.fecha_vencimiento) < new Date()) {
+      return res.status(400).json({ error: 'Este cupón ya expiró.' });
+    }
+
+    // Verificar si se acabaron los usos
+    if (cupon.limite_usos !== null && cupon.usos_actuales >= cupon.limite_usos) {
+      return res.status(400).json({ error: 'Este cupón ya alcanzó su límite de usos.' });
+    }
+
+    // Si todo está bien, mandamos el cupón válido
+    res.json(cupon);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al validar cupón' });
   }
 };

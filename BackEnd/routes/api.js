@@ -43,6 +43,15 @@ router.get('/configuracion', configCtrl.obtenerConfiguracion);
 router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
 
 // ==========================================
+// CUPONES DE DESCUENTO (NUEVO)
+// ==========================================
+router.get('/cupones', configCtrl.obtenerCupones);
+router.post('/cupones', configCtrl.crearCupon);
+router.put('/cupones/:id/estado', configCtrl.actualizarCuponEstado);
+router.delete('/cupones/:id', configCtrl.eliminarCupon);
+router.post('/cupones/validar', configCtrl.validarCupon);
+
+// ==========================================
 // AUTENTICACIÓN Y CLIENTES
 // ==========================================
 router.post('/identificar', authCtrl.identificar);

@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { ChefHat } from 'lucide-react'; // 👇 Importamos el ícono del chef
+import { ChefHat } from 'lucide-react'; 
 
 const CheckoutFlujo = ({
   pantallaActual, setPantallaActual,
   tipoConsumo, setTipoConsumo,
   direccionEntrega, setDireccionEntrega,
   direccionesGuardadas, setDireccionesGuardadas,
-  carrito, calcularTotal, descuentoPuntos,
+  carrito, calcularTotal, 
+  
+  // 👇 Recibimos los nuevos estados de descuentos
+  descuentoPuntos, 
+  cuponActivo,
+  descuentoCuponDinero,
+
   clienteActivo, ordenExterna, user,
   pedidoEditandoId, apiUrl, configGlobal,
   setErrorTransaccion, setMetodoPagoFinal,
@@ -25,7 +31,7 @@ const CheckoutFlujo = ({
     if (tipo === 'Domicilio') {
         setPantallaActual('aviso_domicilio'); 
     } else if (tipo === 'Recoger') {
-        if (clienteActivo || (user && user.rol !== 'cliente')) { // Si es cajero o hay cliente, pasamos directo
+        if (clienteActivo || (user && user.rol !== 'cliente')) { 
             seleccionarPago('Pendiente');
         } else {
             setPasoTelefono(true);
@@ -74,10 +80,15 @@ const CheckoutFlujo = ({
         }
     });
 
-    // 👇 SI ES POST-PAGO, SE MANDA DIRECTO A COCINA
     let estadoInicial = 'Pendiente';
     if (tipoConsumo === 'Recoger') estadoInicial = 'Por Confirmar';
     if (metodoSeleccionado === 'Por Cobrar') estadoInicial = 'Preparando';
+
+    // 👇 Agregamos el nombre del cupón al paquete para que el backend lo guarde
+    let nombreCupon = null;
+    if (cuponActivo && descuentoCuponDinero > 0) {
+        nombreCupon = cuponActivo.codigo;
+    }
 
     const paquete = { 
       cliente_id: idClienteAGuardar, 
@@ -87,7 +98,8 @@ const CheckoutFlujo = ({
       carrito: carritoExpandido, 
       origen: origenCalculado, 
       direccion_entrega: notaDireccion, 
-      descuento_puntos: descuentoPuntos,
+      descuento_puntos: descuentoPuntos, // Puntos físicos gastados
+      cupon_codigo: nombreCupon, // 👇 Nuevo: Código del cupón
       estado_preparacion: estadoInicial
     };
 
@@ -100,6 +112,14 @@ const CheckoutFlujo = ({
       });
       if (res.ok) { 
         const data = await res.json(); 
+        
+        // Si usamos un cupón, le decimos al servidor que incremente su contador de usos
+        if (cuponActivo && cuponActivo.id) {
+           try {
+             await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' });
+           } catch(e) { console.error("No se pudo incrementar uso del cupón", e); }
+        }
+
         setNumeroPedidoReal(data.numero_pedido); 
         return true; 
       } else { 
@@ -128,7 +148,6 @@ const CheckoutFlujo = ({
       setPasoTelefono(false); 
       if (metodo === 'Transferencia') setPantallaActual('detalles_transferencia'); 
       else { 
-        // Si el cajero mandó a post-pago, que se reinicie automático casi al instante
         if (metodo === 'Por Cobrar' && user && (user.rol === 'cajero' || user.rol === 'admin')) {
             setContador(2);
         } else {
@@ -244,7 +263,6 @@ const CheckoutFlujo = ({
         <h2 className="text-4xl font-black text-center mb-12 texto-destacado">Método de Pago</h2>
         <div className="grid grid-cols-1 gap-6">
           
-          {/* 👇 SI ES CAJERO, LE SALE EL BOTÓN DE CUENTA ABIERTA */}
           {user && (user.rol === 'cajero' || user.rol === 'admin') && (
             <button disabled={isSubmitting} onClick={() => seleccionarPago('Por Cobrar')} className={`bg-orange-50 p-8 rounded-[30px] shadow-lg border-2 border-orange-200 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-orange-100 hover:border-orange-400'}`}>
                 <div className="flex items-center gap-4">
@@ -327,7 +345,6 @@ const CheckoutFlujo = ({
         <h2 className="text-6xl font-black mb-4 texto-destacado">¡Orden Registrada!</h2>
         <p className="text-3xl text-slate-500 mb-6">Tu número de orden es el <span className="text-slate-900 font-black text-6xl block mt-4 mb-8">#{numeroPedidoReal}</span></p>
         
-        {/* 👇 MENSAJE ESPECIAL SI ES POST-PAGO */}
         {metodoPagoFinal === 'Por Cobrar' ? (
              <div className="bg-orange-50 border border-orange-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
                 <p className="text-orange-800 font-black text-2xl mb-2">Orden enviada a cocina.</p>

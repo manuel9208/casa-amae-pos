@@ -69,18 +69,21 @@ exports.eliminarUsuario = async (req, res) => {
 // ==========================================
 exports.obtenerReporteRendimiento = async (req, res) => {
   // Recibimos los filtros desde el Frontend (por defecto será el día de hoy)
-  const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
+  const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0], usuario_id = 'Todos' } = req.query;
 
   let queryFiltroFechaAsistencia = '';
   let queryFiltroFechaPedido = '';
+  let queryUsuarioAsistencia = '';
+  let queryUsuarioPedido = '';
+  
   let params = [fecha];
+  let paramIndex = 2;
 
   // Configuración de los rangos de fecha en SQL
   if (periodo === 'dia') {
     queryFiltroFechaAsistencia = 'a.fecha::DATE = $1::DATE';
     queryFiltroFechaPedido = 'p.fecha_creacion::DATE = $1::DATE';
   } else if (periodo === 'semana') {
-    // 👇 NUEVO: Filtro por semana añadido
     queryFiltroFechaAsistencia = "DATE_TRUNC('week', a.fecha::TIMESTAMP) = DATE_TRUNC('week', $1::TIMESTAMP)";
     queryFiltroFechaPedido = "DATE_TRUNC('week', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('week', $1::TIMESTAMP)";
   } else if (periodo === 'mes') {
@@ -91,27 +94,35 @@ exports.obtenerReporteRendimiento = async (req, res) => {
     queryFiltroFechaPedido = "DATE_TRUNC('year', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('year', $1::TIMESTAMP)";
   }
 
+  // 👇 NUEVO: Filtro por empleado específico
+  if (usuario_id && usuario_id !== 'Todos') {
+    queryUsuarioAsistencia = ` AND a.usuario_id = $${paramIndex}`;
+    queryUsuarioPedido = ` AND p.chef_id = $${paramIndex}`;
+    params.push(usuario_id);
+    paramIndex++;
+  }
+
   try {
-    // 1. Asistencias HOY (Este siempre será fijo para el cuadro superior de activos)
+    // 1. Asistencias HOY (Este siempre será fijo para el cuadro superior de activos, pero respeta el filtro de usuario)
     const asistenciasHoyRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha
       FROM registro_asistencias a
       JOIN usuarios u ON a.usuario_id = u.id
-      WHERE a.fecha = CURRENT_DATE
+      WHERE a.fecha = CURRENT_DATE ${queryUsuarioAsistencia.replace(`$${paramIndex-1}`, usuario_id !== 'Todos' ? usuario_id : '')}
       ORDER BY a.hora_entrada DESC
     `);
 
-    // 2. Historial COMPLETO de Asistencias (Filtrado)
+    // 2. Historial COMPLETO de Asistencias (Filtrado por fecha y usuario)
     const historialRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
              ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2) AS horas_trabajadas
       FROM registro_asistencias a
       JOIN usuarios u ON a.usuario_id = u.id
-      WHERE ${queryFiltroFechaAsistencia}
+      WHERE ${queryFiltroFechaAsistencia} ${queryUsuarioAsistencia}
       ORDER BY a.fecha DESC, a.hora_entrada DESC
     `, params);
 
-    // 3. Rendimiento en Cocina (Filtrado)
+    // 3. Rendimiento en Cocina (Filtrado por fecha y usuario)
     const rendimientoRes = await db.query(`
       SELECT 
         u.nombre AS chef, 
@@ -123,6 +134,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
         AND p.tiempo_inicio_preparacion IS NOT NULL
         AND p.tiempo_listo IS NOT NULL
         AND ${queryFiltroFechaPedido}
+        ${queryUsuarioPedido}
       GROUP BY u.nombre
       ORDER BY pedidos_completados DESC
     `, params);
