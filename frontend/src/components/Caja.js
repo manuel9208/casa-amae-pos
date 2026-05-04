@@ -4,7 +4,7 @@ import VistasCaja from './caja/VistasCaja';
 import ModalesCaja from './caja/ModalesCaja';
 import TicketImpresion from './caja/TicketImpresion';
 
-const Caja = ({ user, onLogout }) => {
+const Caja = ({ user, onLogout, onGoToKiosco }) => {
   // === ESTADOS GLOBALES DE LA CAJA ===
   const [vistaActiva, setVistaActiva] = useState('cobrar'); 
   const [subVistaHistorial, setSubVistaHistorial] = useState('Pagado'); 
@@ -14,7 +14,7 @@ const Caja = ({ user, onLogout }) => {
   const [insumosDB, setInsumosDB] = useState([]); 
   const [gastosDia, setGastosDia] = useState([]); 
   
-  // === ESTADOS DE LOS MODALES ===
+  // === ESTADOS DE LOS MODALES DE COBRO Y VISUALIZACIÓN ===
   const [modalPago, setModalPago] = useState(null);
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modalResolver, setModalResolver] = useState(null);
@@ -23,8 +23,6 @@ const Caja = ({ user, onLogout }) => {
   const [ingredienteReemplazo, setIngredienteReemplazo] = useState('');
   const [ticketImprimir, setTicketImprimir] = useState(null);
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
-  
-  // 👇 NUEVO ESTADO: PARA VISUALIZAR DETALLES DE CUALQUIER PEDIDO
   const [modalVerDetalle, setModalVerDetalle] = useState(null);
 
   // === ESTADOS PARA COMPRA RÁPIDA ===
@@ -32,12 +30,18 @@ const Caja = ({ user, onLogout }) => {
   const [insumoComprar, setInsumoComprar] = useState(null);
   const [paquetesComprados, setPaquetesComprados] = useState('');
 
-  // === ESTADOS: Alertas Bonitas, Extras y Cobro en Efectivo ===
+  // === ESTADOS: Alertas Bonitas, Extras ===
   const [alertaCaja, setAlertaCaja] = useState(null);
   const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
   const [alertaCobroExtra, setAlertaCobroExtra] = useState(null); 
 
-  // === SEGURO ANTI-DOBLE CLIC PARA LA CAJA (LOADING STATE GLOBAL) ===
+  // 👇 NUEVOS ESTADOS: PARA IDENTIFICAR/REGISTRAR AL CLIENTE EN BARRA
+  const [modalIdentificar, setModalIdentificar] = useState(false);
+  const [pasoIdentificar, setPasoIdentificar] = useState('telefono'); 
+  const [telClienteNuevo, setTelClienteNuevo] = useState('');
+  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
+
+  // === SEGURO ANTI-DOBLE CLIC ===
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // === ESTADOS DEL FONDO DE CAJA ===
@@ -95,9 +99,9 @@ const Caja = ({ user, onLogout }) => {
     setTimeout(() => setAlertaCaja(null), 4000);
   };
 
-  // === FUNCIONES PRINCIPALES CON SEGURO ANTI-DOBLE CLIC ===
+  // === FUNCIONES PRINCIPALES ===
   const toggleEstadoNegocio = async () => {
-    if (isSubmitting) return; // Seguro
+    if (isSubmitting) return; 
     setIsSubmitting(true);
     
     if (!configGlobal) { setIsSubmitting(false); return; }
@@ -155,34 +159,54 @@ const Caja = ({ user, onLogout }) => {
     }, 500);
   };
 
-  const procesarPago = async (estadoRechazo = null) => {
-    if (isSubmitting) return; // Seguro anti-doble clic en cobros
+  const procesarPago = async (estadoRechazo = null, esPostPago = false) => {
+    if (isSubmitting) return; 
     setIsSubmitting(true);
     
-    const estadoFinal = estadoRechazo || (modalPago.estado_preparacion === 'Listo' ? 'Entregado' : 'Pagado');
+    let estadoFinal;
+    let metodoPagoFinal = modalPago.metodo_pago;
+
+    if (estadoRechazo) {
+        estadoFinal = estadoRechazo;
+    } else if (esPostPago) {
+        estadoFinal = 'Preparando'; 
+        metodoPagoFinal = 'Por Cobrar';
+    } else {
+        if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado';
+        else if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Entregado';
+        else if (modalPago.estado_preparacion === 'Preparando') estadoFinal = 'Preparando'; 
+        else estadoFinal = 'Pagado'; 
+    }
+
     try { 
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
           estado_preparacion: estadoFinal,
-          metodo_pago: modalPago.metodo_pago 
+          metodo_pago: metodoPagoFinal 
         }) 
       }); 
       if (res.ok) { 
-        if (!estadoRechazo && configGlobal?.ticket_impresion_activa) {
+        if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) {
             lanzarImpresion(modalPago);
         }
-        mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
+
+        if (esPostPago) {
+            mostrarAlertaCaja('¡Enviado a Cocina!', `Orden #${modalPago.numero_pedido} se preparará y se cobrará al final.`, 'success');
+        } else {
+            mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
+        }
+
         setModalPago(null); 
         setMontoRecibido(''); 
       } else {
-        mostrarAlertaCaja('Error', 'No se pudo registrar el pago en la base de datos.', 'error');
+        mostrarAlertaCaja('Error', 'No se pudo registrar en la base de datos.', 'error');
       }
     } catch (error) { 
       mostrarAlertaCaja('Error', 'Problema al procesar el pago.', 'error'); 
     }
-    setIsSubmitting(false); // Apagar el seguro
+    setIsSubmitting(false); 
   };
 
   const confirmarPedidoRecoger = async (id) => {
@@ -342,8 +366,65 @@ const Caja = ({ user, onLogout }) => {
     setIsSubmitting(false);
   };
 
+  // 👇 NUEVAS FUNCIONES: BÚSQUEDA Y REGISTRO DE CLIENTE DESDE LA BARRA
+  const abrirIdentificador = () => {
+    setModalIdentificar(true);
+    setPasoIdentificar('telefono');
+    setTelClienteNuevo('');
+    setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
+  };
+
+  const buscarClienteParaPedido = async (e) => {
+    e.preventDefault();
+    if (telClienteNuevo.length !== 10) return mostrarAlertaCaja('Aviso', 'El número debe tener 10 dígitos', 'error');
+    if (isSubmitting) return; setIsSubmitting(true);
+    try {
+        const res = await fetch(`${apiUrl}/identificar`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telClienteNuevo}) });
+        const data = await res.json();
+        if (res.ok) {
+            if (data.tipo === 'cliente' || data.cliente) {
+                setModalIdentificar(false);
+                onGoToKiosco(data.data || data.cliente);
+                mostrarAlertaCaja('¡Cliente Encontrado!', `Bienvenido de nuevo, ${(data.data || data.cliente).nombre}.`, 'success');
+            } else {
+                setPasoIdentificar('registro');
+            }
+        } else {
+            mostrarAlertaCaja('Error', data.error || 'Error al buscar', 'error');
+        }
+    } catch(err) {
+        mostrarAlertaCaja('Error', 'Error de conexión', 'error');
+    }
+    setIsSubmitting(false);
+  };
+
+  const registrarClienteParaPedido = async (e) => {
+    e.preventDefault();
+    if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
+        return mostrarAlertaCaja('Aviso', 'Nombre, Apellido y NIP (4) son obligatorios.', 'error');
+    }
+    if (isSubmitting) return; setIsSubmitting(true);
+    try {
+        const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telClienteNuevo, ...datosNuevoCliente}) });
+        const data = await res.json();
+        if (res.ok) {
+            setModalIdentificar(false);
+            onGoToKiosco(data.cliente || data);
+            mostrarAlertaCaja('¡Registro Exitoso!', 'Cliente agregado al programa de lealtad.', 'success');
+        } else {
+            mostrarAlertaCaja('Error', data.error || 'Error al registrar', 'error');
+        }
+    } catch(err) {
+        mostrarAlertaCaja('Error', 'Error de conexión', 'error');
+    }
+    setIsSubmitting(false);
+  };
+
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
-  const pendientesDePago = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio');
+  const pendientesDePago = pedidos.filter(p => 
+      (p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') ||
+      p.metodo_pago === 'Por Cobrar'
+  );
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
 
@@ -360,7 +441,7 @@ const Caja = ({ user, onLogout }) => {
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
           setModalCompraRapida={setModalCompraRapida} 
-          isSubmitting={isSubmitting} 
+          abrirIdentificador={abrirIdentificador} // 👇 SE LO PASAMOS AL SIDEBAR
         />
 
         <VistasCaja 
@@ -385,7 +466,7 @@ const Caja = ({ user, onLogout }) => {
           setModalZonaEnvio={setModalZonaEnvio}
           setModalAgregarExtra={setModalAgregarExtra} 
           isSubmitting={isSubmitting} 
-          setModalVerDetalle={setModalVerDetalle} // 👇 PASAMOS LA FUNCIÓN PARA ABRIR EL DETALLE
+          setModalVerDetalle={setModalVerDetalle} 
         />
         
         <ModalesCaja 
@@ -398,7 +479,7 @@ const Caja = ({ user, onLogout }) => {
           catalogoIngredientes={catalogoIngredientes}
           modalPago={modalPago} setModalPago={setModalPago}
           montoRecibido={montoRecibido} setMontoRecibido={setMontoRecibido}
-          procesarPago={procesarPago}
+          procesarPago={procesarPago} 
           
           configGlobal={configGlobal}
           modalZonaEnvio={modalZonaEnvio}
@@ -423,8 +504,21 @@ const Caja = ({ user, onLogout }) => {
           alertaCobroExtra={alertaCobroExtra}
           setAlertaCobroExtra={setAlertaCobroExtra}
           isSubmitting={isSubmitting} 
-          modalVerDetalle={modalVerDetalle} // 👇 PASAMOS EL ESTADO DEL DETALLE
-          setModalVerDetalle={setModalVerDetalle} // 👇 PASAMOS LA FUNCIÓN PARA CERRARLO
+          modalVerDetalle={modalVerDetalle} 
+          setModalVerDetalle={setModalVerDetalle} 
+
+          // 👇 ESTADOS PARA EL NUEVO MODAL DE IDENTIFICACIÓN
+          modalIdentificar={modalIdentificar}
+          setModalIdentificar={setModalIdentificar}
+          pasoIdentificar={pasoIdentificar}
+          setPasoIdentificar={setPasoIdentificar}
+          telClienteNuevo={telClienteNuevo}
+          setTelClienteNuevo={setTelClienteNuevo}
+          datosNuevoCliente={datosNuevoCliente}
+          setDatosNuevoCliente={setDatosNuevoCliente}
+          buscarClienteParaPedido={buscarClienteParaPedido}
+          registrarClienteParaPedido={registrarClienteParaPedido}
+          onGoToKiosco={onGoToKiosco}
         />
       </div>
 

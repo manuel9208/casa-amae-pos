@@ -7,7 +7,7 @@ import Catalogos from './admin/Catalogos';
 import Inventario from './admin/Inventario';
 import GestionMenu from './admin/GestionMenu';
 import GestionClientes from './admin/GestionClientes';
-import ReporteVentas from './admin/ReporteVentas'; // 👇 NUEVO: Importamos el reporte
+import ReporteVentas from './admin/ReporteVentas';
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -42,9 +42,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewCatalogos = isGlobalAdmin || user?.permisos?.catalogos !== false;
   const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
-  const canViewClientes = isGlobalAdmin || user?.permisos?.usuarios === true || user?.permisos?.ventas === true;
-  // 👇 Asumimos que si puede ver inventario o es admin, puede ver finanzas
-  const canViewReportes = isGlobalAdmin || user?.permisos?.inventario === true; 
+  
+  // Permisos para los nuevos módulos: CRM y Finanzas
+  const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
+  const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true; 
   
   // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
@@ -92,7 +93,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
-  // Auto-refresh silencioso solo para inventario
+  // Auto-refresh silencioso solo para el inventario de insumos
   useEffect(() => {
     let intervalo;
     if (seccion === 'inventario' && canViewInventario) {
@@ -106,24 +107,39 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     return () => clearInterval(intervalo);
   }, [seccion, apiUrl, canViewInventario]);
 
-  // Props comunes inyectadas a todos los hijos
+  // Props comunes inyectadas a todos los componentes hijos
   const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       
       <Sidebar 
-        user={user} onLogout={onLogout} onGoToKiosco={onGoToKiosco} seccion={seccion} setSeccion={setSeccion}
-        menuAbierto={menuAbierto} setMenuAbierto={setMenuAbierto} canViewMenu={canViewMenu}
-        canViewInventario={canViewInventario} canViewCatalogos={canViewCatalogos} canViewUsuarios={canViewUsuarios} canViewConfig={canViewConfig}
-        canViewClientes={canViewClientes} canViewReportes={canViewReportes}
+        user={user} 
+        onLogout={onLogout} 
+        onGoToKiosco={onGoToKiosco} 
+        seccion={seccion} 
+        setSeccion={setSeccion}
+        menuAbierto={menuAbierto} 
+        setMenuAbierto={setMenuAbierto} 
+        canViewMenu={canViewMenu}
+        canViewInventario={canViewInventario} 
+        canViewCatalogos={canViewCatalogos} 
+        canViewUsuarios={canViewUsuarios} 
+        canViewConfig={canViewConfig}
+        canViewClientes={canViewClientes} 
+        canViewReportes={canViewReportes}
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Encabezado Móvil */}
         <div className="lg:hidden flex items-center justify-between bg-slate-900 text-white p-4 shadow-md z-30">
-          <div className="flex items-center gap-2"><ShoppingCart size={20} className="text-blue-500" /><h1 className="text-lg font-black tracking-tighter">POS ADMIN</h1></div>
-          <button onClick={() => setMenuAbierto(true)} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition"><Menu size={24} /></button>
+          <div className="flex items-center gap-2">
+            <ShoppingCart size={20} className="text-blue-500" />
+            <h1 className="text-lg font-black tracking-tighter">POS ADMIN</h1>
+          </div>
+          <button onClick={() => setMenuAbierto(true)} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition">
+            <Menu size={24} />
+          </button>
         </div>
 
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
@@ -131,28 +147,36 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           {seccion === 'menu' && canViewMenu && (
             <GestionMenu 
               {...commonProps}
-              productos={productos} clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
+              productos={productos} 
+              clasificaciones={clasificaciones} 
+              catalogoIngredientes={catalogoIngredientes} 
+              EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
             />
           )}
           
           {seccion === 'inventario' && canViewInventario && ( 
             <Inventario 
               {...commonProps}
-              insumosDB={insumosDB} productos={productos} clasificaciones={clasificaciones}
+              insumosDB={insumosDB} 
+              productos={productos} 
+              clasificaciones={clasificaciones}
             />
           )}
           
           {seccion === 'catalogos' && canViewCatalogos && ( 
             <Catalogos 
               {...commonProps}
-              clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
+              clasificaciones={clasificaciones} 
+              catalogoIngredientes={catalogoIngredientes} 
+              EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
             />
           )}
           
           {seccion === 'configuracion' && canViewConfig && ( 
             <Configuracion 
               {...commonProps}
-              configGlobal={configGlobal} setConfigGlobal={setConfigGlobal}
+              configGlobal={configGlobal} 
+              setConfigGlobal={setConfigGlobal}
             />
           )}
           
@@ -170,7 +194,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             />
           )}
 
-          {/* 👇 NUEVO: Componente de Reportes Financieros */}
           {seccion === 'reportes' && canViewReportes && ( 
             <ReporteVentas 
               apiUrl={apiUrl} 
@@ -189,8 +212,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             {modalUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'confirm' && <AlertTriangle className="text-orange-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'info' && <AlertTriangle className="text-blue-500 w-16 h-16 mb-4" />}
+            
             <h3 className="text-2xl font-black text-slate-800 mb-2">{modalUI.titulo}</h3>
             <p className="text-slate-500 font-medium mb-8 whitespace-pre-line">{modalUI.mensaje}</p>
+            
             <div className="flex flex-col sm:flex-row gap-4 w-full">
               {modalUI.tipo === 'confirm' ? (
                 <>

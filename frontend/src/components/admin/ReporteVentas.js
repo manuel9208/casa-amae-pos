@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, TrendingUp, DollarSign, PackageOpen, Search, Printer, AlertCircle, Filter } from 'lucide-react';
+import { Calendar, TrendingUp, DollarSign, PackageOpen, Search, Printer, AlertCircle, Filter, Star, TrendingDown, Activity, CalendarDays, BarChart2, AlertTriangle } from 'lucide-react';
 
 const ReporteVentas = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
@@ -23,7 +23,6 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
   const cargarReporte = useCallback(async (tipo, fecha = '') => {
     setCargando(true);
     try {
-      // Se envían todos los filtros en la URL
       const res = await fetch(`${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&clasificacion=${filtroClasificacion}&tipo_consumo=${filtroConsumo}`);
       if (res.ok) {
         const data = await res.json();
@@ -38,7 +37,6 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
     }
   }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo]);
 
-  // Se vuelve a cargar si cambia cualquier filtro
   useEffect(() => {
     cargarReporte(filtroActivo, fechaCustom);
   }, [cargarReporte, filtroActivo, fechaCustom]);
@@ -89,7 +87,7 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
         </div>
       </div>
 
-      {/* 👇 NUEVOS FILTROS DINÁMICOS Y BLOQUEO VISUAL */}
+      {/* FILTROS DINÁMICOS */}
       <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex flex-col md:flex-row items-end gap-4 print:hidden">
         
         <div className="flex-1 w-full">
@@ -104,6 +102,8 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
           <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2"><Filter size={16}/> Categoría</label>
           <select disabled={cargando} value={filtroClasificacion} onChange={e => setFiltroClasificacion(e.target.value)} className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50">
             <option value="Todas">Todas las categorías</option>
+            <option value="Extras">🌟 Solo Extras</option>
+            <option value="Envíos">🛵 Solo Envíos</option>
             {clasificaciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
           </select>
         </div>
@@ -137,7 +137,6 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
       ) : reporte ? (
         <div className="space-y-6">
           
-          {/* 👇 AVISO DE "NO HAY DATOS" SI EL REPORTE ESTÁ VACÍO */}
           {reporte.detalles.length === 0 ? (
             <div className="bg-slate-100 border-2 border-dashed border-slate-300 rounded-[40px] p-12 text-center flex flex-col items-center">
               <AlertCircle size={64} className="text-slate-400 mb-4" />
@@ -146,6 +145,89 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
             </div>
           ) : (
             <>
+              {/* 👇 NUEVO: PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
+              {reporte.insights && (
+                <div className="bg-slate-900 rounded-[32px] p-8 shadow-xl text-white print:hidden relative overflow-hidden">
+                   <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none"><TrendingUp size={200}/></div>
+                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-400"><BarChart2 size={24}/> Análisis Inteligente ({filtroActivo})</h3>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
+                      
+                      {/* SIEMPRE MUESTRA LOS PRODUCTOS TOP/WORST */}
+                      <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento de Menú</p>
+                          {reporte.insights.productoMasVendido ? (
+                              <>
+                                 <div className="flex justify-between items-center mb-3">
+                                    <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><Star size={16}/> Más Vendido</span>
+                                    <span className="font-black text-right pl-2 leading-tight">{reporte.insights.productoMasVendido.producto_nombre} <span className="text-emerald-300 ml-1 text-xs">({reporte.insights.productoMasVendido.cantidad_vendida})</span></span>
+                                 </div>
+                                 <div className="flex justify-between items-center mb-3">
+                                    <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><TrendingDown size={16}/> Menos Vendido</span>
+                                    <span className="font-black text-right pl-2 leading-tight">{reporte.insights.productoMenosVendido.producto_nombre} <span className="text-red-300 ml-1 text-xs">({reporte.insights.productoMenosVendido.cantidad_vendida})</span></span>
+                                 </div>
+                              </>
+                          ) : <p className="text-sm text-slate-500">No hay platillos registrados.</p>}
+                          
+                          {reporte.insights.productosCeroVentas?.length > 0 && (
+                              <div className="mt-4 pt-4 border-t border-slate-700">
+                                 <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2"><AlertTriangle size={14}/> Sin Ventas ({reporte.insights.productosCeroVentas.length})</span>
+                                 <p className="text-xs text-slate-400 leading-snug line-clamp-3" title={reporte.insights.productosCeroVentas.join(', ')}>
+                                    {reporte.insights.productosCeroVentas.join(', ')}
+                                 </p>
+                              </div>
+                          )}
+                      </div>
+
+                      {/* SI ES SEMANA, MES O AÑO, MUESTRA ESTADÍSTICAS POR DÍA */}
+                      {['semana', 'mes', 'anio'].includes(filtroActivo) && reporte.insights.mejorDia && (
+                          <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Diario</p>
+                              <div className="flex justify-between items-center mb-4">
+                                 <span className="text-sm font-bold text-blue-400 flex items-center gap-1.5"><Activity size={16}/> Promedio/Día</span>
+                                 <span className="font-black text-lg">{formaterMoneda(reporte.insights.promedioDiario)}</span>
+                              </div>
+                              <div className="flex justify-between items-center mb-4">
+                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><CalendarDays size={16}/> Mejor Día</span>
+                                 <div className="text-right">
+                                     <span className="font-black block">{new Date(reporte.insights.mejorDia.fecha + 'T00:00:00').toLocaleDateString('es-MX', {weekday: 'short', day:'numeric'})}</span>
+                                     <span className="text-xs text-emerald-300 font-bold">{formaterMoneda(reporte.insights.mejorDia.total_dia)}</span>
+                                 </div>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><CalendarDays size={16}/> Peor Día</span>
+                                 <div className="text-right">
+                                     <span className="font-black block">{new Date(reporte.insights.peorDia.fecha + 'T00:00:00').toLocaleDateString('es-MX', {weekday: 'short', day:'numeric'})}</span>
+                                     <span className="text-xs text-red-300 font-bold">{formaterMoneda(reporte.insights.peorDia.total_dia)}</span>
+                                 </div>
+                              </div>
+                          </div>
+                      )}
+
+                      {/* SI ES AÑO, MUESTRA ESTADÍSTICAS POR MES */}
+                      {filtroActivo === 'anio' && reporte.insights.mejorMes && (
+                          <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Mensual</p>
+                              <div className="flex justify-between items-center mb-4">
+                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5"><Calendar size={16}/> Mejor Mes</span>
+                                 <div className="text-right">
+                                     <span className="font-black block capitalize">{reporte.insights.mejorMes.mes}</span>
+                                     <span className="text-xs text-emerald-300 font-bold">{formaterMoneda(reporte.insights.mejorMes.total)}</span>
+                                 </div>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5"><Calendar size={16}/> Peor Mes</span>
+                                 <div className="text-right">
+                                     <span className="font-black block capitalize">{reporte.insights.peorMes.mes}</span>
+                                     <span className="text-xs text-red-300 font-bold">{formaterMoneda(reporte.insights.peorMes.total)}</span>
+                                 </div>
+                              </div>
+                          </div>
+                      )}
+                   </div>
+                </div>
+              )}
+
               {/* Tarjetas de Resumen Financiero */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2">
                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
@@ -176,7 +258,7 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
               {/* Tabla Desglosada */}
               <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:shadow-none">
                 <div className="p-6 border-b border-slate-100 print:p-4">
-                  <h3 className="text-lg font-bold text-slate-800">Desglose de Productos ({reporte.detalles.length})</h3>
+                  <h3 className="text-lg font-bold text-slate-800">Desglose de Productos, Extras y Envíos</h3>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -191,16 +273,25 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 print:divide-slate-300">
-                      {reporte.detalles.map((p, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition print:hover:bg-transparent">
-                          <td className="p-4 font-bold text-slate-700 print:p-2 print:text-sm">{p.producto_nombre}</td>
-                          <td className="p-4 font-black text-slate-800 text-center text-lg print:p-2 print:text-sm">{p.cantidad_vendida}</td>
-                          <td className="p-4 font-medium text-slate-600 text-right print:p-2 print:text-sm">{formaterMoneda(p.precio_venta)}</td>
-                          <td className="p-4 font-medium text-red-500 text-right print:p-2 print:text-sm">{formaterMoneda(p.costo_unitario)}</td>
-                          <td className="p-4 font-bold text-emerald-600 text-right bg-emerald-50/30 print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.precio_venta - p.costo_unitario)}</td>
-                          <td className="p-4 font-black text-slate-800 text-right bg-slate-50 print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.ganancia_neta)}</td>
-                        </tr>
-                      ))}
+                      {reporte.detalles.map((p, i) => {
+                        const isExtra = p.categoria === 'Extras';
+                        const isEnvio = p.categoria === 'Envíos';
+
+                        return (
+                          <tr key={i} className={`transition print:hover:bg-transparent ${isExtra ? 'bg-emerald-50/30' : isEnvio ? 'bg-purple-50/30' : 'hover:bg-slate-50'}`}>
+                            <td className="p-4 font-bold text-slate-700 print:p-2 print:text-sm flex items-center gap-2">
+                               {isExtra && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md uppercase">Extra</span>}
+                               {isEnvio && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-1 rounded-md uppercase">Envío</span>}
+                               {p.producto_nombre}
+                            </td>
+                            <td className="p-4 font-black text-slate-800 text-center text-lg print:p-2 print:text-sm">{p.cantidad_vendida}</td>
+                            <td className="p-4 font-medium text-slate-600 text-right print:p-2 print:text-sm">{formaterMoneda(p.precio_venta)}</td>
+                            <td className="p-4 font-medium text-red-500 text-right print:p-2 print:text-sm">{formaterMoneda(p.costo_unitario)}</td>
+                            <td className="p-4 font-bold text-emerald-600 text-right print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.precio_venta - p.costo_unitario)}</td>
+                            <td className="p-4 font-black text-slate-800 text-right print:p-2 print:text-sm print:bg-transparent">{formaterMoneda(p.ganancia_neta)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -14,6 +14,11 @@ const App = () => {
   const [modoInvitado, setModoInvitado] = useState(false);
   const [vistaAdmin, setVistaAdmin] = useState('panel'); 
   const [vistaTV, setVistaTV] = useState(false); 
+  
+  // ESTADOS PARA EL CAJERO Y SU KIOSCO
+  const [vistaCaja, setVistaCaja] = useState('caja'); 
+  const [clienteCajero, setClienteCajero] = useState(null); // 👇 NUEVO: Guarda al cliente que el cajero acaba de registrar
+
   const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -89,10 +94,11 @@ const App = () => {
   const cerrarSesion = async () => {
     if (usuarioActivo) { try { await fetch(`${apiUrl}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario_id: usuarioActivo.id }) }); } catch (error) {} }
     localStorage.removeItem('pos_sesion'); 
-    setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
+    setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); 
+    setVistaCaja('caja'); setClienteCajero(null); // Limpiamos la memoria del cajero
+    setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
   };
 
-  // 👇 FUNCIÓN REPARADORA DE IMÁGENES INTEGRADA EN APP.JS
   const getImageUrl = (url) => {
     if (!url) return '';
     const strUrl = String(url).trim();
@@ -166,17 +172,25 @@ const App = () => {
     `;
   };
   
-  // 👇 AQUÍ ESTABA EL DETALLE, cambiado 'onVolver' por 'onLogout'
   if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;
 
   if (usuarioActivo) {
-    // 👇 AQUÍ TAMBIÉN ESTABA EL DETALLE, cambiado 'onVolver' por 'onLogout'
     if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;
+    
     if (usuarioActivo.rol === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
     }
-    if (usuarioActivo.rol === 'cajero') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} /></>;
+    
+    if (usuarioActivo.rol === 'cajero') {
+      if (vistaCaja === 'kiosco') {
+         // 👇 Pasamos el cliente que el cajero acaba de registrar al Kiosco
+         return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={clienteCajero} onVolverAdmin={() => { setVistaCaja('caja'); setClienteCajero(null); }} onLogout={cerrarSesion} /></div></>;
+      }
+      // 👇 Recibimos al cliente desde la Caja y cambiamos la vista
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={(cliente) => { setClienteCajero(cliente || null); setVistaCaja('kiosco'); }} /></>;
+    }
+
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
   }
 

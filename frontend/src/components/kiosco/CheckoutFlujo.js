@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChefHat } from 'lucide-react'; // 👇 Importamos el ícono del chef
 
 const CheckoutFlujo = ({
   pantallaActual, setPantallaActual,
@@ -14,20 +15,17 @@ const CheckoutFlujo = ({
   metodoPagoFinal
 }) => {
 
-  // ESTADO PARA CAPTURAR TELÉFONO EN "RECOGER EN LOCAL"
   const [telefonoRecoger, setTelefonoRecoger] = useState('');
   const [pasoTelefono, setPasoTelefono] = useState(false);
   
-  // 👇 NUEVO ESTADO: SEGURO ANTI-DOBLE CLIC (LOADING STATE)
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // === FUNCIONES DE NAVEGACIÓN ===
   const procesarTipoConsumo = (tipo) => { 
     setTipoConsumo(tipo); 
     if (tipo === 'Domicilio') {
         setPantallaActual('aviso_domicilio'); 
     } else if (tipo === 'Recoger') {
-        if (clienteActivo) {
+        if (clienteActivo || (user && user.rol !== 'cliente')) { // Si es cajero o hay cliente, pasamos directo
             seleccionarPago('Pendiente');
         } else {
             setPasoTelefono(true);
@@ -53,7 +51,6 @@ const CheckoutFlujo = ({
     setPantallaActual('pago');
   };
 
-  // === LÓGICA DE BASE DE DATOS (GUARDAR PEDIDO) ===
   const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega) => {
     setErrorTransaccion(''); 
     setMetodoPagoFinal(metodoSeleccionado);
@@ -77,6 +74,11 @@ const CheckoutFlujo = ({
         }
     });
 
+    // 👇 SI ES POST-PAGO, SE MANDA DIRECTO A COCINA
+    let estadoInicial = 'Pendiente';
+    if (tipoConsumo === 'Recoger') estadoInicial = 'Por Confirmar';
+    if (metodoSeleccionado === 'Por Cobrar') estadoInicial = 'Preparando';
+
     const paquete = { 
       cliente_id: idClienteAGuardar, 
       tipo_consumo: tipoConsumo === 'Recoger' ? 'Recoger en Local' : tipoConsumo, 
@@ -86,7 +88,7 @@ const CheckoutFlujo = ({
       origen: origenCalculado, 
       direccion_entrega: notaDireccion, 
       descuento_puntos: descuentoPuntos,
-      estado_preparacion: tipoConsumo === 'Recoger' ? 'Por Confirmar' : 'Pendiente'
+      estado_preparacion: estadoInicial
     };
 
     try {
@@ -111,10 +113,8 @@ const CheckoutFlujo = ({
     }
   };
 
-  // === SELECCIÓN DE PAGO FINAL ===
   const seleccionarPago = async (metodo, montoEfectivo = null) => { 
-    // 👇 ACTIVAMOS EL SEGURO DE CARGA ANTES DE COMUNICARNOS CON LA BD
-    if (isSubmitting) return; // Si ya se está enviando, ignoramos clics extra
+    if (isSubmitting) return; 
     setIsSubmitting(true);
 
     let dirModificada = direccionEntrega;
@@ -127,10 +127,17 @@ const CheckoutFlujo = ({
     if (ok) { 
       setPasoTelefono(false); 
       if (metodo === 'Transferencia') setPantallaActual('detalles_transferencia'); 
-      else { setContador(15); setPantallaActual('finalizado'); } 
+      else { 
+        // Si el cajero mandó a post-pago, que se reinicie automático casi al instante
+        if (metodo === 'Por Cobrar' && user && (user.rol === 'cajero' || user.rol === 'admin')) {
+            setContador(2);
+        } else {
+            setContador(15); 
+        }
+        setPantallaActual('finalizado'); 
+      } 
     } 
     
-    // 👇 APAGAMOS EL SEGURO SI HUBO ERROR PARA QUE PUEDAN REINTENTAR
     setIsSubmitting(false); 
   };
   
@@ -139,8 +146,6 @@ const CheckoutFlujo = ({
     setPantallaActual('finalizado'); 
   };
 
-  // === RENDERIZADO CONDICIONAL DE VISTAS ===
-  
   // CAPTURA DE TELÉFONO PARA INVITADOS (RECOGER EN LOCAL)
   if (pasoTelefono) {
     return (
@@ -238,6 +243,17 @@ const CheckoutFlujo = ({
         <div className="flex justify-start mb-6"><button disabled={isSubmitting} onClick={() => setPantallaActual(tipoConsumo === 'Domicilio' ? 'direccion' : 'consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button></div>
         <h2 className="text-4xl font-black text-center mb-12 texto-destacado">Método de Pago</h2>
         <div className="grid grid-cols-1 gap-6">
+          
+          {/* 👇 SI ES CAJERO, LE SALE EL BOTÓN DE CUENTA ABIERTA */}
+          {user && (user.rol === 'cajero' || user.rol === 'admin') && (
+            <button disabled={isSubmitting} onClick={() => seleccionarPago('Por Cobrar')} className={`bg-orange-50 p-8 rounded-[30px] shadow-lg border-2 border-orange-200 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-orange-100 hover:border-orange-400'}`}>
+                <div className="flex items-center gap-4">
+                  <ChefHat size={32} className="text-orange-600" />
+                  <span className="text-3xl font-black text-orange-700">{isSubmitting ? 'Procesando...' : 'Cocinar y Cobrar al Final'}</span>
+                </div>
+            </button>
+          )}
+
           {tipoConsumo !== 'Domicilio' && (
              <button disabled={isSubmitting} onClick={() => seleccionarPago('Tarjeta')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-blue-50 hover:border-blue-200'}`}>
                  <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '💳 Tarjeta / Terminal'}</span>
@@ -249,7 +265,7 @@ const CheckoutFlujo = ({
              </button>
           ) : (
              <button disabled={isSubmitting} onClick={() => seleccionarPago('Efectivo')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-emerald-50 hover:border-emerald-200'}`}>
-                 <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '💵 Pago en Caja'}</span>
+                 <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '💵 Pago en Efectivo'}</span>
              </button>
           )}
           <button disabled={isSubmitting} onClick={() => seleccionarPago('Transferencia')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-purple-50 hover:border-purple-200'}`}>
@@ -311,7 +327,13 @@ const CheckoutFlujo = ({
         <h2 className="text-6xl font-black mb-4 texto-destacado">¡Orden Registrada!</h2>
         <p className="text-3xl text-slate-500 mb-6">Tu número de orden es el <span className="text-slate-900 font-black text-6xl block mt-4 mb-8">#{numeroPedidoReal}</span></p>
         
-        {tipoConsumo === 'Recoger' ? (
+        {/* 👇 MENSAJE ESPECIAL SI ES POST-PAGO */}
+        {metodoPagoFinal === 'Por Cobrar' ? (
+             <div className="bg-orange-50 border border-orange-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
+                <p className="text-orange-800 font-black text-2xl mb-2">Orden enviada a cocina.</p>
+                <p className="text-orange-700 font-medium text-lg">El cliente pagará al terminar de consumir.</p>
+             </div>
+        ) : tipoConsumo === 'Recoger' ? (
              <div className="bg-orange-50 border border-orange-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
                 <p className="text-orange-800 font-black text-2xl mb-2">Pedido en revisión.</p>
                 <p className="text-orange-700 font-medium text-lg">En breve nos comunicaremos contigo al teléfono proporcionado para confirmar tu orden.</p>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag } from 'lucide-react'; 
+import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag, ChefHat } from 'lucide-react'; 
 
 const ModalesCaja = ({
   fondoCaja, iniciarTurno, inputFondo, setInputFondo,
@@ -11,8 +11,12 @@ const ModalesCaja = ({
   alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
   alertaCobroExtra, setAlertaCobroExtra,
   isSubmitting,
-  modalVerDetalle, // 👇 ESTADO DEL DETALLE
-  setModalVerDetalle // 👇 FUNCIÓN PARA CERRARLO
+  modalVerDetalle, setModalVerDetalle,
+  
+  // 👇 NUEVOS PROPS PARA EL MODAL DE IDENTIFICACIÓN
+  modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
+  telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
+  buscarClienteParaPedido, registrarClienteParaPedido, onGoToKiosco
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -30,7 +34,6 @@ const ModalesCaja = ({
 
   return (
     <>
-      {/* COMPONENTE DE ALERTA FLOTANTE (ESTILO TOAST) */}
       {alertaCaja && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[999] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${
@@ -52,7 +55,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* ALERTA GIGANTE DE COBRO EN EFECTIVO */}
       {alertaCobroExtra && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[999] p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-lg text-center animate-in zoom-in duration-300 border-4 border-orange-500">
@@ -91,7 +93,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL FONDO CAJA */}
       {fondoCaja === null && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
           <form onSubmit={iniciarTurno} className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md text-center animate-in zoom-in">
@@ -109,7 +110,67 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL: PANEL DE COMPRAS RÁPIDAS */}
+      {/* 👇 NUEVO MODAL: IDENTIFICAR CLIENTE DESDE LA BARRA */}
+      {modalIdentificar && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+          <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-2xl w-full max-w-md animate-in zoom-in">
+            
+            {pasoIdentificar === 'telefono' ? (
+                <form onSubmit={buscarClienteParaPedido} className="text-center">
+                    <span className="text-6xl mb-6 block">👥</span>
+                    <h2 className="text-3xl font-black text-slate-800 mb-2">Identificar Cliente</h2>
+                    <p className="text-slate-500 font-medium mb-6">Ingresa el celular del cliente para acumular puntos, o continúa como invitado.</p>
+                    
+                    <input 
+                        type="tel" maxLength="10" autoFocus disabled={isSubmitting}
+                        value={telClienteNuevo} onChange={e => setTelClienteNuevo(e.target.value.replace(/\D/g, ''))} 
+                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-5 text-center text-3xl font-black outline-none focus:border-blue-500 text-slate-800 mb-6 tracking-widest" 
+                        placeholder="000 000 0000" 
+                    />
+                    
+                    <div className="flex gap-4 mb-4">
+                        <button type="button" disabled={isSubmitting} onClick={() => setModalIdentificar(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                        <button type="submit" disabled={telClienteNuevo.length !== 10 || isSubmitting} className="flex-[2] py-4 bg-blue-600 text-white font-black text-lg rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition">Buscar Cliente</button>
+                    </div>
+                    
+                    <button type="button" disabled={isSubmitting} onClick={() => { setModalIdentificar(false); onGoToKiosco(null); }} className="w-full py-4 text-blue-600 font-bold hover:bg-blue-50 rounded-2xl transition underline">Omitir y continuar como Invitado</button>
+                </form>
+            ) : (
+                <form onSubmit={registrarClienteParaPedido} className="text-center">
+                    <span className="text-6xl mb-4 block">✨</span>
+                    <h2 className="text-2xl font-black text-slate-800 mb-1">¡Nuevo Cliente!</h2>
+                    <p className="text-slate-500 font-medium mb-6">Regístralo rápido para que gane puntos.</p>
+                    
+                    <div className="space-y-4 text-left">
+                        <div className="grid grid-cols-2 gap-4">
+                            <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.nombre} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nombre: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Nombre *" />
+                            <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.apellido} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, apellido: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Apellido *" />
+                        </div>
+                        <input type="email" disabled={isSubmitting} value={datosNuevoCliente.correo} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, correo: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Correo (Opcional)" />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nacimiento</label>
+                                <input type="date" disabled={isSubmitting} value={datosNuevoCliente.fecha_nacimiento} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, fecha_nacimiento: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">NIP (4 dígitos) *</label>
+                                <input type="text" maxLength="4" required disabled={isSubmitting} value={datosNuevoCliente.nip} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nip: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500 tracking-[0.5em] text-center" placeholder="1234" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex gap-4 mt-8">
+                        <button type="button" disabled={isSubmitting} onClick={() => setPasoIdentificar('telefono')} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Atrás</button>
+                        <button type="submit" disabled={isSubmitting} className="flex-[2] py-4 bg-emerald-500 text-white font-black text-lg rounded-2xl hover:bg-emerald-600 shadow-lg disabled:opacity-50 transition">Completar Registro</button>
+                    </div>
+                </form>
+            )}
+
+          </div>
+        </div>
+      )}
+
       {modalCompraRapida && !insumoComprar && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in duration-200">
@@ -169,7 +230,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL: INGRESAR CANTIDAD A COMPRAR */}
       {insumoComprar && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
           <form onSubmit={registrarCompraRapida} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4">
@@ -215,7 +275,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL: AGREGAR EXTRA DE ÚLTIMO MINUTO */}
       {modalAgregarExtra && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg animate-in zoom-in duration-200">
@@ -272,7 +331,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL ASIGNAR ZONA DE ENVÍO */}
       {modalZonaEnvio && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl animate-in zoom-in duration-200">
@@ -327,7 +385,6 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL RESPONDER A COCINA */}
       {modalResolver && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <form onSubmit={enviarRespuestaCocina} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl">
@@ -396,14 +453,13 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* MODAL COBRAR PEDIDO */}
       {modalPago && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200">
             <div className="flex justify-between items-center mb-8 border-b pb-6">
               <h2 className="text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2>
-              <span className={`text-lg font-bold px-4 py-2 rounded-xl flex items-center gap-2 tracking-wide uppercase ${modalPago.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>
-                {getIconoPago(modalPago.metodo_pago)} {modalPago.metodo_pago}
+              <span className={`text-lg font-bold px-4 py-2 rounded-xl flex items-center gap-2 tracking-wide uppercase ${modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>
+                {getIconoPago(modalPago.metodo_pago)} {modalPago.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : modalPago.metodo_pago}
               </span>
             </div>
             
@@ -412,7 +468,7 @@ const ModalesCaja = ({
               <div className="text-right"><p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p><p className="text-xl font-bold text-slate-700">{modalPago.cliente_nombre || 'Invitado'}</p><p className="text-sm font-bold text-slate-500">{modalPago.tipo_consumo}</p></div>
             </div>
 
-            {modalPago.metodo_pago === 'Pendiente' ? (
+            {(modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar') ? (
               <div className="space-y-6 text-center">
                 <p className="font-black text-slate-400 uppercase tracking-widest text-sm mb-4">Selecciona el método de pago final:</p>
                 <div className="grid grid-cols-3 gap-4 mb-4">
@@ -422,6 +478,11 @@ const ModalesCaja = ({
                 </div>
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
                     <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                    
+                    {modalPago.estado_preparacion === 'Pendiente' && (
+                       <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="py-5 px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center gap-2" title="Mandar a cocina y cobrar al final de su comida"><ChefHat size={28}/> Cocinar y Cobrar al Final</button>
+                    )}
+
                     <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50">Anular Pedido</button>
                 </div>
               </div>
@@ -442,6 +503,11 @@ const ModalesCaja = ({
                 )}
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
                   <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                  
+                  {modalPago.estado_preparacion === 'Pendiente' && (
+                     <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="py-5 px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center gap-2" title="Mandar a cocina y cobrar al final de su comida"><ChefHat size={28}/> Cocinar y Cobrar al Final</button>
+                  )}
+
                   <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
                   <button disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total) || isSubmitting} onClick={() => procesarPago()} className="flex-1 py-5 bg-emerald-500 text-white font-black text-2xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> {isSubmitting ? 'Procesando...' : 'Confirmar Cobro'}</button>
                 </div>
@@ -455,6 +521,11 @@ const ModalesCaja = ({
                 </div>
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
                   <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                  
+                  {modalPago.estado_preparacion === 'Pendiente' && (
+                     <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="py-5 px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center gap-2" title="Mandar a cocina y cobrar al final de su comida"><ChefHat size={28}/> Cocinar y Cobrar al Final</button>
+                  )}
+
                   <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
                   <button disabled={isSubmitting} onClick={() => procesarPago()} className="flex-1 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={28}/> {isSubmitting ? 'Validando...' : 'Pago Validado'}</button>
                 </div>
@@ -464,12 +535,10 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* VISUALIZAR DETALLE COMPLETO DEL PEDIDO (PLATILLOS) */}
       {modalVerDetalle && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg h-[80vh] flex flex-col animate-in zoom-in duration-200">
             
-            {/* Encabezado */}
             <div className="flex justify-between items-center border-b pb-5 mb-5 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="bg-blue-100 text-blue-700 w-12 h-12 rounded-full flex items-center justify-center shadow-inner">
@@ -485,7 +554,6 @@ const ModalesCaja = ({
               </button>
             </div>
 
-            {/* Contenido Scrolleable (Lista de Platillos) */}
             <div className="flex-1 overflow-y-auto pr-2 space-y-4">
               {(() => {
                 const items = typeof modalVerDetalle.carrito === 'string' ? JSON.parse(modalVerDetalle.carrito) : modalVerDetalle.carrito;
@@ -502,7 +570,6 @@ const ModalesCaja = ({
                             </span >
                         </div>
                         
-                        {/* Extras del Platillo */}
                         {item.extras && item.extras.length > 0 && (
                             <div className="mt-3 pl-3 border-l-2 border-slate-200 space-y-1">
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Extras Solicitados:</p>
@@ -517,7 +584,6 @@ const ModalesCaja = ({
                             </div>
                         )}
                         
-                        {/* Notas especiales del platillo si existen en tu JSON */}
                         {item.nota && (
                             <div className="mt-3 bg-orange-50 p-2.5 rounded-xl border border-orange-100 text-orange-800 text-xs font-medium">
                                 <strong>Nota:</strong> {item.nota}
@@ -528,7 +594,6 @@ const ModalesCaja = ({
               })()}
             </div>
 
-            {/* Pie de Modal (Total) */}
             <div className="border-t pt-5 mt-5 flex justify-between items-center shrink-0">
                 <p className="text-sm font-bold text-slate-500">Monto Total Cobrado:</p>
                 <p className="text-3xl font-black text-blue-600">${Number(modalVerDetalle.total).toFixed(2)}</p>

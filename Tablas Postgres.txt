@@ -74,9 +74,14 @@ CREATE TABLE IF NOT EXISTS configuracion (
     ticket_mensaje_final TEXT,
     ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
 
-    -- Configuración de Envíos a Domicilio (NUEVO)
+    -- Configuración de Envíos a Domicilio
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
-    mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.'
+    mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
+
+    -- 👇 NUEVO: Notificaciones WhatsApp API Oficial
+    wa_api_activa BOOLEAN DEFAULT FALSE,
+    wa_api_token TEXT,
+    wa_phone_id TEXT
 );
 
 -- -------------------------------------------------------------------------
@@ -95,7 +100,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Tabla Reloj Checador: Registro de Entradas y Salidas (NUEVO)
+-- Tabla Reloj Checador: Registro de Entradas y Salidas
 CREATE TABLE IF NOT EXISTS registro_asistencias (
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -195,7 +200,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
     
-    -- Costos y Tiempos (ACTUALIZADO)
+    -- Costos y Tiempos
     costo_envio DECIMAL(10,2) DEFAULT 0, 
     descuento_puntos INTEGER DEFAULT 0,
     carrito JSONB, 

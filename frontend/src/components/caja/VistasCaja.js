@@ -9,13 +9,13 @@ const VistasCaja = ({
   setModalZonaEnvio,
   setModalAgregarExtra,
   isSubmitting,
-  setModalVerDetalle // 👇 NUEVO: RECIBIMOS LA FUNCIÓN PARA ABRIR EL DETALLE
+  setModalVerDetalle
 }) => {
 
   const getIconoPago = (metodo) => { 
     if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
     if(metodo==='Transferencia') return <Smartphone size={16}/>; 
-    if(metodo==='Pendiente') return <Clock size={16}/>;
+    if(metodo==='Pendiente' || metodo==='Por Cobrar') return <Clock size={16}/>;
     return <DollarSign size={16}/>; 
   };
 
@@ -34,12 +34,10 @@ const VistasCaja = ({
       ));
   };
 
-  // 👇 MODIFICADO: FUNCIÓN MÁS PEQUEÑA SOLO PARA AGREGAR EXTRA, SIN MOSTRAR DETALLE COMPLETO AQUÍ
   const renderBotonAgregarExtra = (pedido) => {
       if (!pedido.carrito) return null;
       const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
       
-      // Tomamos el primer item solo para poder abrir el modal de extras (el cajero seleccionará el item adentro)
       if (items.length === 0) return null;
       const item = items[0];
 
@@ -55,7 +53,6 @@ const VistasCaja = ({
       );
   };
 
-  // 👇 NUEVO: FUNCIÓN REUTILIZABLE PARA EL BOTÓN DE VER DETALLE
   const renderBotonVerDetalle = (pedido) => (
     <button 
         onClick={() => setModalVerDetalle(pedido)}
@@ -67,6 +64,32 @@ const VistasCaja = ({
   );
 
   const totalGastos = (gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
+
+  const pedidosValidos = pedidos.filter(p => p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado');
+  let totalPlatillos = 0;
+  let totalExtras = 0;
+  let totalEnvio = 0;
+
+  pedidosValidos.forEach(p => {
+    totalEnvio += Number(p.costo_envio || 0);
+
+    const items = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
+    items.forEach(item => {
+        const qty = Number(item.cantidad || 1);
+        let extrasDelItem = 0;
+        
+        if (item.extras && Array.isArray(item.extras)) {
+            item.extras.forEach(ext => {
+                extrasDelItem += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
+            });
+        }
+        totalExtras += (extrasDelItem * qty);
+        
+        const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
+        const precioBase = precioTotalItem - extrasDelItem;
+        totalPlatillos += (precioBase * qty);
+    });
+  });
 
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
@@ -89,7 +112,7 @@ const VistasCaja = ({
 
       <div className="flex-1 overflow-y-auto p-10">
         
-        {/* VISTA: POR CONFIRMAR (Mantenida igual por ahora) */}
+        {/* VISTA: POR CONFIRMAR */}
         {vistaActiva === 'confirmar' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Verificar Pedidos</h2>
@@ -164,7 +187,7 @@ const VistasCaja = ({
         {/* VISTA: COBRAR */}
         {vistaActiva === 'cobrar' && (
           <>
-            <h2 className="text-4xl font-black mb-10 text-slate-800">Pedidos Pendientes de Pago</h2>
+            <h2 className="text-4xl font-black mb-10 text-slate-800">Cuentas y Cobros Pendientes</h2>
             {pendientesDePago.length === 0 ? (
               <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">Todo al día, no hay cobros pendientes.</p></div>
             ) : (
@@ -180,11 +203,22 @@ const VistasCaja = ({
 
                   return (
                   <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
-                    <div className="flex justify-between items-start mb-4"><h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3><span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>{getIconoPago(p.metodo_pago)} {p.metodo_pago}</span></div>
+                    <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
+                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>
+                            {getIconoPago(p.metodo_pago)} {p.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : p.metodo_pago}
+                        </span>
+                    </div>
                     <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
                     <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">{p.tipo_consumo}</p>
                     
-                    {/* 👇 NUEVO BOTÓN DE VER DETALLE */}
+                    {/* INFO DE ESTADO PARA CUENTAS ABIERTAS */}
+                    {p.metodo_pago === 'Por Cobrar' && (
+                        <div className="mb-4 bg-slate-100 text-slate-600 text-xs font-bold p-2 rounded-lg text-center uppercase tracking-wider">
+                           Estado: {p.estado_preparacion === 'Preparando' ? 'En Cocina' : p.estado_preparacion === 'Listo' ? 'Para Entregar' : p.estado_preparacion === 'Entregado' ? 'Consumiendo' : p.estado_preparacion}
+                        </div>
+                    )}
+
                     <div className="mb-4">
                       {renderBotonVerDetalle(p)}
                     </div>
@@ -201,7 +235,12 @@ const VistasCaja = ({
                     )}
                     <div className="mt-auto pt-6 border-t border-slate-100">
                       <p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p>
-                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>{p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : <><CheckCircle2 size={24}/> Validar Pago</>}</button>
+                      
+                      {/* 👇 BOTÓN ADAPTADO PARA CUENTAS ABIERTAS */}
+                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : p.metodo_pago === 'Por Cobrar' ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>
+                          {p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : p.metodo_pago === 'Por Cobrar' ? <><DollarSign size={24}/> Cobrar Cuenta</> : <><CheckCircle2 size={24}/> Validar Pago</>}
+                      </button>
+
                     </div>
                   </div>
                 )})}
@@ -238,7 +277,6 @@ const VistasCaja = ({
                     <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
                     <p className="font-black text-blue-600 text-xl mb-4">Total de la Nota: ${p.total}</p>
 
-                    {/* 👇 MODIFICADO: MOSTRAMOS SOLO BOTONES DE ACCIÓN (VER DETALLE Y EXTRA) */}
                     <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200 grid grid-cols-2 gap-3">
                        {renderBotonVerDetalle(p)}
                        {renderBotonAgregarExtra(p)}
@@ -266,7 +304,8 @@ const VistasCaja = ({
                     )}
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
-                       {p.metodo_pago === 'Pendiente' ? (
+                       {/* 👇 MODIFICADO PARA QUE "POR COBRAR" TAMBIÉN TE DEJE COBRAR AL ENTREGAR */}
+                       {(p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
                           <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
                        ) : (
                           <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Check size={28}/> Marcar como Entregado</button>
@@ -303,12 +342,10 @@ const VistasCaja = ({
                         <p className="text-sm font-bold text-blue-600 mt-1">${p.total} • {p.metodo_pago}</p>
                     </div>
 
-                    {/* 👇 NUEVO: CONTENEDOR DE ACCIONES EN HISTORIAL */}
                     <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto">
                         <p className="text-xs font-bold text-slate-400 uppercase text-right w-full">{subVistaHistorial === 'Pagado' ? 'Esperando Cocina' : subVistaHistorial}</p>
                         
                         <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
-                           {/* 👇 BOTÓN VER DETALLE EN HISTORIAL */}
                            {renderBotonVerDetalle(p)}
                            
                            {configGlobal?.ticket_impresion_activa && (
@@ -325,12 +362,40 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* VISTA: CORTE */}
+        {/* VISTA: CORTE DE CAJA MODIFICADA */}
         {vistaActiva === 'corte' && (
           <div>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Corte de Caja</h2>
             <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
-               <p className="text-slate-500 font-bold text-lg mb-6">Resumen del Turno</p>
+               
+               <p className="text-slate-500 font-bold text-lg mb-4">Origen de los Ingresos Totales (Turno Actual)</p>
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+                 <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center">
+                   <div>
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Venta Platillos</p>
+                     <p className="text-2xl font-black text-slate-700">${totalPlatillos.toFixed(2)}</p>
+                   </div>
+                   <ChefHat size={32} className="text-slate-300"/>
+                 </div>
+                 <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 flex justify-between items-center">
+                   <div>
+                     <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Ingresos Extras</p>
+                     <p className="text-2xl font-black text-emerald-700">${totalExtras.toFixed(2)}</p>
+                   </div>
+                   <PlusCircle size={32} className="text-emerald-200"/>
+                 </div>
+                 <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100 flex justify-between items-center">
+                   <div>
+                     <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">Cargos por Envío</p>
+                     <p className="text-2xl font-black text-purple-700">${totalEnvio.toFixed(2)}</p>
+                   </div>
+                   <MapPin size={32} className="text-purple-200"/>
+                 </div>
+               </div>
+               
+               <div className="border-t border-slate-100 pt-8 mb-8"></div>
+
+               <p className="text-slate-500 font-bold text-lg mb-6">Resumen por Método de Pago</p>
                
                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
                   <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200">

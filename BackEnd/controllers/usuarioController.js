@@ -65,7 +65,7 @@ exports.eliminarUsuario = async (req, res) => {
 };
 
 // ==========================================
-// REPORTES DE RENDIMIENTO Y ASISTENCIA (MODIFICADO PARA FILTROS HISTÓRICOS)
+// REPORTES DE RENDIMIENTO Y ASISTENCIA
 // ==========================================
 exports.obtenerReporteRendimiento = async (req, res) => {
   // Recibimos los filtros desde el Frontend (por defecto será el día de hoy)
@@ -79,6 +79,10 @@ exports.obtenerReporteRendimiento = async (req, res) => {
   if (periodo === 'dia') {
     queryFiltroFechaAsistencia = 'a.fecha::DATE = $1::DATE';
     queryFiltroFechaPedido = 'p.fecha_creacion::DATE = $1::DATE';
+  } else if (periodo === 'semana') {
+    // 👇 NUEVO: Filtro por semana añadido
+    queryFiltroFechaAsistencia = "DATE_TRUNC('week', a.fecha::TIMESTAMP) = DATE_TRUNC('week', $1::TIMESTAMP)";
+    queryFiltroFechaPedido = "DATE_TRUNC('week', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('week', $1::TIMESTAMP)";
   } else if (periodo === 'mes') {
     queryFiltroFechaAsistencia = "DATE_TRUNC('month', a.fecha::TIMESTAMP) = DATE_TRUNC('month', $1::TIMESTAMP)";
     queryFiltroFechaPedido = "DATE_TRUNC('month', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('month', $1::TIMESTAMP)";
@@ -97,8 +101,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.hora_entrada DESC
     `);
 
-    // 2. Historial COMPLETO de Asistencias (Filtrado por día, mes o año)
-    // Calcula cuántas horas trabajó en cada sesión específica
+    // 2. Historial COMPLETO de Asistencias (Filtrado)
     const historialRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
              ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2) AS horas_trabajadas
@@ -108,7 +111,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.fecha DESC, a.hora_entrada DESC
     `, params);
 
-    // 3. Rendimiento en Cocina (Filtrado por día, mes o año)
+    // 3. Rendimiento en Cocina (Filtrado)
     const rendimientoRes = await db.query(`
       SELECT 
         u.nombre AS chef, 
@@ -125,9 +128,9 @@ exports.obtenerReporteRendimiento = async (req, res) => {
     `, params);
 
     res.json({
-      asistenciasHoy: asistenciasHoyRes.rows,         // Array 1: Solo hoy, sin importar el filtro
-      historialAsistencias: historialRes.rows,        // Array 2: Histórico filtrado
-      rendimientoCocina: rendimientoRes.rows          // Array 3: Cocina filtrado
+      asistenciasHoy: asistenciasHoyRes.rows,         
+      historialAsistencias: historialRes.rows,        
+      rendimientoCocina: rendimientoRes.rows          
     });
   } catch (error) {
     console.error("Error al obtener reportes de rendimiento:", error);

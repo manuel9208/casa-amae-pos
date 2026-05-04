@@ -21,7 +21,9 @@ exports.actualizarConfiguracion = async (req, res) => {
     tv_carrusel_activo, tv_carrusel_segundos,
     negocio_abierto, mensaje_cierre,
     ticket_impresion_activa, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
-    mensaje_envio, tarifas_envio
+    mensaje_envio, tarifas_envio,
+    // 👇 NUEVAS VARIABLES DE WHATSAPP API
+    wa_api_activa, wa_api_token, wa_phone_id
   } = req.body;
   
   // Variables para las rutas de los medios
@@ -29,7 +31,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   let tv_imagen_1 = null;
   let tv_imagen_2 = null;
   let tv_imagen_3 = null;
-  let tv_video = null; // 👇 NUEVO: Variable para el video
+  let tv_video = null;
 
   if (req.files && req.files.length > 0) {
     req.files.forEach(file => {
@@ -37,7 +39,7 @@ exports.actualizarConfiguracion = async (req, res) => {
       if (file.fieldname === 'tv_imagen_1') tv_imagen_1 = file.path;
       if (file.fieldname === 'tv_imagen_2') tv_imagen_2 = file.path;
       if (file.fieldname === 'tv_imagen_3') tv_imagen_3 = file.path;
-      if (file.fieldname === 'tv_video') tv_video = file.path; // 👇 NUEVO: Capturamos el video
+      if (file.fieldname === 'tv_video') tv_video = file.path;
     });
   }
 
@@ -45,6 +47,9 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isCarruselActivo = tv_carrusel_activo === 'true' || tv_carrusel_activo === true;
   const isNegocioAbierto = negocio_abierto === undefined ? true : (negocio_abierto === 'true' || negocio_abierto === true);
   const isTicketActivo = ticket_impresion_activa === 'true' || ticket_impresion_activa === true;
+  
+  // 👇 Parseo booleano de WhatsApp
+  const isWaActiva = wa_api_activa === 'true' || wa_api_activa === true;
   
   // Parseo seguro de tarifas de envío
   let tarifasParsed = '[]';
@@ -64,10 +69,11 @@ exports.actualizarConfiguracion = async (req, res) => {
         tv_carrusel_activo, tv_carrusel_segundos, tv_imagen_1, tv_imagen_2, tv_imagen_3, tv_video,
         negocio_abierto, mensaje_cierre,
         ticket_impresion_activa, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
-        mensaje_envio, tarifas_envio
+        mensaje_envio, tarifas_envio,
+        wa_api_activa, wa_api_token, wa_phone_id
       )
       VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37
       )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
@@ -94,7 +100,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         tv_imagen_1 = COALESCE($22, configuracion.tv_imagen_1),
         tv_imagen_2 = COALESCE($23, configuracion.tv_imagen_2),
         tv_imagen_3 = COALESCE($24, configuracion.tv_imagen_3),
-        tv_video = COALESCE($25, configuracion.tv_video), -- 👇 NUEVO
+        tv_video = COALESCE($25, configuracion.tv_video),
         negocio_abierto = EXCLUDED.negocio_abierto,
         mensaje_cierre = EXCLUDED.mensaje_cierre,
         ticket_impresion_activa = EXCLUDED.ticket_impresion_activa,
@@ -103,7 +109,10 @@ exports.actualizarConfiguracion = async (req, res) => {
         ticket_mensaje_final = EXCLUDED.ticket_mensaje_final,
         ticket_firma_sistema = EXCLUDED.ticket_firma_sistema,
         mensaje_envio = EXCLUDED.mensaje_envio,
-        tarifas_envio = EXCLUDED.tarifas_envio::jsonb
+        tarifas_envio = EXCLUDED.tarifas_envio::jsonb,
+        wa_api_activa = EXCLUDED.wa_api_activa,
+        wa_api_token = EXCLUDED.wa_api_token,
+        wa_phone_id = EXCLUDED.wa_phone_id
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url, 
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas, 
@@ -112,7 +121,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       isCarruselActivo, tv_carrusel_segundos, tv_imagen_1, tv_imagen_2, tv_imagen_3, tv_video,
       isNegocioAbierto, mensaje_cierre,
       isTicketActivo, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
-      mensaje_envio, tarifasParsed
+      mensaje_envio, tarifasParsed,
+      isWaActiva, wa_api_token, wa_phone_id
     ]);
     
     res.json({ success: true, logo_url });

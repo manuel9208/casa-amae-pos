@@ -10,8 +10,8 @@ const GestionUsuarios = ({
   const [vista, setVista] = useState('directorio'); // 'directorio' | 'reportes'
   const [reportes, setReportes] = useState({ asistenciasHoy: [], historialAsistencias: [], rendimientoCocina: [] });
 
-  // 👇 NUEVOS ESTADOS DE FILTRO
-  const [periodo, setPeriodo] = useState('dia'); // 'dia' | 'mes' | 'anio'
+  // ESTADOS DE FILTRO
+  const [periodo, setPeriodo] = useState('dia'); // 'dia' | 'semana' | 'mes' | 'anio'
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
 
   // === ESTADOS LOCALES PARA EL FORMULARIO ===
@@ -21,18 +21,21 @@ const GestionUsuarios = ({
   const [uPass, setUPass] = useState('');
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('cajero');
+  
+  // 👇 NUEVO: Objeto de permisos expandido para incluir CRM y Finanzas
   const [uPermisos, setUPermisos] = useState({ 
     menu: true, 
     inventario: true, 
     catalogos: true, 
     usuarios: false, 
-    configuracion: false 
+    configuracion: false,
+    clientes: false,
+    finanzas: false
   });
 
   // === CARGA DE REPORTES DE RENDIMIENTO CON FILTROS ===
   const cargarReportes = useCallback(async () => {
     try {
-      // 👇 Añadimos las variables a la URL
       const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodo}&fecha=${fechaFiltro}`);
       if (res.ok) {
         const data = await res.json();
@@ -41,9 +44,8 @@ const GestionUsuarios = ({
     } catch (error) {
       console.error("Error al cargar reportes de rendimiento", error);
     }
-  }, [apiUrl, periodo, fechaFiltro]); // Re-ejecutar si cambian los filtros
+  }, [apiUrl, periodo, fechaFiltro]); 
 
-  // Cargamos los reportes solo cuando entramos a la pestaña de reportes o cambian filtros
   useEffect(() => {
     if (vista === 'reportes') {
       cargarReportes();
@@ -58,7 +60,7 @@ const GestionUsuarios = ({
     setUPass(''); 
     setUTelefono(u.telefono || ''); 
     setURol(u.rol);
-    setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+    setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
   };
 
   const cancelarEdicionUsuario = () => {
@@ -68,10 +70,10 @@ const GestionUsuarios = ({
     setUPass(''); 
     setUTelefono(''); 
     setURol('cajero');
-    setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+    setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
   };
 
-  // Lógica especial para roles (como el de TV que es automático)
+  // Lógica especial para roles
   const handleRolChange = (e) => { 
     const nuevoRol = e.target.value; 
     setURol(nuevoRol); 
@@ -81,13 +83,14 @@ const GestionUsuarios = ({
       setUUser(`tv_${uniqueId}`); 
       setUPass('1234'); 
       setUTelefono(`999${uniqueId}000`); 
-      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false });
+      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false });
     } else if (nuevoRol === 'admin') {
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
-      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true });
+      // 👇 Admin por defecto tiene todo activado
+      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true, clientes: true, finanzas: true });
     } else { 
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
-      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false });
+      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
     } 
   };
 
@@ -153,7 +156,7 @@ const GestionUsuarios = ({
         </div>
       </div>
 
-      {/* ================= VISTA: DIRECTORIO / GESTIÓN (Tu código original intacto) ================= */}
+      {/* ================= VISTA: DIRECTORIO / GESTIÓN ================= */}
       {vista === 'directorio' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
@@ -180,6 +183,11 @@ const GestionUsuarios = ({
               {uRol === 'admin' && (
                 <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
                   <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
+                  
+                  {/* 👇 NUEVOS PERMISOS AÑADIDOS A LA INTERFAZ */}
+                  <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={uPermisos.finanzas === true} onChange={e => setUPermisos({...uPermisos, finanzas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Finanzas y Reportes
+                  </label>
                   <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                     <input type="checkbox" checked={uPermisos.menu !== false} onChange={e => setUPermisos({...uPermisos, menu: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Gestión de Menú
                   </label>
@@ -189,7 +197,12 @@ const GestionUsuarios = ({
                   <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                     <input type="checkbox" checked={uPermisos.catalogos !== false} onChange={e => setUPermisos({...uPermisos, catalogos: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Ingredientes y Extras
                   </label>
+                  <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={uPermisos.clientes === true} onChange={e => setUPermisos({...uPermisos, clientes: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Clientes (CRM)
+                  </label>
+                  
                   <div className="border-t border-orange-200 my-2"></div>
+                  
                   <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
                     <input type="checkbox" checked={uPermisos.usuarios === true} onChange={e => setUPermisos({...uPermisos, usuarios: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Usuarios
                   </label>
@@ -243,11 +256,10 @@ const GestionUsuarios = ({
         </div>
       )}
 
-      {/* ================= VISTA: REPORTES Y RENDIMIENTO (MODIFICADO) ================= */}
+      {/* ================= VISTA: REPORTES Y RENDIMIENTO ================= */}
       {vista === 'reportes' && (
         <div className="space-y-6">
           
-          {/* 👇 BARRA DE CONTROL DE REPORTES AÑADIDA AQUÍ */}
           <div className="bg-slate-900 text-white p-6 rounded-[32px] shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 print:hidden mb-8">
             <div className="flex items-center gap-4">
               <Calendar className="text-emerald-400" size={32}/>
@@ -258,12 +270,15 @@ const GestionUsuarios = ({
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
-              <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
+              <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
                 <option value="dia">Por Día</option>
+                <option value="semana">Por Semana</option>
                 <option value="mes">Por Mes</option>
                 <option value="anio">Por Año</option>
               </select>
-              <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="bg-slate-800 border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500 text-white" />
+              
+              <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500" style={{ colorScheme: 'dark' }} />
+              
               <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-6 py-3 rounded-xl font-black flex items-center gap-2 transition active:scale-95">
                 <Printer size={20}/> Imprimir
               </button>
@@ -272,7 +287,6 @@ const GestionUsuarios = ({
 
           <div id="seccion-a-imprimir" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            {/* TABLA DE ASISTENCIAS (RELOJ CHECADOR) - AHORA SOLO MUESTRA HOY SIEMPRE */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
               <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Clock className="text-blue-500"/> Personal Activo (Hoy)</h3>
               <div className="space-y-3">
@@ -296,7 +310,6 @@ const GestionUsuarios = ({
               </div>
             </div>
 
-            {/* TABLA DE RENDIMIENTO DE COCINA */}
             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
               <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><ChefHat className="text-orange-500"/> Rendimiento en Cocina ({periodo})</h3>
               <div className="space-y-3">
@@ -319,7 +332,6 @@ const GestionUsuarios = ({
               </div>
             </div>
 
-            {/* 👇 NUEVA TABLA: BITÁCORA DE ENTRADAS Y SALIDAS CUADRICULADA */}
             <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2">
               <div className="flex items-center gap-3 mb-6">
                 <FileText className="text-emerald-500" size={24}/>

@@ -10,7 +10,6 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 exports.crearPedido = async (req, res) => {
-  // 👇 Agregamos costo_envio
   const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio } = req.body;
   
   try {
@@ -18,7 +17,6 @@ exports.crearPedido = async (req, res) => {
 
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
-    // 👇 Insertamos el costo_envio (si no viene, por defecto es 0)
     const result = await db.query(
       'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *', 
       [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0]
@@ -77,7 +75,6 @@ exports.crearPedido = async (req, res) => {
 
 exports.actualizarPedido = async (req, res) => { 
   try { 
-    // 👇 También lo agregamos aquí por si el pedido se modifica antes de confirmarse
     const result = await db.query(
       'UPDATE pedidos SET tipo_consumo = $1, metodo_pago = $2, total = $3, carrito = $4, estado_preparacion = $5, direccion_entrega = $6, costo_envio = $7 WHERE id = $8 RETURNING *', 
       [req.body.tipo_consumo, req.body.metodo_pago, req.body.total, JSON.stringify(req.body.carrito), 'Pendiente', req.body.direccion_entrega, req.body.costo_envio || 0, req.params.id]
@@ -88,10 +85,9 @@ exports.actualizarPedido = async (req, res) => {
   } 
 };
 
-// ================= MODIFICADO: ACTUALIZAR ESTADO PARCIAL (CON CRONÓMETRO Y COSTOS) =================
+// ================= ACTUALIZAR ESTADO (MAGIA DE WHATSAPP CON TEMPLATE) =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
-  // 👇 Recibimos también total y costo_envio
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio } = req.body;
   
   try {
@@ -111,14 +107,12 @@ exports.actualizarEstado = async (req, res) => {
       pIdx++;
     }
     
-    // 👇 NUEVO: Si la caja manda un nuevo total (sumándole el envío), lo actualizamos
     if (total !== undefined) {
       query += `, total = $${pIdx}`;
       params.push(total);
       pIdx++;
     }
     
-    // 👇 NUEVO: Registramos cuánto fue de puro envío
     if (costo_envio !== undefined) {
       query += `, costo_envio = $${pIdx}`;
       params.push(costo_envio);
@@ -143,7 +137,90 @@ exports.actualizarEstado = async (req, res) => {
     params.push(id);
     
     const result = await db.query(query, params); 
-    res.json(result.rows[0]);
+    const pedidoActual = result.rows[0];
+
+    // 👇 =========================================================================
+    // NUEVO: ENVÍO DE TEMPLATE APROBADO POR META (SOLO CUANDO ESTÁ "LISTO")
+    // =========================================================================
+    if (estado_preparacion === 'Listo') {
+      try {
+        const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id, nombre_negocio FROM configuracion WHERE id = 1');
+        const config = configRes.rows[0];
+
+        if (config && (config.wa_api_activa === true || config.wa_api_activa === 'true') && config.wa_api_token && config.wa_phone_id) {
+          
+          let telefonoCliente = null;
+          if (pedidoActual.cliente_id) {
+            const clienteRes = await db.query('SELECT telefono FROM clientes WHERE id = $1', [pedidoActual.cliente_id]);
+            if (clienteRes.rows.length > 0) telefonoCliente = clienteRes.rows[0].telefono;
+          } else if (pedidoActual.direccion_entrega && pedidoActual.direccion_entrega.includes('CONTACTO:')) {
+            const match = pedidoActual.direccion_entrega.match(/CONTACTO:\s*(\d+)/);
+            if (match && match[1]) telefonoCliente = match[1];
+          }
+
+          if (telefonoCliente && telefonoCliente.length === 10) {
+            
+            // Definimos la instrucción dependiendo del tipo de consumo
+            let instruccion = '';
+            if (pedidoActual.tipo_consumo === 'Domicilio') {
+              instruccion = 'Ya va en camino a tu domicilio 🛵';
+            } else if (pedidoActual.tipo_consumo === 'Recoger en Local') {
+              instruccion = 'Puedes pasar a la sucursal por ella 🚗';
+            } else {
+              instruccion = 'Por favor pasa a la barra a recogerla 🍔';
+            }
+
+            // Asumimos código 52 (México). Ajústalo si estás en otro país.
+            const numeroDestino = `52${telefonoCliente}`; 
+            
+            // Construimos la petición usando el Template "alerta_pedido_listo"
+            const payloadMeta = {
+              messaging_product: "whatsapp",
+              recipient_type: "individual",
+              to: numeroDestino,
+              type: "template",
+              template: {
+                name: "alerta_pedido_listo", // 👈 ESTE NOMBRE ES VITAL PARA META
+                language: {
+                  code: "es_MX" // Español México
+                },
+                components: [
+                  {
+                    type: "body",
+                    parameters: [
+                      { type: "text", text: String(pedidoActual.numero_pedido) }, // {{1}}
+                      { type: "text", text: config.nombre_negocio || 'nuestro restaurante' }, // {{2}}
+                      { type: "text", text: instruccion } // {{3}}
+                    ]
+                  }
+                ]
+              }
+            };
+            
+            // Enviamos la petición a Meta
+            fetch(`https://graph.facebook.com/v17.0/${config.wa_phone_id}/messages`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${config.wa_api_token}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payloadMeta)
+            })
+            .then(waRes => waRes.json())
+            .then(waData => {
+              if (waData.error) console.error("Error API WhatsApp Meta (Template):", waData.error.message);
+              else console.log(`✅ Template de WhatsApp enviado a ${numeroDestino} (Orden #${pedidoActual.numero_pedido})`);
+            })
+            .catch(e => console.error("Error de red al enviar Template de WhatsApp:", e.message));
+          }
+        }
+      } catch (errWA) {
+        console.error("Fallo interno en la lógica de WhatsApp (no afecta el pedido):", errWA.message);
+      }
+    }
+    // =========================================================================
+
+    res.json(pedidoActual);
   } catch (error) { 
     console.error("Error al actualizar estado:", error);
     res.status(500).json({ error: 'Error al actualizar estado' }); 

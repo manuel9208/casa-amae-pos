@@ -1,10 +1,11 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart } from 'lucide-react';
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle } from 'lucide-react';
 
 const SidebarCaja = ({ 
   user, onLogout, configGlobal, toggleEstadoNegocio, 
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
-  setModalCompraRapida // 👇 Prop recibida
+  setModalCompraRapida, 
+  abrirIdentificador // 👇 NUEVA PROP: Función que abre el modal de registro de cliente
 }) => {
   return (
     <div className="w-72 bg-slate-900 text-white flex flex-col shadow-2xl z-20 relative shrink-0">
@@ -34,8 +35,11 @@ const SidebarCaja = ({
         <button onClick={() => setVistaActiva('entregas')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all relative ${vistaActiva === 'entregas' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><Monitor size={22}/> Monitor Entregas{listosParaEntregar.length > 0 && <span className="ml-auto bg-orange-500 text-white text-xs px-2 py-1 rounded-full animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.8)]">{listosParaEntregar.length}</span>}</button>
         <button onClick={() => setVistaActiva('historial')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'historial' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><List size={22}/> Ver Todos</button>
         
-        {/* 👇 NUEVO BOTÓN: Compra Rápida */}
-        <div className="pt-4 mt-4 border-t border-slate-800">
+        {/* SECCIÓN DE ACCIONES RÁPIDAS DEL CAJERO */}
+        <div className="pt-4 mt-4 border-t border-slate-800 space-y-2">
+           <button onClick={abrirIdentificador} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-orange-400 hover:bg-orange-500/10 transition-all border border-orange-500/20">
+              <PlusCircle size={22}/> Levantar Pedido
+           </button>
            <button onClick={() => setModalCompraRapida(true)} className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold text-emerald-400 hover:bg-emerald-500/10 transition-all border border-emerald-500/20">
               <ShoppingCart size={22}/> Compras Rápidas
            </button>
