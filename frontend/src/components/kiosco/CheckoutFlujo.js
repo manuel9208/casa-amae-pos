@@ -17,12 +17,14 @@ const CheckoutFlujo = ({
   // ESTADO PARA CAPTURAR TELÉFONO EN "RECOGER EN LOCAL"
   const [telefonoRecoger, setTelefonoRecoger] = useState('');
   const [pasoTelefono, setPasoTelefono] = useState(false);
+  
+  // 👇 NUEVO ESTADO: SEGURO ANTI-DOBLE CLIC (LOADING STATE)
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // === FUNCIONES DE NAVEGACIÓN ===
   const procesarTipoConsumo = (tipo) => { 
     setTipoConsumo(tipo); 
     if (tipo === 'Domicilio') {
-        // 👇 NUEVO: Mostrar aviso de envío antes de pedir la dirección
         setPantallaActual('aviso_domicilio'); 
     } else if (tipo === 'Recoger') {
         if (clienteActivo) {
@@ -111,6 +113,10 @@ const CheckoutFlujo = ({
 
   // === SELECCIÓN DE PAGO FINAL ===
   const seleccionarPago = async (metodo, montoEfectivo = null) => { 
+    // 👇 ACTIVAMOS EL SEGURO DE CARGA ANTES DE COMUNICARNOS CON LA BD
+    if (isSubmitting) return; // Si ya se está enviando, ignoramos clics extra
+    setIsSubmitting(true);
+
     let dirModificada = direccionEntrega;
     
     if (metodo === 'Efectivo' && tipoConsumo === 'Domicilio' && montoEfectivo) {
@@ -119,10 +125,13 @@ const CheckoutFlujo = ({
     
     const ok = await guardarPedidoEnBD(metodo, dirModificada); 
     if (ok) { 
-      setPasoTelefono(false); // Quitamos la pantalla del teléfono si estaba activa
+      setPasoTelefono(false); 
       if (metodo === 'Transferencia') setPantallaActual('detalles_transferencia'); 
       else { setContador(15); setPantallaActual('finalizado'); } 
     } 
+    
+    // 👇 APAGAMOS EL SEGURO SI HUBO ERROR PARA QUE PUEDAN REINTENTAR
+    setIsSubmitting(false); 
   };
   
   const procesarTransferencia = () => { 
@@ -140,20 +149,20 @@ const CheckoutFlujo = ({
             <h2 className="text-3xl font-black mb-2 texto-destacado">Datos de Contacto</h2>
             <p className="text-slate-500 font-medium mb-8">Ingresa un número de celular para que Caja confirme tu pedido.</p>
             <input 
-                type="tel" maxLength="10" required autoFocus
+                type="tel" maxLength="10" required autoFocus disabled={isSubmitting}
                 value={telefonoRecoger} 
                 onChange={(e) => setTelefonoRecoger(e.target.value.replace(/\D/g, ''))}
-                className="w-full bg-white border-2 border-slate-200 rounded-3xl p-6 text-center text-3xl font-black outline-none focus:border-blue-500 shadow-sm text-slate-800"
+                className="w-full bg-white border-2 border-slate-200 rounded-3xl p-6 text-center text-3xl font-black outline-none focus:border-blue-500 shadow-sm text-slate-800 disabled:opacity-50"
                 placeholder="6721234567"
             />
             <div className="flex gap-4 mt-8">
-                <button onClick={() => { setPasoTelefono(false); setPantallaActual('consumo'); }} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition">Atrás</button>
+                <button disabled={isSubmitting} onClick={() => { setPasoTelefono(false); setPantallaActual('consumo'); }} className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold hover:bg-slate-200 transition disabled:opacity-50">Atrás</button>
                 <button 
-                    disabled={telefonoRecoger.length !== 10} 
+                    disabled={telefonoRecoger.length !== 10 || isSubmitting} 
                     onClick={() => seleccionarPago('Pendiente')}
                     className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 disabled:opacity-50 transition active:scale-95"
                 >
-                    Enviar Pedido a Caja
+                    {isSubmitting ? 'Procesando...' : 'Enviar Pedido a Caja'}
                 </button>
             </div>
         </div>
@@ -176,7 +185,7 @@ const CheckoutFlujo = ({
     );
   }
 
-  // 👇 NUEVA PANTALLA: AVISO DE COSTO DE ENVÍO
+  // PANTALLA: AVISO DE COSTO DE ENVÍO
   if (pantallaActual === 'aviso_domicilio') {
     return (
       <div className="max-w-lg mx-auto mt-20 text-center animate-in zoom-in">
@@ -226,18 +235,26 @@ const CheckoutFlujo = ({
   if (pantallaActual === 'pago') {
     return (
       <div className="max-w-3xl mx-auto mt-10 animate-in fade-in">
-        <div className="flex justify-start mb-6"><button onClick={() => setPantallaActual(tipoConsumo === 'Domicilio' ? 'direccion' : 'consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition">⬅ Atrás</button></div>
+        <div className="flex justify-start mb-6"><button disabled={isSubmitting} onClick={() => setPantallaActual(tipoConsumo === 'Domicilio' ? 'direccion' : 'consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button></div>
         <h2 className="text-4xl font-black text-center mb-12 texto-destacado">Método de Pago</h2>
         <div className="grid grid-cols-1 gap-6">
           {tipoConsumo !== 'Domicilio' && (
-             <button onClick={() => seleccionarPago('Tarjeta')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-blue-50 transition-all hover:border-blue-200 active:scale-95"><span className="text-3xl font-black text-slate-700">💳 Tarjeta / Terminal</span></button>
+             <button disabled={isSubmitting} onClick={() => seleccionarPago('Tarjeta')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-blue-50 hover:border-blue-200'}`}>
+                 <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '💳 Tarjeta / Terminal'}</span>
+             </button>
           )}
           {tipoConsumo === 'Domicilio' ? (
-             <button onClick={() => setPantallaActual('cambio_efectivo_domicilio')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-emerald-50 transition-all hover:border-emerald-200 active:scale-95"><span className="text-3xl font-black text-slate-700">💵 Pago en Efectivo</span></button>
+             <button disabled={isSubmitting} onClick={() => setPantallaActual('cambio_efectivo_domicilio')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-emerald-50 hover:border-emerald-200'}`}>
+                 <span className="text-3xl font-black text-slate-700">💵 Pago en Efectivo</span>
+             </button>
           ) : (
-             <button onClick={() => seleccionarPago('Efectivo')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-emerald-50 transition-all hover:border-emerald-200 active:scale-95"><span className="text-3xl font-black text-slate-700">💵 Pago en Caja</span></button>
+             <button disabled={isSubmitting} onClick={() => seleccionarPago('Efectivo')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-emerald-50 hover:border-emerald-200'}`}>
+                 <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '💵 Pago en Caja'}</span>
+             </button>
           )}
-          <button onClick={() => seleccionarPago('Transferencia')} className="bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between hover:bg-purple-50 transition-all hover:border-purple-200 active:scale-95"><span className="text-3xl font-black text-slate-700">📱 Transferencia</span></button>
+          <button disabled={isSubmitting} onClick={() => seleccionarPago('Transferencia')} className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-purple-50 hover:border-purple-200'}`}>
+              <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '📱 Transferencia'}</span>
+          </button>
         </div>
       </div>
     );
@@ -247,16 +264,20 @@ const CheckoutFlujo = ({
   if (pantallaActual === 'cambio_efectivo_domicilio') {
     return (
       <div className="max-w-3xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
-        <div className="flex justify-start mb-6"><button onClick={() => setPantallaActual('pago')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition">⬅ Atrás</button></div>
+        <div className="flex justify-start mb-6"><button disabled={isSubmitting} onClick={() => setPantallaActual('pago')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button></div>
         <span className="text-6xl block mb-6">💵</span>
         <h2 className="text-4xl font-black text-center mb-4 texto-destacado">¿Con cuánto vas a pagar?</h2>
         <p className="text-slate-500 font-medium mb-8 text-xl">El repartidor te llevará el cambio exacto.</p>
         <p className="text-2xl font-black text-blue-600 mb-8">Total de tu orden: ${calcularTotal()}</p>
         
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <button onClick={() => seleccionarPago('Efectivo', 'Exacto')} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 hover:border-blue-500 hover:text-blue-600 transition-all active:scale-95">Exacto</button>
+          <button disabled={isSubmitting} onClick={() => seleccionarPago('Efectivo', 'Exacto')} className={`bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:border-blue-500 hover:text-blue-600'}`}>
+              {isSubmitting ? '...' : 'Exacto'}
+          </button>
           {[100, 200, 300, 400, 500, 1000].filter(monto => monto > calcularTotal()).map(monto => (
-            <button key={monto} onClick={() => seleccionarPago('Efectivo', `$${monto}`)} className="bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 hover:border-emerald-500 hover:text-emerald-600 transition-all active:scale-95">${monto}</button>
+            <button key={monto} disabled={isSubmitting} onClick={() => seleccionarPago('Efectivo', `$${monto}`)} className={`bg-white p-6 rounded-2xl shadow-sm border-2 border-slate-200 font-black text-xl text-slate-700 transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:border-emerald-500 hover:text-emerald-600'}`}>
+                {isSubmitting ? '...' : `$${monto}`}
+            </button>
           ))}
         </div>
       </div>

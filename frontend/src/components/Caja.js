@@ -24,15 +24,21 @@ const Caja = ({ user, onLogout }) => {
   const [ticketImprimir, setTicketImprimir] = useState(null);
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
   
+  // 👇 NUEVO ESTADO: PARA VISUALIZAR DETALLES DE CUALQUIER PEDIDO
+  const [modalVerDetalle, setModalVerDetalle] = useState(null);
+
   // === ESTADOS PARA COMPRA RÁPIDA ===
   const [modalCompraRapida, setModalCompraRapida] = useState(false);
   const [insumoComprar, setInsumoComprar] = useState(null);
   const [paquetesComprados, setPaquetesComprados] = useState('');
 
-  // === NUEVOS ESTADOS: Alertas Bonitas, Extras y Cobro en Efectivo ===
+  // === ESTADOS: Alertas Bonitas, Extras y Cobro en Efectivo ===
   const [alertaCaja, setAlertaCaja] = useState(null);
   const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
-  const [alertaCobroExtra, setAlertaCobroExtra] = useState(null); // 👇 NUEVO ESTADO PARA EL AVISO DE COBRO
+  const [alertaCobroExtra, setAlertaCobroExtra] = useState(null); 
+
+  // === SEGURO ANTI-DOBLE CLIC PARA LA CAJA (LOADING STATE GLOBAL) ===
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // === ESTADOS DEL FONDO DE CAJA ===
   const hoyStr = new Date().toLocaleDateString();
@@ -89,9 +95,12 @@ const Caja = ({ user, onLogout }) => {
     setTimeout(() => setAlertaCaja(null), 4000);
   };
 
-  // === FUNCIONES PRINCIPALES ===
+  // === FUNCIONES PRINCIPALES CON SEGURO ANTI-DOBLE CLIC ===
   const toggleEstadoNegocio = async () => {
-    if (!configGlobal) return;
+    if (isSubmitting) return; // Seguro
+    setIsSubmitting(true);
+    
+    if (!configGlobal) { setIsSubmitting(false); return; }
     const nuevoEstado = !configGlobal.negocio_abierto;
     setConfigGlobal(prev => ({ ...prev, negocio_abierto: nuevoEstado }));
 
@@ -113,6 +122,7 @@ const Caja = ({ user, onLogout }) => {
       setConfigGlobal(prev => ({ ...prev, negocio_abierto: !nuevoEstado }));
       mostrarAlertaCaja('Error', 'No se pudo cambiar el estado del negocio.', 'error');
     }
+    setIsSubmitting(false);
   };
 
   const cerrarCajaYSalir = async () => {
@@ -146,6 +156,9 @@ const Caja = ({ user, onLogout }) => {
   };
 
   const procesarPago = async (estadoRechazo = null) => {
+    if (isSubmitting) return; // Seguro anti-doble clic en cobros
+    setIsSubmitting(true);
+    
     const estadoFinal = estadoRechazo || (modalPago.estado_preparacion === 'Listo' ? 'Entregado' : 'Pagado');
     try { 
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { 
@@ -163,15 +176,23 @@ const Caja = ({ user, onLogout }) => {
         mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
         setModalPago(null); 
         setMontoRecibido(''); 
-      } 
-    } catch (error) { mostrarAlertaCaja('Error', 'Problema al procesar el pago.', 'error'); }
+      } else {
+        mostrarAlertaCaja('Error', 'No se pudo registrar el pago en la base de datos.', 'error');
+      }
+    } catch (error) { 
+      mostrarAlertaCaja('Error', 'Problema al procesar el pago.', 'error'); 
+    }
+    setIsSubmitting(false); // Apagar el seguro
   };
 
   const confirmarPedidoRecoger = async (id) => {
+    if (isSubmitting) return; setIsSubmitting(true);
     try { await fetch(`${apiUrl}/pedidos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: 'Pagado' }) }); } catch (error) {}
+    setIsSubmitting(false);
   };
 
   const confirmarPedidoDomicilio = async (pedido, tarifa) => {
+    if (isSubmitting) return; setIsSubmitting(true);
     try {
       const nuevoTotal = Number(pedido.total) + Number(tarifa.costo);
       await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, { 
@@ -188,10 +209,13 @@ const Caja = ({ user, onLogout }) => {
     } catch (error) {
       mostrarAlertaCaja('Error', 'Fallo al asignar domicilio.', 'error');
     }
+    setIsSubmitting(false);
   };
 
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
+    if (isSubmitting) return; setIsSubmitting(true);
     try { await fetch(`${apiUrl}/pedidos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: nuevoEstado }) }); } catch (error) {}
+    setIsSubmitting(false);
   };
 
   const limpiarAlerta = async (id) => {
@@ -209,6 +233,8 @@ const Caja = ({ user, onLogout }) => {
 
   const enviarRespuestaCocina = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return; setIsSubmitting(true);
+    
     const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
     const extrasStr = (itemSeleccionado.extras || []).map(ex => ex.nombre).join(', ');
     const nombreCompleto = `${itemSeleccionado.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
@@ -226,11 +252,13 @@ const Caja = ({ user, onLogout }) => {
       mostrarAlertaCaja('¡Respuesta Enviada!', 'El chef ya fue notificado.', 'success');
       setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta('quitar'); setIngredienteReemplazo('');
     } catch (error) { mostrarAlertaCaja('Error', 'No se pudo enviar la respuesta.', 'error'); }
+    setIsSubmitting(false);
   };
 
   const registrarCompraRapida = async (e) => {
     e.preventDefault();
-    if (!insumoComprar || !paquetesComprados) return;
+    if (!insumoComprar || !paquetesComprados || isSubmitting) return;
+    setIsSubmitting(true);
 
     try {
       const res = await fetch(`${apiUrl}/insumos/${insumoComprar.id}/comprar`, {
@@ -257,12 +285,12 @@ const Caja = ({ user, onLogout }) => {
     } catch (error) {
       mostrarAlertaCaja('Error', 'Problema de conexión al guardar.', 'error');
     }
+    setIsSubmitting(false);
   };
 
-  // 👇 ACTUALIZADO: Copia profunda, actualización instantánea y disparo del Aviso de Cobro
   const confirmarAgregarExtra = async (pedido, itemIndex, extraObj) => {
+    if (isSubmitting) return; setIsSubmitting(true);
     try {
-        // Deep Copy: Esto asegura que React detecte el cambio en el carrito y lo repinte
         const carritoActual = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
         const nuevoCarrito = JSON.parse(JSON.stringify(carritoActual));
         
@@ -275,7 +303,6 @@ const Caja = ({ user, onLogout }) => {
             precioExtra: Number(extraObj.precio_extra)
         });
         
-        // Sumamos el precio base (o final actual) con el nuevo extra
         item.precioFinal = Number(item.precioFinal || item.precio_base || item.precio || 0) + Number(extraObj.precio_extra);
         const nuevoTotal = Number(pedido.total) + Number(extraObj.precio_extra);
 
@@ -290,12 +317,10 @@ const Caja = ({ user, onLogout }) => {
         });
 
         if(res.ok) {
-            // Actualización instantánea en la interfaz y en el ticket sin esperar los 3 segundos
             setPedidos(prev => prev.map(p => 
                p.id === pedido.id ? { ...p, carrito: nuevoCarrito, total: nuevoTotal } : p
             ));
             
-            // 👇 DISPARAMOS LA ALERTA GIGANTE DE COBRO EN CAJA
             if (Number(extraObj.precio_extra) > 0) {
                setAlertaCobroExtra({
                   monto: extraObj.precio_extra,
@@ -314,6 +339,7 @@ const Caja = ({ user, onLogout }) => {
     } catch (error) {
         mostrarAlertaCaja('Error', 'Hubo un problema de red.', 'error');
     }
+    setIsSubmitting(false);
   };
 
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
@@ -334,6 +360,7 @@ const Caja = ({ user, onLogout }) => {
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
           setModalCompraRapida={setModalCompraRapida} 
+          isSubmitting={isSubmitting} 
         />
 
         <VistasCaja 
@@ -357,6 +384,8 @@ const Caja = ({ user, onLogout }) => {
           lanzarImpresion={lanzarImpresion}
           setModalZonaEnvio={setModalZonaEnvio}
           setModalAgregarExtra={setModalAgregarExtra} 
+          isSubmitting={isSubmitting} 
+          setModalVerDetalle={setModalVerDetalle} // 👇 PASAMOS LA FUNCIÓN PARA ABRIR EL DETALLE
         />
         
         <ModalesCaja 
@@ -391,9 +420,11 @@ const Caja = ({ user, onLogout }) => {
           setModalAgregarExtra={setModalAgregarExtra}
           confirmarAgregarExtra={confirmarAgregarExtra}
           
-          // 👇 PASAMOS EL ESTADO DEL AVISO DE COBRO AL COMPONENTE DE MODALES
           alertaCobroExtra={alertaCobroExtra}
           setAlertaCobroExtra={setAlertaCobroExtra}
+          isSubmitting={isSubmitting} 
+          modalVerDetalle={modalVerDetalle} // 👇 PASAMOS EL ESTADO DEL DETALLE
+          setModalVerDetalle={setModalVerDetalle} // 👇 PASAMOS LA FUNCIÓN PARA CERRARLO
         />
       </div>
 

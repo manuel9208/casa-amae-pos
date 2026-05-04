@@ -1,5 +1,5 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle } from 'lucide-react'; 
+import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag } from 'lucide-react'; 
 
 const ModalesCaja = ({
   fondoCaja, iniciarTurno, inputFondo, setInputFondo,
@@ -9,8 +9,10 @@ const ModalesCaja = ({
   modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
   paquetesComprados, setPaquetesComprados, registrarCompraRapida,
   alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
-  // 👇 NUEVOS PROPS PARA LA ALERTA GIGANTE DE COBRO
-  alertaCobroExtra, setAlertaCobroExtra
+  alertaCobroExtra, setAlertaCobroExtra,
+  isSubmitting,
+  modalVerDetalle, // 👇 ESTADO DEL DETALLE
+  setModalVerDetalle // 👇 FUNCIÓN PARA CERRARLO
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -50,7 +52,7 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* 👇 NUEVO: ALERTA GIGANTE DE COBRO EN EFECTIVO */}
+      {/* ALERTA GIGANTE DE COBRO EN EFECTIVO */}
       {alertaCobroExtra && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[999] p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-lg text-center animate-in zoom-in duration-300 border-4 border-orange-500">
@@ -181,10 +183,10 @@ const ModalesCaja = ({
                 <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Paquetes / Cajas Compradas</label>
                 <input 
                   type="number" 
-                  min="0.1" step="0.1" required autoFocus
+                  min="0.1" step="0.1" required autoFocus disabled={isSubmitting}
                   value={paquetesComprados} 
                   onChange={(e) => setPaquetesComprados(e.target.value)} 
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black outline-none focus:border-emerald-500 text-slate-800" 
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black outline-none focus:border-emerald-500 text-slate-800 disabled:opacity-50" 
                   placeholder="Ej. 2" 
                 />
               </div>
@@ -206,14 +208,14 @@ const ModalesCaja = ({
             </div>
 
             <div className="flex gap-4">
-              <button type="button" onClick={() => { setInsumoComprar(null); setPaquetesComprados(''); }} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-              <button type="submit" disabled={!paquetesComprados || Number(paquetesComprados) <= 0} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition flex justify-center items-center gap-2"><CheckCircle2 size={24}/> Guardar</button>
+              <button disabled={isSubmitting} type="button" onClick={() => { setInsumoComprar(null); setPaquetesComprados(''); }} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+              <button type="submit" disabled={!paquetesComprados || Number(paquetesComprados) <= 0 || isSubmitting} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition flex justify-center items-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* MODAL: AGREGAR EXTRA DE ÚLTIMO MINUTO (FILTRADO POR PERMITE_EXTRA) */}
+      {/* MODAL: AGREGAR EXTRA DE ÚLTIMO MINUTO */}
       {modalAgregarExtra && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
           <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg animate-in zoom-in duration-200">
@@ -250,8 +252,9 @@ const ModalesCaja = ({
                 return extrasDisponibles.map(extra => (
                   <button 
                     key={extra.id} 
+                    disabled={isSubmitting}
                     onClick={() => confirmarAgregarExtra(modalAgregarExtra.pedidoOriginal, modalAgregarExtra.itemIndex, extra)}
-                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition group text-left"
+                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition group text-left disabled:opacity-50"
                   >
                     <span className="font-black text-slate-700 group-hover:text-emerald-800">{extra.nombre}</span>
                     <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-emerald-600 group-hover:text-white transition">
@@ -263,7 +266,7 @@ const ModalesCaja = ({
             </div>
 
             <div className="flex gap-4">
-              <button onClick={() => setModalAgregarExtra(null)} className="w-full py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+              <button disabled={isSubmitting} onClick={() => setModalAgregarExtra(null)} className="w-full py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
             </div>
           </div>
         </div>
@@ -289,7 +292,7 @@ const ModalesCaja = ({
               </div>
             </div>
 
-            <p className="text-sm font-bold text-slate-500 mb-4 uppercase tracking-widest">Selecciona la zona correspondiente:</p>
+            <p className="text-sm font-bold text-slate-50 mb-4 uppercase tracking-widest">Selecciona la zona correspondiente:</p>
             
             <div className="space-y-3 mb-8 max-h-60 overflow-y-auto pr-2">
               {getTarifasEnvio().length === 0 ? (
@@ -301,8 +304,9 @@ const ModalesCaja = ({
                 getTarifasEnvio().map((tarifa, index) => (
                   <button 
                     key={index} 
+                    disabled={isSubmitting}
                     onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, tarifa)}
-                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition group"
+                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition group disabled:opacity-50"
                   >
                     <span className="font-black text-slate-700 group-hover:text-purple-800">{tarifa.zona}</span>
                     <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-purple-600 group-hover:text-white transition">
@@ -314,9 +318,9 @@ const ModalesCaja = ({
             </div>
 
             <div className="flex gap-4">
-              <button onClick={() => setModalZonaEnvio(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+              <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
               {getTarifasEnvio().length === 0 && (
-                 <button onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, {zona: 'Sin Zona', costo: 0})} className="flex-[2] py-5 bg-purple-600 text-white font-black text-xl rounded-2xl hover:bg-purple-700 shadow-lg transition">Mandar a Cocina (Envío $0)</button>
+                 <button disabled={isSubmitting} onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, {zona: 'Sin Zona', costo: 0})} className="flex-[2] py-5 bg-purple-600 text-white font-black text-xl rounded-2xl hover:bg-purple-700 shadow-lg transition disabled:opacity-50">Mandar a Cocina (Envío $0)</button>
               )}
             </div>
           </div>
@@ -333,7 +337,7 @@ const ModalesCaja = ({
             <div className="space-y-4 mb-8">
               <div>
                 <label className="block text-sm font-black text-slate-400 uppercase mb-2">1. Platillo con el problema</label>
-                <select required value={itemAfectadoIdx} onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} disabled={modalResolver.alerta_cocina.includes('[IDX:')} className={`w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none text-slate-700 ${modalResolver.alerta_cocina.includes('[IDX:') ? 'opacity-70 cursor-not-allowed' : 'focus:border-blue-500'}`}>
+                <select required value={itemAfectadoIdx} onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} disabled={modalResolver.alerta_cocina.includes('[IDX:') || isSubmitting} className={`w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none text-slate-700 ${modalResolver.alerta_cocina.includes('[IDX:') ? 'opacity-70 cursor-not-allowed' : 'focus:border-blue-500'}`}>
                   <option value="">Selecciona el platillo...</option>
                   {(modalResolver.carrito || []).map((item, idx) => {
                     const extrasStr = (item.extras || []).map(e => e.nombre).join(', ');
@@ -353,7 +357,7 @@ const ModalesCaja = ({
                       if (propuestaChef && propuestaChef !== 'Ninguna' && propuestaChef !== 'Solo quitarlo') {
                         return (
                           <label className={`w-full flex items-center gap-3 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'aceptar' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}>
-                            <input type="radio" name="accion" value="aceptar" checked={accionAlerta === 'aceptar'} onChange={() => setAccionAlerta('aceptar')} className="hidden" /><CheckCircle2 size={20}/> Aceptar Propuesta: {propuestaChef}
+                            <input disabled={isSubmitting} type="radio" name="accion" value="aceptar" checked={accionAlerta === 'aceptar'} onChange={() => setAccionAlerta('aceptar')} className="hidden" /><CheckCircle2 size={20}/> Aceptar Propuesta: {propuestaChef}
                           </label>
                         );
                       }
@@ -361,15 +365,15 @@ const ModalesCaja = ({
                     })()}
                     
                     <div className="flex gap-3">
-                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'quitar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input type="radio" name="accion" value="quitar" checked={accionAlerta === 'quitar'} onChange={() => setAccionAlerta('quitar')} className="hidden" /> Quitar Faltante</label>
-                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'cambiar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input type="radio" name="accion" value="cambiar" checked={accionAlerta === 'cambiar'} onChange={() => setAccionAlerta('cambiar')} className="hidden" /> Cambiarlo por...</label>
+                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'quitar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input disabled={isSubmitting} type="radio" name="accion" value="quitar" checked={accionAlerta === 'quitar'} onChange={() => setAccionAlerta('quitar')} className="hidden" /> Quitar Faltante</label>
+                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'cambiar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input disabled={isSubmitting} type="radio" name="accion" value="cambiar" checked={accionAlerta === 'cambiar'} onChange={() => setAccionAlerta('cambiar')} className="hidden" /> Cambiarlo por...</label>
                     </div>
                   </div>
 
                   {accionAlerta === 'cambiar' && (
                     <div className="animate-in fade-in zoom-in duration-200 mt-4 pt-4 border-t border-slate-200">
                       <label className="block text-xs font-black text-slate-400 uppercase mb-2">Opciones Base de este Platillo</label>
-                      <select required value={ingredienteReemplazo} onChange={(e) => setIngredienteReemplazo(e.target.value)} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700 shadow-sm">
+                      <select disabled={isSubmitting} required value={ingredienteReemplazo} onChange={(e) => setIngredienteReemplazo(e.target.value)} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700 shadow-sm">
                         <option value="">Selecciona reemplazo...</option>
                         {(() => {
                           const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
@@ -385,8 +389,8 @@ const ModalesCaja = ({
             </div>
 
             <div className="flex gap-4">
-              <button type="button" onClick={() => {setModalResolver(null); setItemAfectadoIdx('');}} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-              <button type="submit" disabled={itemAfectadoIdx === '' || (accionAlerta==='cambiar' && !ingredienteReemplazo)} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition flex items-center justify-center gap-2"><MessageSquare size={24}/> Enviar Respuesta</button>
+              <button disabled={isSubmitting} type="button" onClick={() => {setModalResolver(null); setItemAfectadoIdx('');}} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+              <button type="submit" disabled={itemAfectadoIdx === '' || (accionAlerta==='cambiar' && !ingredienteReemplazo) || isSubmitting} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition flex items-center justify-center gap-2"><MessageSquare size={24}/> {isSubmitting ? 'Enviando...' : 'Enviar Respuesta'}</button>
             </div>
           </form>
         </div>
@@ -412,23 +416,23 @@ const ModalesCaja = ({
               <div className="space-y-6 text-center">
                 <p className="font-black text-slate-400 uppercase tracking-widest text-sm mb-4">Selecciona el método de pago final:</p>
                 <div className="grid grid-cols-3 gap-4 mb-4">
-                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Efectivo'})} className="bg-emerald-50 hover:border-emerald-500 border-2 border-transparent text-emerald-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><DollarSign size={32}/> Efectivo</button>
-                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Tarjeta'})} className="bg-blue-50 hover:border-blue-500 border-2 border-transparent text-blue-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><CreditCard size={32}/> Tarjeta</button>
-                    <button onClick={() => setModalPago({...modalPago, metodo_pago: 'Transferencia'})} className="bg-purple-50 hover:border-purple-500 border-2 border-transparent text-purple-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95"><Smartphone size={32}/> Transf.</button>
+                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Efectivo'})} className="bg-emerald-50 hover:border-emerald-500 border-2 border-transparent text-emerald-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><DollarSign size={32}/> Efectivo</button>
+                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Tarjeta'})} className="bg-blue-50 hover:border-blue-500 border-2 border-transparent text-blue-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><CreditCard size={32}/> Tarjeta</button>
+                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Transferencia'})} className="bg-purple-50 hover:border-purple-500 border-2 border-transparent text-purple-700 p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Smartphone size={32}/> Transf.</button>
                 </div>
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
-                    <button onClick={() => setModalPago(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-                    <button onClick={() => procesarPago('Cancelado')} className="flex-1 py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition">Anular Pedido</button>
+                    <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                    <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50">Anular Pedido</button>
                 </div>
               </div>
             ) : modalPago.metodo_pago === 'Efectivo' ? (
               <div className="space-y-6 animate-in fade-in">
-                <div><label className="block text-sm font-black text-slate-400 uppercase mb-3">Monto Recibido</label><input type="number" autoFocus value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl p-6 text-center text-4xl font-black outline-none focus:border-blue-500 text-slate-800" placeholder="$0.00" /></div>
+                <div><label className="block text-sm font-black text-slate-400 uppercase mb-3">Monto Recibido</label><input type="number" autoFocus disabled={isSubmitting} value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl p-6 text-center text-4xl font-black outline-none focus:border-blue-500 text-slate-800 disabled:opacity-50" placeholder="$0.00" /></div>
                 <div className="grid grid-cols-4 gap-3">
-                  <button onClick={() => setMontoRecibido(modalPago.total)} className="bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">Exacto</button>
-                  <button onClick={() => setMontoRecibido(100)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$100</button>
-                  <button onClick={() => setMontoRecibido(200)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$200</button>
-                  <button onClick={() => setMontoRecibido(500)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg">$500</button>
+                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(modalPago.total)} className="bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-700 font-black py-4 rounded-xl transition text-lg disabled:opacity-50">Exacto</button>
+                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(100)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg disabled:opacity-50">$100</button>
+                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(200)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg disabled:opacity-50">$200</button>
+                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(500)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-4 rounded-xl transition text-lg disabled:opacity-50">$500</button>
                 </div>
                 {montoRecibido && Number(montoRecibido) >= Number(modalPago.total) && ( 
                   <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl text-center">
@@ -437,9 +441,9 @@ const ModalesCaja = ({
                   </div> 
                 )}
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
-                  <button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-                  <button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
-                  <button onClick={() => procesarPago()} disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total)} className="flex-1 py-5 bg-emerald-500 text-white font-black text-2xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Confirmar Cobro</button>
+                  <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
+                  <button disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total) || isSubmitting} onClick={() => procesarPago()} className="flex-1 py-5 bg-emerald-500 text-white font-black text-2xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> {isSubmitting ? 'Procesando...' : 'Confirmar Cobro'}</button>
                 </div>
               </div>
             ) : (
@@ -450,12 +454,85 @@ const ModalesCaja = ({
                   <p className="text-blue-700 font-medium">Verifica en la {modalPago.metodo_pago === 'Tarjeta' ? 'Terminal Bancaria' : 'App de tu Banco / WhatsApp'} que el cobro por <strong>${modalPago.total}</strong> haya sido exitoso.</p>
                 </div>
                 <div className="flex gap-4 pt-4 border-t border-slate-100">
-                  <button onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-                  <button onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
-                  <button onClick={() => procesarPago()} className="flex-1 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Pago Validado</button>
+                  <button disabled={isSubmitting} onClick={() => setModalPago(null)} className="py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="py-5 px-6 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50" title="Rechazar y Borrar Pedido"><XCircle size={28}/></button>
+                  <button disabled={isSubmitting} onClick={() => procesarPago()} className="flex-1 py-5 bg-blue-600 text-white font-black text-2xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={28}/> {isSubmitting ? 'Validando...' : 'Pago Validado'}</button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* VISUALIZAR DETALLE COMPLETO DEL PEDIDO (PLATILLOS) */}
+      {modalVerDetalle && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg h-[80vh] flex flex-col animate-in zoom-in duration-200">
+            
+            {/* Encabezado */}
+            <div className="flex justify-between items-center border-b pb-5 mb-5 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 text-blue-700 w-12 h-12 rounded-full flex items-center justify-center shadow-inner">
+                    <ShoppingBag size={24} />
+                </div>
+                <div>
+                    <h2 className="text-2xl font-black text-slate-800">Detalle de Platillos</h2>
+                    <p className="text-sm font-bold text-slate-500">Orden #{modalVerDetalle.numero_pedido} - {modalVerDetalle.cliente_nombre || 'Invitado'}</p>
+                </div>
+              </div>
+              <button onClick={() => setModalVerDetalle(null)} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-2.5 rounded-full transition">
+                <XCircle size={24} />
+              </button>
+            </div>
+
+            {/* Contenido Scrolleable (Lista de Platillos) */}
+            <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+              {(() => {
+                const items = typeof modalVerDetalle.carrito === 'string' ? JSON.parse(modalVerDetalle.carrito) : modalVerDetalle.carrito;
+                if (!items || items.length === 0) return <p className="text-center text-slate-400 py-10 font-bold">Este pedido no tiene platillos registrados.</p>;
+                
+                return items.map((item, idx) => (
+                    <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start gap-3">
+                            <p className="text-base font-black text-slate-800 leading-snug">
+                                {item.cantidad || 1}x {item.nombre}
+                            </p>
+                            <span className="text-xs font-black text-blue-600 bg-blue-100 px-3 py-1 rounded-lg shrink-0">
+                                ${Number(item.precioFinal || item.precio_base || item.precio || 0).toFixed(2)}
+                            </span >
+                        </div>
+                        
+                        {/* Extras del Platillo */}
+                        {item.extras && item.extras.length > 0 && (
+                            <div className="mt-3 pl-3 border-l-2 border-slate-200 space-y-1">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Extras Solicitados:</p>
+                                {item.extras.map((extra, eIdx) => (
+                                    <p key={eIdx} className="text-xs font-bold text-slate-600 flex justify-between items-center bg-white p-1.5 rounded-md border border-slate-100">
+                                        <span>+ {extra.nombre}</span>
+                                        {Number(extra.precioExtra || extra.precio || 0) > 0 && (
+                                            <span className="text-emerald-600 font-black">+${Number(extra.precioExtra || extra.precio || 0).toFixed(2)}</span>
+                                        )}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
+                        
+                        {/* Notas especiales del platillo si existen en tu JSON */}
+                        {item.nota && (
+                            <div className="mt-3 bg-orange-50 p-2.5 rounded-xl border border-orange-100 text-orange-800 text-xs font-medium">
+                                <strong>Nota:</strong> {item.nota}
+                            </div>
+                        )}
+                    </div>
+                ));
+              })()}
+            </div>
+
+            {/* Pie de Modal (Total) */}
+            <div className="border-t pt-5 mt-5 flex justify-between items-center shrink-0">
+                <p className="text-sm font-bold text-slate-500">Monto Total Cobrado:</p>
+                <p className="text-3xl font-black text-blue-600">${Number(modalVerDetalle.total).toFixed(2)}</p>
+            </div>
           </div>
         </div>
       )}

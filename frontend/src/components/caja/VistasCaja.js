@@ -1,5 +1,5 @@
 import React from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle } from 'lucide-react'; // 👇 Añadimos PlusCircle para el botón
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye } from 'lucide-react'; 
 
 const VistasCaja = ({
   vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, pedidosConAlerta, pedidosPorConfirmar,
@@ -7,7 +7,9 @@ const VistasCaja = ({
   gastosDia, 
   abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion,
   setModalZonaEnvio,
-  setModalAgregarExtra // 👇 NUEVO: Recibimos la función para abrir el modal
+  setModalAgregarExtra,
+  isSubmitting,
+  setModalVerDetalle // 👇 NUEVO: RECIBIMOS LA FUNCIÓN PARA ABRIR EL DETALLE
 }) => {
 
   const getIconoPago = (metodo) => { 
@@ -32,35 +34,37 @@ const VistasCaja = ({
       ));
   };
 
-  // 👇 NUEVA FUNCIÓN: Renderiza los platillos con el botón de "Agregar Extra" en Entregas
-  const renderItemsEntregas = (pedido) => {
+  // 👇 MODIFICADO: FUNCIÓN MÁS PEQUEÑA SOLO PARA AGREGAR EXTRA, SIN MOSTRAR DETALLE COMPLETO AQUÍ
+  const renderBotonAgregarExtra = (pedido) => {
       if (!pedido.carrito) return null;
       const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
       
-      return items.map((item, idx) => (
-         <div key={idx} className="mb-3 text-left bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-           <div className="flex justify-between items-start gap-2">
-             <div>
-               <p className="text-base font-black text-slate-800">{item.cantidad || 1}x {item.nombre}</p>
-               {item.extras && item.extras.length > 0 && (
-                   <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1 ml-2 border-l-2 border-slate-200 pl-2 leading-relaxed">
-                     {item.extras.map(e => e.nombre).join(' • ')}
-                   </p>
-               )}
-             </div>
-             
-             {/* 👇 EL NUEVO BOTÓN PARA EL UPSELL */}
-             <button 
-                onClick={() => setModalAgregarExtra({ pedidoOriginal: pedido, itemIndex: idx, itemSeleccionado: item })}
-                className="bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-black transition flex items-center gap-1 shrink-0 border border-emerald-200"
-                title="Agregar extra de último minuto"
-             >
-                <PlusCircle size={14} /> Extra
-             </button>
-           </div>
-         </div>
-      ));
+      // Tomamos el primer item solo para poder abrir el modal de extras (el cajero seleccionará el item adentro)
+      if (items.length === 0) return null;
+      const item = items[0];
+
+      return (
+         <button 
+            disabled={isSubmitting}
+            onClick={() => setModalAgregarExtra({ pedidoOriginal: pedido, itemIndex: 0, itemSeleccionado: item })}
+            className="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border border-emerald-200 disabled:opacity-50"
+            title="Agregar extra de último minuto"
+         >
+            <PlusCircle size={15} /> Cobrar Extra
+         </button>
+      );
   };
+
+  // 👇 NUEVO: FUNCIÓN REUTILIZABLE PARA EL BOTÓN DE VER DETALLE
+  const renderBotonVerDetalle = (pedido) => (
+    <button 
+        onClick={() => setModalVerDetalle(pedido)}
+        className="w-full bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700 px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border border-slate-200 shadow-sm"
+        title="Ver qué lleva este pedido"
+    >
+        <Eye size={15} /> Ver Platillos
+    </button>
+  );
 
   const totalGastos = (gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
 
@@ -85,7 +89,7 @@ const VistasCaja = ({
 
       <div className="flex-1 overflow-y-auto p-10">
         
-        {/* VISTA: POR CONFIRMAR */}
+        {/* VISTA: POR CONFIRMAR (Mantenida igual por ahora) */}
         {vistaActiva === 'confirmar' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Verificar Pedidos</h2>
@@ -143,11 +147,11 @@ const VistasCaja = ({
                     <p className="text-4xl font-black text-blue-600 mb-6 text-center">${p.total}</p>
                     
                     <div className="mt-auto grid grid-cols-2 gap-3">
-                       <button onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition">Rechazar</button>
+                       <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition disabled:opacity-50">Rechazar</button>
                        {esDomicilio ? (
-                          <button onClick={() => setModalZonaEnvio(p)} className="py-4 bg-purple-600 text-white font-black rounded-2xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition active:scale-95 text-sm leading-tight">Asignar Envío<br/>y Aceptar</button>
+                          <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(p)} className="py-4 bg-purple-600 text-white font-black rounded-2xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition active:scale-95 text-sm leading-tight disabled:opacity-50">Asignar Envío<br/>y Aceptar</button>
                        ) : (
-                          <button onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95">Mandar a Cocina</button>
+                          <button disabled={isSubmitting} onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50">Mandar a Cocina</button>
                        )}
                     </div>
                   </div>
@@ -178,7 +182,13 @@ const VistasCaja = ({
                   <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
                     <div className="flex justify-between items-start mb-4"><h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3><span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>{getIconoPago(p.metodo_pago)} {p.metodo_pago}</span></div>
                     <p className="font-bold text-slate-600 text-lg mb-1">{p.cliente_nombre || 'Invitado'}</p>
-                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">{p.tipo_consumo}</p>
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">{p.tipo_consumo}</p>
+                    
+                    {/* 👇 NUEVO BOTÓN DE VER DETALLE */}
+                    <div className="mb-4">
+                      {renderBotonVerDetalle(p)}
+                    </div>
+
                     {p.tipo_consumo === 'Domicilio' && (
                       <div className="mb-4">
                         <div className="text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">📍 {direccionPura}</div>
@@ -189,7 +199,10 @@ const VistasCaja = ({
                         )}
                       </div>
                     )}
-                    <div className="mt-auto pt-6 border-t border-slate-100"><p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p><button onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>{p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : <><CheckCircle2 size={24}/> Validar Pago</>}</button></div>
+                    <div className="mt-auto pt-6 border-t border-slate-100">
+                      <p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p>
+                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>{p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : <><CheckCircle2 size={24}/> Validar Pago</>}</button>
+                    </div>
                   </div>
                 )})}
               </div>
@@ -197,7 +210,7 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* VISTA: ENTREGAS (MODIFICADA CON EL BOTÓN UPSELL) */}
+        {/* VISTA: ENTREGAS */}
         {vistaActiva === 'entregas' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Listos para Entregar</h2>
@@ -225,10 +238,10 @@ const VistasCaja = ({
                     <p className="font-black text-slate-800 text-2xl mb-1">{p.cliente_nombre || 'Invitado'}</p>
                     <p className="font-black text-blue-600 text-xl mb-4">Total de la Nota: ${p.total}</p>
 
-                    {/* 👇 NUEVO: DESGLOSE DEL PEDIDO PARA PODER AGREGAR EXTRAS DE ÚLTIMO MINUTO */}
-                    <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200">
-                      <p className="text-xs font-black text-orange-700 uppercase tracking-widest mb-3">Detalle (Upsell):</p>
-                      {renderItemsEntregas(p)}
+                    {/* 👇 MODIFICADO: MOSTRAMOS SOLO BOTONES DE ACCIÓN (VER DETALLE Y EXTRA) */}
+                    <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200 grid grid-cols-2 gap-3">
+                       {renderBotonVerDetalle(p)}
+                       {renderBotonAgregarExtra(p)}
                     </div>
 
                     {/* Desglose de Domicilio */}
@@ -254,9 +267,9 @@ const VistasCaja = ({
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
                        {p.metodo_pago === 'Pendiente' ? (
-                          <button onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95"><DollarSign size={28}/> Cobrar y Entregar</button>
+                          <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
                        ) : (
-                          <button onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95"><Check size={28}/> Marcar como Entregado</button>
+                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Check size={28}/> Marcar como Entregado</button>
                        )}
                     </div>
                   </div>
@@ -280,19 +293,30 @@ const VistasCaja = ({
                 <p className="text-slate-400 font-bold col-span-2 text-center mt-10">No hay pedidos en esta sección.</p>
               ) : (
                 pedidos.filter(p => p.estado_preparacion === subVistaHistorial).map(p => (
-                  <div key={p.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex justify-between items-center">
-                    <div><div className="flex items-center gap-3 mb-1"><p className="text-2xl font-black text-slate-800">#{p.numero_pedido}</p><span className="text-[10px] bg-slate-100 font-black px-2 py-1 rounded-md uppercase text-slate-500">{p.tipo_consumo}</span></div><p className="font-bold text-slate-600">{p.cliente_nombre || 'Invitado'}</p><p className="text-sm font-bold text-blue-600 mt-1">${p.total} • {p.metodo_pago}</p></div>
-                    <div className="text-right">
-                       {subVistaHistorial === 'Pagado' && <Clock className="text-slate-400 mb-2 inline-block"/>}
-                       {subVistaHistorial === 'Preparando' && <ChefHat className="text-orange-400 mb-2 inline-block"/>}
-                       {subVistaHistorial === 'Listo' && <BellRing className="text-blue-500 mb-2 inline-block"/>}
-                       {subVistaHistorial === 'Entregado' && <CheckCircle2 className="text-emerald-500 mb-2 inline-block"/>}
-                       <p className="text-xs font-bold text-slate-400 uppercase">{subVistaHistorial === 'Pagado' ? 'Esperando Cocina' : subVistaHistorial}</p>
-                       {configGlobal?.ticket_impresion_activa && (
-                          <button onClick={() => lanzarImpresion(p)} className="mt-3 bg-slate-100 text-slate-600 hover:bg-slate-200 px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1 ml-auto transition">
-                             <FileText size={14}/> Imprimir
-                          </button>
-                       )}
+                  <div key={p.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-1">
+                            <p className="text-2xl font-black text-slate-800">#{p.numero_pedido}</p>
+                            <span className="text-[10px] bg-slate-100 font-black px-2 py-1 rounded-md uppercase text-slate-500">{p.tipo_consumo}</span>
+                        </div>
+                        <p className="font-bold text-slate-600">{p.cliente_nombre || 'Invitado'}</p>
+                        <p className="text-sm font-bold text-blue-600 mt-1">${p.total} • {p.metodo_pago}</p>
+                    </div>
+
+                    {/* 👇 NUEVO: CONTENEDOR DE ACCIONES EN HISTORIAL */}
+                    <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto">
+                        <p className="text-xs font-bold text-slate-400 uppercase text-right w-full">{subVistaHistorial === 'Pagado' ? 'Esperando Cocina' : subVistaHistorial}</p>
+                        
+                        <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
+                           {/* 👇 BOTÓN VER DETALLE EN HISTORIAL */}
+                           {renderBotonVerDetalle(p)}
+                           
+                           {configGlobal?.ticket_impresion_activa && (
+                              <button onClick={() => lanzarImpresion(p)} className="bg-slate-800 text-white hover:bg-slate-700 px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition shadow-md w-full sm:w-auto">
+                                 <FileText size={15}/> Reimprimir
+                              </button>
+                           )}
+                        </div>
                     </div>
                   </div>
                 ))
