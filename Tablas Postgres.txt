@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS configuracion (
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
     mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
 
-    -- 👇 NUEVO: Programa de Lealtad (Puntos)
+    -- Programa de Lealtad (Puntos)
     puntos_activos BOOLEAN DEFAULT true,
     puntos_canje_activo BOOLEAN DEFAULT true,
     puntos_porcentaje DECIMAL(10,2) DEFAULT 10,
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     costo_envio DECIMAL(10,2) DEFAULT 0, 
     descuento_puntos INTEGER DEFAULT 0,
     
-    -- 👇 NUEVO: Soporte para pagos mixtos y cupones
+    -- Soporte para pagos mixtos y cupones
     cupon_codigo VARCHAR(50), 
     pagos_mixtos JSONB,
 
@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 👇 NUEVO: ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
+-- ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
 CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
 
 CREATE TABLE IF NOT EXISTS detalle_pedidos (
@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS promociones (
   nombre VARCHAR(150) NOT NULL,
   tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('upselling', 'happy_hour')),
   producto_trigger_id INTEGER NULL,
+  categoria_trigger VARCHAR(50) NULL, -- 👇 NUEVO: Trigger por Categoría
   producto_oferta_id INTEGER NOT NULL,
   tipo_descuento VARCHAR(20) NOT NULL CHECK (tipo_descuento IN ('porcentaje', 'precio_fijo')),
   valor_descuento DECIMAL(10,2) NOT NULL,

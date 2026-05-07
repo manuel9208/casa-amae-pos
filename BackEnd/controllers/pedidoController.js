@@ -1,16 +1,5 @@
 const db = require('../config/db');
 
-// 👇 AUTO-MIGRACIÓN: Aseguramos que la tabla pedidos soporte pagos mixtos sin romper nada
-const asegurarColumnaPagosMixtos = async () => {
-  try {
-    await db.query(`ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS pagos_mixtos JSONB NULL;`);
-    console.log("Estructura de Pedidos (Pagos Mixtos) verificada.");
-  } catch (error) {
-    console.error("Nota: Columna pagos_mixtos ya existe o hubo un error silencioso.", error.message);
-  }
-};
-asegurarColumnaPagosMixtos();
-
 exports.obtenerPedidosHoy = async (req, res) => { 
   try { 
     const result = await db.query("SELECT p.*, c.nombre as cliente_nombre FROM pedidos p LEFT JOIN clientes c ON p.cliente_id = c.id WHERE DATE(p.fecha_creacion) = CURRENT_DATE ORDER BY p.fecha_creacion DESC"); 
@@ -135,10 +124,9 @@ exports.actualizarEstado = async (req, res) => {
       pIdx++;
     }
 
-    // 👇 Agregamos soporte para pagos mixtos en las actualizaciones de estado (caja)
     if (pagos_mixtos !== undefined) {
       query += `, pagos_mixtos = $${pIdx}`;
-      params.push(pagos_mixtos); // Ya viene como JSON string desde el frontend
+      params.push(pagos_mixtos); 
       pIdx++;
     }
 

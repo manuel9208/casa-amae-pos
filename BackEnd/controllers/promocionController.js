@@ -18,14 +18,14 @@ exports.obtenerPromociones = async (req, res) => {
 };
 
 exports.crearPromocion = async (req, res) => {
-  const { nombre, tipo, producto_trigger_id, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin } = req.body;
+  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin } = req.body;
   
   try {
     const result = await db.query(
       `INSERT INTO promociones 
-      (nombre, tipo, producto_trigger_id, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9) RETURNING *`,
-      [nombre, tipo, producto_trigger_id || null, producto_oferta_id, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin]
+      (nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) RETURNING *`,
+      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin]
     );
     res.json(result.rows[0]);
   } catch (error) {

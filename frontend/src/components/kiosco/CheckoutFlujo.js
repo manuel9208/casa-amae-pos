@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChefHat, Gift } from 'lucide-react'; // 👇 Agregamos el icono Gift para la promo
+import { ChefHat, Gift } from 'lucide-react'; 
 
 const CheckoutFlujo = ({
   pantallaActual, setPantallaActual,
@@ -8,7 +8,6 @@ const CheckoutFlujo = ({
   direccionesGuardadas, setDireccionesGuardadas,
   carrito, calcularTotal, 
   
-  // 👇 Recibimos setCarrito y productos para poder inyectar la oferta
   setCarrito,
   productos,
   
@@ -29,13 +28,12 @@ const CheckoutFlujo = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // =========================================================
-  // 👇 NUEVO: ESTADOS Y LÓGICA DE UPSELLING (VENTA CRUZADA)
+  // ESTADOS Y LÓGICA DE UPSELLING (VENTA CRUZADA)
   // =========================================================
   const [promociones, setPromociones] = useState([]);
   const [upsellMostrado, setUpsellMostrado] = useState(false);
   const [promocionVigente, setPromocionVigente] = useState(null);
 
-  // 1. Cargamos las promociones activas desde el backend
   useEffect(() => {
     fetch(`${apiUrl}/promociones`)
       .then(res => res.json())
@@ -43,7 +41,6 @@ const CheckoutFlujo = ({
       .catch(e => console.error("Error cargando promociones:", e));
   }, [apiUrl]);
 
-  // 2. Evaluamos si el carrito cumple las condiciones de la promo
   useEffect(() => {
     if (pantallaActual === 'consumo' && !upsellMostrado && promociones.length > 0) {
        const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -52,7 +49,7 @@ const CheckoutFlujo = ({
        const horaActual = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
        const promocionesValidas = promociones.filter(p => {
-           if (!p.activo || p.tipo !== 'upselling') return false; // Solo procesamos Upselling aquí
+           if (!p.activo || p.tipo !== 'upselling') return false; 
            
            // Validar Día
            let diasActivos = [];
@@ -62,31 +59,37 @@ const CheckoutFlujo = ({
            // Validar Hora
            if (horaActual < p.hora_inicio || horaActual > p.hora_fin) return false;
 
-           // Validar Trigger (Condición)
+           // Validar Trigger (Global, Producto Específico o Categoría)
            if (p.producto_trigger_id) {
-               const tieneTrigger = carrito.some(item => item.id === p.producto_trigger_id);
-               if (!tieneTrigger) return false;
+               const tieneTriggerProd = carrito.some(item => Number(item.id) === Number(p.producto_trigger_id));
+               if (!tieneTriggerProd) return false;
+           } else if (p.categoria_trigger) {
+               // Normalizamos a minúsculas para evitar errores por mayúsculas
+               const catTriggerLimpia = String(p.categoria_trigger).trim().toLowerCase();
+               const tieneTriggerCat = carrito.some(item => {
+                  const catItem = String(item.categoria || item.clasificacion || '').trim().toLowerCase();
+                  return catItem === catTriggerLimpia;
+               });
+               if (!tieneTriggerCat) return false;
            }
 
-           // Validar que NO tenga ya la oferta en el carrito (Para no molestar al cliente)
-           const yaTieneOferta = carrito.some(item => item.id === p.producto_oferta_id);
+           // Validar que NO tenga ya la oferta en el carrito
+           const yaTieneOferta = carrito.some(item => Number(item.id) === Number(p.producto_oferta_id));
            if (yaTieneOferta) return false;
 
            return true;
        });
 
        if (promocionesValidas.length > 0) {
-           setPromocionVigente(promocionesValidas[0]); // Mostramos solo la primera que haga match
+           setPromocionVigente(promocionesValidas[0]); 
        }
-       setUpsellMostrado(true); // Marcamos como mostrado para no spamear al cliente si regresa
+       setUpsellMostrado(true); 
     }
   }, [pantallaActual, promociones, carrito, upsellMostrado]);
 
-  // 3. Función para inyectar el producto promocional al carrito
   const agregarUpsellAlCarrito = () => {
     let precioFinal = Number(promocionVigente.valor_descuento);
 
-    // Si es un descuento en porcentaje, calculamos el precio base
     if (promocionVigente.tipo_descuento === 'porcentaje') {
        let precioBase = 0;
        if (productos && productos.length > 0) {
@@ -100,9 +103,9 @@ const CheckoutFlujo = ({
        idTicket: Math.random().toString(36).substr(2, 9),
        id: promocionVigente.producto_oferta_id,
        nombre: promocionVigente.oferta_nombre,
-       precioFinal: Math.max(0, precioFinal), // Evitamos números negativos
+       precioFinal: Math.max(0, precioFinal), 
        cantidad: 1,
-       extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }] // Le ponemos una etiqueta bonita en el ticket
+       extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }]
     };
 
     if (typeof setCarrito === 'function') {
@@ -111,7 +114,7 @@ const CheckoutFlujo = ({
        console.warn("ADVERTENCIA: setCarrito no fue pasado a CheckoutFlujo. El item no se agregó.");
     }
 
-    setPromocionVigente(null); // Cerramos el modal
+    setPromocionVigente(null); 
   };
 
   // =========================================================
@@ -251,7 +254,6 @@ const CheckoutFlujo = ({
     setPantallaActual('finalizado'); 
   };
 
-  // CAPTURA DE TELÉFONO PARA INVITADOS
   if (pasoTelefono) {
     return (
         <div className="max-w-xl mx-auto mt-10 text-center animate-in zoom-in">
@@ -279,12 +281,11 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA PRINCIPAL: ¿CÓMO DISFRUTARÁS TU PEDIDO?
   if (pantallaActual === 'consumo') {
     return (
       <div className="max-w-5xl mx-auto mt-10 text-center animate-in fade-in relative">
         
-        {/* 👇 MODAL DE UPSELLING (VENTA CRUZADA) */}
+        {/* MODAL DE UPSELLING (VENTA CRUZADA) */}
         {promocionVigente && (
           <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300">
@@ -334,7 +335,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: AVISO DE COSTO DE ENVÍO
   if (pantallaActual === 'aviso_domicilio') {
     return (
       <div className="max-w-lg mx-auto mt-20 text-center animate-in zoom-in">
@@ -353,7 +353,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: DIRECCIÓN
   if (pantallaActual === 'direccion') {
     return (
       <div className="max-w-xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
@@ -380,7 +379,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: SELECCIONAR PAGO
   if (pantallaActual === 'pago') {
     return (
       <div className="max-w-3xl mx-auto mt-10 animate-in fade-in">
@@ -419,7 +417,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: EFECTIVO A DOMICILIO (CAMBIO)
   if (pantallaActual === 'cambio_efectivo_domicilio') {
     return (
       <div className="max-w-3xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
@@ -443,7 +440,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: TRANSFERENCIA BANCARIA
   if (pantallaActual === 'detalles_transferencia') {
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-10 rounded-[40px] shadow-2xl border border-blue-100 text-center animate-in zoom-in">
@@ -462,7 +458,6 @@ const CheckoutFlujo = ({
     );
   }
 
-  // PANTALLA: FINALIZADO
   if (pantallaActual === 'finalizado') {
     return (
       <div className="max-w-2xl mx-auto mt-20 text-center animate-in zoom-in">

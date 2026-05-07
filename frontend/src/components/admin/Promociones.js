@@ -3,14 +3,20 @@ import { Gift, Trash2, Clock, ArrowUpRight, Tag, Zap, AlertCircle } from 'lucide
 
 const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => {
   const [promociones, setPromociones] = useState([]);
+  const [clasificaciones, setClasificaciones] = useState([]); // 👇 NUEVO: Para las categorías
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const diasSemana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  // 👇 NUEVOS ESTADOS PARA UI
+  const [tipoCondicion, setTipoCondicion] = useState('global'); // 'global', 'categoria', 'producto'
+  const [todoElDia, setTodoElDia] = useState(false);
 
   const estadoInicialFormulario = {
     nombre: '',
     tipo: 'upselling',
     producto_trigger_id: '',
+    categoria_trigger: '', // 👇 NUEVO
     producto_oferta_id: '',
     tipo_descuento: 'porcentaje',
     valor_descuento: '',
@@ -21,21 +27,35 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
 
   const [formulario, setFormulario] = useState(estadoInicialFormulario);
 
-  const cargarPromociones = useCallback(async () => {
+  const cargarDatos = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/promociones`);
-      if (res.ok) {
-        const data = await res.json();
+      const [resPromo, resClasif] = await Promise.all([
+        fetch(`${apiUrl}/promociones`),
+        fetch(`${apiUrl}/clasificaciones`)
+      ]);
+      if (resPromo.ok) {
+        const data = await resPromo.json();
         setPromociones(Array.isArray(data) ? data : []);
       }
+      if (resClasif.ok) {
+        const dataC = await resClasif.json();
+        setClasificaciones(Array.isArray(dataC) ? dataC : []);
+      }
     } catch (error) {
-      console.error("Error al cargar promociones:", error);
+      console.error("Error al cargar datos de promociones:", error);
     }
   }, [apiUrl]);
 
   useEffect(() => {
-    cargarPromociones();
-  }, [cargarPromociones]);
+    cargarDatos();
+  }, [cargarDatos]);
+
+  // Manejador de la casilla "Todo el día"
+  useEffect(() => {
+    if (todoElDia) {
+      setFormulario(prev => ({ ...prev, hora_inicio: '00:00', hora_fin: '23:59' }));
+    }
+  }, [todoElDia]);
 
   const handleDiaToggle = (dia) => {
     setFormulario(prev => {
@@ -58,11 +78,20 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
       return showAlert("Atención", "Debes seleccionar el producto que se ofrecerá con descuento.", "warning");
     }
 
+    if (tipoCondicion === 'producto' && !formulario.producto_trigger_id) {
+      return showAlert("Atención", "Selecciona el producto que detonará la oferta.", "warning");
+    }
+
+    if (tipoCondicion === 'categoria' && !formulario.categoria_trigger) {
+      return showAlert("Atención", "Selecciona la categoría que detonará la oferta.", "warning");
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
         ...formulario,
-        producto_trigger_id: formulario.producto_trigger_id ? Number(formulario.producto_trigger_id) : null,
+        producto_trigger_id: tipoCondicion === 'producto' ? Number(formulario.producto_trigger_id) : null,
+        categoria_trigger: tipoCondicion === 'categoria' ? formulario.categoria_trigger : null,
         producto_oferta_id: Number(formulario.producto_oferta_id),
         valor_descuento: Number(formulario.valor_descuento)
       };
@@ -76,7 +105,9 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
       if (res.ok) {
         showAlert("¡Éxito!", "Promoción creada y activada correctamente.", "success");
         setFormulario(estadoInicialFormulario);
-        cargarPromociones();
+        setTipoCondicion('global');
+        setTodoElDia(false);
+        cargarDatos();
       } else {
         const data = await res.json();
         showAlert("Error", data.error || "No se pudo crear la promoción.", "error");
@@ -94,7 +125,7 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activo: !estadoActual })
       });
-      if (res.ok) cargarPromociones();
+      if (res.ok) cargarDatos();
     } catch (error) {
       showAlert("Error", "No se pudo actualizar el estado.", "error");
     }
@@ -106,7 +137,7 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
         const res = await fetch(`${apiUrl}/promociones/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminada", "Promoción borrada del sistema.", "success");
-          cargarPromociones();
+          cargarDatos();
         }
       } catch (error) {
         showAlert("Error", "No se pudo eliminar la promoción.", "error");
@@ -114,7 +145,6 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
     });
   };
 
-  // Helper para mostrar monedas
   const formatDinero = (val) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
 
   return (
@@ -162,15 +192,40 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Condición (Si compran...) </label>
-                <select value={formulario.producto_trigger_id} onChange={e => setFormulario({...formulario, producto_trigger_id: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700" disabled={isSubmitting}>
-                  <option value="">Cualquier producto (Aplica Global)</option>
-                  {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Condición (Si compran...) *</label>
+                <select value={tipoCondicion} onChange={e => {
+                    setTipoCondicion(e.target.value);
+                    setFormulario({...formulario, producto_trigger_id: '', categoria_trigger: ''});
+                }} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700" disabled={isSubmitting}>
+                  <option value="global">Cualquier cosa (Aplica Global)</option>
+                  <option value="categoria">Toda una Categoría / Clasificación</option>
+                  <option value="producto">Solo un Producto Específico</option>
                 </select>
               </div>
             </div>
 
-            <div className="p-5 bg-orange-50 rounded-3xl border border-orange-100">
+            {/* 👇 RENDERIZADO DINÁMICO DE LA CONDICIÓN */}
+            {tipoCondicion === 'categoria' && (
+                <div className="animate-in fade-in zoom-in duration-200">
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Selecciona la Categoría Detonadora *</label>
+                  <select required value={formulario.categoria_trigger} onChange={e => setFormulario({...formulario, categoria_trigger: e.target.value})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700 shadow-sm" disabled={isSubmitting}>
+                    <option value="">-- Selecciona la categoría --</option>
+                    {clasificaciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                  </select>
+                </div>
+            )}
+
+            {tipoCondicion === 'producto' && (
+                <div className="animate-in fade-in zoom-in duration-200">
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Selecciona el Producto Detonador *</label>
+                  <select required value={formulario.producto_trigger_id} onChange={e => setFormulario({...formulario, producto_trigger_id: e.target.value})} className="w-full p-4 bg-white border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700 shadow-sm" disabled={isSubmitting}>
+                    <option value="">-- Selecciona el producto --</option>
+                    {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select>
+                </div>
+            )}
+
+            <div className="p-5 bg-orange-50 rounded-3xl border border-orange-100 mt-2">
                <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2 flex items-center gap-2"><ArrowUpRight size={16}/> Producto a Ofrecer/Descontar *</label>
                <select required value={formulario.producto_oferta_id} onChange={e => setFormulario({...formulario, producto_oferta_id: e.target.value})} className="w-full p-4 bg-white border border-orange-200 rounded-2xl outline-none focus:border-orange-500 font-black text-orange-700 mb-4 shadow-sm" disabled={isSubmitting}>
                   <option value="">-- Selecciona el producto --</option>
@@ -199,14 +254,23 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
           {/* COLUMNA DERECHA: Tiempos y Horarios */}
           <div className="space-y-6">
              <div>
-                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2"><Clock size={16}/> Horario de la Promoción *</label>
-                <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                   <label className="block text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Clock size={16}/> Horario de la Promoción *</label>
+                   
+                   {/* 👇 NUEVA CASILLA: TODO EL DÍA */}
+                   <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={todoElDia} onChange={(e) => setTodoElDia(e.target.checked)} className="w-4 h-4 accent-blue-600" disabled={isSubmitting}/>
+                      <span className="text-xs font-bold text-blue-600">Todo el día</span>
+                   </label>
+                </div>
+                
+                <div className={`flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-200 transition ${todoElDia ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
                    <div className="flex-1">
-                     <input required type="time" value={formulario.hora_inicio} onChange={e => setFormulario({...formulario, hora_inicio: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-black text-slate-700 text-center" disabled={isSubmitting}/>
+                     <input required type="time" value={formulario.hora_inicio} onChange={e => setFormulario({...formulario, hora_inicio: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-black text-slate-700 text-center" disabled={isSubmitting || todoElDia}/>
                    </div>
                    <span className="font-black text-slate-400">A</span>
                    <div className="flex-1">
-                     <input required type="time" value={formulario.hora_fin} onChange={e => setFormulario({...formulario, hora_fin: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-black text-slate-700 text-center" disabled={isSubmitting}/>
+                     <input required type="time" value={formulario.hora_fin} onChange={e => setFormulario({...formulario, hora_fin: e.target.value})} className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-black text-slate-700 text-center" disabled={isSubmitting || todoElDia}/>
                    </div>
                 </div>
                 <p className="text-[10px] font-bold text-slate-400 mt-2 text-center">Formato 24 horas. Ej. 18:00 a 20:00</p>
@@ -254,6 +318,13 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
                const isUpsell = promo.tipo === 'upselling';
                const dias = Array.isArray(promo.dias_aplicables) ? promo.dias_aplicables : JSON.parse(promo.dias_aplicables || '[]');
                
+               // 👇 Lógica para mostrar la condición bonita en la tarjeta
+               let textoTrigger = 'CUALQUIER COSA (GLOBAL)';
+               if (promo.producto_trigger_id) textoTrigger = `PRODUCTO: ${promo.trigger_nombre}`;
+               else if (promo.categoria_trigger) textoTrigger = `CATEGORÍA: ${promo.categoria_trigger}`;
+
+               const esTodoElDia = promo.hora_inicio === '00:00:00' && promo.hora_fin === '23:59:00';
+               
                return (
                  <div key={promo.id} className={`bg-white rounded-[30px] shadow-sm border-2 overflow-hidden transition-all relative ${promo.activo ? (isUpsell ? 'border-orange-200 hover:shadow-orange-100/50' : 'border-purple-200 hover:shadow-purple-100/50') : 'border-slate-200 opacity-70 grayscale'}`}>
                     
@@ -277,7 +348,7 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center justify-between">
                           <div className="text-xs font-bold text-slate-500 text-center w-full">
                             <span className="block text-[10px] uppercase mb-1">Si compran...</span>
-                            <span className="text-slate-800">{promo.trigger_nombre || 'CUALQUIER COSA'}</span>
+                            <span className="text-slate-800 font-black">{textoTrigger}</span>
                           </div>
                           <ArrowUpRight className="text-slate-300 mx-2 shrink-0"/>
                           <div className="text-xs font-black text-emerald-600 text-center w-full">
@@ -301,7 +372,7 @@ const Promociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }) => 
                           <Clock className="text-slate-400 shrink-0 mt-0.5" size={16}/>
                           <div className="text-xs font-bold text-slate-500 leading-snug">
                              <span className="text-slate-700 block mb-1">
-                               {promo.hora_inicio.slice(0,5)} a {promo.hora_fin.slice(0,5)} hrs
+                               {esTodoElDia ? 'Todo el día' : `${promo.hora_inicio.slice(0,5)} a ${promo.hora_fin.slice(0,5)} hrs`}
                              </span>
                              <span className="line-clamp-2" title={dias.join(', ')}>{dias.join(', ')}</span>
                           </div>
