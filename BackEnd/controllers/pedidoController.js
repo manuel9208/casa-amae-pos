@@ -1,5 +1,16 @@
 const db = require('../config/db');
 
+// 👇 AUTO-MIGRACIÓN: Aseguramos que la tabla pedidos soporte pagos mixtos sin romper nada
+const asegurarColumnaPagosMixtos = async () => {
+  try {
+    await db.query(`ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS pagos_mixtos JSONB NULL;`);
+    console.log("Estructura de Pedidos (Pagos Mixtos) verificada.");
+  } catch (error) {
+    console.error("Nota: Columna pagos_mixtos ya existe o hubo un error silencioso.", error.message);
+  }
+};
+asegurarColumnaPagosMixtos();
+
 exports.obtenerPedidosHoy = async (req, res) => { 
   try { 
     const result = await db.query("SELECT p.*, c.nombre as cliente_nombre FROM pedidos p LEFT JOIN clientes c ON p.cliente_id = c.id WHERE DATE(p.fecha_creacion) = CURRENT_DATE ORDER BY p.fecha_creacion DESC"); 
@@ -10,7 +21,7 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 exports.crearPedido = async (req, res) => {
-  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio } = req.body;
+  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos } = req.body;
   
   try {
     await db.query('BEGIN');
@@ -18,8 +29,8 @@ exports.crearPedido = async (req, res) => {
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
     const result = await db.query(
-      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *', 
-      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0]
+      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *', 
+      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null]
     );
 
     if (carrito && carrito.length > 0) { 
@@ -87,7 +98,7 @@ exports.actualizarPedido = async (req, res) => {
 // ================= ACTUALIZAR ESTADO =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
-  const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio } = req.body;
+  const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;
   
   try {
     // 1. Obtenemos el estado anterior del pedido ANTES de modificarlo
@@ -124,6 +135,13 @@ exports.actualizarEstado = async (req, res) => {
       pIdx++;
     }
 
+    // 👇 Agregamos soporte para pagos mixtos en las actualizaciones de estado (caja)
+    if (pagos_mixtos !== undefined) {
+      query += `, pagos_mixtos = $${pIdx}`;
+      params.push(pagos_mixtos); // Ya viene como JSON string desde el frontend
+      pIdx++;
+    }
+
     if (estado_preparacion === 'Preparando') {
       query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
     }
@@ -155,16 +173,13 @@ exports.actualizarEstado = async (req, res) => {
       // A) ABONAR PUNTOS (Solo ocurre una vez cuando pasa a Pagado/Entregado)
       if (!yaEstabaPagado && ahoraEstaPagado) {
           try {
-              // 👇 MODIFICACIÓN: Consultamos los nuevos switches de configuración
               const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
               if (confRes.rows.length > 0) {
                   const config = confRes.rows[0];
                   
-                  // Solo abonamos si el switch maestro "puntos_activos" está encendido
                   if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
                       const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
                       
-                      // Se calculan sobre el TOTAL REAL que se pagó
                       const puntosAGanar = Math.floor(Number(pedidoActual.total) * (porcentaje / 100));
                       if (puntosAGanar > 0) {
                           await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, pedidoActual.cliente_id]);
@@ -202,8 +217,6 @@ exports.actualizarEstado = async (req, res) => {
           }
 
           if (telefonoCliente && telefonoCliente.length === 10) {
-            
-            // Definimos la instrucción dependiendo del tipo de consumo
             let instruccion = '';
             if (pedidoActual.tipo_consumo === 'Domicilio') {
               instruccion = 'Ya va en camino a tu domicilio 🛵';
@@ -213,10 +226,8 @@ exports.actualizarEstado = async (req, res) => {
               instruccion = 'Por favor pasa a la barra a recogerla 🍔';
             }
 
-            // Asumimos código 52 (México). Ajústalo si estás en otro país.
             const numeroDestino = `52${telefonoCliente}`; 
             
-            // Construimos la petición usando el Template "alerta_pedido_listo"
             const payloadMeta = {
               messaging_product: "whatsapp",
               recipient_type: "individual",
@@ -224,9 +235,7 @@ exports.actualizarEstado = async (req, res) => {
               type: "template",
               template: {
                 name: "alerta_pedido_listo", 
-                language: {
-                  code: "es_MX" 
-                },
+                language: { code: "es_MX" },
                 components: [
                   {
                     type: "body",
@@ -240,7 +249,6 @@ exports.actualizarEstado = async (req, res) => {
               }
             };
             
-            // Enviamos la petición a Meta
             fetch(`https://graph.facebook.com/v17.0/${config.wa_phone_id}/messages`, {
               method: 'POST',
               headers: {
@@ -258,7 +266,7 @@ exports.actualizarEstado = async (req, res) => {
           }
         }
       } catch (errWA) {
-        console.error("Fallo interno en la lógica de WhatsApp (no afecta el pedido):", errWA.message);
+        console.error("Fallo interno en la lógica de WhatsApp:", errWA.message);
       }
     }
 

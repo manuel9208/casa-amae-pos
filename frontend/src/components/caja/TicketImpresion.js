@@ -50,12 +50,20 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
       <div className="border-t border-black border-dashed pt-2 text-right uppercase text-[10px] mb-4">
         <p className="font-bold text-sm">Total: ${ticketImprimir.total}</p>
         <p className="mt-1">Pago: {ticketImprimir.metodo_pago}</p>
+        
+        {/* 👇 DESGLOSE DE PAGO MIXTO EN EL TICKET */}
+        {ticketImprimir.metodo_pago === 'Mixto' && ticketImprimir.pagos_mixtos && (
+          <div className="mt-1 text-[9px] text-gray-700 space-y-0.5">
+            {(typeof ticketImprimir.pagos_mixtos === 'string' ? JSON.parse(ticketImprimir.pagos_mixtos) : ticketImprimir.pagos_mixtos).map((pm, idx) => (
+              <p key={idx}>- {pm.metodo}: ${Number(pm.monto).toFixed(2)}</p>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="text-center mt-4 pt-4 border-t border-black border-dashed text-[10px]">
         <p className="font-bold uppercase leading-tight">{configGlobal.ticket_mensaje_final || '¡Gracias por su compra!'}</p>
         
-        {/* 👇 NUEVA FIRMA CONFIGURABLE (Solo se muestra si no está en blanco) */}
         {configGlobal.ticket_firma_sistema && configGlobal.ticket_firma_sistema.trim() !== '' && (
            <p className="mt-2 text-[8px] opacity-50">{configGlobal.ticket_firma_sistema}</p>
         )}

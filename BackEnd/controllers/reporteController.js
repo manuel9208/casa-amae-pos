@@ -77,20 +77,19 @@ exports.obtenerReporteVentas = async (req, res) => {
 
                  // A) IGNORAR: Notas, ingredientes removidos ("Sin ...", "❌", "📝")
                  if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
-                     return; // No hace nada, lo salta por completo
+                     return; 
                  }
                  
                  // B) FUSIONAR: Sabores y Tamaños ("🔸 Sabor: BBQ")
                  else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || extra.tipo === 'variacion') {
-                     // Limpiamos emojis y prefijos raros para que se lea bonito
                      const cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
                      baseName += ` (${cleanVariationName})`;
-                     finalBasePrice += ePrice; // Sumamos el costo de la variación al platillo base
+                     finalBasePrice += ePrice; 
                  }
                  
                  // C) EXTRA REAL: Se muestra por separado (si tiene precio o es válido)
                  else {
-                     const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); // Quita el "+ " inicial
+                     const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
                      extraRows.push({
                          nombre: cleanExtraName,
                          precio: ePrice,
@@ -119,7 +118,6 @@ exports.obtenerReporteVentas = async (req, res) => {
          // Guardar Extras Reales en el reporte
          if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Extras') {
              extraRows.forEach(ext => {
-                 // Solo guardamos si el extra generó dinero (precio > 0)
                  if(ext.precio > 0) { 
                      const extKey = `EXT_${ext.nombre}_${ext.precio}`;
                      if (!ventasObj[extKey]) {
@@ -150,7 +148,7 @@ exports.obtenerReporteVentas = async (req, res) => {
                       cantidad_vendida: 0
                   };
               }
-              ventasObj[envKey].cantidad_vendida += 1; // Un envío por orden
+              ventasObj[envKey].cantidad_vendida += 1; 
           }
       }
     });
@@ -170,7 +168,6 @@ exports.obtenerReporteVentas = async (req, res) => {
         };
     });
 
-    // Ordenar: Platillos primero, luego Extras, luego Envíos. Dentro de cada uno, por ganancia.
     detalles.sort((a, b) => {
         const catA = a.categoria === 'Envíos' ? 3 : (a.categoria === 'Extras' ? 2 : 1);
         const catB = b.categoria === 'Envíos' ? 3 : (b.categoria === 'Extras' ? 2 : 1);
@@ -201,13 +198,11 @@ exports.obtenerReporteVentas = async (req, res) => {
         insights.productoMenosVendido = sorted[sorted.length - 1];
     }
 
-    // Calcular Cero Ventas (productos activos en menú que no están en la lista vendida)
     const idsVendidos = new Set(prodReales.map(r => Number(r.producto_id)));
     const sqlTodos = `SELECT id, nombre FROM productos WHERE estado = 'Activo' OR disponible = true`;
     const todosProds = await db.query(sqlTodos);
     insights.productosCeroVentas = todosProds.rows.filter(p => !idsVendidos.has(p.id)).map(p => p.nombre);
 
-    // Calcular Mejores Días (Solucionado para evitar "Invalid Date")
     if (['semana', 'mes', 'anio'].includes(tipo)) {
         const sqlDias = `
           SELECT TO_CHAR(p.fecha_creacion, 'YYYY-MM-DD') as fecha_str, SUM(p.total) as total_dia 
@@ -241,7 +236,154 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     }
 
-    res.json({ success: true, periodo: tipo, fecha_referencia: params[0], resumen: totales, detalles, insights });
+    // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO Y VOLUMEN)
+    let comparativas = [];
+    try {
+        const processRange = async (label, inicioSql, finSql) => {
+            const res = await db.query(`
+                SELECT p.fecha_creacion, p.carrito
+                FROM pedidos p
+                WHERE p.estado_preparacion != 'Cancelado'
+                  AND p.fecha_creacion >= (${inicioSql})
+                  AND p.fecha_creacion < (${finSql})
+            `, [fecha || 'NOW()']);
+
+            let totalPlatillos = 0;
+            let horas = Array(24).fill(0);
+
+            res.rows.forEach(p => {
+                const hora = new Date(p.fecha_creacion).getHours();
+                let carrito = [];
+                try { carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito; } catch(e){}
+                if(!Array.isArray(carrito)) carrito = [];
+
+                carrito.forEach(item => {
+                    const cat = item.categoria || item.clasificacion || '';
+                    if (cat !== 'Extras' && cat !== 'Envíos') {
+                        const qty = Number(item.cantidad || 1);
+                        totalPlatillos += qty;
+                        horas[hora] += qty;
+                    }
+                });
+            });
+
+            let mejorHora = -1; let maxItems = -1;
+            let peorHora = -1; let minItems = Infinity;
+
+            for(let i=8; i<=23; i++) {
+                if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
+                if(horas[i] < minItems) { minItems = horas[i]; peorHora = i; }
+            }
+
+            const formatHora = (h) => {
+                 if(h === -1) return 'N/A';
+                 const ampm = h >= 12 ? 'PM' : 'AM';
+                 const hr = h % 12 || 12;
+                 return `${hr}:00 ${ampm}`;
+            };
+
+            return {
+                label,
+                totalPlatillos,
+                mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
+                peorHora: peorHora !== -1 ? `${formatHora(peorHora)} a ${formatHora(peorHora + 1)} (${minItems} platillos)` : 'Sin ventas'
+            };
+        };
+
+        if (tipo === 'dia' || tipo === 'historico') {
+            const fRef = `$1::DATE`;
+            comparativas.push(await processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`));
+            comparativas.push(await processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`));
+            comparativas.push(await processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`));
+        } else if (tipo === 'semana') {
+            const fRef = `DATE_TRUNC('week', $1::TIMESTAMP)`;
+            comparativas.push(await processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`));
+            comparativas.push(await processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`));
+            comparativas.push(await processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`));
+        } else if (tipo === 'mes') {
+            const fRef = `DATE_TRUNC('month', $1::TIMESTAMP)`;
+            comparativas.push(await processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`));
+            comparativas.push(await processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`));
+        } else if (tipo === 'anio') {
+            const fRef = `DATE_TRUNC('year', $1::TIMESTAMP)`;
+            comparativas.push(await processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`));
+        }
+        
+        comparativas = comparativas.filter(c => c !== null);
+    } catch (errComparativa) {
+        console.error("Error procesando comparativas:", errComparativa);
+    }
+
+    // ==========================================================
+    // 8. NUEVO: METAS Y PROYECCIONES INTELIGENTES (5% CRECIMIENTO)
+    // ==========================================================
+    let proyecciones = null;
+    try {
+        if (comparativas.length > 0) {
+            // Tomamos la primera comparativa (la más inmediata, ej. "Hace 1 Semana") como base
+            const baseInmediata = comparativas[0];
+            
+            // Meta de crecimiento: 5% realista (1.05)
+            const metaPlatillos = Math.ceil(baseInmediata.totalPlatillos * 1.05);
+            const actuales = totales.productos_vendidos;
+
+            let estadoMeta = 'neutral';
+            let mensajeMeta = '';
+            let accionRecomendada = '';
+            let progreso = metaPlatillos > 0 ? Math.min(100, Math.round((actuales / metaPlatillos) * 100)) : (actuales > 0 ? 100 : 0);
+
+            if (actuales >= metaPlatillos) {
+                estadoMeta = 'excelente';
+                mensajeMeta = `¡Meta Superada! Lograste vender ${actuales} platillos (la meta era ${metaPlatillos}).`;
+                accionRecomendada = `Excelente trabajo. Mantén el ritmo, estás creciendo más del 5% respecto a "${baseInmediata.label}".`;
+            } else if (actuales >= baseInmediata.totalPlatillos) {
+                estadoMeta = 'bueno';
+                mensajeMeta = `Ventas Positivas. Estás vendiendo más que "${baseInmediata.label}" pero faltan ${metaPlatillos - actuales} para la meta del 5% extra.`;
+                accionRecomendada = `Haz sugerencias en caja (Upselling) para alcanzar la meta hoy.`;
+            } else {
+                estadoMeta = 'alerta';
+                mensajeMeta = `Rendimiento Bajo. Estás ${baseInmediata.totalPlatillos - actuales} platillos por debajo de "${baseInmediata.label}".`;
+                accionRecomendada = `Faltan ${metaPlatillos - actuales} para la meta. Revisa tus horas muertas y considera lanzar promociones o cupones rápidos.`;
+            }
+
+            // Calcular proyección para "Mañana" o "La próxima semana"
+            let metaFuturaMensaje = '';
+            if (tipo === 'dia' || tipo === 'historico') {
+                // Mañana es igual a hace 6 días (el equivalente al día de mañana, pero la semana pasada)
+                const resManana = await db.query(`
+                    SELECT p.carrito FROM pedidos p 
+                    WHERE p.estado_preparacion != 'Cancelado' 
+                    AND p.fecha_creacion >= ($1::DATE - INTERVAL '6 days') 
+                    AND p.fecha_creacion < ($1::DATE - INTERVAL '5 days')
+                `, [fecha || 'NOW()']);
+                let platManana = 0;
+                resManana.rows.forEach(p => {
+                    let car = []; try{ car = typeof p.carrito === 'string' ? JSON.parse(p.carrito): p.carrito; }catch(e){}
+                    car.forEach(i => {
+                        const c = i.categoria||i.clasificacion||'';
+                        if(c !== 'Extras' && c !== 'Envíos') platManana += Number(i.cantidad||1);
+                    });
+                });
+                const metaManana = Math.max(5, Math.ceil(platManana * 1.05)); // Mínimo 5 si estaba en 0
+                metaFuturaMensaje = `Mañana deberías apuntar a vender ${metaManana} platillos.`;
+            } else if (tipo === 'semana') {
+                metaFuturaMensaje = `Para tu próxima semana, prepara a tu equipo para apuntar un 5% más alto que tu semana actual.`;
+            }
+
+            proyecciones = {
+                meta_platillos: metaPlatillos,
+                actual_platillos: actuales,
+                base_historica: baseInmediata.totalPlatillos,
+                progreso: progreso,
+                estado: estadoMeta,
+                mensaje: mensajeMeta,
+                accion: accionRecomendada,
+                meta_futura: metaFuturaMensaje
+            };
+        }
+    } catch(errProy) { console.error("Error en proyecciones:", errProy); }
+
+    res.json({ success: true, periodo: tipo, fecha_referencia: params[0], resumen: totales, detalles, insights, comparativas, proyecciones });
 
   } catch (error) {
     console.error("ERROR AL GENERAR REPORTE:", error);

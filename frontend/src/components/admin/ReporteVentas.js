@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, TrendingUp, DollarSign, PackageOpen, Search, Printer, AlertCircle, Filter, Star, TrendingDown, Activity, CalendarDays, BarChart2, AlertTriangle } from 'lucide-react';
+import { Calendar, TrendingUp, DollarSign, PackageOpen, Search, Printer, AlertCircle, Filter, Star, TrendingDown, Activity, CalendarDays, BarChart2, AlertTriangle, Clock, History, Target, Zap, CheckCircle } from 'lucide-react';
 
 const ReporteVentas = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
@@ -49,7 +49,7 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
     window.print();
   };
 
-  // 👇 NUEVO: Función segura para convertir fechas sin que salga "Invalid Date"
+  // Función segura para convertir fechas sin que salga "Invalid Date"
   const parseFechaSegura = (dateStr) => {
     if (!dateStr) return '';
     try {
@@ -177,7 +177,70 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
             </div>
           ) : (
             <>
-              {/* 👇 NUEVO: PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
+              {/* 👇 NUEVO: SECCIÓN DE METAS Y PROYECCIONES */}
+              {reporte.proyecciones && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
+                  <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <Target className="text-blue-600" size={24} /> Progreso y Metas (Crecimiento del 5%)
+                  </h3>
+
+                  <div className="flex flex-col md:flex-row gap-8 items-center">
+                    
+                    {/* Indicador Numérico y Barra */}
+                    <div className="flex-1 w-full space-y-4">
+                      <div className="flex justify-between items-end mb-2">
+                        <div>
+                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-1">Volumen Actual</p>
+                          <span className="text-4xl font-black text-slate-800">{reporte.proyecciones.actual_platillos}</span>
+                          <span className="text-lg font-bold text-slate-400 ml-2">/ {reporte.proyecciones.meta_platillos} platillos</span>
+                        </div>
+                        <span className={`text-3xl font-black ${
+                          reporte.proyecciones.estado === 'excelente' ? 'text-emerald-500' :
+                          reporte.proyecciones.estado === 'bueno' ? 'text-blue-500' : 'text-red-500'
+                        }`}>
+                          {reporte.proyecciones.progreso}%
+                        </span>
+                      </div>
+
+                      {/* Barra de progreso visual */}
+                      <div className="w-full bg-slate-100 h-6 rounded-full overflow-hidden shadow-inner">
+                        <div 
+                          className={`h-full transition-all duration-1000 ${
+                            reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-500' :
+                            reporte.proyecciones.estado === 'bueno' ? 'bg-blue-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${reporte.proyecciones.progreso}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Mensajes y Recomendaciones */}
+                    <div className="flex-1 w-full bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                      <div className="flex items-start gap-4 mb-4">
+                        <div className={`p-3 rounded-2xl mt-1 shrink-0 ${
+                          reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-100 text-emerald-600' :
+                          reporte.proyecciones.estado === 'bueno' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                        }`}>
+                          {reporte.proyecciones.estado === 'excelente' ? <CheckCircle size={28}/> : <Zap size={28}/>}
+                        </div>
+                        <div>
+                          <h4 className="font-black text-slate-800 text-xl leading-tight mb-1">{reporte.proyecciones.mensaje}</h4>
+                          <p className="text-sm text-slate-600 font-medium leading-relaxed">{reporte.proyecciones.accion}</p>
+                        </div>
+                      </div>
+
+                      {reporte.proyecciones.meta_futura && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-2">🚀 Siguiente paso</p>
+                          <p className="text-sm font-bold text-slate-700">{reporte.proyecciones.meta_futura}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
               {reporte.insights && (
                 <div className="bg-slate-900 rounded-[32px] p-8 shadow-xl text-white print:hidden relative overflow-hidden">
                    <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
@@ -303,6 +366,42 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                           </div>
                       )}
                    </div>
+                </div>
+              )}
+
+              {/* SECCIÓN DE COMPARATIVAS HISTÓRICAS (HORARIOS Y VOLUMEN) */}
+              {reporte.comparativas && reporte.comparativas.length > 0 && (
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
+                  <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                    <History className="text-blue-600" size={24} /> Análisis de Horarios y Tendencias
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {reporte.comparativas.map((comp, idx) => (
+                      <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
+                        <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-200 pb-2 mb-3">
+                          {comp.label}
+                        </h4>
+                        <div className="space-y-3">
+                           <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-500">Volumen Total:</span>
+                              <span className="font-black text-slate-800">{comp.totalPlatillos} platillos</span>
+                           </div>
+                           <div className="flex justify-between items-start gap-4">
+                              <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                                <Clock size={14}/> Hora Pico:
+                              </span>
+                              <span className="text-xs font-bold text-emerald-600 text-right">{comp.mejorHora}</span>
+                           </div>
+                           <div className="flex justify-between items-start gap-4">
+                              <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                                <Clock size={14}/> Hora Muerta:
+                              </span>
+                              <span className="text-xs font-bold text-red-500 text-right">{comp.peorHora}</span>
+                           </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

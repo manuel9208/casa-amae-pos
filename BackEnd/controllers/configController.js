@@ -26,7 +26,6 @@ const asegurarEstructuraBaseDatos = async () => {
         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log("Estructura de Puntos y Cupones verificada/creada.");
   } catch (error) {
     console.error("Error al asegurar la estructura de Puntos/Cupones:", error);
   }

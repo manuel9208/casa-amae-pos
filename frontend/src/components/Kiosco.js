@@ -188,7 +188,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     }
     setDescuentoPuntosDinero(dPts);
 
-  // 👇 Esta línea silencia la advertencia de ESLint de forma segura
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrito, cuponActivo, descuentoPuntosPuntosFisicos, configGlobal.puntos_valor_peso]);
 
@@ -281,6 +280,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
           carrito={carrito} calcularTotal={calcularTotal} 
           
+          // 👇 AQUÍ INYECTAMOS SETCARRITO Y PRODUCTOS AL CHECKOUT
+          setCarrito={setCarrito}
+          productos={productos}
+
           descuentoPuntos={descuentoPuntosPuntosFisicos} 
           cuponActivo={cuponActivo}
           descuentoCuponDinero={descuentoCuponDinero}

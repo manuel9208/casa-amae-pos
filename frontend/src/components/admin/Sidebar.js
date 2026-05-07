@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp } from 'lucide-react'; // 👇 Añadí TrendingUp
+import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp, Gift } from 'lucide-react'; // 👇 Añadí Gift para Promociones
 
 const Sidebar = ({ 
   user, 
@@ -15,7 +15,8 @@ const Sidebar = ({
   canViewUsuarios, 
   canViewConfig,
   canViewClientes,
-  canViewReportes // 👇 NUEVO PROP RECIBIDO DESDE ADMINPANEL
+  canViewReportes,
+  canViewPromociones // 👇 NUEVO PROP RECIBIDO DESDE ADMINPANEL
 }) => {
   return (
     <>
@@ -48,7 +49,6 @@ const Sidebar = ({
         
         <nav className="space-y-2 flex-1 overflow-y-auto pr-2">
           
-          {/* 👇 NUEVO BOTÓN: REPORTES FINANCIEROS */}
           {canViewReportes && (
             <button 
               onClick={() => { setSeccion('reportes'); setMenuAbierto(false); }} 
@@ -63,11 +63,13 @@ const Sidebar = ({
               <LayoutGrid size={20} /> Gestión Menú
             </button>
           )}
+          
           {canViewInventario && (
             <button onClick={() => { setSeccion('inventario'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'inventario' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}>
               <Package size={20} /> Inventario & Recetas
             </button>
           )}
+          
           {canViewCatalogos && (
             <button onClick={() => { setSeccion('catalogos'); setMenuAbierto(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'catalogos' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}>
               <BookOpen size={20} /> Ingredientes y Extras
@@ -80,6 +82,16 @@ const Sidebar = ({
               className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'clientes' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-400'}`}
             >
               <span className="text-xl leading-none">👥</span> Clientes (CRM)
+            </button>
+          )}
+
+          {/* 👇 NUEVA PESTAÑA: PROMOCIONES Y UPSELLING */}
+          {canViewPromociones && (
+            <button 
+              onClick={() => { setSeccion('promociones'); setMenuAbierto(false); }} 
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'promociones' ? 'bg-orange-500 text-white shadow-md shadow-orange-900/50' : 'hover:bg-slate-800 text-slate-400'}`}
+            >
+              <Gift size={20} /> Promos & Upselling
             </button>
           )}
 

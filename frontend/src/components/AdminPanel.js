@@ -8,6 +8,7 @@ import Inventario from './admin/Inventario';
 import GestionMenu from './admin/GestionMenu';
 import GestionClientes from './admin/GestionClientes';
 import ReporteVentas from './admin/ReporteVentas';
+import Promociones from './admin/Promociones'; // 👇 NUEVO: Módulo de Promociones
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -42,10 +43,11 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewCatalogos = isGlobalAdmin || user?.permisos?.catalogos !== false;
   const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
-  
-  // Permisos para los nuevos módulos: CRM y Finanzas
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true; 
+  
+  // 👇 Solo el dueño absoluto (usuario: admin) puede gestionar promociones
+  const canViewPromociones = isGlobalAdmin; 
   
   // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
@@ -74,7 +76,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       } catch (e) { console.error(`Error al cargar ${ruta}:`, e); }
     };
 
-    if (canViewMenu) fetchSeguro('productos', setProductos);
+    if (canViewMenu || canViewPromociones) fetchSeguro('productos', setProductos);
     if (canViewCatalogos || canViewMenu) fetchSeguro('clasificaciones', setClasificaciones);
     if (canViewCatalogos || canViewMenu) fetchSeguro('ingredientes', setCatalogoIngredientes);
     if (canViewInventario) fetchSeguro('insumos', setInsumosDB);
@@ -89,7 +91,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         }
       } catch (e) {}
     }
-  }, [apiUrl, canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios, canViewConfig]);
+  }, [apiUrl, canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios, canViewConfig, canViewPromociones]);
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);
 
@@ -128,6 +130,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewConfig={canViewConfig}
         canViewClientes={canViewClientes} 
         canViewReportes={canViewReportes}
+        canViewPromociones={canViewPromociones} // 👇 Pasamos el permiso al Sidebar
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -198,6 +201,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             <ReporteVentas 
               apiUrl={apiUrl} 
               showAlert={showAlert} 
+            />
+          )}
+
+          {/* 👇 NUEVA PESTAÑA: PROMOCIONES */}
+          {seccion === 'promociones' && canViewPromociones && ( 
+            <Promociones 
+              {...commonProps} 
+              productos={productos} 
             />
           )}
 

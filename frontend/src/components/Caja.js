@@ -14,6 +14,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [insumosDB, setInsumosDB] = useState([]); 
   const [gastosDia, setGastosDia] = useState([]); 
   
+  // 👇 NUEVO ESTADO: Control del menú lateral en móviles
+  const [menuAbiertoCaja, setMenuAbiertoCaja] = useState(false);
+  
   // === ESTADOS DE LOS MODALES DE COBRO Y VISUALIZACIÓN ===
   const [modalPago, setModalPago] = useState(null);
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -35,7 +38,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
   const [alertaCobroExtra, setAlertaCobroExtra] = useState(null); 
 
-  // 👇 NUEVOS ESTADOS: PARA IDENTIFICAR/REGISTRAR AL CLIENTE EN BARRA
+  // ESTADOS: PARA IDENTIFICAR/REGISTRAR AL CLIENTE EN BARRA
   const [modalIdentificar, setModalIdentificar] = useState(false);
   const [pasoIdentificar, setPasoIdentificar] = useState('telefono'); 
   const [telClienteNuevo, setTelClienteNuevo] = useState('');
@@ -159,12 +162,13 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }, 500);
   };
 
-  const procesarPago = async (estadoRechazo = null, esPostPago = false) => {
+  // 👇 MODIFICACIÓN: Agregamos el parámetro "pagosMixtos" para soportar el pago dividido
+  const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true);
     
     let estadoFinal;
-    let metodoPagoFinal = modalPago.metodo_pago;
+    let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
 
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
@@ -179,14 +183,23 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }
 
     try { 
+      // Construimos el payload de forma dinámica
+      const payload = { 
+        estado_preparacion: estadoFinal,
+        metodo_pago: metodoPagoFinal 
+      };
+      
+      // Si recibimos pagos divididos, los adjuntamos
+      if (pagosMixtos) {
+          payload.pagos_mixtos = pagosMixtos;
+      }
+
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ 
-          estado_preparacion: estadoFinal,
-          metodo_pago: metodoPagoFinal 
-        }) 
+        body: JSON.stringify(payload) 
       }); 
+      
       if (res.ok) { 
         if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) {
             lanzarImpresion(modalPago);
@@ -366,7 +379,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     setIsSubmitting(false);
   };
 
-  // 👇 NUEVAS FUNCIONES: BÚSQUEDA Y REGISTRO DE CLIENTE DESDE LA BARRA
   const abrirIdentificador = () => {
     setModalIdentificar(true);
     setPasoIdentificar('telefono');
@@ -441,7 +453,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
           setModalCompraRapida={setModalCompraRapida} 
-          abrirIdentificador={abrirIdentificador} // 👇 SE LO PASAMOS AL SIDEBAR
+          abrirIdentificador={abrirIdentificador} 
+          menuAbiertoCaja={menuAbiertoCaja} // 👇 Pasamos el control del menú responsivo
+          setMenuAbiertoCaja={setMenuAbiertoCaja}
         />
 
         <VistasCaja 
@@ -467,6 +481,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           setModalAgregarExtra={setModalAgregarExtra} 
           isSubmitting={isSubmitting} 
           setModalVerDetalle={setModalVerDetalle} 
+          setMenuAbiertoCaja={setMenuAbiertoCaja} // 👇 Lo pasamos para el botón del Header móvil
         />
         
         <ModalesCaja 
@@ -507,7 +522,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           modalVerDetalle={modalVerDetalle} 
           setModalVerDetalle={setModalVerDetalle} 
 
-          // 👇 ESTADOS PARA EL NUEVO MODAL DE IDENTIFICACIÓN
           modalIdentificar={modalIdentificar}
           setModalIdentificar={setModalIdentificar}
           pasoIdentificar={pasoIdentificar}

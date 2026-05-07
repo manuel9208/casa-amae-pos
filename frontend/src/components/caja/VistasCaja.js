@@ -1,5 +1,5 @@
 import React from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye } from 'lucide-react'; 
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye, Menu, Wallet } from 'lucide-react'; 
 
 const VistasCaja = ({
   vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, pedidosConAlerta, pedidosPorConfirmar,
@@ -9,12 +9,14 @@ const VistasCaja = ({
   setModalZonaEnvio,
   setModalAgregarExtra,
   isSubmitting,
-  setModalVerDetalle
+  setModalVerDetalle,
+  setMenuAbiertoCaja // 👇 NUEVO: Recibimos el control del menú
 }) => {
 
   const getIconoPago = (metodo) => { 
     if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
     if(metodo==='Transferencia') return <Smartphone size={16}/>; 
+    if(metodo==='Mixto') return <Wallet size={16}/>; // 👇 Ícono para Pago Dividido
     if(metodo==='Pendiente' || metodo==='Por Cobrar') return <Clock size={16}/>;
     return <DollarSign size={16}/>; 
   };
@@ -91,8 +93,52 @@ const VistasCaja = ({
     });
   });
 
+  // =========================================================================
+  // 👇 CÁLCULOS INTELIGENTES PARA EL CORTE DE CAJA (SOPORTAN PAGOS MIXTOS)
+  // =========================================================================
+  const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
+    if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
+    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+       const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+       const ef = pm.find(x => x.metodo === 'Efectivo');
+       if (ef) return sum + Number(ef.monto);
+    }
+    return sum;
+  }, 0);
+
+  const totalTarjetaVentas = pedidosValidos.reduce((sum, p) => {
+    if (p.metodo_pago === 'Tarjeta') return sum + Number(p.total);
+    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+       const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+       const tar = pm.find(x => x.metodo === 'Tarjeta');
+       if (tar) return sum + Number(tar.monto);
+    }
+    return sum;
+  }, 0);
+
+  const totalTransferenciaVentas = pedidosValidos.reduce((sum, p) => {
+    if (p.metodo_pago === 'Transferencia') return sum + Number(p.total);
+    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+       const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+       const trans = pm.find(x => x.metodo === 'Transferencia');
+       if (trans) return sum + Number(trans.monto);
+    }
+    return sum;
+  }, 0);
+
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
+      
+      {/* 👇 NUEVO ENCABEZADO RESPONSIVO MÓVIL */}
+      <div className="lg:hidden bg-slate-900 text-white p-4 flex justify-between items-center shadow-md z-30 shrink-0">
+         <h1 className="text-xl font-black flex items-center gap-2 text-emerald-400">
+            <DollarSign size={24} /> CAJA
+         </h1>
+         <button onClick={() => setMenuAbiertoCaja(true)} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition">
+            <Menu size={24} />
+         </button>
+      </div>
+
       {/* ALERTAS DE COCINA */}
       {pedidosConAlerta.length > 0 && (
         <div className="w-full p-4 space-y-2 z-10 shrink-0">
@@ -110,7 +156,7 @@ const VistasCaja = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-10">
+      <div className="flex-1 overflow-y-auto p-4 md:p-10">
         
         {/* VISTA: POR CONFIRMAR */}
         {vistaActiva === 'confirmar' && (
@@ -205,7 +251,7 @@ const VistasCaja = ({
                   <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
                     <div className="flex justify-between items-start mb-4">
                         <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
-                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>
+                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Mixto' ? 'bg-indigo-100 text-indigo-700' : p.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>
                             {getIconoPago(p.metodo_pago)} {p.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : p.metodo_pago}
                         </span>
                     </div>
@@ -304,7 +350,6 @@ const VistasCaja = ({
                     )}
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
-                       {/* 👇 MODIFICADO PARA QUE "POR COBRAR" TAMBIÉN TE DEJE COBRAR AL ENTREGAR */}
                        {(p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
                           <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
                        ) : (
@@ -322,7 +367,7 @@ const VistasCaja = ({
         {vistaActiva === 'historial' && (
           <>
             <div className="flex justify-between items-end mb-8"><h2 className="text-4xl font-black text-slate-800">Todos los Pedidos</h2></div>
-            <div className="flex gap-2 mb-8 bg-slate-200 p-1 rounded-2xl w-fit">
+            <div className="flex gap-2 mb-8 bg-slate-200 p-1 rounded-2xl w-fit flex-wrap">
               {['Pagado', 'Preparando', 'Listo', 'Entregado'].map(tab => (
                 <button key={tab} onClick={() => setSubVistaHistorial(tab)} className={`px-6 py-3 rounded-xl font-bold transition-all ${subVistaHistorial === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{tab === 'Pagado' ? 'En Cola' : tab === 'Preparando' ? 'En Cocina' : tab === 'Listo' ? 'Finalizados' : 'Entregados'}<span className="ml-2 bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full text-xs">{pedidos.filter(p => p.estado_preparacion === tab).length}</span></button>
               ))}
@@ -362,11 +407,11 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* VISTA: CORTE DE CAJA MODIFICADA */}
+        {/* VISTA: CORTE DE CAJA MODIFICADA CON INTELIGENCIA MIXTA */}
         {vistaActiva === 'corte' && (
           <div>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Corte de Caja</h2>
-            <div className="bg-white p-10 rounded-[40px] shadow-sm border border-slate-200">
+            <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200">
                
                <p className="text-slate-500 font-bold text-lg mb-4">Origen de los Ingresos Totales (Turno Actual)</p>
                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
@@ -404,8 +449,8 @@ const VistasCaja = ({
                   </div>
                   
                   <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Cobros Efectivo</p>
-                    <p className="text-2xl font-black text-emerald-700">${pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Efectivo Físico</p>
+                    <p className="text-2xl font-black text-emerald-700">${totalEfectivoVentas.toFixed(2)}</p>
                   </div>
                   
                   <div className="bg-red-50 p-6 rounded-3xl border border-red-100 relative overflow-hidden group">
@@ -416,12 +461,12 @@ const VistasCaja = ({
 
                   <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2">Tarjetas</p>
-                    <p className="text-2xl font-black text-blue-700">${pedidos.filter(p => p.metodo_pago === 'Tarjeta' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                    <p className="text-2xl font-black text-blue-700">${totalTarjetaVentas.toFixed(2)}</p>
                   </div>
                   
                   <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100">
                     <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2">Transferencias</p>
-                    <p className="text-2xl font-black text-purple-700">${pedidos.filter(p => p.metodo_pago === 'Transferencia' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0).toFixed(2)}</p>
+                    <p className="text-2xl font-black text-purple-700">${totalTransferenciaVentas.toFixed(2)}</p>
                   </div>
                </div>
 
@@ -431,7 +476,7 @@ const VistasCaja = ({
                      <p className="text-[11px] font-bold text-emerald-100 opacity-80 uppercase tracking-wider">(Fondo Inicial + Ventas Efectivo) - Gastos</p>
                   </div>
                   <p className="text-6xl font-black mt-4 md:mt-0">
-                     ${((fondoCaja || 0) + pedidos.filter(p => p.metodo_pago === 'Efectivo' && (p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado')).reduce((sum, p) => sum + Number(p.total), 0) - totalGastos).toFixed(2)}
+                     ${((fondoCaja || 0) + totalEfectivoVentas - totalGastos).toFixed(2)}
                   </p>
                </div>
 

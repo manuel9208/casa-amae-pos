@@ -15,10 +15,11 @@ const clasificacionCtrl = require('../controllers/clasificacionController');
 const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
-const reporteCtrl = require('../controllers/reporteController'); // 👇 NUEVO: Controlador de reportes
+const reporteCtrl = require('../controllers/reporteController');
+const promocionCtrl = require('../controllers/promocionController'); // 👇 NUEVO: Controlador de Promociones
 
 // ==========================================
-// CONFIGURACIÓN DE CLOUDINARY (MODIFICADA PARA VIDEOS)
+// CONFIGURACIÓN DE CLOUDINARY
 // ==========================================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -30,8 +31,8 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'pos_uploads', 
-    resource_type: 'auto', // Esto le dice a Cloudinary que acepte imágenes Y videos
-    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov'] // Añadimos formatos de video
+    resource_type: 'auto', 
+    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov'] 
   }
 });
 const upload = multer({ storage: storage });
@@ -43,13 +44,21 @@ router.get('/configuracion', configCtrl.obtenerConfiguracion);
 router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
 
 // ==========================================
-// CUPONES DE DESCUENTO (NUEVO)
+// CUPONES DE DESCUENTO
 // ==========================================
 router.get('/cupones', configCtrl.obtenerCupones);
 router.post('/cupones', configCtrl.crearCupon);
 router.put('/cupones/:id/estado', configCtrl.actualizarCuponEstado);
 router.delete('/cupones/:id', configCtrl.eliminarCupon);
 router.post('/cupones/validar', configCtrl.validarCupon);
+
+// ==========================================
+// PROMOCIONES Y UPSELLING (NUEVO)
+// ==========================================
+router.get('/promociones', promocionCtrl.obtenerPromociones);
+router.post('/promociones', promocionCtrl.crearPromocion);
+router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
+router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
 
 // ==========================================
 // AUTENTICACIÓN Y CLIENTES
@@ -108,7 +117,7 @@ router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);
 // INSUMOS Y RECETAS (Inventario)
 // ==========================================
 router.get('/insumos', insumoCtrl.obtenerInsumos);
-router.get('/insumos/compras/hoy', insumoCtrl.obtenerComprasHoy); // 👇 NUEVA RUTA PARA EL CORTE DE CAJA AÑADIDA
+router.get('/insumos/compras/hoy', insumoCtrl.obtenerComprasHoy); 
 router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo); 
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
@@ -120,7 +129,7 @@ router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);
 
 // ==========================================
-// REPORTES Y ESTADÍSTICAS (NUEVO)
+// REPORTES Y ESTADÍSTICAS
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 

@@ -9,6 +9,8 @@
 -- DROP TABLE IF EXISTS insumos CASCADE;
 -- DROP TABLE IF EXISTS detalle_pedidos CASCADE;
 -- DROP TABLE IF EXISTS pedidos CASCADE;
+-- DROP TABLE IF EXISTS promociones CASCADE;
+-- DROP TABLE IF EXISTS cupones CASCADE;
 -- DROP TABLE IF EXISTS catalogo_ingredientes CASCADE;
 -- DROP TABLE IF EXISTS clasificaciones CASCADE;
 -- DROP TABLE IF EXISTS clientes CASCADE;
@@ -78,7 +80,13 @@ CREATE TABLE IF NOT EXISTS configuracion (
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
     mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
 
-    -- 👇 NUEVO: Notificaciones WhatsApp API Oficial
+    -- 👇 NUEVO: Programa de Lealtad (Puntos)
+    puntos_activos BOOLEAN DEFAULT true,
+    puntos_canje_activo BOOLEAN DEFAULT true,
+    puntos_porcentaje DECIMAL(10,2) DEFAULT 10,
+    puntos_valor_peso DECIMAL(10,2) DEFAULT 1.00,
+
+    -- Notificaciones WhatsApp API Oficial
     wa_api_activa BOOLEAN DEFAULT FALSE,
     wa_api_token TEXT,
     wa_phone_id TEXT
@@ -203,6 +211,11 @@ CREATE TABLE IF NOT EXISTS pedidos (
     -- Costos y Tiempos
     costo_envio DECIMAL(10,2) DEFAULT 0, 
     descuento_puntos INTEGER DEFAULT 0,
+    
+    -- 👇 NUEVO: Soporte para pagos mixtos y cupones
+    cupon_codigo VARCHAR(50), 
+    pagos_mixtos JSONB,
+
     carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
@@ -211,12 +224,48 @@ CREATE TABLE IF NOT EXISTS pedidos (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 👇 NUEVO: ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
+CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
+
 CREATE TABLE IF NOT EXISTS detalle_pedidos (
     id SERIAL PRIMARY KEY,
     pedido_id INT REFERENCES pedidos(id) ON DELETE CASCADE,
     nombre_producto VARCHAR(100),
     precio DECIMAL(10,2),
     extras JSONB 
+);
+
+-- -------------------------------------------------------------------------
+-- 7. MARKETING, PROMOCIONES Y CUPONES (NUEVO)
+-- -------------------------------------------------------------------------
+
+-- Tabla de Cupones de Descuento
+CREATE TABLE IF NOT EXISTS cupones (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(50) UNIQUE NOT NULL,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('porcentaje', 'dinero')),
+    valor DECIMAL(10,2) NOT NULL,
+    limite_usos INTEGER DEFAULT NULL,
+    usos_actuales INTEGER DEFAULT 0,
+    fecha_expiracion TIMESTAMP NULL,
+    activo BOOLEAN DEFAULT true,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla de Upselling y Happy Hour
+CREATE TABLE IF NOT EXISTS promociones (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(150) NOT NULL,
+  tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('upselling', 'happy_hour')),
+  producto_trigger_id INTEGER NULL,
+  producto_oferta_id INTEGER NOT NULL,
+  tipo_descuento VARCHAR(20) NOT NULL CHECK (tipo_descuento IN ('porcentaje', 'precio_fijo')),
+  valor_descuento DECIMAL(10,2) NOT NULL,
+  dias_aplicables JSONB NOT NULL,
+  hora_inicio TIME NOT NULL,
+  hora_fin TIME NOT NULL,
+  activo BOOLEAN DEFAULT true,
+  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- =========================================================================

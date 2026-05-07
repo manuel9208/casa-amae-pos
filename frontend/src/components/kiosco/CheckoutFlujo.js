@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ChefHat } from 'lucide-react'; 
+import React, { useState, useEffect } from 'react';
+import { ChefHat, Gift } from 'lucide-react'; // 👇 Agregamos el icono Gift para la promo
 
 const CheckoutFlujo = ({
   pantallaActual, setPantallaActual,
@@ -8,7 +8,10 @@ const CheckoutFlujo = ({
   direccionesGuardadas, setDireccionesGuardadas,
   carrito, calcularTotal, 
   
-  // 👇 Recibimos los nuevos estados de descuentos
+  // 👇 Recibimos setCarrito y productos para poder inyectar la oferta
+  setCarrito,
+  productos,
+  
   descuentoPuntos, 
   cuponActivo,
   descuentoCuponDinero,
@@ -23,8 +26,95 @@ const CheckoutFlujo = ({
 
   const [telefonoRecoger, setTelefonoRecoger] = useState('');
   const [pasoTelefono, setPasoTelefono] = useState(false);
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // =========================================================
+  // 👇 NUEVO: ESTADOS Y LÓGICA DE UPSELLING (VENTA CRUZADA)
+  // =========================================================
+  const [promociones, setPromociones] = useState([]);
+  const [upsellMostrado, setUpsellMostrado] = useState(false);
+  const [promocionVigente, setPromocionVigente] = useState(null);
+
+  // 1. Cargamos las promociones activas desde el backend
+  useEffect(() => {
+    fetch(`${apiUrl}/promociones`)
+      .then(res => res.json())
+      .then(data => setPromociones(Array.isArray(data) ? data : []))
+      .catch(e => console.error("Error cargando promociones:", e));
+  }, [apiUrl]);
+
+  // 2. Evaluamos si el carrito cumple las condiciones de la promo
+  useEffect(() => {
+    if (pantallaActual === 'consumo' && !upsellMostrado && promociones.length > 0) {
+       const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+       const hoy = diasSemana[new Date().getDay()];
+       const now = new Date();
+       const horaActual = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+       const promocionesValidas = promociones.filter(p => {
+           if (!p.activo || p.tipo !== 'upselling') return false; // Solo procesamos Upselling aquí
+           
+           // Validar Día
+           let diasActivos = [];
+           try { diasActivos = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables) : p.dias_aplicables; } catch(e){}
+           if (!diasActivos.includes(hoy)) return false;
+           
+           // Validar Hora
+           if (horaActual < p.hora_inicio || horaActual > p.hora_fin) return false;
+
+           // Validar Trigger (Condición)
+           if (p.producto_trigger_id) {
+               const tieneTrigger = carrito.some(item => item.id === p.producto_trigger_id);
+               if (!tieneTrigger) return false;
+           }
+
+           // Validar que NO tenga ya la oferta en el carrito (Para no molestar al cliente)
+           const yaTieneOferta = carrito.some(item => item.id === p.producto_oferta_id);
+           if (yaTieneOferta) return false;
+
+           return true;
+       });
+
+       if (promocionesValidas.length > 0) {
+           setPromocionVigente(promocionesValidas[0]); // Mostramos solo la primera que haga match
+       }
+       setUpsellMostrado(true); // Marcamos como mostrado para no spamear al cliente si regresa
+    }
+  }, [pantallaActual, promociones, carrito, upsellMostrado]);
+
+  // 3. Función para inyectar el producto promocional al carrito
+  const agregarUpsellAlCarrito = () => {
+    let precioFinal = Number(promocionVigente.valor_descuento);
+
+    // Si es un descuento en porcentaje, calculamos el precio base
+    if (promocionVigente.tipo_descuento === 'porcentaje') {
+       let precioBase = 0;
+       if (productos && productos.length > 0) {
+          const prodOriginal = productos.find(p => p.id === promocionVigente.producto_oferta_id);
+          if (prodOriginal) precioBase = Number(prodOriginal.precio_base);
+       }
+       precioFinal = precioBase - (precioBase * (precioFinal / 100));
+    }
+
+    const nuevoItem = {
+       idTicket: Math.random().toString(36).substr(2, 9),
+       id: promocionVigente.producto_oferta_id,
+       nombre: promocionVigente.oferta_nombre,
+       precioFinal: Math.max(0, precioFinal), // Evitamos números negativos
+       cantidad: 1,
+       extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }] // Le ponemos una etiqueta bonita en el ticket
+    };
+
+    if (typeof setCarrito === 'function') {
+       setCarrito([...carrito, nuevoItem]);
+    } else {
+       console.warn("ADVERTENCIA: setCarrito no fue pasado a CheckoutFlujo. El item no se agregó.");
+    }
+
+    setPromocionVigente(null); // Cerramos el modal
+  };
+
+  // =========================================================
 
   const procesarTipoConsumo = (tipo) => { 
     setTipoConsumo(tipo); 
@@ -84,7 +174,6 @@ const CheckoutFlujo = ({
     if (tipoConsumo === 'Recoger') estadoInicial = 'Por Confirmar';
     if (metodoSeleccionado === 'Por Cobrar') estadoInicial = 'Preparando';
 
-    // 👇 Agregamos el nombre del cupón al paquete para que el backend lo guarde
     let nombreCupon = null;
     if (cuponActivo && descuentoCuponDinero > 0) {
         nombreCupon = cuponActivo.codigo;
@@ -98,8 +187,8 @@ const CheckoutFlujo = ({
       carrito: carritoExpandido, 
       origen: origenCalculado, 
       direccion_entrega: notaDireccion, 
-      descuento_puntos: descuentoPuntos, // Puntos físicos gastados
-      cupon_codigo: nombreCupon, // 👇 Nuevo: Código del cupón
+      descuento_puntos: descuentoPuntos, 
+      cupon_codigo: nombreCupon, 
       estado_preparacion: estadoInicial
     };
 
@@ -113,11 +202,8 @@ const CheckoutFlujo = ({
       if (res.ok) { 
         const data = await res.json(); 
         
-        // Si usamos un cupón, le decimos al servidor que incremente su contador de usos
         if (cuponActivo && cuponActivo.id) {
-           try {
-             await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' });
-           } catch(e) { console.error("No se pudo incrementar uso del cupón", e); }
+           try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }
 
         setNumeroPedidoReal(data.numero_pedido); 
@@ -165,7 +251,7 @@ const CheckoutFlujo = ({
     setPantallaActual('finalizado'); 
   };
 
-  // CAPTURA DE TELÉFONO PARA INVITADOS (RECOGER EN LOCAL)
+  // CAPTURA DE TELÉFONO PARA INVITADOS
   if (pasoTelefono) {
     return (
         <div className="max-w-xl mx-auto mt-10 text-center animate-in zoom-in">
@@ -196,7 +282,46 @@ const CheckoutFlujo = ({
   // PANTALLA PRINCIPAL: ¿CÓMO DISFRUTARÁS TU PEDIDO?
   if (pantallaActual === 'consumo') {
     return (
-      <div className="max-w-5xl mx-auto mt-10 text-center animate-in fade-in">
+      <div className="max-w-5xl mx-auto mt-10 text-center animate-in fade-in relative">
+        
+        {/* 👇 MODAL DE UPSELLING (VENTA CRUZADA) */}
+        {promocionVigente && (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300">
+              <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                 <Gift size={48} />
+              </div>
+              <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Espera! Oferta Especial 🔥</h2>
+              <p className="text-slate-500 font-medium mb-6">¿Te gustaría agregar esto a tu orden?</p>
+              
+              <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-6 mb-8 transform hover:scale-105 transition">
+                 {promocionVigente.oferta_imagen && (
+                    <img 
+                      src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${apiUrl.replace('/api', '')}${promocionVigente.oferta_imagen}`} 
+                      className="w-32 h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" 
+                      alt="promo" 
+                    />
+                 )}
+                 <h3 className="font-black text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
+                 <p className="text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
+                   {promocionVigente.tipo_descuento === 'porcentaje' 
+                     ? `¡Llévalo con ${promocionVigente.valor_descuento}% de descuento!` 
+                     : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
+                 </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">
+                  ¡Sí, agregarlo a mi orden!
+                </button>
+                <button onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">
+                  No, gracias, continuar a pago
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-start"><button onClick={() => setPantallaActual('menu')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition">⬅ Volver al carrito</button></div>
         <h2 className="text-4xl font-black mb-4 texto-destacado mt-4">¿Cómo disfrutarás tu pedido?</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-12">
