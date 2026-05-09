@@ -173,7 +173,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
     } else if (esPostPago) {
-        estadoFinal = 'Preparando'; 
+        estadoFinal = 'Pagado'; // 👇 CORRECCIÓN: Estaba en Preparando, ahora va a Pagado (En Cola)
         metodoPagoFinal = 'Por Cobrar';
     } else {
         if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado';
@@ -206,7 +206,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
         }
 
         if (esPostPago) {
-            mostrarAlertaCaja('¡Enviado a Cocina!', `Orden #${modalPago.numero_pedido} se preparará y se cobrará al final.`, 'success');
+            mostrarAlertaCaja('¡Enviado a Cola!', `Orden #${modalPago.numero_pedido} está en cola y se cobrará al final.`, 'success');
         } else {
             mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
         }
