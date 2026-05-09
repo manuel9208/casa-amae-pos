@@ -137,7 +137,8 @@ CREATE TABLE IF NOT EXISTS clasificaciones (
     nombre VARCHAR(50) UNIQUE NOT NULL,
     destino VARCHAR(20) DEFAULT 'Cocina', 
     emoji VARCHAR(20),
-    imagen_url TEXT
+    imagen_url TEXT,
+    genera_puntos BOOLEAN DEFAULT true
 );
 
 CREATE TABLE IF NOT EXISTS productos (
@@ -154,6 +155,7 @@ CREATE TABLE IF NOT EXISTS productos (
     stock_preparado INTEGER DEFAULT 0,
     estado VARCHAR(20) DEFAULT 'Activo',
     disponible BOOLEAN DEFAULT TRUE, 
+    genera_puntos BOOLEAN DEFAULT true,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -258,7 +260,7 @@ CREATE TABLE IF NOT EXISTS promociones (
   nombre VARCHAR(150) NOT NULL,
   tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('upselling', 'happy_hour')),
   producto_trigger_id INTEGER NULL,
-  categoria_trigger VARCHAR(50) NULL, -- 👇 NUEVO: Trigger por Categoría
+  categoria_trigger VARCHAR(50) NULL, -- Trigger por Categoría
   producto_oferta_id INTEGER NOT NULL,
   tipo_descuento VARCHAR(20) NOT NULL CHECK (tipo_descuento IN ('porcentaje', 'precio_fijo')),
   valor_descuento DECIMAL(10,2) NOT NULL,

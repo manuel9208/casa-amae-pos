@@ -188,7 +188,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     // 6. GENERAR INSIGHTS INTELIGENTES
     let insights = { 
       productoMasVendido: null, productoMenosVendido: null, 
-      productosCeroVentasHoy: [], productosCeroVentasAyer: [], // 👇 NUEVO: Dividido
+      productosCeroVentasHoy: [], productosCeroVentasAyer: [],
       promedioDiario: null, mejorDia: null, peorDia: null, mejorMes: null, peorMes: null 
     };
 
@@ -204,7 +204,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     const todosProds = await db.query(sqlTodos);
     insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
 
-    // 👇 NUEVO: Consulta específica de lo que NO se vendió ayer
+    // Consulta específica de lo que NO se vendió ayer
     try {
         const ayerRes = await db.query(`
             SELECT carrito FROM pedidos 
@@ -257,10 +257,10 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     }
 
-    // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO Y VOLUMEN)
+    // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO, VOLUMEN Y FECHAS EXACTAS)
     let comparativas = [];
     try {
-        // 👇 NUEVO: AUTO-DESCUBRIMIENTO DE HORARIOS OPERATIVOS
+        // AUTO-DESCUBRIMIENTO DE HORARIOS OPERATIVOS
         const horasOpRes = await db.query("SELECT MIN(EXTRACT(HOUR FROM fecha_creacion)) as min_h, MAX(EXTRACT(HOUR FROM fecha_creacion)) as max_h FROM pedidos WHERE estado_preparacion != 'Cancelado'");
         let minHoraOperativa = 12; // Default 12 PM
         let maxHoraOperativa = 23; // Default 11 PM
@@ -269,7 +269,18 @@ exports.obtenerReporteVentas = async (req, res) => {
             maxHoraOperativa = parseInt(horasOpRes.rows[0].max_h);
         }
 
-        const processRange = async (label, inicioSql, finSql) => {
+        // 👇 MODIFICADO: Agregamos el parámetro 'esUnSoloDia' para generar el subtitulo
+        const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
+            
+            // Calculamos con Postgres las fechas exactas evaluadas para mostrar al usuario
+            const boundsRes = await db.query(`
+                SELECT 
+                    TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio,
+                    TO_CHAR((${finSql}) - INTERVAL '1 second', 'DD/MM/YYYY') as fecha_fin
+            `, [fecha || 'NOW()']);
+            
+            const subtituloFechas = esUnSoloDia ? boundsRes.rows[0].fecha_inicio : `${boundsRes.rows[0].fecha_inicio} al ${boundsRes.rows[0].fecha_fin}`;
+
             const res = await db.query(`
                 SELECT p.fecha_creacion, p.carrito
                 FROM pedidos p
@@ -301,7 +312,7 @@ exports.obtenerReporteVentas = async (req, res) => {
             let peorHora = -1; let minItems = Infinity;
             let huboVentasEnElRango = false;
 
-            // 👇 NUEVO: SOLO ITERAMOS DENTRO DE LAS HORAS OPERATIVAS
+            // SOLO ITERAMOS DENTRO DE LAS HORAS OPERATIVAS
             for(let i=minHoraOperativa; i<=maxHoraOperativa; i++) {
                 if(horas[i] > 0) huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
@@ -319,29 +330,31 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             return {
                 label,
+                subtitulo: subtituloFechas, // 👇 Pasamos el subtitulo exacto al FrontEnd
                 totalPlatillos,
                 mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
                 peorHora: peorHora !== -1 ? `${formatHora(peorHora)} a ${formatHora(peorHora + 1)} (${minItems} platillos)` : 'Sin ventas'
             };
         };
 
+        // Pasamos el nuevo parámetro 'true' o 'false' dependiendo si es un día o un rango
         if (tipo === 'dia' || tipo === 'historico') {
             const fRef = `$1::DATE`;
-            comparativas.push(await processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`));
-            comparativas.push(await processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`));
-            comparativas.push(await processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`));
+            comparativas.push(await processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true));
+            comparativas.push(await processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`, true));
+            comparativas.push(await processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`, true));
         } else if (tipo === 'semana') {
             const fRef = `DATE_TRUNC('week', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`));
-            comparativas.push(await processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`));
-            comparativas.push(await processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`));
+            comparativas.push(await processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`, false));
+            comparativas.push(await processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`, false));
+            comparativas.push(await processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`, false));
         } else if (tipo === 'mes') {
             const fRef = `DATE_TRUNC('month', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`));
-            comparativas.push(await processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`));
+            comparativas.push(await processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`, false));
+            comparativas.push(await processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`, false));
         } else if (tipo === 'anio') {
             const fRef = `DATE_TRUNC('year', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`));
+            comparativas.push(await processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false));
         }
         
         comparativas = comparativas.filter(c => c !== null);
@@ -355,7 +368,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     let proyecciones = null;
     try {
         if (comparativas.length > 0) {
-            // Tomamos la primera comparativa (la más inmediata, ej. "Hace 1 Semana") como base
+            // Tomamos la primera comparativa (la más inmediata) como base
             const baseInmediata = comparativas[0];
             
             // Meta de crecimiento: 5% realista (1.05)
@@ -367,7 +380,7 @@ exports.obtenerReporteVentas = async (req, res) => {
             let accionRecomendada = '';
             let progreso = metaPlatillos > 0 ? Math.min(100, Math.round((actuales / metaPlatillos) * 100)) : (actuales > 0 ? 100 : 0);
 
-            // 👇 NUEVO: Manejo inteligente cuando aún no hay ventas (actuales === 0)
+            // Manejo inteligente cuando aún no hay ventas (actuales === 0)
             if (actuales > 0 && actuales >= metaPlatillos) {
                 estadoMeta = 'excelente';
                 mensajeMeta = `¡Meta Superada! Lograste vender ${actuales} platillos (la meta era ${metaPlatillos}).`;
@@ -419,7 +432,6 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     } catch(errProy) { console.error("Error en proyecciones:", errProy); }
 
-    // 👇 IMPORTANTE: Aseguramos que SIEMPRE se regrese un 200 OK con toda la info (aunque las ventas_totales sean 0)
     res.json({ success: true, periodo: tipo, fecha_referencia: params[0], resumen: totales, detalles, insights, comparativas, proyecciones });
 
   } catch (error) {

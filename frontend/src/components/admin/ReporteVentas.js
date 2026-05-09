@@ -169,8 +169,6 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
       ) : reporte ? (
         <div className="space-y-6">
           
-          {/* 👇 NUEVO: LOS MÓDULOS DE INTELIGENCIA SIEMPRE SE MUESTRAN (AÚN EN $0) */}
-          
           {/* SECCIÓN DE METAS Y PROYECCIONES */}
           {reporte.proyecciones && (
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
@@ -274,7 +272,7 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                         <p className="text-sm text-slate-500 mb-4">Aún no hay platillos vendidos en este periodo.</p>
                       )}
                       
-                      {/* 👇 NUEVO: ALERTA DE LO QUE NO SE VENDIÓ AYER PARA EMPUJARLO HOY */}
+                      {/* ALERTA DE LO QUE NO SE VENDIÓ AYER */}
                       {reporte.insights.productosCeroVentasAyer?.length > 0 && (
                           <div className="mt-4 pt-4 border-t border-slate-700">
                               <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2">
@@ -375,6 +373,12 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                   <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
                     <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-200 pb-2 mb-3">
                       {comp.label}
+                      {/* 👇 NUEVO: FECHA EXACTA EVALUADA */}
+                      {comp.subtitulo && (
+                        <span className="block text-[10px] font-bold text-slate-400 mt-0.5 normal-case tracking-normal">
+                          ({comp.subtitulo})
+                        </span>
+                      )}
                     </h4>
                     <div className="space-y-3">
                         <div className="flex justify-between items-center">
@@ -449,7 +453,6 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
               <h3 className="text-lg font-bold text-slate-800">Desglose de Productos, Extras y Envíos</h3>
             </div>
             
-            {/* 👇 MENSAJE SI NO HAY DATOS EN LA TABLA */}
             {reporte.detalles.length === 0 ? (
                 <div className="p-12 text-center flex flex-col items-center bg-slate-50">
                    <AlertCircle size={48} className="text-slate-300 mb-3" />
