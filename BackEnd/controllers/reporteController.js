@@ -187,7 +187,8 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     // 6. GENERAR INSIGHTS INTELIGENTES
     let insights = { 
-      productoMasVendido: null, productoMenosVendido: null, productosCeroVentas: [], 
+      productoMasVendido: null, productoMenosVendido: null, 
+      productosCeroVentasHoy: [], productosCeroVentasAyer: [], // 👇 NUEVO: Dividido
       promedioDiario: null, mejorDia: null, peorDia: null, mejorMes: null, peorMes: null 
     };
 
@@ -198,10 +199,30 @@ exports.obtenerReporteVentas = async (req, res) => {
         insights.productoMenosVendido = sorted[sorted.length - 1];
     }
 
-    const idsVendidos = new Set(prodReales.map(r => Number(r.producto_id)));
+    const idsVendidosHoy = new Set(prodReales.map(r => Number(r.producto_id)));
     const sqlTodos = `SELECT id, nombre FROM productos WHERE estado = 'Activo' OR disponible = true`;
     const todosProds = await db.query(sqlTodos);
-    insights.productosCeroVentas = todosProds.rows.filter(p => !idsVendidos.has(p.id)).map(p => p.nombre);
+    insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
+
+    // 👇 NUEVO: Consulta específica de lo que NO se vendió ayer
+    try {
+        const ayerRes = await db.query(`
+            SELECT carrito FROM pedidos 
+            WHERE estado_preparacion != 'Cancelado' 
+            AND fecha_creacion >= CURRENT_DATE - INTERVAL '1 day' 
+            AND fecha_creacion < CURRENT_DATE
+        `);
+        let idsVendidosAyer = new Set();
+        ayerRes.rows.forEach(p => {
+            let car = []; 
+            try { car = typeof p.carrito === 'string' ? JSON.parse(p.carrito): p.carrito; } catch(e){}
+            car.forEach(i => { 
+                const cat = i.categoria || i.clasificacion || '';
+                if (cat !== 'Extras' && cat !== 'Envíos') idsVendidosAyer.add(Number(i.id)); 
+            });
+        });
+        insights.productosCeroVentasAyer = todosProds.rows.filter(p => !idsVendidosAyer.has(p.id)).map(p => p.nombre);
+    } catch(errAyer) { console.error("Error consultando ventas de ayer:", errAyer); }
 
     if (['semana', 'mes', 'anio'].includes(tipo)) {
         const sqlDias = `
@@ -239,6 +260,15 @@ exports.obtenerReporteVentas = async (req, res) => {
     // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO Y VOLUMEN)
     let comparativas = [];
     try {
+        // 👇 NUEVO: AUTO-DESCUBRIMIENTO DE HORARIOS OPERATIVOS
+        const horasOpRes = await db.query("SELECT MIN(EXTRACT(HOUR FROM fecha_creacion)) as min_h, MAX(EXTRACT(HOUR FROM fecha_creacion)) as max_h FROM pedidos WHERE estado_preparacion != 'Cancelado'");
+        let minHoraOperativa = 12; // Default 12 PM
+        let maxHoraOperativa = 23; // Default 11 PM
+        if (horasOpRes.rows.length > 0 && horasOpRes.rows[0].min_h !== null) {
+            minHoraOperativa = parseInt(horasOpRes.rows[0].min_h);
+            maxHoraOperativa = parseInt(horasOpRes.rows[0].max_h);
+        }
+
         const processRange = async (label, inicioSql, finSql) => {
             const res = await db.query(`
                 SELECT p.fecha_creacion, p.carrito
@@ -269,11 +299,16 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             let mejorHora = -1; let maxItems = -1;
             let peorHora = -1; let minItems = Infinity;
+            let huboVentasEnElRango = false;
 
-            for(let i=8; i<=23; i++) {
+            // 👇 NUEVO: SOLO ITERAMOS DENTRO DE LAS HORAS OPERATIVAS
+            for(let i=minHoraOperativa; i<=maxHoraOperativa; i++) {
+                if(horas[i] > 0) huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
                 if(horas[i] < minItems) { minItems = horas[i]; peorHora = i; }
             }
+
+            if (!huboVentasEnElRango) { mejorHora = -1; peorHora = -1; }
 
             const formatHora = (h) => {
                  if(h === -1) return 'N/A';
@@ -315,7 +350,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     // ==========================================================
-    // 8. NUEVO: METAS Y PROYECCIONES INTELIGENTES (5% CRECIMIENTO)
+    // 8. METAS Y PROYECCIONES INTELIGENTES (5% CRECIMIENTO)
     // ==========================================================
     let proyecciones = null;
     try {
@@ -332,17 +367,18 @@ exports.obtenerReporteVentas = async (req, res) => {
             let accionRecomendada = '';
             let progreso = metaPlatillos > 0 ? Math.min(100, Math.round((actuales / metaPlatillos) * 100)) : (actuales > 0 ? 100 : 0);
 
-            if (actuales >= metaPlatillos) {
+            // 👇 NUEVO: Manejo inteligente cuando aún no hay ventas (actuales === 0)
+            if (actuales > 0 && actuales >= metaPlatillos) {
                 estadoMeta = 'excelente';
                 mensajeMeta = `¡Meta Superada! Lograste vender ${actuales} platillos (la meta era ${metaPlatillos}).`;
                 accionRecomendada = `Excelente trabajo. Mantén el ritmo, estás creciendo más del 5% respecto a "${baseInmediata.label}".`;
-            } else if (actuales >= baseInmediata.totalPlatillos) {
+            } else if (actuales > 0 && actuales >= baseInmediata.totalPlatillos) {
                 estadoMeta = 'bueno';
                 mensajeMeta = `Ventas Positivas. Estás vendiendo más que "${baseInmediata.label}" pero faltan ${metaPlatillos - actuales} para la meta del 5% extra.`;
                 accionRecomendada = `Haz sugerencias en caja (Upselling) para alcanzar la meta hoy.`;
             } else {
                 estadoMeta = 'alerta';
-                mensajeMeta = `Rendimiento Bajo. Estás ${baseInmediata.totalPlatillos - actuales} platillos por debajo de "${baseInmediata.label}".`;
+                mensajeMeta = actuales === 0 ? `Inicio de Jornada. Aún no registras ventas en este periodo.` : `Rendimiento Bajo. Estás ${baseInmediata.totalPlatillos - actuales} platillos por debajo de "${baseInmediata.label}".`;
                 accionRecomendada = `Faltan ${metaPlatillos - actuales} para la meta. Revisa tus horas muertas y considera lanzar promociones o cupones rápidos.`;
             }
 
@@ -383,6 +419,7 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     } catch(errProy) { console.error("Error en proyecciones:", errProy); }
 
+    // 👇 IMPORTANTE: Aseguramos que SIEMPRE se regrese un 200 OK con toda la info (aunque las ventas_totales sean 0)
     res.json({ success: true, periodo: tipo, fecha_referencia: params[0], resumen: totales, detalles, insights, comparativas, proyecciones });
 
   } catch (error) {

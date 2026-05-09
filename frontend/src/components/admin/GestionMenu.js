@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit, Plus, Trash2, XCircle } from 'lucide-react';
+import { Edit, Plus, Trash2, XCircle, Star } from 'lucide-react'; // 👇 Agregamos Star
 
 const GestionMenu = ({
   // Props inyectadas por el AdminPanel
@@ -18,8 +18,8 @@ const GestionMenu = ({
   const [imagenBlob, setImagenBlob] = useState(null);
   const [checkedIngredientes, setCheckedIngredientes] = useState([]);
   
-  // 👇 NUEVO ESTADO PARA HABILITAR/DESHABILITAR PLATILLOS
   const [disponible, setDisponible] = useState(true);
+  const [generaPuntos, setGeneraPuntos] = useState(true); // 👇 NUEVO: Estado para puntos por platillo
   
   // Estados para Tamaños
   const [aplicaTamanos, setAplicaTamanos] = useState(false);
@@ -51,7 +51,8 @@ const GestionMenu = ({
   const limpiarFormularioMenu = () => { 
     setEditandoId(null); setNombre(''); setDescripcion(''); setPrecio(''); setTiempoPreparacion(15); setEmoji('🍽️'); 
     setImagenBlob(null); 
-    setDisponible(true); // Restablecemos a disponible por defecto
+    setDisponible(true); 
+    setGeneraPuntos(true); // 👇 Restablecer
     setAplicaTamanos(false); setTamanos({ chico: { activo: false, extra: 0 }, mediano: { activo: false, extra: 15 }, grande: { activo: false, extra: 25 } }); 
     setAplicaSabores(false); setListaSabores([{ nombre: '', extra: 0 }]);
     setCheckedIngredientes([]); 
@@ -97,7 +98,8 @@ const GestionMenu = ({
     formData.append('emoji', emoji); 
     formData.append('categoria', nombreCategoria); 
     formData.append('opciones', JSON.stringify(opcionesArmadas)); 
-    formData.append('disponible', disponible); // 👇 Enviamos el estado de disponibilidad al servidor
+    formData.append('disponible', disponible); 
+    formData.append('genera_puntos', generaPuntos); // 👇 Enviar estado de puntos al backend
     if (imagenBlob) formData.append('imagen', imagenBlob);
     
     try { 
@@ -120,8 +122,8 @@ const GestionMenu = ({
     setEditandoId(p.id); setNombre(p.nombre); setDescripcion(p.descripcion || ''); setEmoji(p.emoji || '🍽️'); setTiempoPreparacion(p.tiempo_preparacion || 15); setImagenBlob(null); 
     const clasifEncontrada = clasificaciones.find(c => c.nombre === p.categoria); setCategoriaSelect(clasifEncontrada ? clasifEncontrada.id : ''); 
     
-    // 👇 Recuperamos el estado de disponibilidad (si no existe, asumimos true)
     setDisponible(p.disponible !== false); 
+    setGeneraPuntos(p.genera_puntos === false || p.genera_puntos === 'false' ? false : true); // 👇 Leer si daba puntos
 
     let tieneTamanos = false; 
     let tieneSabores = false;
@@ -204,13 +206,26 @@ const GestionMenu = ({
              </div>
            </div>
 
-           {/* 👇 ESTADO DEL PRODUCTO (ACTIVO/INACTIVO) */}
-           <div className={`p-6 rounded-3xl border transition-all ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-             <label className={`flex items-center gap-3 font-bold cursor-pointer text-lg ${disponible ? 'text-emerald-800' : 'text-red-800'}`}>
-               <input type="checkbox" checked={disponible} onChange={e => setDisponible(e.target.checked)} className={`w-6 h-6 ${disponible ? 'accent-emerald-600' : 'accent-red-600'}`} /> 
-               {disponible ? '✅ Platillo Disponible para Venta' : '❌ Platillo Deshabilitado (Oculto)'}
-             </label>
-             {!disponible && <p className="text-red-600 text-sm mt-2 font-medium">Este platillo ya no se mostrará en el Kiosco hasta que lo vuelvas a habilitar.</p>}
+           {/* 👇 SECCIÓN DE ESTADOS: DISPONIBILIDAD Y PUNTOS */}
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* DISPONIBILIDAD */}
+               <div className={`p-5 rounded-3xl border transition-all ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                 <label className={`flex items-center gap-3 font-bold cursor-pointer text-base ${disponible ? 'text-emerald-800' : 'text-red-800'}`}>
+                   <input type="checkbox" checked={disponible} onChange={e => setDisponible(e.target.checked)} className={`w-6 h-6 ${disponible ? 'accent-emerald-600' : 'accent-red-600'}`} /> 
+                   {disponible ? '✅ Disponible para Venta' : '❌ Deshabilitado (Oculto)'}
+                 </label>
+                 {!disponible && <p className="text-red-600 text-[11px] mt-2 font-medium leading-tight">No se mostrará en Kiosco.</p>}
+               </div>
+               
+               {/* PUNTOS */}
+               <div className={`p-5 rounded-3xl border transition-all ${generaPuntos ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
+                 <label className={`flex items-center gap-3 font-bold cursor-pointer text-base ${generaPuntos ? 'text-indigo-800' : 'text-slate-500'}`}>
+                   <input type="checkbox" checked={generaPuntos} onChange={e => setGeneraPuntos(e.target.checked)} className={`w-6 h-6 ${generaPuntos ? 'accent-indigo-600' : 'accent-slate-400'}`} /> 
+                   <Star className={generaPuntos ? "text-indigo-600 fill-indigo-600" : "text-slate-400"} size={20}/>
+                   {generaPuntos ? 'Genera Puntos' : 'No suma puntos'}
+                 </label>
+                 {!generaPuntos && <p className="text-slate-500 text-[11px] mt-2 font-medium leading-tight">Se excluye del programa de lealtad.</p>}
+               </div>
            </div>
            
            {/* TAMAÑOS */}
@@ -302,7 +317,9 @@ const GestionMenu = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {productosEnCategoria.map(p => (
+              {productosEnCategoria.map(p => {
+                const daPuntos = p.genera_puntos !== false && p.genera_puntos !== 'false'; // 👇 Determinamos visualmente si da puntos
+                return (
                 <div key={p.id} className={`bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition ${p.disponible === false ? 'opacity-60 grayscale' : ''}`}>
                   <div className="flex items-center gap-4">
                     {p.imagen_url ? (
@@ -314,6 +331,12 @@ const GestionMenu = ({
                       <p className="font-bold text-lg leading-tight text-slate-800 flex items-center flex-wrap gap-2">
                         {p.nombre}
                         {p.disponible === false && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-md uppercase font-black tracking-widest">Oculto</span>}
+                        {/* 👇 ETIQUETA VISUAL PUNTOS */}
+                        {daPuntos ? (
+                          <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1"><Star size={10} className="fill-indigo-700"/> +Pts</span>
+                        ) : (
+                          <span className="text-[10px] bg-slate-200 text-slate-500 px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1">Sin Pts</span>
+                        )}
                       </p>
                       <span className="text-blue-600 font-black text-sm block mt-1">${p.precio_base} • ⏱️ {p.tiempo_preparacion}m</span>
                     </div>
@@ -323,7 +346,7 @@ const GestionMenu = ({
                     <button onClick={() => eliminarProducto(p.id)} className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition bg-white shadow-sm border border-slate-100"><Trash2 size={18}/></button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>

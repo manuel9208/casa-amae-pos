@@ -169,290 +169,293 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
       ) : reporte ? (
         <div className="space-y-6">
           
-          {reporte.detalles.length === 0 ? (
-            <div className="bg-slate-100 border-2 border-dashed border-slate-300 rounded-[40px] p-12 text-center flex flex-col items-center">
-              <AlertCircle size={64} className="text-slate-400 mb-4" />
-              <h3 className="text-2xl font-black text-slate-700 mb-2">¡No hay información registrada!</h3>
-              <p className="text-slate-500 font-medium max-w-md">No encontramos ninguna venta completada para la fecha <strong>{fechaCustom}</strong> con los filtros seleccionados. Intenta cambiar de día o ajustar las categorías.</p>
-            </div>
-          ) : (
-            <>
-              {/* 👇 NUEVO: SECCIÓN DE METAS Y PROYECCIONES */}
-              {reporte.proyecciones && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
-                  <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
-                    <Target className="text-blue-600" size={24} /> Progreso y Metas (Crecimiento del 5%)
-                  </h3>
+          {/* 👇 NUEVO: LOS MÓDULOS DE INTELIGENCIA SIEMPRE SE MUESTRAN (AÚN EN $0) */}
+          
+          {/* SECCIÓN DE METAS Y PROYECCIONES */}
+          {reporte.proyecciones && (
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
+              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                <Target className="text-blue-600" size={24} /> Progreso y Metas (Crecimiento del 5%)
+              </h3>
 
-                  <div className="flex flex-col md:flex-row gap-8 items-center">
-                    
-                    {/* Indicador Numérico y Barra */}
-                    <div className="flex-1 w-full space-y-4">
-                      <div className="flex justify-between items-end mb-2">
-                        <div>
-                          <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-1">Volumen Actual</p>
-                          <span className="text-4xl font-black text-slate-800">{reporte.proyecciones.actual_platillos}</span>
-                          <span className="text-lg font-bold text-slate-400 ml-2">/ {reporte.proyecciones.meta_platillos} platillos</span>
-                        </div>
-                        <span className={`text-3xl font-black ${
-                          reporte.proyecciones.estado === 'excelente' ? 'text-emerald-500' :
-                          reporte.proyecciones.estado === 'bueno' ? 'text-blue-500' : 'text-red-500'
-                        }`}>
-                          {reporte.proyecciones.progreso}%
-                        </span>
-                      </div>
-
-                      {/* Barra de progreso visual */}
-                      <div className="w-full bg-slate-100 h-6 rounded-full overflow-hidden shadow-inner">
-                        <div 
-                          className={`h-full transition-all duration-1000 ${
-                            reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-500' :
-                            reporte.proyecciones.estado === 'bueno' ? 'bg-blue-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${reporte.proyecciones.progreso}%` }}
-                        ></div>
-                      </div>
-                    </div>
-
-                    {/* Mensajes y Recomendaciones */}
-                    <div className="flex-1 w-full bg-slate-50 p-6 rounded-3xl border border-slate-200">
-                      <div className="flex items-start gap-4 mb-4">
-                        <div className={`p-3 rounded-2xl mt-1 shrink-0 ${
-                          reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-100 text-emerald-600' :
-                          reporte.proyecciones.estado === 'bueno' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {reporte.proyecciones.estado === 'excelente' ? <CheckCircle size={28}/> : <Zap size={28}/>}
-                        </div>
-                        <div>
-                          <h4 className="font-black text-slate-800 text-xl leading-tight mb-1">{reporte.proyecciones.mensaje}</h4>
-                          <p className="text-sm text-slate-600 font-medium leading-relaxed">{reporte.proyecciones.accion}</p>
-                        </div>
-                      </div>
-
-                      {reporte.proyecciones.meta_futura && (
-                        <div className="mt-4 pt-4 border-t border-slate-200">
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-2">🚀 Siguiente paso</p>
-                          <p className="text-sm font-bold text-slate-700">{reporte.proyecciones.meta_futura}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
-              {reporte.insights && (
-                <div className="bg-slate-900 rounded-[32px] p-8 shadow-xl text-white print:hidden relative overflow-hidden">
-                   <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
-                     <TrendingUp size={200}/>
-                   </div>
-                   <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-400">
-                     <BarChart2 size={24}/> Análisis Inteligente ({filtroActivo})
-                   </h3>
-                   
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
-                      
-                      {/* SIEMPRE MUESTRA LOS PRODUCTOS TOP/WORST */}
-                      <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento de Menú</p>
-                          {reporte.insights.productoMasVendido ? (
-                              <>
-                                 <div className="flex justify-between items-center mb-3">
-                                    <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                                      <Star size={16}/> Más Vendido
-                                    </span>
-                                    <span className="font-black text-right pl-2 leading-tight">
-                                      {reporte.insights.productoMasVendido.producto_nombre} 
-                                      <span className="text-emerald-300 ml-1 text-xs">({reporte.insights.productoMasVendido.cantidad_vendida})</span>
-                                    </span>
-                                 </div>
-                                 <div className="flex justify-between items-center mb-3">
-                                    <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
-                                      <TrendingDown size={16}/> Menos Vendido
-                                    </span>
-                                    <span className="font-black text-right pl-2 leading-tight">
-                                      {reporte.insights.productoMenosVendido.producto_nombre} 
-                                      <span className="text-red-300 ml-1 text-xs">({reporte.insights.productoMenosVendido.cantidad_vendida})</span>
-                                    </span>
-                                 </div>
-                              </>
-                          ) : (
-                            <p className="text-sm text-slate-500">No hay platillos registrados.</p>
-                          )}
-                          
-                          {reporte.insights.productosCeroVentas?.length > 0 && (
-                              <div className="mt-4 pt-4 border-t border-slate-700">
-                                 <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2">
-                                   <AlertTriangle size={14}/> Sin Ventas ({reporte.insights.productosCeroVentas.length})
-                                 </span>
-                                 <p className="text-xs text-slate-400 leading-snug line-clamp-3" title={reporte.insights.productosCeroVentas.join(', ')}>
-                                    {reporte.insights.productosCeroVentas.join(', ')}
-                                 </p>
-                              </div>
-                          )}
-                      </div>
-
-                      {/* SI ES SEMANA, MES O AÑO, MUESTRA ESTADÍSTICAS POR DÍA */}
-                      {['semana', 'mes', 'anio'].includes(filtroActivo) && reporte.insights.mejorDia && (
-                          <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
-                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Diario</p>
-                              <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-blue-400 flex items-center gap-1.5">
-                                   <Activity size={16}/> Promedio/Día
-                                 </span>
-                                 <span className="font-black text-lg">
-                                   {formaterMoneda(reporte.insights.promedioDiario)}
-                                 </span>
-                              </div>
-                              <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                                   <CalendarDays size={16}/> Mejor Día
-                                 </span>
-                                 <div className="text-right">
-                                     <span className="font-black block capitalize">
-                                       {parseFechaSegura(reporte.insights.mejorDia.fecha_str)}
-                                     </span>
-                                     <span className="text-xs text-emerald-300 font-bold">
-                                       {formaterMoneda(reporte.insights.mejorDia.total_dia)}
-                                     </span>
-                                 </div>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
-                                   <CalendarDays size={16}/> Peor Día
-                                 </span>
-                                 <div className="text-right">
-                                     <span className="font-black block capitalize">
-                                       {parseFechaSegura(reporte.insights.peorDia.fecha_str)}
-                                     </span>
-                                     <span className="text-xs text-red-300 font-bold">
-                                       {formaterMoneda(reporte.insights.peorDia.total_dia)}
-                                     </span>
-                                 </div>
-                              </div>
-                          </div>
-                      )}
-
-                      {/* SI ES AÑO, MUESTRA ESTADÍSTICAS POR MES */}
-                      {filtroActivo === 'anio' && reporte.insights.mejorMes && (
-                          <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
-                              <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Mensual</p>
-                              <div className="flex justify-between items-center mb-4">
-                                 <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                                   <Calendar size={16}/> Mejor Mes
-                                 </span>
-                                 <div className="text-right">
-                                     <span className="font-black block capitalize">
-                                       {reporte.insights.mejorMes.mes}
-                                     </span>
-                                     <span className="text-xs text-emerald-300 font-bold">
-                                       {formaterMoneda(reporte.insights.mejorMes.total)}
-                                     </span>
-                                 </div>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                 <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
-                                   <Calendar size={16}/> Peor Mes
-                                 </span>
-                                 <div className="text-right">
-                                     <span className="font-black block capitalize">
-                                       {reporte.insights.peorMes.mes}
-                                     </span>
-                                     <span className="text-xs text-red-300 font-bold">
-                                       {formaterMoneda(reporte.insights.peorMes.total)}
-                                     </span>
-                                 </div>
-                              </div>
-                          </div>
-                      )}
-                   </div>
-                </div>
-              )}
-
-              {/* SECCIÓN DE COMPARATIVAS HISTÓRICAS (HORARIOS Y VOLUMEN) */}
-              {reporte.comparativas && reporte.comparativas.length > 0 && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
-                  <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
-                    <History className="text-blue-600" size={24} /> Análisis de Horarios y Tendencias
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {reporte.comparativas.map((comp, idx) => (
-                      <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
-                        <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-200 pb-2 mb-3">
-                          {comp.label}
-                        </h4>
-                        <div className="space-y-3">
-                           <div className="flex justify-between items-center">
-                              <span className="text-xs font-bold text-slate-500">Volumen Total:</span>
-                              <span className="font-black text-slate-800">{comp.totalPlatillos} platillos</span>
-                           </div>
-                           <div className="flex justify-between items-start gap-4">
-                              <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
-                                <Clock size={14}/> Hora Pico:
-                              </span>
-                              <span className="text-xs font-bold text-emerald-600 text-right">{comp.mejorHora}</span>
-                           </div>
-                           <div className="flex justify-between items-start gap-4">
-                              <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
-                                <Clock size={14}/> Hora Muerta:
-                              </span>
-                              <span className="text-xs font-bold text-red-500 text-right">{comp.peorHora}</span>
-                           </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Tarjetas de Resumen Financiero */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 print:hidden">
-                    <DollarSign size={24}/>
-                  </div>
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Ingresos Brutos</span>
-                  <span className="text-3xl font-black text-slate-800 print:text-xl">
-                    {formaterMoneda(reporte.resumen.ventas_totales)}
-                  </span>
-                </div>
+              <div className="flex flex-col md:flex-row gap-8 items-center">
                 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3 print:hidden">
-                    <PackageOpen size={24}/>
+                {/* Indicador Numérico y Barra */}
+                <div className="flex-1 w-full space-y-4">
+                  <div className="flex justify-between items-end mb-2">
+                    <div>
+                      <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-1">Volumen Actual</p>
+                      <span className="text-4xl font-black text-slate-800">{reporte.proyecciones.actual_platillos}</span>
+                      <span className="text-lg font-bold text-slate-400 ml-2">/ {reporte.proyecciones.meta_platillos} platillos</span>
+                    </div>
+                    <span className={`text-3xl font-black ${
+                      reporte.proyecciones.estado === 'excelente' ? 'text-emerald-500' :
+                      reporte.proyecciones.estado === 'bueno' ? 'text-blue-500' : 'text-orange-500'
+                    }`}>
+                      {reporte.proyecciones.progreso}%
+                    </span>
                   </div>
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Costo Inversión</span>
-                  <span className="text-3xl font-black text-red-600 print:text-xl">
-                    {formaterMoneda(reporte.resumen.inversion_total)}
-                  </span>
+
+                  {/* Barra de progreso visual */}
+                  <div className="w-full bg-slate-100 h-6 rounded-full overflow-hidden shadow-inner">
+                    <div 
+                      className={`h-full transition-all duration-1000 ${
+                        reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-500' :
+                        reporte.proyecciones.estado === 'bueno' ? 'bg-blue-500' : 'bg-orange-500'
+                      }`}
+                      style={{ width: `${reporte.proyecciones.progreso}%` }}
+                    ></div>
+                  </div>
                 </div>
 
-                <div className="bg-emerald-500 p-6 rounded-3xl shadow-lg border border-emerald-400 flex flex-col items-center text-center transform hover:scale-105 transition print:bg-white print:border-slate-300 print:shadow-none print:transform-none print:p-4">
-                  <div className="w-12 h-12 bg-white/20 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
-                    <TrendingUp size={24}/>
+                {/* Mensajes y Recomendaciones */}
+                <div className="flex-1 w-full bg-slate-50 p-6 rounded-3xl border border-slate-200">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className={`p-3 rounded-2xl mt-1 shrink-0 ${
+                      reporte.proyecciones.estado === 'excelente' ? 'bg-emerald-100 text-emerald-600' :
+                      reporte.proyecciones.estado === 'bueno' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
+                    }`}>
+                      {reporte.proyecciones.estado === 'excelente' ? <CheckCircle size={28}/> : <Zap size={28}/>}
+                    </div>
+                    <div>
+                      <h4 className="font-black text-slate-800 text-xl leading-tight mb-1">{reporte.proyecciones.mensaje}</h4>
+                      <p className="text-sm text-slate-600 font-medium leading-relaxed">{reporte.proyecciones.accion}</p>
+                    </div>
                   </div>
-                  <span className="text-xs font-black text-emerald-100 uppercase tracking-widest print:text-slate-400 print:text-[10px]">Ganancia Neta</span>
-                  <span className="text-4xl font-black text-white print:text-emerald-600 print:text-2xl">
-                    {formaterMoneda(reporte.resumen.ganancia_total)}
-                  </span>
-                </div>
 
-                <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col items-center text-center print:bg-white print:border-slate-300 print:shadow-none print:p-4">
-                  <div className="w-12 h-12 bg-white/10 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
-                    <PackageOpen size={24}/>
-                  </div>
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Platillos Vendidos</span>
-                  <span className="text-4xl font-black text-white print:text-slate-800 print:text-2xl">
-                    {reporte.resumen.productos_vendidos}
-                  </span>
+                  {reporte.proyecciones.meta_futura && (
+                    <div className="mt-4 pt-4 border-t border-slate-200">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-2">🚀 Siguiente paso</p>
+                      <p className="text-sm font-bold text-slate-700">{reporte.proyecciones.meta_futura}</p>
+                    </div>
+                  )}
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Tabla Desglosada */}
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:shadow-none">
-                <div className="p-6 border-b border-slate-100 print:p-4">
-                  <h3 className="text-lg font-bold text-slate-800">Desglose de Productos, Extras y Envíos</h3>
+          {/* PANEL DE ANÁLISIS DE INTELIGENCIA (INSIGHTS) */}
+          {reporte.insights && (
+            <div className="bg-slate-900 rounded-[32px] p-8 shadow-xl text-white print:hidden relative overflow-hidden">
+                <div className="absolute -right-10 -top-10 opacity-10 pointer-events-none">
+                  <TrendingUp size={200}/>
                 </div>
+                <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-emerald-400">
+                  <BarChart2 size={24}/> Análisis Inteligente ({filtroActivo})
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative z-10">
+                  
+                  {/* SIEMPRE MUESTRA LOS PRODUCTOS TOP/WORST */}
+                  <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento de Menú</p>
+                      {reporte.insights.productoMasVendido ? (
+                          <>
+                              <div className="flex justify-between items-center mb-3">
+                                <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                  <Star size={16}/> Más Vendido
+                                </span>
+                                <span className="font-black text-right pl-2 leading-tight">
+                                  {reporte.insights.productoMasVendido.producto_nombre} 
+                                  <span className="text-emerald-300 ml-1 text-xs">({reporte.insights.productoMasVendido.cantidad_vendida})</span>
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center mb-3">
+                                <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                  <TrendingDown size={16}/> Menos Vendido
+                                </span>
+                                <span className="font-black text-right pl-2 leading-tight">
+                                  {reporte.insights.productoMenosVendido.producto_nombre} 
+                                  <span className="text-red-300 ml-1 text-xs">({reporte.insights.productoMenosVendido.cantidad_vendida})</span>
+                                </span>
+                              </div>
+                          </>
+                      ) : (
+                        <p className="text-sm text-slate-500 mb-4">Aún no hay platillos vendidos en este periodo.</p>
+                      )}
+                      
+                      {/* 👇 NUEVO: ALERTA DE LO QUE NO SE VENDIÓ AYER PARA EMPUJARLO HOY */}
+                      {reporte.insights.productosCeroVentasAyer?.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-slate-700">
+                              <span className="text-xs font-black text-orange-400 flex items-center gap-1.5 mb-2">
+                                <AlertTriangle size={14}/> No se vendió ayer ({reporte.insights.productosCeroVentasAyer.length})
+                              </span>
+                              <p className="text-xs text-slate-400 leading-snug line-clamp-3" title={reporte.insights.productosCeroVentasAyer.join(', ')}>
+                                {reporte.insights.productosCeroVentasAyer.join(', ')}
+                              </p>
+                          </div>
+                      )}
+                  </div>
+
+                  {/* SI ES SEMANA, MES O AÑO, MUESTRA ESTADÍSTICAS POR DÍA */}
+                  {['semana', 'mes', 'anio'].includes(filtroActivo) && reporte.insights.mejorDia && (
+                      <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Diario</p>
+                          <div className="flex justify-between items-center mb-4">
+                              <span className="text-sm font-bold text-blue-400 flex items-center gap-1.5">
+                                <Activity size={16}/> Promedio/Día
+                              </span>
+                              <span className="font-black text-lg">
+                                {formaterMoneda(reporte.insights.promedioDiario)}
+                              </span>
+                          </div>
+                          <div className="flex justify-between items-center mb-4">
+                              <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                <CalendarDays size={16}/> Mejor Día
+                              </span>
+                              <div className="text-right">
+                                  <span className="font-black block capitalize">
+                                    {parseFechaSegura(reporte.insights.mejorDia.fecha_str)}
+                                  </span>
+                                  <span className="text-xs text-emerald-300 font-bold">
+                                    {formaterMoneda(reporte.insights.mejorDia.total_dia)}
+                                  </span>
+                              </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                <CalendarDays size={16}/> Peor Día
+                              </span>
+                              <div className="text-right">
+                                  <span className="font-black block capitalize">
+                                    {parseFechaSegura(reporte.insights.peorDia.fecha_str)}
+                                  </span>
+                                  <span className="text-xs text-red-300 font-bold">
+                                    {formaterMoneda(reporte.insights.peorDia.total_dia)}
+                                  </span>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+
+                  {/* SI ES AÑO, MUESTRA ESTADÍSTICAS POR MES */}
+                  {filtroActivo === 'anio' && reporte.insights.mejorMes && (
+                      <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 hover:border-slate-500 transition">
+                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Rendimiento Mensual</p>
+                          <div className="flex justify-between items-center mb-4">
+                              <span className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                                <Calendar size={16}/> Mejor Mes
+                              </span>
+                              <div className="text-right">
+                                  <span className="font-black block capitalize">
+                                    {reporte.insights.mejorMes.mes}
+                                  </span>
+                                  <span className="text-xs text-emerald-300 font-bold">
+                                    {formaterMoneda(reporte.insights.mejorMes.total)}
+                                  </span>
+                              </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                              <span className="text-sm font-bold text-red-400 flex items-center gap-1.5">
+                                <Calendar size={16}/> Peor Mes
+                              </span>
+                              <div className="text-right">
+                                  <span className="font-black block capitalize">
+                                    {reporte.insights.peorMes.mes}
+                                  </span>
+                                  <span className="text-xs text-red-300 font-bold">
+                                    {formaterMoneda(reporte.insights.peorMes.total)}
+                                  </span>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+                </div>
+            </div>
+          )}
+
+          {/* SECCIÓN DE COMPARATIVAS HISTÓRICAS (HORARIOS Y VOLUMEN) */}
+          {reporte.comparativas && reporte.comparativas.length > 0 && (
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 print:border-slate-300 print:shadow-none print:p-4">
+              <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
+                <History className="text-blue-600" size={24} /> Análisis de Horarios y Tendencias
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {reporte.comparativas.map((comp, idx) => (
+                  <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
+                    <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest border-b border-slate-200 pb-2 mb-3">
+                      {comp.label}
+                    </h4>
+                    <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-500">Volumen Total:</span>
+                          <span className="font-black text-slate-800">{comp.totalPlatillos} platillos</span>
+                        </div>
+                        <div className="flex justify-between items-start gap-4">
+                          <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                            <Clock size={14}/> Hora Pico:
+                          </span>
+                          <span className="text-xs font-bold text-emerald-600 text-right">{comp.mejorHora}</span>
+                        </div>
+                        <div className="flex justify-between items-start gap-4">
+                          <span className="text-xs font-bold text-slate-500 flex items-center gap-1 whitespace-nowrap">
+                            <Clock size={14}/> Hora Muerta:
+                          </span>
+                          <span className="text-xs font-bold text-red-500 text-right">{comp.peorHora}</span>
+                        </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tarjetas de Resumen Financiero */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 print:hidden">
+                <DollarSign size={24}/>
+              </div>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Ingresos Brutos</span>
+              <span className="text-3xl font-black text-slate-800 print:text-xl">
+                {formaterMoneda(reporte.resumen.ventas_totales)}
+              </span>
+            </div>
+            
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3 print:hidden">
+                <PackageOpen size={24}/>
+              </div>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Costo Inversión</span>
+              <span className="text-3xl font-black text-red-600 print:text-xl">
+                {formaterMoneda(reporte.resumen.inversion_total)}
+              </span>
+            </div>
+
+            <div className="bg-emerald-500 p-6 rounded-3xl shadow-lg border border-emerald-400 flex flex-col items-center text-center transform hover:scale-105 transition print:bg-white print:border-slate-300 print:shadow-none print:transform-none print:p-4">
+              <div className="w-12 h-12 bg-white/20 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
+                <TrendingUp size={24}/>
+              </div>
+              <span className="text-xs font-black text-emerald-100 uppercase tracking-widest print:text-slate-400 print:text-[10px]">Ganancia Neta</span>
+              <span className="text-4xl font-black text-white print:text-emerald-600 print:text-2xl">
+                {formaterMoneda(reporte.resumen.ganancia_total)}
+              </span>
+            </div>
+
+            <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col items-center text-center print:bg-white print:border-slate-300 print:shadow-none print:p-4">
+              <div className="w-12 h-12 bg-white/10 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
+                <PackageOpen size={24}/>
+              </div>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest print:text-[10px]">Platillos Vendidos</span>
+              <span className="text-4xl font-black text-white print:text-slate-800 print:text-2xl">
+                {reporte.resumen.productos_vendidos}
+              </span>
+            </div>
+          </div>
+
+          {/* Tabla Desglosada */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:shadow-none">
+            <div className="p-6 border-b border-slate-100 print:p-4">
+              <h3 className="text-lg font-bold text-slate-800">Desglose de Productos, Extras y Envíos</h3>
+            </div>
+            
+            {/* 👇 MENSAJE SI NO HAY DATOS EN LA TABLA */}
+            {reporte.detalles.length === 0 ? (
+                <div className="p-12 text-center flex flex-col items-center bg-slate-50">
+                   <AlertCircle size={48} className="text-slate-300 mb-3" />
+                   <p className="text-slate-500 font-bold text-lg">Aún no hay platillos vendidos registrados en este periodo.</p>
+                </div>
+            ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -498,9 +501,8 @@ const ReporteVentas = ({ apiUrl, showAlert }) => {
                     </tbody>
                   </table>
                 </div>
-              </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
       ) : null}
     </div>

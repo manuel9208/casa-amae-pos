@@ -91,7 +91,7 @@ exports.actualizarEstado = async (req, res) => {
   
   try {
     // 1. Obtenemos el estado anterior del pedido ANTES de modificarlo
-    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total FROM pedidos WHERE id = $1', [id]);
+    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito FROM pedidos WHERE id = $1', [id]);
     if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
     const pedidoPrevio = prevRes.rows[0];
 
@@ -152,7 +152,7 @@ exports.actualizarEstado = async (req, res) => {
     const pedidoActual = result.rows[0];
 
     // =========================================================================
-    // LÓGICA DE PUNTOS: SE DAN AL PAGAR O ENTREGAR (SOBRE EL TOTAL FINAL)
+    // 👇 NUEVA LÓGICA DE PUNTOS: SOLO SUMA PLATILLOS ELEGIBLES
     // =========================================================================
     if (pedidoActual.cliente_id) {
       const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado');
@@ -168,7 +168,36 @@ exports.actualizarEstado = async (req, res) => {
                   if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
                       const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
                       
-                      const puntosAGanar = Math.floor(Number(pedidoActual.total) * (porcentaje / 100));
+                      let totalElegible = 0;
+                      const carritoItems = typeof pedidoActual.carrito === 'string' ? JSON.parse(pedidoActual.carrito) : pedidoActual.carrito;
+
+                      if (carritoItems && carritoItems.length > 0) {
+                          for (const item of carritoItems) {
+                              let genera = true;
+                              if (item.id) {
+                                  // Revisamos si el platillo y su categoría generan puntos
+                                  const prodRes = await db.query(`
+                                      SELECT p.genera_puntos as p_genera, c.genera_puntos as c_genera 
+                                      FROM productos p 
+                                      LEFT JOIN clasificaciones c ON p.categoria = c.nombre 
+                                      WHERE p.id = $1
+                                  `, [item.id]);
+
+                                  if (prodRes.rows.length > 0) {
+                                      const data = prodRes.rows[0];
+                                      if (data.p_genera === false || data.c_genera === false) genera = false;
+                                  }
+                              }
+                              
+                              if (genera) {
+                                  totalElegible += Number(item.precioFinal || 0) * Number(item.cantidad || 1);
+                              }
+                          }
+                      }
+
+                      // Calculamos los puntos en base al dinero elegible, no al total de la orden
+                      const puntosAGanar = Math.floor(totalElegible * (porcentaje / 100));
+                      
                       if (puntosAGanar > 0) {
                           await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, pedidoActual.cliente_id]);
                       }
