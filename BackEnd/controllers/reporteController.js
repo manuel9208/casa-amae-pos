@@ -260,19 +260,11 @@ exports.obtenerReporteVentas = async (req, res) => {
     // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO, VOLUMEN Y FECHAS EXACTAS)
     let comparativas = [];
     try {
-        // AUTO-DESCUBRIMIENTO DE HORARIOS OPERATIVOS
-        const horasOpRes = await db.query("SELECT MIN(EXTRACT(HOUR FROM fecha_creacion)) as min_h, MAX(EXTRACT(HOUR FROM fecha_creacion)) as max_h FROM pedidos WHERE estado_preparacion != 'Cancelado'");
-        let minHoraOperativa = 12; // Default 12 PM
-        let maxHoraOperativa = 23; // Default 11 PM
-        if (horasOpRes.rows.length > 0 && horasOpRes.rows[0].min_h !== null) {
-            minHoraOperativa = parseInt(horasOpRes.rows[0].min_h);
-            maxHoraOperativa = parseInt(horasOpRes.rows[0].max_h);
-        }
-
-        // 👇 MODIFICADO: Agregamos el parámetro 'esUnSoloDia' para generar el subtitulo
+        // 👇 AUTO-DESCUBRIMIENTO DIARIO INTELIGENTE
+        // En lugar de tomar las horas mínimas y máximas de "toda la historia",
+        // calcularemos la hora mínima y máxima de cada día en específico.
+        
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
-            
-            // Calculamos con Postgres las fechas exactas evaluadas para mostrar al usuario
             const boundsRes = await db.query(`
                 SELECT 
                     TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio,
@@ -291,9 +283,16 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             let totalPlatillos = 0;
             let horas = Array(24).fill(0);
+            let minHoraDelRango = 24; 
+            let maxHoraDelRango = -1;
 
             res.rows.forEach(p => {
                 const hora = new Date(p.fecha_creacion).getHours();
+                
+                // 👇 Actualizamos la ventana operativa real (solo de los pedidos de ese periodo)
+                if (hora < minHoraDelRango) minHoraDelRango = hora;
+                if (hora > maxHoraDelRango) maxHoraDelRango = hora;
+
                 let carrito = [];
                 try { carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito; } catch(e){}
                 if(!Array.isArray(carrito)) carrito = [];
@@ -312,9 +311,10 @@ exports.obtenerReporteVentas = async (req, res) => {
             let peorHora = -1; let minItems = Infinity;
             let huboVentasEnElRango = false;
 
-            // SOLO ITERAMOS DENTRO DE LAS HORAS OPERATIVAS
-            for(let i=minHoraOperativa; i<=maxHoraOperativa; i++) {
-                if(horas[i] > 0) huboVentasEnElRango = true;
+            // 👇 SOLO EVALUAMOS HORAS MUERTAS EN LA VENTANA DE TIEMPO DESCUBIERTA
+            // Si no abriste en todo el día (minHoraDelRango = 24), este for no se ejecuta.
+            for(let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
+                huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
                 if(horas[i] < minItems) { minItems = horas[i]; peorHora = i; }
             }
@@ -330,14 +330,13 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             return {
                 label,
-                subtitulo: subtituloFechas, // 👇 Pasamos el subtitulo exacto al FrontEnd
+                subtitulo: subtituloFechas,
                 totalPlatillos,
                 mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
                 peorHora: peorHora !== -1 ? `${formatHora(peorHora)} a ${formatHora(peorHora + 1)} (${minItems} platillos)` : 'Sin ventas'
             };
         };
 
-        // Pasamos el nuevo parámetro 'true' o 'false' dependiendo si es un día o un rango
         if (tipo === 'dia' || tipo === 'historico') {
             const fRef = `$1::DATE`;
             comparativas.push(await processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true));
@@ -368,10 +367,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     let proyecciones = null;
     try {
         if (comparativas.length > 0) {
-            // Tomamos la primera comparativa (la más inmediata) como base
             const baseInmediata = comparativas[0];
-            
-            // Meta de crecimiento: 5% realista (1.05)
             const metaPlatillos = Math.ceil(baseInmediata.totalPlatillos * 1.05);
             const actuales = totales.productos_vendidos;
 
@@ -380,7 +376,6 @@ exports.obtenerReporteVentas = async (req, res) => {
             let accionRecomendada = '';
             let progreso = metaPlatillos > 0 ? Math.min(100, Math.round((actuales / metaPlatillos) * 100)) : (actuales > 0 ? 100 : 0);
 
-            // Manejo inteligente cuando aún no hay ventas (actuales === 0)
             if (actuales > 0 && actuales >= metaPlatillos) {
                 estadoMeta = 'excelente';
                 mensajeMeta = `¡Meta Superada! Lograste vender ${actuales} platillos (la meta era ${metaPlatillos}).`;
@@ -395,10 +390,8 @@ exports.obtenerReporteVentas = async (req, res) => {
                 accionRecomendada = `Faltan ${metaPlatillos - actuales} para la meta. Revisa tus horas muertas y considera lanzar promociones o cupones rápidos.`;
             }
 
-            // Calcular proyección para "Mañana" o "La próxima semana"
             let metaFuturaMensaje = '';
             if (tipo === 'dia' || tipo === 'historico') {
-                // Mañana es igual a hace 6 días (el equivalente al día de mañana, pero la semana pasada)
                 const resManana = await db.query(`
                     SELECT p.carrito FROM pedidos p 
                     WHERE p.estado_preparacion != 'Cancelado' 
@@ -413,7 +406,7 @@ exports.obtenerReporteVentas = async (req, res) => {
                         if(c !== 'Extras' && c !== 'Envíos') platManana += Number(i.cantidad||1);
                     });
                 });
-                const metaManana = Math.max(5, Math.ceil(platManana * 1.05)); // Mínimo 5 si estaba en 0
+                const metaManana = Math.max(5, Math.ceil(platManana * 1.05));
                 metaFuturaMensaje = `Mañana deberías apuntar a vender ${metaManana} platillos.`;
             } else if (tipo === 'semana') {
                 metaFuturaMensaje = `Para tu próxima semana, prepara a tu equipo para apuntar un 5% más alto que tu semana actual.`;

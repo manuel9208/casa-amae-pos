@@ -10,6 +10,9 @@ const Cocina = ({ user, onLogout }) => {
   const [modalAlerta, setModalAlerta] = useState(null); 
   const [faltanteSelec, setFaltanteSelec] = useState('');
   const [propuestaSelec, setPropuestaSelec] = useState('');
+
+  // 👇 SEGURO ANTI-DOBLE CLIC PARA COCINA
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
@@ -29,6 +32,9 @@ const Cocina = ({ user, onLogout }) => {
   }, [apiUrl]);
 
   const actualizarEstadoPedido = async (p, nuevoEstadoLocal) => {
+    if (isSubmitting) return; // Bloqueo si ya está cargando
+    setIsSubmitting(true);
+
     const area = filtroTab;
     
     const nuevoCarrito = (p.carrito || []).map(item => {
@@ -59,10 +65,15 @@ const Cocina = ({ user, onLogout }) => {
         alert(`Error: ${err.error}`);
       }
     } catch (error) { alert('Error de conexión con el servidor.'); }
+    
+    setIsSubmitting(false); // Liberamos el botón
   };
 
   const enviarAlerta = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     const extrasStr = (modalAlerta.item.extras || []).map(e => e.nombre).join(', ');
     const identificadorPlatillo = `${modalAlerta.item.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
     
@@ -76,10 +87,15 @@ const Cocina = ({ user, onLogout }) => {
       });
       setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');
     } catch (error) { alert('Error al enviar alerta.'); }
+    
+    setIsSubmitting(false);
   };
 
   const limpiarAlerta = async (id) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try { await fetch(`${apiUrl}/pedidos/${id}/alerta`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: null }) }); } catch (error) {}
+    setIsSubmitting(false);
   };
 
   const pedidosVisibles = pedidos.filter(p => {
@@ -139,17 +155,10 @@ const Cocina = ({ user, onLogout }) => {
           
           const maxTiempo = Math.max(...itemsDeEstaArea.map(i => Number(i.tiempo_preparacion) || 15));
 
-          // 👇 LA MAGIA DEL TIEMPO: Forzamos la zona horaria a UTC para que coincida con la base de datos
           let minsTranscurridos = 0;
           if (p.tiempo_inicio_preparacion) {
-              // Convertimos la cadena de tiempo que viene de la base de datos a un objeto de Fecha.
-              // Si la cadena no termina en 'Z' (que indica UTC), se la añadimos para asegurar que 
-              // el navegador no intente aplicar la zona horaria local incorrectamente.
               const timeString = p.tiempo_inicio_preparacion.endsWith('Z') ? p.tiempo_inicio_preparacion : `${p.tiempo_inicio_preparacion}Z`;
               const inicioPrep = new Date(timeString).getTime();
-              
-              // Usamos Math.max para asegurarnos de que nunca dé números negativos (-420)
-              // si hay una ligera desincronización de milisegundos entre el servidor y el cliente.
               minsTranscurridos = Math.max(0, Math.floor((ahora - inicioPrep) / 60000));
           }
 
@@ -161,7 +170,6 @@ const Cocina = ({ user, onLogout }) => {
           }
           if (p.alerta_cocina) { colorBorde = 'border-red-500'; shadow = ''; } 
           
-          // Corrección visual de la hora para que sí respete la zona de México
           const fechaHora = new Date(p.fecha_creacion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
 
           const mensajeVisible = p.alerta_cocina ? p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '') : '';
@@ -187,7 +195,7 @@ const Cocina = ({ user, onLogout }) => {
                   <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1"><AlertTriangle size={14}/> {mensajeVisible.includes('CAJA RESPONDE:') ? 'Respuesta de Caja' : 'Esperando a Caja...'}</p>
                   <p className="text-sm font-medium text-red-100">{mensajeVisible}</p>
                   {mensajeVisible.includes('CAJA RESPONDE:') && (
-                    <button onClick={() => limpiarAlerta(p.id)} className="w-full mt-4 bg-red-500 hover:bg-red-600 text-white font-black py-3 rounded-xl transition flex justify-center items-center gap-2"><CheckCircle2 size={18}/> Aceptar y Continuar</button>
+                    <button disabled={isSubmitting} onClick={() => limpiarAlerta(p.id)} className="w-full mt-4 bg-red-500 hover:bg-red-600 text-white font-black py-3 rounded-xl transition flex justify-center items-center gap-2 disabled:opacity-50"><CheckCircle2 size={18}/> Aceptar y Continuar</button>
                   )}
                 </div>
               )}
@@ -206,7 +214,7 @@ const Cocina = ({ user, onLogout }) => {
                        ))}
                     </div>
                     {(areaEstado === 'Preparando' || areaEstado === 'Pagado') && !p.alerta_cocina && (
-                      <button onClick={() => setModalAlerta({ pedido: p, item })} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold rounded-xl transition border border-slate-700 flex items-center justify-center gap-2">⚠️ Reportar Problema</button>
+                      <button disabled={isSubmitting} onClick={() => setModalAlerta({ pedido: p, item })} className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold rounded-xl transition border border-slate-700 flex items-center justify-center gap-2 disabled:opacity-50">⚠️ Reportar Problema</button>
                     )}
                   </div>
                 ))}
@@ -216,14 +224,16 @@ const Cocina = ({ user, onLogout }) => {
                 {areaEstado === 'Pagado' || !areaEstado ? (
                   <button 
                     onClick={() => actualizarEstadoPedido(p, 'Preparando')} 
-                    disabled={hayPedidoEnPreparacion}
-                    className={`w-full py-4 rounded-2xl font-black text-lg transition flex items-center justify-center gap-2 ${hayPedidoEnPreparacion ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'}`}
+                    disabled={hayPedidoEnPreparacion || isSubmitting}
+                    className={`w-full py-4 rounded-2xl font-black text-lg transition flex items-center justify-center gap-2 ${hayPedidoEnPreparacion ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'} ${isSubmitting ? 'opacity-50' : ''}`}
                   >
                     <ChefHat size={20}/> 
-                    {hayPedidoEnPreparacion ? 'Termina tu pedido actual' : 'Preparar mi parte'}
+                    {isSubmitting ? 'Procesando...' : (hayPedidoEnPreparacion ? 'Termina tu pedido actual' : 'Preparar mi parte')}
                   </button>
                 ) : areaEstado === 'Preparando' ? (
-                  <button onClick={() => actualizarEstadoPedido(p, 'Listo')} disabled={!!p.alerta_cocina} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white py-4 rounded-2xl font-black text-lg transition disabled:opacity-30 flex items-center justify-center gap-2"><CheckCircle2 size={20}/> Terminar mi parte</button>
+                  <button disabled={!!p.alerta_cocina || isSubmitting} onClick={() => actualizarEstadoPedido(p, 'Listo')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white py-4 rounded-2xl font-black text-lg transition disabled:opacity-30 flex items-center justify-center gap-2">
+                    <CheckCircle2 size={20}/> {isSubmitting ? 'Procesando...' : 'Terminar mi parte'}
+                  </button>
                 ) : null}
               </div>
             </div>
@@ -252,7 +262,7 @@ const Cocina = ({ user, onLogout }) => {
                     const opciones = [{ id: 'platillo_completo', nombre: `Todo el platillo (${modalAlerta.item.nombre})` }, ...basesDelPlatillo];
                     
                     return opciones.map((b, idx) => (
-                      <button key={idx} onClick={() => setFaltanteSelec(b.nombre)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${faltanteSelec === b.nombre ? 'bg-red-500 text-white border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>{b.nombre}</button>
+                      <button disabled={isSubmitting} key={idx} onClick={() => setFaltanteSelec(b.nombre)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${faltanteSelec === b.nombre ? 'bg-red-500 text-white border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>{b.nombre}</button>
                     ));
                   })()}
                 </div>
@@ -264,8 +274,8 @@ const Cocina = ({ user, onLogout }) => {
                   <div className="flex flex-wrap gap-2">
                     {faltanteSelec.startsWith('Todo el platillo') ? (
                       <>
-                        <button onClick={() => setPropuestaSelec('Cancelar este platillo')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Cancelar este platillo' ? 'bg-orange-500 text-white border-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Cancelar este platillo</button>
-                        <button onClick={() => setPropuestaSelec('Que el cliente elija otra cosa')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Que el cliente elija otra cosa' ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Que el cliente pida otra cosa</button>
+                        <button disabled={isSubmitting} onClick={() => setPropuestaSelec('Cancelar este platillo')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Cancelar este platillo' ? 'bg-orange-500 text-white border-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Cancelar este platillo</button>
+                        <button disabled={isSubmitting} onClick={() => setPropuestaSelec('Que el cliente elija otra cosa')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Que el cliente elija otra cosa' ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Que el cliente pida otra cosa</button>
                       </>
                     ) : (
                       <>
@@ -282,12 +292,12 @@ const Cocina = ({ user, onLogout }) => {
                           const propuestas = Array.from(propuestasMap.values());
                           
                           return propuestas.map(nombrePropuesta => (
-                            <button key={nombrePropuesta} onClick={() => setPropuestaSelec(nombrePropuesta)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === nombrePropuesta ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>
+                            <button disabled={isSubmitting} key={nombrePropuesta} onClick={() => setPropuestaSelec(nombrePropuesta)} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === nombrePropuesta ? 'bg-blue-600 text-white border-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>
                               {nombrePropuesta}
                             </button>
                           ));
                         })()}
-                        <button onClick={() => setPropuestaSelec('Solo quitarlo')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Solo quitarlo' ? 'bg-orange-500 text-white border-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Solo prepararlo sin {faltanteSelec}</button>
+                        <button disabled={isSubmitting} onClick={() => setPropuestaSelec('Solo quitarlo')} className={`px-4 py-3 rounded-xl font-bold text-sm transition border ${propuestaSelec === 'Solo quitarlo' ? 'bg-orange-500 text-white border-orange-500 shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-slate-800 text-slate-300 border-slate-600 hover:bg-slate-700'}`}>Solo prepararlo sin {faltanteSelec}</button>
                       </>
                     )}
                   </div>
@@ -296,8 +306,10 @@ const Cocina = ({ user, onLogout }) => {
 
             </div>
             <div className="flex gap-4 mt-8">
-              <button onClick={() => {setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');}} className="flex-1 py-4 bg-slate-700 text-white font-black rounded-2xl hover:bg-slate-600 transition">Cancelar</button>
-              <button onClick={enviarAlerta} disabled={!faltanteSelec || !propuestaSelec} className="flex-[2] py-4 bg-red-600 text-white font-black text-lg rounded-2xl hover:bg-red-500 disabled:opacity-30 transition shadow-[0_0_15px_rgba(220,38,38,0.3)]">3. Enviar a Caja</button>
+              <button disabled={isSubmitting} onClick={() => {setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');}} className="flex-1 py-4 bg-slate-700 text-white font-black rounded-2xl hover:bg-slate-600 transition disabled:opacity-50">Cancelar</button>
+              <button onClick={enviarAlerta} disabled={!faltanteSelec || !propuestaSelec || isSubmitting} className="flex-[2] py-4 bg-red-600 text-white font-black text-lg rounded-2xl hover:bg-red-500 disabled:opacity-30 transition shadow-[0_0_15px_rgba(220,38,38,0.3)]">
+                 {isSubmitting ? 'Enviando...' : '3. Enviar a Caja'}
+              </button>
             </div>
           </div>
         </div>
