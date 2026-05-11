@@ -14,7 +14,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [insumosDB, setInsumosDB] = useState([]); 
   const [gastosDia, setGastosDia] = useState([]); 
   
-  // 👇 NUEVO ESTADO: Control del menú lateral en móviles
+  // Control del menú lateral en móviles
   const [menuAbiertoCaja, setMenuAbiertoCaja] = useState(false);
   
   // === ESTADOS DE LOS MODALES DE COBRO Y VISUALIZACIÓN ===
@@ -27,6 +27,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [ticketImprimir, setTicketImprimir] = useState(null);
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
   const [modalVerDetalle, setModalVerDetalle] = useState(null);
+
+  // 👇 NUEVO ESTADO PARA EDITAR PEDIDO (Punto 4)
+  const [modalEditarPedido, setModalEditarPedido] = useState(null);
 
   // === ESTADOS PARA COMPRA RÁPIDA ===
   const [modalCompraRapida, setModalCompraRapida] = useState(false);
@@ -162,7 +165,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }, 500);
   };
 
-  // 👇 MODIFICACIÓN: Agregamos el parámetro "pagosMixtos" para soportar el pago dividido
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true);
@@ -173,7 +175,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
     } else if (esPostPago) {
-        estadoFinal = 'Pagado'; // 👇 CORRECCIÓN: Estaba en Preparando, ahora va a Pagado (En Cola)
+        estadoFinal = 'Pagado'; 
         metodoPagoFinal = 'Por Cobrar';
     } else {
         if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado';
@@ -183,13 +185,11 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }
 
     try { 
-      // Construimos el payload de forma dinámica
       const payload = { 
         estado_preparacion: estadoFinal,
         metodo_pago: metodoPagoFinal 
       };
       
-      // Si recibimos pagos divididos, los adjuntamos
       if (pagosMixtos) {
           payload.pagos_mixtos = pagosMixtos;
       }
@@ -207,6 +207,8 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
 
         if (esPostPago) {
             mostrarAlertaCaja('¡Enviado a Cola!', `Orden #${modalPago.numero_pedido} está en cola y se cobrará al final.`, 'success');
+        } else if (estadoRechazo === 'Cancelado') {
+            mostrarAlertaCaja('Pedido Anulado', `Orden #${modalPago.numero_pedido} ha sido cancelada.`, 'success');
         } else {
             mostrarAlertaCaja('¡Pago Procesado!', `Orden #${modalPago.numero_pedido} cobrada con éxito.`, 'success');
         }
@@ -252,6 +254,27 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const actualizarEstadoPedido = async (id, nuevoEstado) => {
     if (isSubmitting) return; setIsSubmitting(true);
     try { await fetch(`${apiUrl}/pedidos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: nuevoEstado }) }); } catch (error) {}
+    setIsSubmitting(false);
+  };
+
+  // 👇 NUEVA FUNCIÓN: Para guardar la edición de consumo/dirección en la DB
+  const guardarEdicionPedido = async (id, nuevosDatos) => {
+    if (isSubmitting) return; setIsSubmitting(true);
+    try {
+      const res = await fetch(`${apiUrl}/pedidos/${id}/estado`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(nuevosDatos) 
+      });
+      if (res.ok) {
+         mostrarAlertaCaja('Actualizado', 'Los datos del pedido se modificaron correctamente.', 'success');
+         setModalEditarPedido(null);
+      } else {
+         mostrarAlertaCaja('Error', 'No se pudo actualizar el pedido.', 'error');
+      }
+    } catch (error) {
+      mostrarAlertaCaja('Error', 'Problema de conexión.', 'error');
+    }
     setIsSubmitting(false);
   };
 
@@ -433,10 +456,13 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   };
 
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
+  
+  // 👇 SOLUCIÓN PUNTO 4: Solo mostramos los que son estrictamente "Pendientes"
+  // Si están en "Preparando" o "Pagado" ya no saldrán aquí (incluso si son "Por Cobrar").
   const pendientesDePago = pedidos.filter(p => 
-      (p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') ||
-      p.metodo_pago === 'Por Cobrar'
+      p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio'
   );
+  
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
 
@@ -454,7 +480,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           listosParaEntregar={listosParaEntregar}
           setModalCompraRapida={setModalCompraRapida} 
           abrirIdentificador={abrirIdentificador} 
-          menuAbiertoCaja={menuAbiertoCaja} // 👇 Pasamos el control del menú responsivo
+          menuAbiertoCaja={menuAbiertoCaja} 
           setMenuAbiertoCaja={setMenuAbiertoCaja}
         />
 
@@ -479,9 +505,13 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           lanzarImpresion={lanzarImpresion}
           setModalZonaEnvio={setModalZonaEnvio}
           setModalAgregarExtra={setModalAgregarExtra} 
+          
+          // 👇 Pasamos los estados de edición a VistasCaja
+          setModalEditarPedido={setModalEditarPedido}
+
           isSubmitting={isSubmitting} 
           setModalVerDetalle={setModalVerDetalle} 
-          setMenuAbiertoCaja={setMenuAbiertoCaja} // 👇 Lo pasamos para el botón del Header móvil
+          setMenuAbiertoCaja={setMenuAbiertoCaja} 
         />
         
         <ModalesCaja 
@@ -516,6 +546,11 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           setModalAgregarExtra={setModalAgregarExtra}
           confirmarAgregarExtra={confirmarAgregarExtra}
           
+          // 👇 Pasamos los estados de edición a ModalesCaja
+          modalEditarPedido={modalEditarPedido}
+          setModalEditarPedido={setModalEditarPedido}
+          guardarEdicionPedido={guardarEdicionPedido}
+
           alertaCobroExtra={alertaCobroExtra}
           setAlertaCobroExtra={setAlertaCobroExtra}
           isSubmitting={isSubmitting} 

@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS detalle_pedidos (
 );
 
 -- -------------------------------------------------------------------------
--- 7. MARKETING, PROMOCIONES Y CUPONES (NUEVO)
+-- 7. MARKETING, PROMOCIONES Y CUPONES
 -- -------------------------------------------------------------------------
 
 -- Tabla de Cupones de Descuento

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag, ChefHat, Wallet } from 'lucide-react'; // 👇 Se agregó Wallet
+import React, { useState, useEffect } from 'react';
+import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag, ChefHat, Wallet, Home, Phone } from 'lucide-react'; 
 
 const ModalesCaja = ({
   fondoCaja, iniciarTurno, inputFondo, setInputFondo,
@@ -10,6 +10,10 @@ const ModalesCaja = ({
   paquetesComprados, setPaquetesComprados, registrarCompraRapida,
   alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
   alertaCobroExtra, setAlertaCobroExtra,
+  
+  // 👇 Recibimos los estados para la Edición de Pedido (Punto 4)
+  modalEditarPedido, setModalEditarPedido, guardarEdicionPedido,
+
   isSubmitting,
   modalVerDetalle, setModalVerDetalle,
   
@@ -18,11 +22,26 @@ const ModalesCaja = ({
   buscarClienteParaPedido, registrarClienteParaPedido, onGoToKiosco
 }) => {
 
-  // 👇 NUEVOS ESTADOS PARA EL CONTROL DEL PAGO MIXTO
   const [modoMixto, setModoMixto] = useState(false);
   const [montoEfectivoMixto, setMontoEfectivoMixto] = useState('');
   const [montoTarjetaMixto, setMontoTarjetaMixto] = useState('');
   const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
+
+  // 👇 NUEVOS ESTADOS LOCALES PARA EL MODAL DE EDICIÓN DE PEDIDO
+  const [editConsumo, setEditConsumo] = useState('');
+  const [editDireccion, setEditDireccion] = useState('');
+
+  // Cuando se abre el modal de edición, cargamos los datos actuales
+  useEffect(() => {
+    if (modalEditarPedido) {
+      setEditConsumo(modalEditarPedido.tipo_consumo || 'Local');
+      let dirPura = modalEditarPedido.direccion_entrega || '';
+      if (modalEditarPedido.tipo_consumo === 'Domicilio' && dirPura.includes('|')) {
+         dirPura = dirPura.split('|')[0].trim();
+      }
+      setEditDireccion(dirPura);
+    }
+  }, [modalEditarPedido]);
 
   const getIconoPago = (metodo) => { 
     if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
@@ -38,7 +57,6 @@ const ModalesCaja = ({
     } catch (e) { return []; }
   };
 
-  // 👇 LÓGICA DE VALIDACIÓN PARA EL PAGO MIXTO
   const calcularRestanteMixto = () => {
      if (!modalPago) return 0;
      const total = Number(modalPago.total);
@@ -49,25 +67,21 @@ const ModalesCaja = ({
   };
 
   const procesarCobroMixto = () => {
-    if (Number(calcularRestanteMixto()) !== 0) return; // Validación de seguridad
+    if (Number(calcularRestanteMixto()) !== 0) return; 
     
-    // Armamos el arreglo con los montos exactos que el cajero capturó
     const desglosePagos = [];
     if (Number(montoEfectivoMixto) > 0) desglosePagos.push({ metodo: 'Efectivo', monto: Number(montoEfectivoMixto) });
     if (Number(montoTarjetaMixto) > 0) desglosePagos.push({ metodo: 'Tarjeta', monto: Number(montoTarjetaMixto) });
     if (Number(montoTransferenciaMixto) > 0) desglosePagos.push({ metodo: 'Transferencia', monto: Number(montoTransferenciaMixto) });
 
-    // Llamamos a la función principal pasándole el arreglo de pagos mixtos (en JSON)
     procesarPago(null, false, JSON.stringify(desglosePagos));
     
-    // Limpiamos los estados
     setModoMixto(false);
     setMontoEfectivoMixto('');
     setMontoTarjetaMixto('');
     setMontoTransferenciaMixto('');
   };
 
-  // Función para cerrar el modal limpiando estados mixtos
   const cerrarModalPago = () => {
     setModalPago(null);
     setModoMixto(false);
@@ -75,6 +89,33 @@ const ModalesCaja = ({
     setMontoTarjetaMixto('');
     setMontoTransferenciaMixto('');
     setMontoRecibido('');
+  };
+
+  // 👇 FUNCIÓN PARA GUARDAR LA EDICIÓN DEL PEDIDO
+  const submitEdicionPedido = (e) => {
+    e.preventDefault();
+    let payload = { tipo_consumo: editConsumo };
+    
+    if (editConsumo === 'Domicilio') {
+       if (!editDireccion.trim()) return alert("Debes agregar la dirección si es a Domicilio.");
+       payload.direccion_entrega = editDireccion;
+    } else if (editConsumo === 'Recoger en Local') {
+       if (!editDireccion.trim() && modalEditarPedido.cliente_nombre) {
+         payload.direccion_entrega = `PEDIDO POR TELÉFONO - ${modalEditarPedido.cliente_nombre}`;
+       } else {
+         payload.direccion_entrega = editDireccion || 'Para pasar a recoger';
+       }
+    } else {
+       payload.direccion_entrega = ''; // Si come en local, borramos la dirección.
+       payload.costo_envio = 0; // Le quitamos el costo de envío si lo cambia a comer ahí.
+       
+       // 👇 Esto es vital: Si era domicilio y le cobran envío, se lo restamos al total
+       if (modalEditarPedido.tipo_consumo === 'Domicilio' && Number(modalEditarPedido.costo_envio) > 0) {
+          payload.total = Math.max(0, Number(modalEditarPedido.total) - Number(modalEditarPedido.costo_envio));
+       }
+    }
+
+    guardarEdicionPedido(modalEditarPedido.id, payload);
   };
 
   return (
@@ -497,7 +538,7 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* 👇 MODAL PRINCIPAL DE PAGOS MODIFICADO CON PAGO MIXTO */}
+      {/* MODAL DE PAGOS */}
       {modalPago && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200 max-h-screen overflow-y-auto">
@@ -552,7 +593,6 @@ const ModalesCaja = ({
                     <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Tarjeta'})} className="bg-blue-50 hover:border-blue-500 border-2 border-transparent text-blue-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><CreditCard size={28}/> <span className="text-sm md:text-base">Tarjeta</span></button>
                     <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Transferencia'})} className="bg-purple-50 hover:border-purple-500 border-2 border-transparent text-purple-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Smartphone size={28}/> <span className="text-sm md:text-base">Transf.</span></button>
                     
-                    {/* 👇 BOTÓN DE PAGO MIXTO */}
                     <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 hover:border-indigo-500 border-2 border-transparent text-indigo-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28}/> <span className="text-sm md:text-base">Dividir Pago</span></button>
                 </div>
                 <div className="flex flex-col md:flex-row gap-3 md:gap-4 pt-4 border-t border-slate-100">
@@ -610,6 +650,61 @@ const ModalesCaja = ({
         </div>
       )}
 
+      {/* 👇 MODAL PARA EDITAR TIPO DE CONSUMO / DIRECCIÓN (Punto 4) */}
+      {modalEditarPedido && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
+          <form onSubmit={submitEdicionPedido} className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg flex flex-col animate-in zoom-in duration-200">
+            <div className="flex justify-between items-center border-b pb-5 mb-5 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 text-blue-700 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center shadow-inner">
+                    <Smartphone size={20} className="md:w-6 md:h-6" />
+                </div>
+                <div>
+                    <h2 className="text-xl md:text-2xl font-black text-slate-800">Editar Información</h2>
+                    <p className="text-xs md:text-sm font-bold text-slate-500">Orden #{modalEditarPedido.numero_pedido}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setModalEditarPedido(null)} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-2 md:p-2.5 rounded-full transition">
+                <XCircle size={24} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-black text-slate-400 uppercase tracking-widest mb-3">Tipo de Consumo</label>
+                <div className="grid grid-cols-2 gap-3">
+                   <button type="button" onClick={() => setEditConsumo('Local')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Local' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><Home size={18}/> Local</button>
+                   <button type="button" onClick={() => setEditConsumo('Para llevar')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Para llevar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><PackagePlus size={18}/> Para Llevar</button>
+                   <button type="button" onClick={() => setEditConsumo('Domicilio')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Domicilio' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><MapPin size={18}/> Domicilio</button>
+                   <button type="button" onClick={() => setEditConsumo('Recoger en Local')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Recoger en Local' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><Phone size={18}/> Recoger</button>
+                </div>
+              </div>
+
+              {(editConsumo === 'Domicilio' || editConsumo === 'Recoger en Local') && (
+                 <div className="animate-in fade-in">
+                    <label className="block text-sm font-black text-slate-400 uppercase tracking-widest mb-3">
+                       {editConsumo === 'Domicilio' ? 'Dirección de Entrega' : 'Notas / Referencia'}
+                    </label>
+                    <textarea 
+                       required={editConsumo === 'Domicilio'}
+                       value={editDireccion} 
+                       onChange={(e) => setEditDireccion(e.target.value)}
+                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-800 font-bold resize-none h-24"
+                       placeholder={editConsumo === 'Domicilio' ? 'Calle, número, colonia...' : 'Ej. Carro rojo, pasa en 10 min...'}
+                    />
+                 </div>
+              )}
+            </div>
+
+            <div className="flex gap-4 pt-6 mt-6 border-t border-slate-100">
+               <button type="button" disabled={isSubmitting} onClick={() => setModalEditarPedido(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+               <button type="submit" disabled={isSubmitting} className="flex-1 py-4 bg-blue-600 text-white font-black text-lg rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition">Guardar Cambios</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL VER DETALLE */}
       {modalVerDetalle && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
           <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg h-[80vh] flex flex-col animate-in zoom-in duration-200">
