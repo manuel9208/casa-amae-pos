@@ -1,8 +1,8 @@
-import React from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye, Menu, Wallet } from 'lucide-react'; 
+import React, { useState, useEffect } from 'react';
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye, Menu, Wallet, Map, LayoutGrid, Utensils } from 'lucide-react';
 
 const VistasCaja = ({
-  vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, pedidosConAlerta, pedidosPorConfirmar,
+  vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, mesas, pedidosConAlerta, pedidosPorConfirmar,
   pendientesDePago, listosParaEntregar, fondoCaja, configGlobal,
   gastosDia, 
   abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion,
@@ -14,6 +14,16 @@ const VistasCaja = ({
   setMenuAbiertoCaja 
 }) => {
 
+  const [vistaMapa, setVistaMapa] = useState('plano'); 
+  const [zonaPlanoActiva, setZonaPlanoActiva] = useState('');
+
+  useEffect(() => {
+     if (mesas && mesas.length > 0 && !zonaPlanoActiva) {
+         const zonasUnicas = [...new Set(mesas.map(m => m.zona))];
+         if(zonasUnicas.length > 0) setZonaPlanoActiva(zonasUnicas[0]);
+     }
+  }, [mesas, zonaPlanoActiva]);
+
   const getIconoPago = (metodo) => { 
     if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
     if(metodo==='Transferencia') return <Smartphone size={16}/>; 
@@ -22,7 +32,6 @@ const VistasCaja = ({
     return <DollarSign size={16}/>; 
   };
 
-  // 👇 LÓGICA DE EXTRACCIÓN Y LIMPIEZA DEL TELÉFONO DE MANERA SEGURA
   const getTelefonoExtraido = (p) => {
     let tel = p.cliente_telefono || p.cliente?.telefono || p.telefono;
     if (!tel && typeof p.direccion_entrega === 'string') {
@@ -185,6 +194,148 @@ const VistasCaja = ({
 
       <div className="flex-1 overflow-y-auto p-4 md:p-10">
         
+        {/* VISTA: MAPA DE MESAS */}
+        {vistaActiva === 'mesas' && (
+          <>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+               <h2 className="text-4xl font-black text-slate-800 flex items-center gap-3"><Map size={36} className="text-indigo-600"/> Mapa de Mesas</h2>
+               
+               {mesas && mesas.length > 0 && (
+                 <div className="flex flex-col sm:flex-row gap-4 items-center">
+                   
+                   {vistaMapa === 'plano' && (
+                      <div className="flex gap-2 overflow-x-auto max-w-[50vw]">
+                         {[...new Set(mesas.map(m => m.zona))].map(zona => (
+                            <button
+                               key={zona}
+                               onClick={() => setZonaPlanoActiva(zona)}
+                               className={`px-4 py-2 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${zonaPlanoActiva === zona ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'}`}
+                            >
+                               {zona}
+                            </button>
+                         ))}
+                      </div>
+                   )}
+
+                   <div className="flex bg-slate-200 p-1 rounded-xl shrink-0">
+                     <button onClick={() => setVistaMapa('plano')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'plano' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                       <Map size={16}/> Plano Visual
+                     </button>
+                     <button onClick={() => setVistaMapa('cuadricula')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'cuadricula' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                       <LayoutGrid size={16}/> Cuadrícula
+                     </button>
+                   </div>
+                 </div>
+               )}
+            </div>
+
+            {!mesas || mesas.length === 0 ? (
+               <div className="text-center text-slate-400 mt-20">
+                  <Map size={64} className="mx-auto mb-4 opacity-30"/>
+                  <p className="text-2xl font-bold">No hay mesas configuradas aún.</p>
+               </div>
+            ) : vistaMapa === 'cuadricula' ? (
+               <div className="space-y-8 animate-in fade-in">
+                 {Object.entries(
+                    mesas.reduce((acc, mesa) => {
+                      if (!acc[mesa.zona]) acc[mesa.zona] = [];
+                      acc[mesa.zona].push(mesa);
+                      return acc;
+                    }, {})
+                  ).map(([zona, mesasZona]) => (
+                    <div key={zona} className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
+                      <h3 className="text-2xl font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-3 mb-6 flex items-center gap-2">
+                        <MapPin className="text-blue-500" size={28}/> {zona}
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                         {mesasZona.map(mesa => {
+                            const isLibre = mesa.estado === 'Libre';
+                            const isOcupada = mesa.estado === 'Ocupada';
+                            const isPorPagar = mesa.estado === 'Por Pagar';
+
+                            let bgClass = 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100 shadow-sm';
+                            let textClass = 'text-emerald-700';
+                            
+                            if (isOcupada) { bgClass = 'bg-red-50 border-red-300 hover:bg-red-100 shadow-md shadow-red-500/20'; textClass = 'text-red-700'; }
+                            if (isPorPagar) { bgClass = 'bg-orange-50 border-orange-300 hover:bg-orange-100 shadow-md shadow-orange-500/20 animate-pulse'; textClass = 'text-orange-700'; }
+
+                            return (
+                               <button
+                                 key={mesa.id}
+                                 disabled={isLibre || isSubmitting}
+                                 onClick={() => {
+                                    if (mesa.pedido_actual_id) {
+                                       const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
+                                       if (pedidoVinculado) setModalPago(pedidoVinculado);
+                                       else alert('No se encontró la orden activa. ¿Ya se cobró?');
+                                    }
+                                 }}
+                                 className={`p-6 rounded-[24px] border-2 flex flex-col items-center justify-center text-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}`}
+                               >
+                                 <span className={`text-3xl font-black mb-2 ${textClass}`}>{mesa.numero_mesa}</span>
+                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded bg-white shadow-sm border ${textClass} ${isOcupada ? 'border-red-200' : isPorPagar ? 'border-orange-200' : 'border-emerald-200'}`}>
+                                    {isLibre ? '🟩 Libre' : isOcupada ? '🟥 Comiendo' : '🟧 Por Pagar'}
+                                 </span>
+                                 {!isLibre && mesa.numero_pedido && (
+                                    <span className={`mt-3 font-black text-sm bg-slate-900 px-3 py-1 rounded-lg shadow-sm text-white`}>
+                                       #{mesa.numero_pedido}
+                                    </span>
+                                 )}
+                               </button>
+                            )
+                         })}
+                      </div>
+                    </div>
+                  ))}
+               </div>
+            ) : (
+               <div className="bg-slate-100 p-4 md:p-8 rounded-3xl border border-slate-200 shadow-inner animate-in fade-in relative">
+                  <div className="absolute top-4 left-6 pointer-events-none opacity-40 flex items-center gap-2 text-slate-400 z-0">
+                     <MapPin size={24}/> <span className="font-black text-xl uppercase tracking-widest">{zonaPlanoActiva}</span>
+                  </div>
+
+                  <div 
+                    className="relative w-full h-[600px] bg-white rounded-2xl border border-slate-200 overflow-hidden"
+                    style={{ backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '40px 40px' }} 
+                  >
+                     {mesas.filter(m => m.zona === zonaPlanoActiva).map(mesa => {
+                        const isLibre = mesa.estado === 'Libre';
+                        const isOcupada = mesa.estado === 'Ocupada';
+                        const isPorPagar = mesa.estado === 'Por Pagar';
+
+                        let bgClass = 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100';
+                        if (isOcupada) bgClass = 'bg-red-50 border-red-400 text-red-700 hover:bg-red-100 shadow-[0_0_15px_rgba(239,68,68,0.4)]';
+                        if (isPorPagar) bgClass = 'bg-orange-50 border-orange-400 text-orange-700 hover:bg-orange-100 shadow-[0_0_15px_rgba(249,115,22,0.4)] animate-pulse';
+
+                        return (
+                           <button
+                             key={mesa.id}
+                             disabled={isLibre || isSubmitting}
+                             onClick={() => {
+                                if (mesa.pedido_actual_id) {
+                                   const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
+                                   if (pedidoVinculado) setModalPago(pedidoVinculado);
+                                   else alert('No se encontró la orden activa. ¿Ya se cobró?');
+                                }
+                             }}
+                             className={`absolute w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 flex flex-col items-center justify-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer z-20' : 'cursor-default z-10'}`}
+                             style={{ left: `${mesa.pos_x}%`, top: `${mesa.pos_y}%` }}
+                           >
+                              <span className="font-black text-lg">{mesa.numero_mesa}</span>
+                              {!isLibre && mesa.numero_pedido && (
+                                 <span className="mt-1 text-[10px] font-black bg-slate-900 text-white px-2 py-0.5 rounded-md">
+                                    #{mesa.numero_pedido}
+                                 </span>
+                              )}
+                           </button>
+                        );
+                     })}
+                  </div>
+               </div>
+            )}
+          </>
+        )}
+
         {/* VISTA: POR CONFIRMAR */}
         {vistaActiva === 'confirmar' && (
           <>
@@ -200,7 +351,7 @@ const VistasCaja = ({
                   
                   if (p.direccion_entrega) {
                      const partes = p.direccion_entrega.split('|').map(x => x.trim());
-                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').trim();
+                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
                      const cambioPart = partes.find(x => x.includes('Llevar cambio'));
                      notaCambio = cambioPart ? cambioPart : null;
                   }
@@ -240,9 +391,12 @@ const VistasCaja = ({
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      {renderBotonVerDetalle(p)}
-                      {renderBotonEditar(p)}
+                    <div className="mb-4 flex flex-col gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {renderBotonVerDetalle(p)}
+                        {renderBotonEditar(p)}
+                      </div>
+                      {/* En "Por Confirmar" no solemos poner extras todavía, pero por si acaso, lo mantenemos simple. */}
                     </div>
 
                     <div className="bg-slate-50 p-4 rounded-2xl mb-6 overflow-y-auto max-h-40 border border-slate-100 shadow-inner">
@@ -266,7 +420,7 @@ const VistasCaja = ({
           </>
         )}
 
-        {/* VISTA: COBRAR */}
+        {/* VISTA: COBRAR / CUENTAS ABIERTAS */}
         {vistaActiva === 'cobrar' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Cuentas y Cobros Pendientes</h2>
@@ -282,25 +436,32 @@ const VistasCaja = ({
 
                   if (p.direccion_entrega) {
                      const partes = p.direccion_entrega.split('|').map(x => x.trim());
-                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').trim();
+                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
                      const cambioPart = partes.find(x => x.includes('Llevar cambio'));
                      notaCambio = cambioPart ? cambioPart : null;
                   }
 
+                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar' && tipoLimpio === 'Local';
+
                   return (
-                  <div key={p.id} className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition">
+                  <div key={p.id} className={`bg-white p-8 rounded-[40px] shadow-sm border-2 flex flex-col hover:shadow-md transition ${esCuentaAbierta ? 'border-orange-300 shadow-orange-500/10' : 'border-slate-100'}`}>
                     <div className="flex justify-between items-start mb-4">
                         <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
-                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Mixto' ? 'bg-indigo-100 text-indigo-700' : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700'}`}>
-                            {getIconoPago(p.metodo_pago)} {p.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : p.metodo_pago}
+                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Mixto' ? 'bg-indigo-100 text-indigo-700' : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
+                            {getIconoPago(p.metodo_pago)} {esCuentaAbierta ? 'Cuenta Abierta' : p.metodo_pago}
                         </span>
                     </div>
                     
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <p className="font-bold text-slate-700 text-xl">{p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                        <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                         {tel && (
                             <span className="text-xs font-black text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
                                 <Phone size={12}/> {tel}
+                            </span>
+                        )}
+                        {p.mesa && (
+                            <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                📍 MESA {p.mesa}
                             </span>
                         )}
                     </div>
@@ -316,15 +477,19 @@ const VistasCaja = ({
                         </span>
                     </div>
                     
-                    {(p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente') && (
-                        <div className="mb-4 bg-slate-100 text-slate-600 text-xs font-bold p-2 rounded-lg text-center uppercase tracking-wider">
-                           Estado: {p.estado_preparacion === 'Preparando' ? 'En Cocina' : p.estado_preparacion === 'Listo' ? 'Para Entregar' : p.estado_preparacion === 'Entregado' ? 'Consumiendo' : p.estado_preparacion}
+                    {esCuentaAbierta && (
+                        <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
+                           <Clock size={16}/> {p.estado_preparacion === 'Preparando' ? 'En Cocina' : p.estado_preparacion === 'Listo' ? 'Listo en Barra' : p.estado_preparacion === 'Entregado' ? 'Comiendo en Mesa' : p.estado_preparacion}
                         </div>
                     )}
 
-                    <div className="mb-4 grid grid-cols-2 gap-3">
-                      {renderBotonVerDetalle(p)}
-                      {renderBotonEditar(p)}
+                    {/* 👇 AQUÍ AGREGAMOS EL BOTÓN DE COBRAR EXTRA */}
+                    <div className="mb-4 flex flex-col gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {renderBotonVerDetalle(p)}
+                        {renderBotonEditar(p)}
+                      </div>
+                      {renderBotonAgregarExtra(p)}
                     </div>
 
                     {p.tipo_consumo === 'Domicilio' && (direccionPura || notaCambio) && (
@@ -341,8 +506,8 @@ const VistasCaja = ({
                     <div className="mt-auto pt-6 border-t border-slate-100">
                       <p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p>
                       
-                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>
-                          {p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? <><DollarSign size={24}/> Cobrar Cuenta</> : <><CheckCircle2 size={24}/> Validar Pago</>}
+                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${esCuentaAbierta ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30' : p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>
+                          {esCuentaAbierta ? <><DollarSign size={24}/> Cobrar y Liberar Mesa</> : p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : p.metodo_pago === 'Pendiente' ? <><DollarSign size={24}/> Cobrar y Entregar</> : <><CheckCircle2 size={24}/> Validar Pago</>}
                       </button>
 
                     </div>
@@ -369,10 +534,12 @@ const VistasCaja = ({
 
                   if (p.direccion_entrega) {
                      const partes = p.direccion_entrega.split('|').map(x => x.trim());
-                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').trim();
+                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
                      const cambioPart = partes.find(x => x.includes('Llevar cambio'));
                      notaCambio = cambioPart ? cambioPart : null;
                   }
+
+                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar' && tipoLimpio === 'Local';
 
                   return (
                   <div key={p.id} className="bg-orange-50 p-8 rounded-[40px] shadow-lg shadow-orange-500/20 border-2 border-orange-400 flex flex-col transition animate-pulse">
@@ -382,17 +549,25 @@ const VistasCaja = ({
                     </div>
                     
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <p className="font-black text-slate-800 text-2xl">{p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                        <p className="font-black text-slate-800 text-2xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                         {tel && (
                             <span className="text-sm font-black text-slate-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded-lg flex items-center gap-1">
                                 <Phone size={14}/> {tel}
                             </span>
                         )}
+                        {p.mesa && (
+                            <span className="text-sm font-black text-white bg-indigo-500 px-2 py-1 rounded-lg flex items-center gap-1">
+                                📍 MESA {p.mesa}
+                            </span>
+                        )}
                     </div>
                     <p className="font-black text-blue-600 text-xl mb-4">Total de la Nota: ${p.total}</p>
 
-                    <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200 grid grid-cols-2 gap-3">
-                       {renderBotonVerDetalle(p)}
+                    <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200 flex flex-col gap-3">
+                       <div className="grid grid-cols-2 gap-3">
+                          {renderBotonVerDetalle(p)}
+                          {/* El botón de editar en entregas a veces no es necesario, pero si lo tuvieras iría aquí */}
+                       </div>
                        {renderBotonAgregarExtra(p)}
                     </div>
 
@@ -405,7 +580,9 @@ const VistasCaja = ({
                     )}
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
-                       {(p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
+                       {esCuentaAbierta ? (
+                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Utensils size={28}/> Servir en Mesa</button>
+                       ) : (p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
                           <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
                        ) : (
                           <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Check size={28}/> Marcar como Entregado</button>
@@ -439,8 +616,14 @@ const VistasCaja = ({
                 <p className="text-slate-400 font-bold col-span-2 text-center mt-10">No hay pedidos en esta sección.</p>
               ) : (
                 pedidos.filter(p => p.estado_preparacion === subVistaHistorial).map(p => {
+                  let direccionPura = '';
                   const tel = getTelefonoExtraido(p);
                   const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
+
+                  if (p.direccion_entrega) {
+                     const partes = p.direccion_entrega.split('|').map(x => x.trim());
+                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+                  }
 
                   return (
                   <div key={p.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -451,10 +634,15 @@ const VistasCaja = ({
                         </div>
                         
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <p className="font-bold text-slate-600">{p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                            <p className="font-bold text-slate-600">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                             {tel && (
                                 <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
                                     <Phone size={10}/> {tel}
+                                </span>
+                            )}
+                            {p.mesa && (
+                                <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-0.5 rounded flex items-center gap-1">
+                                    MESA {p.mesa}
                                 </span>
                             )}
                         </div>

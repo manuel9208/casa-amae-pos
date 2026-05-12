@@ -8,6 +8,7 @@
 -- DROP TABLE IF EXISTS recetas CASCADE;
 -- DROP TABLE IF EXISTS insumos CASCADE;
 -- DROP TABLE IF EXISTS detalle_pedidos CASCADE;
+-- DROP TABLE IF EXISTS mesas CASCADE; -- 👇 NUEVO
 -- DROP TABLE IF EXISTS pedidos CASCADE;
 -- DROP TABLE IF EXISTS promociones CASCADE;
 -- DROP TABLE IF EXISTS cupones CASCADE;
@@ -221,8 +222,11 @@ CREATE TABLE IF NOT EXISTS pedidos (
     carrito JSONB, 
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
-    tiempo_listo TIMESTAMP, -- Hora exacta de finalización en cocina
+    tiempo_listo TIMESTAMP, 
     alerta_cocina TEXT DEFAULT NULL,
+    
+    mesa VARCHAR(50) DEFAULT NULL, -- 👇 NUEVA COLUMNA INTEGRADA
+    
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -238,7 +242,21 @@ CREATE TABLE IF NOT EXISTS detalle_pedidos (
 );
 
 -- -------------------------------------------------------------------------
--- 7. MARKETING, PROMOCIONES Y CUPONES
+-- 7. GESTIÓN DE MESAS Y MAPEO VISUAL (👇 NUEVA TABLA)
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mesas (
+    id SERIAL PRIMARY KEY,
+    numero_mesa VARCHAR(20) UNIQUE NOT NULL,
+    zona VARCHAR(50) DEFAULT 'General',
+    estado VARCHAR(20) DEFAULT 'Libre' CHECK (estado IN ('Libre', 'Ocupada', 'Por Pagar')),
+    pos_x DECIMAL(10,2) DEFAULT 0, -- 👇 Integradas desde el inicio
+    pos_y DECIMAL(10,2) DEFAULT 0, -- 👇 Integradas desde el inicio
+    pedido_actual_id INT REFERENCES pedidos(id) ON DELETE SET NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- -------------------------------------------------------------------------
+-- 8. MARKETING, PROMOCIONES Y CUPONES
 -- -------------------------------------------------------------------------
 
 -- Tabla de Cupones de Descuento
@@ -260,7 +278,7 @@ CREATE TABLE IF NOT EXISTS promociones (
   nombre VARCHAR(150) NOT NULL,
   tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('upselling', 'happy_hour')),
   producto_trigger_id INTEGER NULL,
-  categoria_trigger VARCHAR(50) NULL, -- Trigger por Categoría
+  categoria_trigger VARCHAR(50) NULL, 
   producto_oferta_id INTEGER NOT NULL,
   tipo_descuento VARCHAR(20) NOT NULL CHECK (tipo_descuento IN ('porcentaje', 'precio_fijo')),
   valor_descuento DECIMAL(10,2) NOT NULL,

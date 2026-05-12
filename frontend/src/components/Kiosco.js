@@ -3,11 +3,14 @@ import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
 import CheckoutFlujo from './kiosco/CheckoutFlujo';
 import MisPedidos from './kiosco/MisPedidos';
+import useMesaQR from './kiosco/useMesaQR'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
 
 const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) => {
+  const mesaQR = useMesaQR();
+
   // === 1. DATOS GLOBALES ===
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
@@ -71,7 +74,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   }, []);
 
-  // Cargar direcciones guardadas del cliente
   useEffect(() => {
     if (clienteActivo && clienteActivo.id) {
       const saved = JSON.parse(localStorage.getItem(`direcciones_${clienteActivo.id}`) || '[]');
@@ -80,7 +82,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     }
   }, [clienteActivo, direccionEntrega]);
 
-  // Modificar Pedido Existente (Orden Activa)
   const modificarPedido = useCallback((pedido) => { 
     const carritoAgrupado = [];
     pedido.carrito.forEach(item => {
@@ -108,7 +109,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   useEffect(() => { if (ordenExterna) modificarPedido(ordenExterna); }, [ordenExterna, modificarPedido]);
 
-  // Polling para "Mis Pedidos"
   useEffect(() => {
     let intervaloPedidos;
     const verificarMisPedidos = async (esCargaInicial = false) => {
@@ -140,9 +140,13 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setCuponActivo(null); setDescuentoCuponDinero(0);
       if (ordenExterna && onLogout) onLogout(); else setPantallaActual('menu'); 
     } else { 
-      setTimeout(() => { if (onLogout) onLogout(); }, 50); 
+      if (mesaQR) {
+          window.location.reload();
+      } else {
+          setTimeout(() => { if (onLogout) onLogout(); }, 50); 
+      }
     }
-  }, [user, ordenExterna, onLogout]);
+  }, [user, ordenExterna, onLogout, mesaQR]);
 
   useEffect(() => { 
     let timer; 
@@ -153,19 +157,13 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     return () => clearTimeout(timer); 
   }, [pantallaActual, contador, reiniciarKiosco]);
 
-  // =========================================================================
-  // CÁLCULOS GLOBALES (SUBTOTAL, PUNTOS, CUPONES, TOTAL)
-  // =========================================================================
-  
   const calcularSubtotal = useCallback(() => {
     return carrito.reduce((t, i) => t + ((i.precioFinal || 0) * (i.cantidad || 1)), 0);
   }, [carrito]);
   
-  // Efecto dinámico para recalcular los descuentos en dinero siempre que el carrito cambie
   useEffect(() => {
     const subtotal = calcularSubtotal();
     
-    // 1. Recalcular Cupón
     let dCup = 0;
     if (cuponActivo) {
         if (cuponActivo.tipo === 'porcentaje') {
@@ -177,7 +175,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     }
     setDescuentoCuponDinero(dCup);
 
-    // 2. Recalcular Puntos
     let dPts = 0;
     if (descuentoPuntosPuntosFisicos > 0) {
         const valorPeso = Number(configGlobal.puntos_valor_peso) || 1;
@@ -197,7 +194,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
      return Math.max(0, totalFinal);
   }, [calcularSubtotal, descuentoCuponDinero, descuentoPuntosDinero]);
   
-  // Canje de Puntos NIP
   const verificarNip = async (e) => { 
     e.preventDefault(); setErrorNip(''); 
     if (!clienteActivo || !clienteActivo.id) return setErrorNip('No hay cliente activo.'); 
@@ -225,30 +221,38 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       
       {/* HEADER GLOBAL */}
       <div className="flex justify-between items-start mb-8">
-        {clienteActivo && !ordenExterna ? ( 
-          <div className="bg-white px-6 py-3 rounded-full shadow-sm border flex items-center gap-4">
-            <span className="text-xl">👋</span>
-            <div>
-              <p className="text-sm text-slate-500 font-bold leading-tight">Hola, {clienteActivo.nombre}</p>
-              <p className="text-blue-600 font-black tracking-tight">
-                {clienteActivo.puntos} Puntos 
-                <span className="text-[10px] text-slate-400 font-medium ml-1">
-                   (${ (clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2) })
-                </span>
-              </p>
-            </div>
-            <button onClick={() => setTimeout(() => onLogout(), 50)} className="ml-4 text-xs font-bold bg-slate-100 px-3 py-1 rounded-lg hover:bg-red-100 hover:text-red-600">Salir</button>
-          </div> 
-        ) : ( 
-          <div className="bg-white px-6 py-3 rounded-full shadow-sm border"><p className="text-sm font-bold text-slate-400">{ordenExterna ? `Editando orden` : 'Invitado'}</p></div> 
-        )}
+        <div className="flex gap-4">
+            {clienteActivo && !ordenExterna ? ( 
+            <div className="bg-white px-6 py-3 rounded-full shadow-sm border flex items-center gap-4">
+                <span className="text-xl">👋</span>
+                <div>
+                <p className="text-sm text-slate-500 font-bold leading-tight">Hola, {clienteActivo.nombre}</p>
+                <p className="text-blue-600 font-black tracking-tight">
+                    {clienteActivo.puntos} Puntos 
+                    <span className="text-[10px] text-slate-400 font-medium ml-1">
+                    (${ (clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2) })
+                    </span>
+                </p>
+                </div>
+                <button onClick={() => setTimeout(() => onLogout(), 50)} className="ml-4 text-xs font-bold bg-slate-100 px-3 py-1 rounded-lg hover:bg-red-100 hover:text-red-600">Salir</button>
+            </div> 
+            ) : ( 
+            <div className="bg-white px-6 py-3 rounded-full shadow-sm border"><p className="text-sm font-bold text-slate-400">{ordenExterna ? `Editando orden` : 'Invitado'}</p></div> 
+            )}
+
+            {mesaQR && (
+               <div className="bg-indigo-600 text-white px-6 py-3 rounded-full shadow-sm font-black flex items-center gap-2">
+                  📍 MESA {mesaQR}
+               </div>
+            )}
+        </div>
+
         {user?.rol === 'admin' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-xl hover:bg-slate-800">⬅ Panel Admin</button>}
         {user?.rol === 'cajero' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-emerald-500 text-slate-900 px-6 py-3 rounded-full font-black shadow-xl hover:bg-emerald-400">⬅ Volver a Caja</button>}
       </div>
 
       {errorTransaccion && ( <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-xl mb-6 shadow-sm"><p className="font-bold">🚨 {errorTransaccion}</p></div> )}
 
-      {/* ENRUTADOR DE VISTAS */}
       {pantallaActual === 'mis_pedidos' && (
         <MisPedidos misPedidos={misPedidos} setPantallaActual={setPantallaActual} modificarPedido={modificarPedido} />
       )}
@@ -269,10 +273,12 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           setCuponActivo={setCuponActivo}
           descuentoCuponDinero={descuentoCuponDinero}
           apiUrl={apiUrl}
+          mesaQR={mesaQR}
         />
       )}
 
-      {['consumo', 'aviso_domicilio', 'direccion', 'pago', 'cambio_efectivo_domicilio', 'detalles_transferencia', 'finalizado'].includes(pantallaActual) && (
+      {/* 👇 AQUÍ ESTÁ EL ARREGLO: AGREGUÉ 'pedir_nombre' A LA LISTA */}
+      {['consumo', 'pedir_nombre', 'asignar_mesa', 'aviso_domicilio', 'direccion', 'pago', 'cambio_efectivo_domicilio', 'detalles_transferencia', 'finalizado'].includes(pantallaActual) && (
         <CheckoutFlujo 
           pantallaActual={pantallaActual} setPantallaActual={setPantallaActual}
           tipoConsumo={tipoConsumo} setTipoConsumo={setTipoConsumo}
@@ -280,7 +286,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
           carrito={carrito} calcularTotal={calcularTotal} 
           
-          // 👇 AQUÍ INYECTAMOS SETCARRITO Y PRODUCTOS AL CHECKOUT
           setCarrito={setCarrito}
           productos={productos}
 
@@ -294,6 +299,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           numeroPedidoReal={numeroPedidoReal} setNumeroPedidoReal={setNumeroPedidoReal}
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
           metodoPagoFinal={metodoPagoFinal}
+          mesaQR={mesaQR}
         />
       )}
 

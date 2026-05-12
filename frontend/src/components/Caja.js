@@ -6,15 +6,15 @@ import TicketImpresion from './caja/TicketImpresion';
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
   // === ESTADOS GLOBALES DE LA CAJA ===
-  const [vistaActiva, setVistaActiva] = useState('cobrar'); 
+  const [vistaActiva, setVistaActiva] = useState('confirmar'); 
   const [subVistaHistorial, setSubVistaHistorial] = useState('Pagado'); 
   const [pedidos, setPedidos] = useState([]);
+  const [mesas, setMesas] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
   const [configGlobal, setConfigGlobal] = useState(null);
   const [insumosDB, setInsumosDB] = useState([]); 
   const [gastosDia, setGastosDia] = useState([]); 
   
-  // Control del menú lateral en móviles
   const [menuAbiertoCaja, setMenuAbiertoCaja] = useState(false);
   
   // === ESTADOS DE LOS MODALES DE COBRO Y VISUALIZACIÓN ===
@@ -28,7 +28,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [modalZonaEnvio, setModalZonaEnvio] = useState(null);
   const [modalVerDetalle, setModalVerDetalle] = useState(null);
 
-  // 👇 NUEVO ESTADO PARA EDITAR PEDIDO (Punto 4)
   const [modalEditarPedido, setModalEditarPedido] = useState(null);
 
   // === ESTADOS PARA COMPRA RÁPIDA ===
@@ -91,12 +90,20 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     };
     cargarConfig();
 
-    const cargarPedidos = async () => {
-      try { const res = await fetch(`${apiUrl}/pedidos/hoy?t=${new Date().getTime()}`); const data = await res.json(); setPedidos(Array.isArray(data) ? data : []); } catch (error) { console.error('Error al cargar pedidos'); }
+    const cargarDataDinamica = async () => {
+      try { 
+        const resPed = await fetch(`${apiUrl}/pedidos/hoy?t=${new Date().getTime()}`); 
+        const dataPed = await resPed.json(); 
+        setPedidos(Array.isArray(dataPed) ? dataPed : []); 
+        
+        const resMesas = await fetch(`${apiUrl}/mesas?t=${new Date().getTime()}`);
+        const dataMesas = await resMesas.json();
+        setMesas(Array.isArray(dataMesas) ? dataMesas : []);
+      } catch (error) { console.error('Error al cargar data dinámica'); }
     };
-    cargarPedidos(); 
+    cargarDataDinamica(); 
     
-    const intervalo = setInterval(cargarPedidos, 3000); 
+    const intervalo = setInterval(cargarDataDinamica, 3000); 
     return () => clearInterval(intervalo);
   }, [apiUrl]);
 
@@ -165,6 +172,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }, 500);
   };
 
+  // 👇 LÓGICA INTELIGENTE ARREGLADA PARA COBROS FINALES
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true);
@@ -175,13 +183,14 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
     } else if (esPostPago) {
-        estadoFinal = 'Pagado'; 
+        estadoFinal = 'Preparando'; // Se manda a cocina
         metodoPagoFinal = 'Por Cobrar';
     } else {
-        if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado';
-        else if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Entregado';
-        else if (modalPago.estado_preparacion === 'Preparando') estadoFinal = 'Preparando'; 
-        else estadoFinal = 'Pagado'; 
+        // MAQUINA DE ESTADOS: Si el cajero recibe el dinero, evaluamos en qué paso iba el pedido
+        if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Pagado'; // Ya comió, pagó la cuenta final
+        else if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado'; // Lo recoge en barra y se va
+        else if (modalPago.estado_preparacion === 'Pendiente') estadoFinal = 'Preparando'; // Apenas entró y ya pagó
+        else estadoFinal = modalPago.estado_preparacion; // Si estaba Preparando y paga antes, se queda Preparando
     }
 
     try { 
@@ -257,7 +266,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     setIsSubmitting(false);
   };
 
-  // 👇 NUEVA FUNCIÓN: Para guardar la edición de consumo/dirección en la DB
   const guardarEdicionPedido = async (id, nuevosDatos) => {
     if (isSubmitting) return; setIsSubmitting(true);
     try {
@@ -455,13 +463,24 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     setIsSubmitting(false);
   };
 
+  // ========================================================
+  // 👇 FILTROS DE VISTAS (AQUÍ ESTÁ LA MAGIA ARREGLADA)
+  // ========================================================
+  
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
   
-  // 👇 SOLUCIÓN PUNTO 4: Solo mostramos los que son estrictamente "Pendientes"
-  // Si están en "Preparando" o "Pagado" ya no saldrán aquí (incluso si son "Por Cobrar").
-  const pendientesDePago = pedidos.filter(p => 
-      p.estado_preparacion === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio'
-  );
+  const pendientesDePago = pedidos.filter(p => {
+      // Ignorar los que ya terminaron su ciclo
+      if (p.estado_preparacion === 'Pagado' || p.estado_preparacion === 'Cancelado') return false;
+
+      // 1. Mostrar SIEMPRE las cuentas abiertas (mesas o para llevar) sin importar en qué paso de cocina van
+      if (p.metodo_pago === 'Por Cobrar') return true;
+
+      // 2. Mostrar los que piden en mostrador y no han pagado ni se han confirmado
+      if (p.estado_preparacion === 'Pendiente' && p.metodo_pago === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') return true;
+
+      return false;
+  });
   
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && p.estado_preparacion !== 'Entregado' && p.estado_preparacion !== 'Cancelado');
@@ -488,6 +507,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           vistaActiva={vistaActiva}
           subVistaHistorial={subVistaHistorial} setSubVistaHistorial={setSubVistaHistorial}
           pedidos={pedidos}
+          mesas={mesas} 
           pedidosConAlerta={pedidosConAlerta}
           pedidosPorConfirmar={pedidosPorConfirmar}
           pendientesDePago={pendientesDePago}
@@ -505,8 +525,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           lanzarImpresion={lanzarImpresion}
           setModalZonaEnvio={setModalZonaEnvio}
           setModalAgregarExtra={setModalAgregarExtra} 
-          
-          // 👇 Pasamos los estados de edición a VistasCaja
           setModalEditarPedido={setModalEditarPedido}
 
           isSubmitting={isSubmitting} 
@@ -546,7 +564,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           setModalAgregarExtra={setModalAgregarExtra}
           confirmarAgregarExtra={confirmarAgregarExtra}
           
-          // 👇 Pasamos los estados de edición a ModalesCaja
           modalEditarPedido={modalEditarPedido}
           setModalEditarPedido={setModalEditarPedido}
           guardarEdicionPedido={guardarEdicionPedido}

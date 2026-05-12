@@ -19,6 +19,8 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
         <p>Fecha: {new Date().toLocaleString()}</p>
         <p>Cliente: {ticketImprimir.cliente_nombre || 'Invitado'}</p>
         <p>Tipo: {ticketImprimir.tipo_consumo}</p>
+        {/* 👇 NUEVO: IMPRIMIR NÚMERO DE MESA SI EXISTE */}
+        {ticketImprimir.mesa && <p className="font-bold">MESA: {ticketImprimir.mesa}</p>}
       </div>
 
       <table className="w-full text-left mb-2 text-[10px] uppercase">
@@ -51,7 +53,6 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
         <p className="font-bold text-sm">Total: ${ticketImprimir.total}</p>
         <p className="mt-1">Pago: {ticketImprimir.metodo_pago}</p>
         
-        {/* 👇 DESGLOSE DE PAGO MIXTO EN EL TICKET */}
         {ticketImprimir.metodo_pago === 'Mixto' && ticketImprimir.pagos_mixtos && (
           <div className="mt-1 text-[9px] text-gray-700 space-y-0.5">
             {(typeof ticketImprimir.pagos_mixtos === 'string' ? JSON.parse(ticketImprimir.pagos_mixtos) : ticketImprimir.pagos_mixtos).map((pm, idx) => (

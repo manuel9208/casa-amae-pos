@@ -11,7 +11,6 @@ const ModalesCaja = ({
   alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
   alertaCobroExtra, setAlertaCobroExtra,
   
-  // 👇 Recibimos los estados para la Edición de Pedido (Punto 4)
   modalEditarPedido, setModalEditarPedido, guardarEdicionPedido,
 
   isSubmitting,
@@ -27,11 +26,9 @@ const ModalesCaja = ({
   const [montoTarjetaMixto, setMontoTarjetaMixto] = useState('');
   const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
 
-  // 👇 NUEVOS ESTADOS LOCALES PARA EL MODAL DE EDICIÓN DE PEDIDO
   const [editConsumo, setEditConsumo] = useState('');
   const [editDireccion, setEditDireccion] = useState('');
 
-  // Cuando se abre el modal de edición, cargamos los datos actuales
   useEffect(() => {
     if (modalEditarPedido) {
       setEditConsumo(modalEditarPedido.tipo_consumo || 'Local');
@@ -91,7 +88,6 @@ const ModalesCaja = ({
     setMontoRecibido('');
   };
 
-  // 👇 FUNCIÓN PARA GUARDAR LA EDICIÓN DEL PEDIDO
   const submitEdicionPedido = (e) => {
     e.preventDefault();
     let payload = { tipo_consumo: editConsumo };
@@ -106,10 +102,9 @@ const ModalesCaja = ({
          payload.direccion_entrega = editDireccion || 'Para pasar a recoger';
        }
     } else {
-       payload.direccion_entrega = ''; // Si come en local, borramos la dirección.
-       payload.costo_envio = 0; // Le quitamos el costo de envío si lo cambia a comer ahí.
+       payload.direccion_entrega = ''; 
+       payload.costo_envio = 0; 
        
-       // 👇 Esto es vital: Si era domicilio y le cobran envío, se lo restamos al total
        if (modalEditarPedido.tipo_consumo === 'Domicilio' && Number(modalEditarPedido.costo_envio) > 0) {
           payload.total = Math.max(0, Number(modalEditarPedido.total) - Number(modalEditarPedido.costo_envio));
        }
@@ -544,7 +539,15 @@ const ModalesCaja = ({
           <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200 max-h-screen overflow-y-auto">
             
             <div className="flex justify-between items-center mb-6 border-b pb-4">
-              <h2 className="text-3xl md:text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2>
+              <div>
+                 <h2 className="text-3xl md:text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2>
+                 {/* 👇 INDICADOR DE MESA EN EL MODAL DE PAGO */}
+                 {modalPago.mesa && (
+                    <span className="text-sm font-black text-indigo-600 bg-indigo-100 px-3 py-1 rounded-lg mt-2 inline-flex items-center gap-1">
+                       📍 MESA {modalPago.mesa}
+                    </span>
+                 )}
+              </div>
               <span className={`text-sm md:text-lg font-bold px-3 py-1.5 md:px-4 md:py-2 rounded-xl flex items-center gap-2 tracking-wide uppercase ${modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>
                 {getIconoPago(modalPago.metodo_pago)} <span className="hidden sm:inline">{modalPago.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : modalPago.metodo_pago}</span>
               </span>
@@ -650,7 +653,7 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* 👇 MODAL PARA EDITAR TIPO DE CONSUMO / DIRECCIÓN (Punto 4) */}
+      {/* MODAL PARA EDITAR TIPO DE CONSUMO / DIRECCIÓN (Punto 4) */}
       {modalEditarPedido && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
           <form onSubmit={submitEdicionPedido} className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg flex flex-col animate-in zoom-in duration-200">

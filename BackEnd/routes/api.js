@@ -16,7 +16,8 @@ const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
 const reporteCtrl = require('../controllers/reporteController');
-const promocionCtrl = require('../controllers/promocionController'); // 👇 NUEVO: Controlador de Promociones
+const promocionCtrl = require('../controllers/promocionController');
+const mesaCtrl = require('../controllers/mesaController'); // 👇 NUEVO: Controlador de Mesas
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -132,5 +133,14 @@ router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);
 // REPORTES Y ESTADÍSTICAS
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
+
+// ==========================================
+// GESTIÓN DE MESAS (MAPEO Y QR)
+// ==========================================
+router.get('/mesas', mesaCtrl.obtenerMesas);
+router.post('/mesas', mesaCtrl.crearMesa);
+router.put('/mesas/posiciones', mesaCtrl.guardarPosiciones); // 👇 ESTA ES LA NUEVA
+router.put('/mesas/:id/estado', mesaCtrl.actualizarEstadoMesa);
+router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
 
 module.exports = router;

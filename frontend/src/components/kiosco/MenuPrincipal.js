@@ -9,7 +9,8 @@ const MenuPrincipal = ({
   calcularSubtotal, 
   descuentoPuntosDinero, 
   descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos,
-  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl
+  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl,
+  mesaQR // 👇 Recibimos la mesa
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
 
@@ -228,7 +229,6 @@ const MenuPrincipal = ({
                            <p className="text-blue-600 font-medium">Equivalen a ${(clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2)}</p>
                         </div>
                         
-                        {/* 👇 AQUÍ ACTÚA EL SWITCH MAESTRO DE CANJE */}
                         {(configGlobal.puntos_canje_activo === true || configGlobal.puntos_canje_activo === 'true' || configGlobal.puntos_canje_activo === undefined) ? (
                             <button onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black text-xs hover:bg-blue-700 shadow-sm transition active:scale-95">Canjear</button>
                         ) : (

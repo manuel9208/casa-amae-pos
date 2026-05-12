@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp, Gift } from 'lucide-react'; // 👇 Añadí Gift para Promociones
+import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp, Gift, Map } from 'lucide-react'; // 👇 Añadí Map para las mesas
 
 const Sidebar = ({ 
   user, 
@@ -16,7 +16,8 @@ const Sidebar = ({
   canViewConfig,
   canViewClientes,
   canViewReportes,
-  canViewPromociones // 👇 NUEVO PROP RECIBIDO DESDE ADMINPANEL
+  canViewPromociones,
+  canViewMesas // 👇 NUEVO PROP RECIBIDO PARA VER MESAS
 }) => {
   return (
     <>
@@ -85,13 +86,22 @@ const Sidebar = ({
             </button>
           )}
 
-          {/* 👇 NUEVA PESTAÑA: PROMOCIONES Y UPSELLING */}
           {canViewPromociones && (
             <button 
               onClick={() => { setSeccion('promociones'); setMenuAbierto(false); }} 
               className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'promociones' ? 'bg-orange-500 text-white shadow-md shadow-orange-900/50' : 'hover:bg-slate-800 text-slate-400'}`}
             >
               <Gift size={20} /> Promos & Upselling
+            </button>
+          )}
+
+          {/* 👇 NUEVO BOTÓN: GESTIÓN DE MESAS Y QR */}
+          {canViewMesas && (
+            <button 
+              onClick={() => { setSeccion('mesas'); setMenuAbierto(false); }} 
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition ${seccion === 'mesas' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50' : 'hover:bg-slate-800 text-slate-400'}`}
+            >
+              <Map size={20} /> Mesas y Códigos QR
             </button>
           )}
 

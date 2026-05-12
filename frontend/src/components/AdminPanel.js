@@ -8,7 +8,8 @@ import Inventario from './admin/Inventario';
 import GestionMenu from './admin/GestionMenu';
 import GestionClientes from './admin/GestionClientes';
 import ReporteVentas from './admin/ReporteVentas';
-import Promociones from './admin/Promociones'; // 👇 NUEVO: Módulo de Promociones
+import Promociones from './admin/Promociones'; 
+import GestionMesas from './admin/GestionMesas'; // 👇 NUEVO: Módulo de Gestión de Mesas
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -46,8 +47,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true; 
   
-  // 👇 Solo el dueño absoluto (usuario: admin) puede gestionar promociones
+  // Solo el dueño absoluto (usuario: admin) puede gestionar promociones y mesas
   const canViewPromociones = isGlobalAdmin; 
+  const canViewMesas = isGlobalAdmin; // 👇 NUEVO PERMISO
   
   // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
@@ -130,7 +132,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewConfig={canViewConfig}
         canViewClientes={canViewClientes} 
         canViewReportes={canViewReportes}
-        canViewPromociones={canViewPromociones} // 👇 Pasamos el permiso al Sidebar
+        canViewPromociones={canViewPromociones}
+        canViewMesas={canViewMesas} // 👇 Pasamos el permiso al Sidebar
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -204,11 +207,17 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             />
           )}
 
-          {/* 👇 NUEVA PESTAÑA: PROMOCIONES */}
           {seccion === 'promociones' && canViewPromociones && ( 
             <Promociones 
               {...commonProps} 
               productos={productos} 
+            />
+          )}
+
+          {/* 👇 NUEVA PESTAÑA: GESTIÓN DE MESAS */}
+          {seccion === 'mesas' && canViewMesas && ( 
+            <GestionMesas 
+              apiUrl={apiUrl} 
             />
           )}
 

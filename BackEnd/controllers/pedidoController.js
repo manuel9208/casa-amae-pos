@@ -10,17 +10,26 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 exports.crearPedido = async (req, res) => {
-  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos } = req.body;
+  // 👇 NUEVA COLUMNA: Recibimos "mesa" del FrontEnd
+  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos, mesa } = req.body;
   
   try {
     await db.query('BEGIN');
 
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
+    // 👇 NUEVA LÓGICA: Insertamos la mesa y actualizamos el estado de la mesa a 'Ocupada'
     const result = await db.query(
-      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *', 
-      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null]
+      'INSERT INTO pedidos (cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, origen, estado_preparacion, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos, mesa) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *', 
+      [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null, mesa || null]
     );
+
+    const pedidoInsertado = result.rows[0];
+
+    // 👇 Si el pedido trae mesa, actualizamos su estado para bloquearla
+    if (mesa) {
+        await db.query("UPDATE mesas SET estado = 'Ocupada', pedido_actual_id = $1 WHERE numero_mesa = $2", [pedidoInsertado.id, mesa]);
+    }
 
     if (carrito && carrito.length > 0) { 
       for (const item of carrito) { 
@@ -57,13 +66,12 @@ exports.crearPedido = async (req, res) => {
       } 
     }
 
-    // AQUÍ SOLO DESCONTAMOS LOS PUNTOS USADOS PARA PAGAR
     if (cliente_id && descuento_puntos > 0) { 
       await db.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2', [descuento_puntos, cliente_id]); 
     } 
 
     await db.query('COMMIT');
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(pedidoInsertado);
 
   } catch (error) { 
     await db.query('ROLLBACK');
@@ -90,12 +98,10 @@ exports.actualizarEstado = async (req, res) => {
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;
   
   try {
-    // 1. Obtenemos el estado anterior del pedido ANTES de modificarlo
-    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito FROM pedidos WHERE id = $1', [id]);
+    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa FROM pedidos WHERE id = $1', [id]);
     if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
     const pedidoPrevio = prevRes.rows[0];
 
-    // 2. Construimos la consulta dinámica de actualización
     let query = 'UPDATE pedidos SET estado_preparacion = $1'; 
     let params = [estado_preparacion];
     let pIdx = 2;
@@ -147,18 +153,21 @@ exports.actualizarEstado = async (req, res) => {
     query += ` WHERE id = $${pIdx} RETURNING *`;
     params.push(id);
     
-    // 3. Ejecutamos la actualización
     const result = await db.query(query, params); 
     const pedidoActual = result.rows[0];
 
-    // =========================================================================
-    // 👇 NUEVA LÓGICA DE PUNTOS: SOLO SUMA PLATILLOS ELEGIBLES
-    // =========================================================================
+    // 👇 NUEVA LÓGICA DE MESAS: Si se cancela o se paga, liberamos la mesa
+    if (pedidoPrevio.mesa && (estado_preparacion === 'Cancelado' || estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado')) {
+        await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
+    } else if (pedidoPrevio.mesa && estado_preparacion === 'Entregado' && (pedidoActual.metodo_pago === 'Pendiente' || pedidoActual.metodo_pago === 'Por Cobrar')) {
+        // Si ya comieron pero no han pagado, la marcamos "Por Pagar"
+        await db.query("UPDATE mesas SET estado = 'Por Pagar' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
+    }
+
     if (pedidoActual.cliente_id) {
       const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado');
       const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado');
       
-      // A) ABONAR PUNTOS (Solo ocurre una vez cuando pasa a Pagado/Entregado)
       if (!yaEstabaPagado && ahoraEstaPagado) {
           try {
               const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -175,7 +184,6 @@ exports.actualizarEstado = async (req, res) => {
                           for (const item of carritoItems) {
                               let genera = true;
                               if (item.id) {
-                                  // Revisamos si el platillo y su categoría generan puntos
                                   const prodRes = await db.query(`
                                       SELECT p.genera_puntos as p_genera, c.genera_puntos as c_genera 
                                       FROM productos p 
@@ -195,7 +203,6 @@ exports.actualizarEstado = async (req, res) => {
                           }
                       }
 
-                      // Calculamos los puntos en base al dinero elegible, no al total de la orden
                       const puntosAGanar = Math.floor(totalElegible * (porcentaje / 100));
                       
                       if (puntosAGanar > 0) {
@@ -206,7 +213,6 @@ exports.actualizarEstado = async (req, res) => {
           } catch(e) { console.log('Error abonando puntos de fidelidad:', e.message); }
       }
 
-      // B) DEVOLVER PUNTOS (Si el pedido se cancela y el cliente había usado sus puntos para pagar)
       if (estado_preparacion === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
           if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0) {
               await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
@@ -214,9 +220,6 @@ exports.actualizarEstado = async (req, res) => {
       }
     }
 
-    // =========================================================================
-    // LÓGICA DE WHATSAPP
-    // =========================================================================
     if (estado_preparacion === 'Listo') {
       try {
         const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id, nombre_negocio FROM configuracion WHERE id = 1');
