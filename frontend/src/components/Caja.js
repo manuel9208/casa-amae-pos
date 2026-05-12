@@ -172,7 +172,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }, 500);
   };
 
-  // 👇 LÓGICA INTELIGENTE ARREGLADA PARA COBROS FINALES
+  // 👇 LÓGICA DE COBROS ACTUALIZADA PARA "EN CAMINO" (DOMICILIO)
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true);
@@ -183,14 +183,15 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
     } else if (esPostPago) {
-        estadoFinal = 'Preparando'; // Se manda a cocina
+        estadoFinal = 'Pagado'; // Pasa a En Cola
         metodoPagoFinal = 'Por Cobrar';
     } else {
-        // MAQUINA DE ESTADOS: Si el cajero recibe el dinero, evaluamos en qué paso iba el pedido
-        if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Pagado'; // Ya comió, pagó la cuenta final
-        else if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado'; // Lo recoge en barra y se va
-        else if (modalPago.estado_preparacion === 'Pendiente') estadoFinal = 'Preparando'; // Apenas entró y ya pagó
-        else estadoFinal = modalPago.estado_preparacion; // Si estaba Preparando y paga antes, se queda Preparando
+        if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Entregado'; 
+        else if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado'; 
+        else if (modalPago.estado_preparacion === 'En Camino') estadoFinal = 'Entregado'; // 👇 Si el repartidor regresa y paga, marcamos entregado
+        else if (modalPago.estado_preparacion === 'Pendiente') estadoFinal = 'Pagado'; 
+        else if (modalPago.estado_preparacion === 'Por Confirmar') estadoFinal = 'Pagado';
+        else estadoFinal = modalPago.estado_preparacion; 
     }
 
     try { 
@@ -463,22 +464,23 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     setIsSubmitting(false);
   };
 
-  // ========================================================
-  // 👇 FILTROS DE VISTAS (AQUÍ ESTÁ LA MAGIA ARREGLADA)
-  // ========================================================
-  
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
   
   const pendientesDePago = pedidos.filter(p => {
-      // Ignorar los que ya terminaron su ciclo
-      if (p.estado_preparacion === 'Pagado' || p.estado_preparacion === 'Cancelado') return false;
-
-      // 1. Mostrar SIEMPRE las cuentas abiertas (mesas o para llevar) sin importar en qué paso de cocina van
+      if (p.estado_preparacion === 'Cancelado') return false;
+      
+      // Ocultar Para Llevar de Caja si ya está Listo, porque se cobrará directo en Entregas
+      if (p.tipo_consumo === 'Para llevar' && p.estado_preparacion === 'Listo') return false;
+      
+      // Mostrar siempre cuentas abiertas que NO han sido pagadas
       if (p.metodo_pago === 'Por Cobrar') return true;
+      
+      // 👇 NUEVO: Mostrar Domicilio que está 'En Camino' (el repartidor salió y debe volver a pagar)
+      if (p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino') return true;
 
-      // 2. Mostrar los que piden en mostrador y no han pagado ni se han confirmado
-      if (p.estado_preparacion === 'Pendiente' && p.metodo_pago === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') return true;
-
+      // Mostrar pedidos de mostrador pendientes de pago
+      if (p.metodo_pago === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') return true;
+      
       return false;
   });
   

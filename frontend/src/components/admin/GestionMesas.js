@@ -8,9 +8,8 @@ const GestionMesas = ({ apiUrl }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [alerta, setAlerta] = useState(null);
 
-  // 👇 ESTADOS PARA EL MODO PLANO Y PISOS
   const [modoPlano, setModoPlano] = useState(false);
-  const [zonaPlanoActiva, setZonaPlanoActiva] = useState(''); // Controla qué piso vemos
+  const [zonaPlanoActiva, setZonaPlanoActiva] = useState(''); 
   const [mesaArrastrada, setMesaArrastrada] = useState(null);
   const lienzoRef = useRef(null);
 
@@ -203,15 +202,11 @@ const GestionMesas = ({ apiUrl }) => {
       </div>
 
       {modoPlano ? (
-        /* ========================================================
-           VISTA: MODO DISEÑADOR (LIENZO DE ARRASTRE)
-           ======================================================== */
         <div className="bg-slate-100 p-4 md:p-8 rounded-3xl border-2 border-slate-300 border-dashed animate-in zoom-in duration-300">
            
            <div className="mb-4 flex flex-col md:flex-row justify-between items-center gap-4">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">💡 Toca y arrastra las mesas</span>
               
-              {/* 👇 PESTAÑAS PARA CAMBIAR DE ZONA/PISO */}
               <div className="flex gap-2 overflow-x-auto pb-2 w-full md:w-auto">
                  {[...new Set(mesas.map(m => m.zona))].map(zona => (
                     <button
@@ -234,25 +229,30 @@ const GestionMesas = ({ apiUrl }) => {
              className="relative w-full h-[600px] bg-white rounded-2xl shadow-inner border border-slate-200 overflow-hidden touch-none"
              style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '30px 30px' }} 
            >
-              {/* 👇 FILTRAMOS LAS MESAS POR ZONA ACTIVA */}
-              {mesas.filter(m => m.zona === zonaPlanoActiva).map(mesa => (
+              {mesas.filter(m => m.zona === zonaPlanoActiva).map(mesa => {
+                 // 👇 Solucionado el Warning, eliminamos 'isLibre' que no se usaba
+                 const isOcupada = mesa.estado === 'Ocupada';
+                 const isPorPagar = mesa.estado === 'Por Pagar';
+
+                 let bgClass = 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100';
+                 if (isOcupada) bgClass = 'bg-orange-50 border-orange-400 text-orange-700 hover:bg-orange-100 shadow-[0_0_15px_rgba(249,115,22,0.4)]';
+                 if (isPorPagar) bgClass = 'bg-red-50 border-red-400 text-red-700 hover:bg-red-100 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse';
+
+                 return (
                  <div
                    key={mesa.id}
                    onPointerDown={(e) => iniciarArrastre(e, mesa.id)}
-                   className={`absolute w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 flex items-center justify-center cursor-grab active:cursor-grabbing shadow-lg transition-transform ${mesaArrastrada === mesa.id ? 'border-blue-500 bg-blue-100 scale-110 z-50' : 'border-indigo-300 bg-indigo-50 hover:border-indigo-400 z-10'}`}
+                   className={`absolute w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing shadow-lg transition-transform ${mesaArrastrada === mesa.id ? 'border-blue-500 bg-blue-100 scale-110 z-50' : `${bgClass} z-10`}`}
                    style={{ left: `${mesa.pos_x}%`, top: `${mesa.pos_y}%`, touchAction: 'none' }}
                  >
                     <span className="font-black text-slate-700 text-center select-none pointer-events-none">
                        {mesa.numero_mesa}
                     </span>
                  </div>
-              ))}
+              )})}
            </div>
         </div>
       ) : (
-        /* ========================================================
-           VISTA: LISTA TRADICIONAL Y FORMULARIO
-           ======================================================== */
         <>
           <div className="bg-blue-50 p-6 md:p-8 rounded-3xl border border-blue-100 animate-in fade-in">
             <form onSubmit={crearMesa} className="flex flex-col md:flex-row items-end gap-4">
@@ -304,7 +304,16 @@ const GestionMesas = ({ apiUrl }) => {
                   </h3>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {mesasZona.map(mesa => (
+                    {mesasZona.map(mesa => {
+                      const isLibre = mesa.estado === 'Libre';
+                      const isOcupada = mesa.estado === 'Ocupada';
+                      const isPorPagar = mesa.estado === 'Por Pagar';
+                      
+                      let bgClass = 'bg-emerald-100 text-emerald-700';
+                      if (isOcupada) bgClass = 'bg-orange-100 text-orange-700';
+                      if (isPorPagar) bgClass = 'bg-red-100 text-red-700';
+
+                      return (
                       <div key={mesa.id} className="bg-slate-50 border border-slate-200 p-5 rounded-2xl flex flex-col group hover:border-blue-300 transition">
                         <div className="flex justify-between items-start mb-4">
                           <p className="text-2xl font-black text-slate-800">{mesa.numero_mesa}</p>
@@ -314,13 +323,10 @@ const GestionMesas = ({ apiUrl }) => {
                         </div>
                         
                         <div className="mb-4">
-                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md ${
-                            mesa.estado === 'Libre' ? 'bg-emerald-100 text-emerald-700' :
-                            mesa.estado === 'Ocupada' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                          }`}>
-                            {mesa.estado === 'Libre' ? '🟩' : mesa.estado === 'Ocupada' ? '🟥' : '🟧'} {mesa.estado}
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md ${bgClass}`}>
+                            {isLibre ? '🟩 Libre' : isOcupada ? '🟧 Esperando' : '🟥 Comiendo'}
                           </span>
-                          {mesa.estado !== 'Libre' && mesa.numero_pedido && (
+                          {!isLibre && mesa.numero_pedido && (
                             <p className="text-xs font-bold text-slate-500 mt-2 flex items-center gap-1">
                               <AlertTriangle size={12}/> Orden Activa: #{mesa.numero_pedido}
                             </p>
@@ -337,7 +343,7 @@ const GestionMesas = ({ apiUrl }) => {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               ))

@@ -203,6 +203,7 @@ const VistasCaja = ({
                {mesas && mesas.length > 0 && (
                  <div className="flex flex-col sm:flex-row gap-4 items-center">
                    
+                   {/* PESTAÑAS DE ZONAS (SOLO VISIBLES EN MODO PLANO VISUAL) */}
                    {vistaMapa === 'plano' && (
                       <div className="flex gap-2 overflow-x-auto max-w-[50vw]">
                          {[...new Set(mesas.map(m => m.zona))].map(zona => (
@@ -217,6 +218,7 @@ const VistasCaja = ({
                       </div>
                    )}
 
+                   {/* BOTONES DE VISTA (PLANO VS CUADRÍCULA) */}
                    <div className="flex bg-slate-200 p-1 rounded-xl shrink-0">
                      <button onClick={() => setVistaMapa('plano')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'plano' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                        <Map size={16}/> Plano Visual
@@ -256,8 +258,8 @@ const VistasCaja = ({
                             let bgClass = 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100 shadow-sm';
                             let textClass = 'text-emerald-700';
                             
-                            if (isOcupada) { bgClass = 'bg-red-50 border-red-300 hover:bg-red-100 shadow-md shadow-red-500/20'; textClass = 'text-red-700'; }
-                            if (isPorPagar) { bgClass = 'bg-orange-50 border-orange-300 hover:bg-orange-100 shadow-md shadow-orange-500/20 animate-pulse'; textClass = 'text-orange-700'; }
+                            if (isOcupada) { bgClass = 'bg-orange-50 border-orange-300 hover:bg-orange-100 shadow-md shadow-orange-500/20'; textClass = 'text-orange-700'; }
+                            if (isPorPagar) { bgClass = 'bg-red-50 border-red-300 hover:bg-red-100 shadow-md shadow-red-500/20 animate-pulse'; textClass = 'text-red-700'; }
 
                             return (
                                <button
@@ -273,8 +275,8 @@ const VistasCaja = ({
                                  className={`p-6 rounded-[24px] border-2 flex flex-col items-center justify-center text-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}`}
                                >
                                  <span className={`text-3xl font-black mb-2 ${textClass}`}>{mesa.numero_mesa}</span>
-                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded bg-white shadow-sm border ${textClass} ${isOcupada ? 'border-red-200' : isPorPagar ? 'border-orange-200' : 'border-emerald-200'}`}>
-                                    {isLibre ? '🟩 Libre' : isOcupada ? '🟥 Comiendo' : '🟧 Por Pagar'}
+                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded bg-white shadow-sm border ${textClass} ${isOcupada ? 'border-orange-200' : isPorPagar ? 'border-red-200' : 'border-emerald-200'}`}>
+                                    {isLibre ? '🟩 Libre' : isOcupada ? '🟧 Esperando' : '🟥 Comiendo'}
                                  </span>
                                  {!isLibre && mesa.numero_pedido && (
                                     <span className={`mt-3 font-black text-sm bg-slate-900 px-3 py-1 rounded-lg shadow-sm text-white`}>
@@ -304,8 +306,8 @@ const VistasCaja = ({
                         const isPorPagar = mesa.estado === 'Por Pagar';
 
                         let bgClass = 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100';
-                        if (isOcupada) bgClass = 'bg-red-50 border-red-400 text-red-700 hover:bg-red-100 shadow-[0_0_15px_rgba(239,68,68,0.4)]';
-                        if (isPorPagar) bgClass = 'bg-orange-50 border-orange-400 text-orange-700 hover:bg-orange-100 shadow-[0_0_15px_rgba(249,115,22,0.4)] animate-pulse';
+                        if (isOcupada) bgClass = 'bg-orange-50 border-orange-400 text-orange-700 hover:bg-orange-100 shadow-[0_0_15px_rgba(249,115,22,0.4)]';
+                        if (isPorPagar) bgClass = 'bg-red-50 border-red-400 text-red-700 hover:bg-red-100 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse';
 
                         return (
                            <button
@@ -396,7 +398,6 @@ const VistasCaja = ({
                         {renderBotonVerDetalle(p)}
                         {renderBotonEditar(p)}
                       </div>
-                      {/* En "Por Confirmar" no solemos poner extras todavía, pero por si acaso, lo mantenemos simple. */}
                     </div>
 
                     <div className="bg-slate-50 p-4 rounded-2xl mb-6 overflow-y-auto max-h-40 border border-slate-100 shadow-inner">
@@ -441,14 +442,15 @@ const VistasCaja = ({
                      notaCambio = cambioPart ? cambioPart : null;
                   }
 
-                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar' && tipoLimpio === 'Local';
+                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar';
+                  const isReparto = p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino';
 
                   return (
-                  <div key={p.id} className={`bg-white p-8 rounded-[40px] shadow-sm border-2 flex flex-col hover:shadow-md transition ${esCuentaAbierta ? 'border-orange-300 shadow-orange-500/10' : 'border-slate-100'}`}>
+                  <div key={p.id} className={`bg-white p-8 rounded-[40px] shadow-sm border-2 flex flex-col hover:shadow-md transition ${esCuentaAbierta || isReparto ? 'border-orange-300 shadow-orange-500/10' : 'border-slate-100'}`}>
                     <div className="flex justify-between items-start mb-4">
                         <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
                         <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Mixto' ? 'bg-indigo-100 text-indigo-700' : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
-                            {getIconoPago(p.metodo_pago)} {esCuentaAbierta ? 'Cuenta Abierta' : p.metodo_pago}
+                            {getIconoPago(p.metodo_pago)} {esCuentaAbierta ? 'Cuenta Abierta' : isReparto ? 'En Reparto' : p.metodo_pago}
                         </span>
                     </div>
                     
@@ -477,13 +479,19 @@ const VistasCaja = ({
                         </span>
                     </div>
                     
-                    {esCuentaAbierta && (
+                    {(esCuentaAbierta || isReparto) && (
                         <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
-                           <Clock size={16}/> {p.estado_preparacion === 'Preparando' ? 'En Cocina' : p.estado_preparacion === 'Listo' ? 'Listo en Barra' : p.estado_preparacion === 'Entregado' ? 'Comiendo en Mesa' : p.estado_preparacion}
+                           <Clock size={16}/> {
+                               p.estado_preparacion === 'Pendiente' ? 'Esperando Aprobación de Caja' : 
+                               p.estado_preparacion === 'Pagado' ? 'En Cola (Cocina)' : 
+                               p.estado_preparacion === 'Preparando' ? 'Preparando en Cocina' : 
+                               p.estado_preparacion === 'Listo' ? 'Listo en Barra' : 
+                               p.estado_preparacion === 'En Camino' ? 'Repartidor en Ruta' : 
+                               p.estado_preparacion === 'Entregado' ? 'Comiendo en Mesa' : p.estado_preparacion
+                           }
                         </div>
                     )}
 
-                    {/* 👇 AQUÍ AGREGAMOS EL BOTÓN DE COBRAR EXTRA */}
                     <div className="mb-4 flex flex-col gap-3">
                       <div className="grid grid-cols-2 gap-3">
                         {renderBotonVerDetalle(p)}
@@ -506,10 +514,50 @@ const VistasCaja = ({
                     <div className="mt-auto pt-6 border-t border-slate-100">
                       <p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p>
                       
-                      <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 transition disabled:opacity-50 ${esCuentaAbierta ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30' : p.metodo_pago === 'Efectivo' ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30'}`}>
-                          {esCuentaAbierta ? <><DollarSign size={24}/> Cobrar y Liberar Mesa</> : p.metodo_pago === 'Efectivo' ? <><DollarSign size={24}/> Recibir Efectivo</> : p.metodo_pago === 'Pendiente' ? <><DollarSign size={24}/> Cobrar y Entregar</> : <><CheckCircle2 size={24}/> Validar Pago</>}
-                      </button>
-
+                      {isReparto ? (
+                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition active:scale-95 disabled:opacity-50">
+                             <DollarSign size={24}/> Cobrar a Repartidor
+                         </button>
+                      ) : esCuentaAbierta ? (
+                         p.estado_preparacion === 'Pendiente' ? (
+                             <div className="flex gap-3">
+                                 <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Pagado')} className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-orange-500 hover:bg-orange-600 text-white shadow-lg transition active:scale-95 disabled:opacity-50">
+                                     <ChefHat size={20}/> Mandar a Cocina
+                                 </button>
+                                 <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition active:scale-95 disabled:opacity-50">
+                                     <DollarSign size={20}/> Cobrar Ahora
+                                 </button>
+                             </div>
+                         ) : p.estado_preparacion === 'Pagado' ? (
+                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
+                                 <Clock size={24}/> En Cola (Cocina)
+                             </button>
+                         ) : p.estado_preparacion === 'Preparando' ? (
+                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
+                                 <ChefHat size={24}/> Preparando en Cocina
+                             </button>
+                         ) : p.estado_preparacion === 'Listo' ? (
+                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
+                                 <BellRing size={24}/> Listo (Ve a Entregas)
+                             </button>
+                         ) : (
+                             <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
+                                 <DollarSign size={24}/> {tipoLimpio === 'Local' ? 'Cobrar y Liberar Mesa' : 'Cobrar Orden'}
+                             </button>
+                         )
+                      ) : p.metodo_pago === 'Efectivo' ? (
+                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition active:scale-95 disabled:opacity-50">
+                             <DollarSign size={24}/> Recibir Efectivo
+                         </button>
+                      ) : p.metodo_pago === 'Pendiente' ? (
+                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
+                             <DollarSign size={24}/> Cobrar y Entregar
+                         </button>
+                      ) : (
+                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
+                             <CheckCircle2 size={24}/> Validar Pago
+                         </button>
+                      )}
                     </div>
                   </div>
                 )})}
@@ -539,7 +587,7 @@ const VistasCaja = ({
                      notaCambio = cambioPart ? cambioPart : null;
                   }
 
-                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar' && tipoLimpio === 'Local';
+                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar';
 
                   return (
                   <div key={p.id} className="bg-orange-50 p-8 rounded-[40px] shadow-lg shadow-orange-500/20 border-2 border-orange-400 flex flex-col transition animate-pulse">
@@ -566,7 +614,6 @@ const VistasCaja = ({
                     <div className="mb-4 bg-orange-100/50 p-4 rounded-3xl border border-orange-200 flex flex-col gap-3">
                        <div className="grid grid-cols-2 gap-3">
                           {renderBotonVerDetalle(p)}
-                          {/* El botón de editar en entregas a veces no es necesario, pero si lo tuvieras iría aquí */}
                        </div>
                        {renderBotonAgregarExtra(p)}
                     </div>
@@ -580,8 +627,19 @@ const VistasCaja = ({
                     )}
                     
                     <div className="mt-auto pt-6 border-t border-orange-200">
-                       {esCuentaAbierta ? (
-                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Utensils size={28}/> Servir en Mesa</button>
+                       {p.tipo_consumo === 'Domicilio' ? (
+                          <div className="flex gap-3">
+                              <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'En Camino')} className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-purple-500 hover:bg-purple-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
+                                  <MapPin size={24}/> Mandar a Reparto
+                              </button>
+                              <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
+                                  <DollarSign size={24}/> Cobrar Ahora
+                              </button>
+                          </div>
+                       ) : esCuentaAbierta ? (
+                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
+                              <Utensils size={28}/> {tipoLimpio === 'Local' ? 'Servir en Mesa' : 'Entregar al Cliente'}
+                          </button>
                        ) : (p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
                           <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
                        ) : (
@@ -605,17 +663,17 @@ const VistasCaja = ({
                 <button key={tab} disabled={isSubmitting} onClick={() => setSubVistaHistorial(tab)} className={`px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 ${subVistaHistorial === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                   {tab === 'Pagado' ? 'En Cola' : tab === 'Preparando' ? 'En Cocina' : tab === 'Listo' ? 'Finalizados' : tab === 'Entregado' ? 'Entregados' : 'Cancelados'}
                   <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${subVistaHistorial === tab ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
-                    {pedidos.filter(p => p.estado_preparacion === tab).length}
+                    {pedidos.filter(p => tab === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === tab).length}
                   </span>
                 </button>
               ))}
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pedidos.filter(p => p.estado_preparacion === subVistaHistorial).length === 0 ? (
+              {pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === subVistaHistorial).length === 0 ? (
                 <p className="text-slate-400 font-bold col-span-2 text-center mt-10">No hay pedidos en esta sección.</p>
               ) : (
-                pedidos.filter(p => p.estado_preparacion === subVistaHistorial).map(p => {
+                pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === subVistaHistorial).map(p => {
                   let direccionPura = '';
                   const tel = getTelefonoExtraido(p);
                   const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
