@@ -4,6 +4,7 @@ import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText
 const SidebarCaja = ({ 
   user, onLogout, configGlobal, toggleEstadoNegocio, 
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
+  mesasPagadas, // 👇 Recibimos la cantidad de mesas pagadas
   setModalCompraRapida, 
   abrirIdentificador,
   menuAbiertoCaja, setMenuAbiertoCaja
@@ -59,9 +60,11 @@ const SidebarCaja = ({
           
           <button onClick={() => navegarYcerrar('confirmar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'confirmar' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><Phone size={22}/> Por Confirmar{pedidosPorConfirmar.length > 0 && <span className="ml-auto bg-orange-700 text-white text-xs px-2 py-1 rounded-full">{pedidosPorConfirmar.length}</span>}</button>
           
-          {/* 👇 AQUÍ LE CAMBIAMOS EL NOMBRE A LA PESTAÑA PARA QUE HAGA SENTIDO */}
           <button onClick={() => navegarYcerrar('cobrar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'cobrar' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><ShoppingBag size={22}/> Cuentas / Cobrar{pendientesDePago.length > 0 && <span className="ml-auto bg-blue-800 text-white text-xs px-2 py-1 rounded-full">{pendientesDePago.length}</span>}</button>
           
+          {/* 👇 NUEVA PESTAÑA PARA LIMPIAR MESAS */}
+          <button onClick={() => navegarYcerrar('mesas_pagadas')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><CheckCircle2 size={22}/> Mesas Pagadas{mesasPagadas.length > 0 && <span className="ml-auto bg-emerald-800 text-white text-xs px-2 py-1 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]">{mesasPagadas.length}</span>}</button>
+
           <button onClick={() => navegarYcerrar('entregas')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all relative ${vistaActiva === 'entregas' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><Monitor size={22}/> Monitor Entregas{listosParaEntregar.length > 0 && <span className="ml-auto bg-orange-500 text-white text-xs px-2 py-1 rounded-full animate-pulse shadow-[0_0_10px_rgba(249,115,22,0.8)]">{listosParaEntregar.length}</span>}</button>
           <button onClick={() => navegarYcerrar('historial')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${vistaActiva === 'historial' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}><List size={22}/> Ver Todos</button>
           

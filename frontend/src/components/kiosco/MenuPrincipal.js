@@ -10,7 +10,8 @@ const MenuPrincipal = ({
   descuentoPuntosDinero, 
   descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos,
   cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl,
-  mesaQR // 👇 Recibimos la mesa
+  mesaQR,
+  isOffline // 👇 Recibimos si estamos sin internet
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
 
@@ -62,6 +63,11 @@ const MenuPrincipal = ({
     e.preventDefault();
     setErrorCupon('');
     if (!inputCupon.trim()) return;
+
+    // 👇 Si no hay internet, bloqueamos la validación
+    if (isOffline) {
+        return setErrorCupon('No se pueden validar cupones sin Internet.');
+    }
     
     setBuscandoCupon(true);
     try {
@@ -198,12 +204,13 @@ const MenuPrincipal = ({
                         <Ticket size={20} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                             type="text" 
+                            disabled={isOffline}
                             placeholder="Código de cupón" 
                             value={inputCupon}
                             onChange={e => { setInputCupon(e.target.value.toUpperCase()); setErrorCupon(''); }}
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold outline-none focus:border-rose-500 uppercase text-slate-700"
+                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold outline-none focus:border-rose-500 uppercase text-slate-700 disabled:opacity-50"
                         />
-                        <button type="submit" disabled={!inputCupon || buscandoCupon} className="bg-rose-500 hover:bg-rose-600 text-white px-4 rounded-xl text-sm font-black disabled:opacity-50 transition active:scale-95 shadow-sm">
+                        <button type="submit" disabled={!inputCupon || buscandoCupon || isOffline} className="bg-rose-500 hover:bg-rose-600 text-white px-4 rounded-xl text-sm font-black disabled:opacity-50 transition active:scale-95 shadow-sm">
                             {buscandoCupon ? '...' : 'Aplicar'}
                         </button>
                     </form>
@@ -230,7 +237,7 @@ const MenuPrincipal = ({
                         </div>
                         
                         {(configGlobal.puntos_canje_activo === true || configGlobal.puntos_canje_activo === 'true' || configGlobal.puntos_canje_activo === undefined) ? (
-                            <button onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black text-xs hover:bg-blue-700 shadow-sm transition active:scale-95">Canjear</button>
+                            <button disabled={isOffline} onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black text-xs hover:bg-blue-700 shadow-sm transition active:scale-95 disabled:opacity-50">Canjear</button>
                         ) : (
                             <span className="text-[10px] bg-slate-200 text-slate-500 font-bold px-2 py-1 rounded">No canjeable hoy</span>
                         )}

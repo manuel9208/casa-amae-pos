@@ -11,6 +11,12 @@ const baseUrl = apiUrl.replace('/api', '');
 const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) => {
   const mesaQR = useMesaQR();
 
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  
+  // 👇 NUEVO: Estado para saber si hay pedidos en la "Libreta Secreta" y si está sincronizando
+  const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(0);
+  const [estaSincronizando, setEstaSincronizando] = useState(false);
+
   // === 1. DATOS GLOBALES ===
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
@@ -48,6 +54,33 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const [cuponActivo, setCuponActivo] = useState(null); 
   const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0); 
 
+  // 👇 NUEVO: Función para checar cuántos pedidos hay en la libreta secreta
+  const checarPedidosOffline = () => {
+    try {
+        const pedidos = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
+        setPedidosOfflinePendientes(pedidos.length);
+    } catch(e) {
+        setPedidosOfflinePendientes(0);
+    }
+  };
+
+  useEffect(() => {
+    checarPedidosOffline();
+  }, [pantallaActual]); // Revisar cada que cambie de pantalla (por ejemplo, después de un cobro)
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // === CARGA INICIAL Y MONITOREO DE DATOS ===
   useEffect(() => { 
     fetch(`${apiUrl}/productos`)
@@ -62,6 +95,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     fetch(`${apiUrl}/clasificaciones`).then(r => r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : [])).catch(console.error);
     
     const fetchConfig = () => {
+      if (!navigator.onLine) return; 
       fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`)
         .then(r => r.json())
         .then(data => { if(data && !data.error) setConfigGlobal(data); })
@@ -72,6 +106,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     const intervalConfig = setInterval(fetchConfig, 5000); 
     return () => clearInterval(intervalConfig);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -112,7 +147,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   useEffect(() => {
     let intervaloPedidos;
     const verificarMisPedidos = async (esCargaInicial = false) => {
-      if (!clienteActivo || ordenExterna) return;
+      if (!clienteActivo || ordenExterna || !navigator.onLine) return;
       try { 
         const r = await fetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
         const data = await r.json(); 
@@ -130,6 +165,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setPantallaActual('menu'); 
     }
     return () => clearInterval(intervaloPedidos);
+    
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteActivo, ordenExterna]);
 
   const reiniciarKiosco = useCallback(() => {
@@ -199,6 +236,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     if (!clienteActivo || !clienteActivo.id) return setErrorNip('No hay cliente activo.'); 
     if (clienteActivo.puntos <= 0) return setErrorNip('No tienes puntos disponibles.');
 
+    if (isOffline) {
+        return setErrorNip('No se pueden canjear puntos sin Internet.');
+    }
+
     try { 
       const res = await fetch(`${apiUrl}/clientes/verificar-nip`, { 
           method: 'POST', 
@@ -216,9 +257,93 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
   };
 
+  // 👇 NUEVO: FUNCIÓN PARA ENVIAR PEDIDOS OFFLINE AL SERVIDOR (FASE 3)
+  const sincronizarPedidosOffline = async () => {
+    if (isOffline || estaSincronizando) return;
+    
+    setEstaSincronizando(true);
+    try {
+       const pedidos = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
+       if (pedidos.length === 0) {
+           setEstaSincronizando(false);
+           return;
+       }
+
+       // Iteramos sobre los pedidos guardados
+       for (let i = 0; i < pedidos.length; i++) {
+           const pedido = pedidos[i];
+           
+           // Le cambiamos el estado para que el cajero sepa que es un pedido offline sincronizado
+           // y no lo mande a cocina, sino directo a su historial.
+           const payloadSincronizacion = {
+               ...pedido,
+               estado_preparacion: 'Sincronizado Offline'
+           };
+
+           // Quitamos marcas locales que no necesita la DB
+           delete payloadSincronizacion.es_offline;
+           delete payloadSincronizacion.numero_pedido_offline;
+           delete payloadSincronizacion.fecha_guardado_local;
+
+           // Hacemos el POST
+           const res = await fetch(`${apiUrl}/pedidos`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify(payloadSincronizacion)
+           });
+
+           if (!res.ok) {
+               console.error('Error al sincronizar el pedido:', pedido.numero_pedido_offline);
+               // Detenemos el ciclo para intentarlo después
+               break; 
+           }
+       }
+
+       // Si todo salió bien, vaciamos la libreta secreta
+       localStorage.setItem('pedidos_offline', '[]');
+       checarPedidosOffline();
+       alert("¡Todos los pedidos se han sincronizado correctamente con la base de datos!");
+       
+    } catch (e) {
+       console.error("Fallo general de sincronización", e);
+       alert("Ocurrió un error al intentar sincronizar. Se volverá a intentar.");
+    }
+    setEstaSincronizando(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-8 relative">
       
+      {isOffline && (
+        <div className="bg-red-500 text-white text-center py-3 px-4 rounded-2xl mb-6 font-black flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top-4 shadow-lg shadow-red-500/30">
+          <span className="animate-pulse text-2xl">🔴</span> 
+          <div>
+              <p className="text-lg">MODO OFFLINE ACTIVO</p>
+              <p className="text-xs font-medium uppercase tracking-widest opacity-90">Los pedidos se guardarán en esta computadora temporalmente.</p>
+          </div>
+        </div>
+      )}
+
+      {/* 👇 NUEVO: Banner verde para sincronizar cuando regresa el internet */}
+      {!isOffline && pedidosOfflinePendientes > 0 && (
+        <div className="bg-emerald-500 text-white py-4 px-6 rounded-2xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 shadow-xl shadow-emerald-500/30">
+          <div className="flex items-center gap-3">
+              <span className="text-3xl">🔄</span> 
+              <div>
+                  <p className="text-lg font-black tracking-tight">¡Conexión Restaurada!</p>
+                  <p className="text-sm font-medium">Tienes <strong>{pedidosOfflinePendientes} pedido(s)</strong> en la libreta listos para enviarse a la base de datos.</p>
+              </div>
+          </div>
+          <button 
+             onClick={sincronizarPedidosOffline} 
+             disabled={estaSincronizando}
+             className="bg-slate-900 text-white font-black px-6 py-3 rounded-xl shadow-sm hover:bg-slate-800 active:scale-95 transition-all w-full md:w-auto disabled:opacity-50"
+          >
+             {estaSincronizando ? 'Sincronizando...' : 'Sincronizar Ahora'}
+          </button>
+        </div>
+      )}
+
       {/* HEADER GLOBAL */}
       <div className="flex justify-between items-start mb-8">
         <div className="flex gap-4">
@@ -274,10 +399,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           descuentoCuponDinero={descuentoCuponDinero}
           apiUrl={apiUrl}
           mesaQR={mesaQR}
+          isOffline={isOffline} 
         />
       )}
 
-      {/* 👇 AQUÍ ESTÁ EL ARREGLO: AGREGUÉ 'pedir_nombre' A LA LISTA */}
       {['consumo', 'pedir_nombre', 'asignar_mesa', 'aviso_domicilio', 'direccion', 'pago', 'cambio_efectivo_domicilio', 'detalles_transferencia', 'finalizado'].includes(pantallaActual) && (
         <CheckoutFlujo 
           pantallaActual={pantallaActual} setPantallaActual={setPantallaActual}
@@ -300,6 +425,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
           metodoPagoFinal={metodoPagoFinal}
           mesaQR={mesaQR}
+          isOffline={isOffline} 
         />
       )}
 
@@ -315,7 +441,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
             {errorNip && <p className="text-red-500 text-sm font-bold bg-red-50 p-2 rounded-xl mb-4 border border-red-100">{errorNip}</p>}
             <div className="flex gap-4">
               <button type="button" onClick={() => { setModalNip(false); setNipInput(''); setErrorNip(''); }} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200">Cancelar</button>
-              <button type="submit" disabled={nipInput.length !== 4} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl disabled:opacity-50">Canjear</button>
+              <button type="submit" disabled={nipInput.length !== 4 || isOffline} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl disabled:opacity-50">Canjear</button>
             </div>
           </form>
         </div> 

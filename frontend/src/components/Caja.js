@@ -172,7 +172,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     }, 500);
   };
 
-  // 👇 LÓGICA DE COBROS ACTUALIZADA PARA "EN CAMINO" (DOMICILIO)
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true);
@@ -183,12 +182,12 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     if (estadoRechazo) {
         estadoFinal = estadoRechazo;
     } else if (esPostPago) {
-        estadoFinal = 'Pagado'; // Pasa a En Cola
+        estadoFinal = 'Pagado'; 
         metodoPagoFinal = 'Por Cobrar';
     } else {
         if (modalPago.estado_preparacion === 'Entregado') estadoFinal = 'Entregado'; 
         else if (modalPago.estado_preparacion === 'Listo') estadoFinal = 'Entregado'; 
-        else if (modalPago.estado_preparacion === 'En Camino') estadoFinal = 'Entregado'; // 👇 Si el repartidor regresa y paga, marcamos entregado
+        else if (modalPago.estado_preparacion === 'En Camino') estadoFinal = 'Entregado'; 
         else if (modalPago.estado_preparacion === 'Pendiente') estadoFinal = 'Pagado'; 
         else if (modalPago.estado_preparacion === 'Por Confirmar') estadoFinal = 'Pagado';
         else estadoFinal = modalPago.estado_preparacion; 
@@ -466,21 +465,29 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
 
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio'));
   
+  // 👇 REGLA ACTUALIZADA: Ocultamos de Cuentas por Cobrar todo lo que esté en Cocina ('Pagado', 'Preparando', 'Listo')
   const pendientesDePago = pedidos.filter(p => {
-      if (p.estado_preparacion === 'Cancelado') return false;
+      if (p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Finalizado') return false;
       
-      // Ocultar Para Llevar de Caja si ya está Listo, porque se cobrará directo en Entregas
-      if (p.tipo_consumo === 'Para llevar' && p.estado_preparacion === 'Listo') return false;
+      const tipoLimpio = p.tipo_consumo || '';
       
-      // Mostrar siempre cuentas abiertas que NO han sido pagadas
-      if (p.metodo_pago === 'Por Cobrar') return true;
+      // 1. Mostrar las nuevas órdenes pendientes de aprobación (Mandar a Cocina / Cobrar)
+      if (p.estado_preparacion === 'Pendiente' && (tipoLimpio === 'Local' || tipoLimpio === 'Para llevar')) return true;
       
-      // 👇 NUEVO: Mostrar Domicilio que está 'En Camino' (el repartidor salió y debe volver a pagar)
-      if (p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino') return true;
+      // 2. Mostrar Domicilio En Camino (Repartidor)
+      if (tipoLimpio === 'Domicilio' && p.estado_preparacion === 'En Camino') return true;
+      
+      // 3. Mostrar Local Comiendo (Entregado) PERO SÓLO SI NO HA PAGADO (Cuenta Abierta o Pendiente)
+      if (tipoLimpio === 'Local' && p.estado_preparacion === 'Entregado' && (p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente')) return true;
+      
+      return false;
+  });
 
-      // Mostrar pedidos de mostrador pendientes de pago
-      if (p.metodo_pago === 'Pendiente' && p.tipo_consumo !== 'Recoger en Local' && p.tipo_consumo !== 'Domicilio') return true;
-      
+  // 👇 NUEVA REGLA: Filtro exclusivo para mesas que ya pagaron y están comiendo
+  const mesasPagadas = pedidos.filter(p => {
+      if (p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Finalizado') return false;
+      const tipoLimpio = p.tipo_consumo || '';
+      if (tipoLimpio === 'Local' && p.estado_preparacion === 'Entregado' && p.metodo_pago !== 'Por Cobrar' && p.metodo_pago !== 'Pendiente') return true;
       return false;
   });
   
@@ -499,6 +506,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pedidosPorConfirmar={pedidosPorConfirmar}
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
+          mesasPagadas={mesasPagadas} // 👇 Le pasamos el dato al Sidebar
           setModalCompraRapida={setModalCompraRapida} 
           abrirIdentificador={abrirIdentificador} 
           menuAbiertoCaja={menuAbiertoCaja} 
@@ -514,6 +522,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pedidosPorConfirmar={pedidosPorConfirmar}
           pendientesDePago={pendientesDePago}
           listosParaEntregar={listosParaEntregar}
+          mesasPagadas={mesasPagadas} // 👇 Le pasamos las mesas pagadas a la vista
           fondoCaja={fondoCaja}
           configGlobal={configGlobal}
           gastosDia={gastosDia} 

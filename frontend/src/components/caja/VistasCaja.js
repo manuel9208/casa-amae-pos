@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye, Menu, Wallet, Map, LayoutGrid, Utensils } from 'lucide-react';
+import { BellRing, MessageSquare, XCircle, CheckCircle2, Phone, AlertTriangle, DollarSign, Check, ChefHat, Clock, FileText, CreditCard, Smartphone, MapPin, TrendingDown, PlusCircle, Eye, Menu, Wallet, Map, LayoutGrid, Utensils, Trash2 } from 'lucide-react';
+
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
 const VistasCaja = ({
   vistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, mesas, pedidosConAlerta, pedidosPorConfirmar,
-  pendientesDePago, listosParaEntregar, fondoCaja, configGlobal,
+  pendientesDePago, listosParaEntregar, mesasPagadas, fondoCaja, configGlobal,
   gastosDia, 
   abrirModalResolver, limpiarAlerta, setModalPago, setMontoRecibido, actualizarEstadoPedido, confirmarPedidoRecoger, lanzarImpresion,
   setModalZonaEnvio,
@@ -16,6 +18,8 @@ const VistasCaja = ({
 
   const [vistaMapa, setVistaMapa] = useState('plano'); 
   const [zonaPlanoActiva, setZonaPlanoActiva] = useState('');
+  const [limpiandoMesas, setLimpiandoMesas] = useState(false);
+  const [modalLiberarMesa, setModalLiberarMesa] = useState(null);
 
   useEffect(() => {
      if (mesas && mesas.length > 0 && !zonaPlanoActiva) {
@@ -66,16 +70,14 @@ const VistasCaja = ({
   const renderBotonAgregarExtra = (pedido) => {
       if (!pedido.carrito) return null;
       const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
-      
       if (items.length === 0) return null;
       const item = items[0];
 
       return (
          <button 
-            disabled={isSubmitting}
+            disabled={isSubmitting || limpiandoMesas}
             onClick={() => setModalAgregarExtra({ pedidoOriginal: pedido, itemIndex: 0, itemSeleccionado: item })}
             className="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-500 hover:text-white px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border border-emerald-200 disabled:opacity-50"
-            title="Agregar extra de último minuto"
          >
             <PlusCircle size={15} /> Cobrar Extra
          </button>
@@ -84,10 +86,9 @@ const VistasCaja = ({
 
   const renderBotonVerDetalle = (pedido) => (
     <button 
-        disabled={isSubmitting}
+        disabled={isSubmitting || limpiandoMesas}
         onClick={() => setModalVerDetalle(pedido)}
         className="w-full bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700 px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border border-slate-200 shadow-sm disabled:opacity-50"
-        title="Ver qué lleva este pedido"
     >
         <Eye size={15} /> Ver Platillos
     </button>
@@ -95,14 +96,55 @@ const VistasCaja = ({
 
   const renderBotonEditar = (pedido) => (
     <button 
-        disabled={isSubmitting}
+        disabled={isSubmitting || limpiandoMesas}
         onClick={() => setModalEditarPedido(pedido)}
         className="w-full bg-blue-50 text-blue-700 hover:bg-blue-500 hover:text-white px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 border border-blue-200 shadow-sm disabled:opacity-50"
-        title="Editar tipo de consumo o dirección"
     >
         ✏️ Editar Info
     </button>
   );
+
+  const liberarMesaMagicamente = async (numero_mesa) => {
+      try {
+          const paqueteFantasma = { 
+            cliente_id: null, tipo_consumo: 'Local', metodo_pago: 'Efectivo', 
+            total: 0, carrito: [], origen: 'Caja', 
+            direccion_entrega: 'Limpieza de Mesa', descuento_puntos: 0, 
+            estado_preparacion: 'Pendiente', mesa: numero_mesa 
+          };
+          
+          const res = await fetch(`${apiUrl}/pedidos`, { 
+              method: 'POST', 
+              headers: { 'Content-Type': 'application/json' }, 
+              body: JSON.stringify(paqueteFantasma) 
+          });
+          
+          if (res.ok) {
+              const data = await res.json();
+              await fetch(`${apiUrl}/pedidos/${data.id}/estado`, { 
+                  method: 'PUT', 
+                  headers: { 'Content-Type': 'application/json' }, 
+                  body: JSON.stringify({ estado_preparacion: 'Cancelado' }) 
+              });
+          }
+      } catch (e) {
+          console.error("Error liberando mesa", e);
+      }
+  };
+
+  const confirmarLiberacionMesa = async () => {
+      setLimpiandoMesas(true);
+      if (modalLiberarMesa.todas) {
+          const mesasOcupadas = mesas.filter(m => m.estado !== 'Libre');
+          for (let m of mesasOcupadas) {
+              await liberarMesaMagicamente(m.numero_mesa);
+          }
+      } else {
+          await liberarMesaMagicamente(modalLiberarMesa.mesa);
+      }
+      setLimpiandoMesas(false);
+      setModalLiberarMesa(null);
+  };
 
   const totalGastos = (gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
 
@@ -162,6 +204,8 @@ const VistasCaja = ({
     return sum;
   }, 0);
 
+  const ordenesEnCaja = pendientesDePago || [];
+
   return (
     <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50 relative">
       
@@ -182,10 +226,29 @@ const VistasCaja = ({
             const mensajeVisible = p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '');
             return (
             <div key={`alerta-${p.id}`} className="bg-red-500 text-white p-4 rounded-2xl shadow-lg flex justify-between items-center animate-in slide-in-from-top">
-              <div className="flex items-center gap-4"><BellRing className="animate-bounce" size={28} /><div><p className="font-black text-lg">⚠️ ALERTA EN ORDEN #{p.numero_pedido} ({p.cliente_nombre || p.cliente?.nombre || 'Invitado'})</p><p className="font-medium text-red-100">{mensajeVisible}</p></div></div>
+              <div className="flex items-center gap-4">
+                 <BellRing className="animate-bounce" size={28} />
+                 <div>
+                    <p className="font-black text-lg">⚠️ ALERTA EN ORDEN #{p.numero_pedido} ({p.cliente_nombre || p.cliente?.nombre || 'Invitado'})</p>
+                    <p className="font-medium text-red-100">{mensajeVisible}</p>
+                 </div>
+              </div>
               <div className="flex gap-2">
-                <button disabled={isSubmitting} onClick={() => abrirModalResolver(p)} className="bg-white text-red-600 hover:bg-red-50 px-6 py-2 rounded-xl font-black shadow-sm transition flex items-center gap-2 disabled:opacity-50"><MessageSquare size={18}/> Resolver con Cliente</button>
-                <button disabled={isSubmitting} onClick={() => limpiarAlerta(p.id)} className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded-xl font-bold shadow-sm transition disabled:opacity-50" title="Ocultar sin responder"><XCircle size={18}/></button>
+                <button 
+                   disabled={isSubmitting || limpiandoMesas} 
+                   onClick={() => abrirModalResolver(p)} 
+                   className="bg-white text-red-600 hover:bg-red-50 px-6 py-2 rounded-xl font-black shadow-sm transition flex items-center gap-2 disabled:opacity-50"
+                >
+                   <MessageSquare size={18}/> Resolver con Cliente
+                </button>
+                <button 
+                   disabled={isSubmitting || limpiandoMesas} 
+                   onClick={() => limpiarAlerta(p.id)} 
+                   className="bg-red-700 hover:bg-red-800 px-4 py-2 rounded-xl font-bold shadow-sm transition disabled:opacity-50" 
+                   title="Ocultar sin responder"
+                >
+                   <XCircle size={18}/>
+                </button>
               </div>
             </div>
           )})}
@@ -198,7 +261,18 @@ const VistasCaja = ({
         {vistaActiva === 'mesas' && (
           <>
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-               <h2 className="text-4xl font-black text-slate-800 flex items-center gap-3"><Map size={36} className="text-indigo-600"/> Mapa de Mesas</h2>
+               <div className="flex items-center gap-4">
+                   <h2 className="text-4xl font-black text-slate-800 flex items-center gap-3"><Map size={36} className="text-indigo-600"/> Mapa de Mesas</h2>
+                   {mesas && mesas.some(m => m.estado !== 'Libre') && (
+                       <button 
+                          onClick={() => setModalLiberarMesa({ todas: true })} 
+                          disabled={limpiandoMesas || isSubmitting}
+                          className="bg-red-50 text-red-600 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-sm border border-red-200 flex items-center gap-2 disabled:opacity-50"
+                       >
+                          <Trash2 size={16}/> {limpiandoMesas ? 'Limpiando...' : 'Forzar Liberación de Todas'}
+                       </button>
+                   )}
+               </div>
                
                {mesas && mesas.length > 0 && (
                  <div className="flex flex-col sm:flex-row gap-4 items-center">
@@ -218,12 +292,17 @@ const VistasCaja = ({
                       </div>
                    )}
 
-                   {/* BOTONES DE VISTA (PLANO VS CUADRÍCULA) */}
                    <div className="flex bg-slate-200 p-1 rounded-xl shrink-0">
-                     <button onClick={() => setVistaMapa('plano')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'plano' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                     <button 
+                        onClick={() => setVistaMapa('plano')} 
+                        className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'plano' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                     >
                        <Map size={16}/> Plano Visual
                      </button>
-                     <button onClick={() => setVistaMapa('cuadricula')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'cuadricula' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                     <button 
+                        onClick={() => setVistaMapa('cuadricula')} 
+                        className={`px-4 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${vistaMapa === 'cuadricula' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                     >
                        <LayoutGrid size={16}/> Cuadrícula
                      </button>
                    </div>
@@ -264,12 +343,15 @@ const VistasCaja = ({
                             return (
                                <button
                                  key={mesa.id}
-                                 disabled={isLibre || isSubmitting}
+                                 disabled={isLibre || isSubmitting || limpiandoMesas}
                                  onClick={() => {
-                                    if (mesa.pedido_actual_id) {
+                                    if (!isLibre) {
                                        const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
-                                       if (pedidoVinculado) setModalPago(pedidoVinculado);
-                                       else alert('No se encontró la orden activa. ¿Ya se cobró?');
+                                       if (pedidoVinculado) {
+                                           setModalPago(pedidoVinculado);
+                                       } else {
+                                           setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
+                                       }
                                     }
                                  }}
                                  className={`p-6 rounded-[24px] border-2 flex flex-col items-center justify-center text-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}`}
@@ -312,12 +394,15 @@ const VistasCaja = ({
                         return (
                            <button
                              key={mesa.id}
-                             disabled={isLibre || isSubmitting}
+                             disabled={isLibre || isSubmitting || limpiandoMesas}
                              onClick={() => {
-                                if (mesa.pedido_actual_id) {
+                                if (!isLibre) {
                                    const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
-                                   if (pedidoVinculado) setModalPago(pedidoVinculado);
-                                   else alert('No se encontró la orden activa. ¿Ya se cobró?');
+                                   if (pedidoVinculado) {
+                                       setModalPago(pedidoVinculado);
+                                   } else {
+                                       setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
+                                   }
                                 }
                              }}
                              className={`absolute w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 flex flex-col items-center justify-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer z-20' : 'cursor-default z-10'}`}
@@ -407,11 +492,29 @@ const VistasCaja = ({
                     <p className="text-4xl font-black text-blue-600 mb-6 text-center">${p.total}</p>
                     
                     <div className="mt-auto grid grid-cols-2 gap-3">
-                       <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition disabled:opacity-50">Rechazar</button>
+                       <button 
+                          disabled={isSubmitting} 
+                          onClick={() => actualizarEstadoPedido(p.id, 'Cancelado')} 
+                          className="py-4 bg-red-50 text-red-500 font-bold rounded-2xl hover:bg-red-100 transition disabled:opacity-50"
+                       >
+                          Rechazar
+                       </button>
                        {esDomicilio ? (
-                          <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(p)} className="py-4 bg-purple-600 text-white font-black rounded-2xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition active:scale-95 text-sm leading-tight disabled:opacity-50">Asignar Envío<br/>y Aceptar</button>
+                          <button 
+                             disabled={isSubmitting} 
+                             onClick={() => setModalZonaEnvio(p)} 
+                             className="py-4 bg-purple-600 text-white font-black rounded-2xl hover:bg-purple-700 shadow-lg shadow-purple-500/20 transition active:scale-95 text-sm leading-tight disabled:opacity-50"
+                          >
+                             Asignar Envío<br/>y Aceptar
+                          </button>
                        ) : (
-                          <button disabled={isSubmitting} onClick={() => confirmarPedidoRecoger(p.id)} className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50">Mandar a Cocina</button>
+                          <button 
+                             disabled={isSubmitting} 
+                             onClick={() => confirmarPedidoRecoger(p.id)} 
+                             className="py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50"
+                          >
+                             Mandar a Cocina
+                          </button>
                        )}
                     </div>
                   </div>
@@ -425,11 +528,11 @@ const VistasCaja = ({
         {vistaActiva === 'cobrar' && (
           <>
             <h2 className="text-4xl font-black mb-10 text-slate-800">Cuentas y Cobros Pendientes</h2>
-            {pendientesDePago.length === 0 ? (
+            {ordenesEnCaja.length === 0 ? (
               <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">Todo al día, no hay cobros pendientes.</p></div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                {pendientesDePago.map(p => {
+                {ordenesEnCaja.map(p => {
                   let direccionPura = '';
                   let notaCambio = null;
                   const tel = getTelefonoExtraido(p);
@@ -444,9 +547,10 @@ const VistasCaja = ({
 
                   const esCuentaAbierta = p.metodo_pago === 'Por Cobrar';
                   const isReparto = p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino';
+                  const esEsperandoAprobacion = p.estado_preparacion === 'Pendiente' && (tipoLimpio === 'Local' || tipoLimpio === 'Para llevar');
 
                   return (
-                  <div key={p.id} className={`bg-white p-8 rounded-[40px] shadow-sm border-2 flex flex-col hover:shadow-md transition ${esCuentaAbierta || isReparto ? 'border-orange-300 shadow-orange-500/10' : 'border-slate-100'}`}>
+                  <div key={p.id} className={`bg-white p-8 rounded-[40px] shadow-sm border-2 flex flex-col hover:shadow-md transition ${esCuentaAbierta || isReparto || esEsperandoAprobacion ? 'border-orange-300 shadow-orange-500/10' : 'border-slate-100'}`}>
                     <div className="flex justify-between items-start mb-4">
                         <h3 className="text-3xl font-black text-slate-800">#{p.numero_pedido}</h3>
                         <span className={`text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' : p.metodo_pago === 'Mixto' ? 'bg-indigo-100 text-indigo-700' : p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
@@ -479,15 +583,14 @@ const VistasCaja = ({
                         </span>
                     </div>
                     
-                    {(esCuentaAbierta || isReparto) && (
+                    {(esCuentaAbierta || isReparto || esEsperandoAprobacion) && (
                         <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
                            <Clock size={16}/> {
                                p.estado_preparacion === 'Pendiente' ? 'Esperando Aprobación de Caja' : 
                                p.estado_preparacion === 'Pagado' ? 'En Cola (Cocina)' : 
                                p.estado_preparacion === 'Preparando' ? 'Preparando en Cocina' : 
                                p.estado_preparacion === 'Listo' ? 'Listo en Barra' : 
-                               p.estado_preparacion === 'En Camino' ? 'Repartidor en Ruta' : 
-                               p.estado_preparacion === 'Entregado' ? 'Comiendo en Mesa' : p.estado_preparacion
+                               p.estado_preparacion === 'En Camino' ? 'Repartidor en Ruta' : p.estado_preparacion
                            }
                         </div>
                     )}
@@ -515,49 +618,141 @@ const VistasCaja = ({
                       <p className="text-4xl font-black text-blue-600 mb-6">${p.total}</p>
                       
                       {isReparto ? (
-                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition active:scale-95 disabled:opacity-50">
+                         <button 
+                            disabled={isSubmitting || limpiandoMesas} 
+                            onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                            className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition active:scale-95 disabled:opacity-50"
+                         >
                              <DollarSign size={24}/> Cobrar a Repartidor
                          </button>
+                      ) : esEsperandoAprobacion ? (
+                         <div className="flex gap-3">
+                             <button 
+                                disabled={isSubmitting || limpiandoMesas} 
+                                onClick={() => actualizarEstadoPedido(p.id, 'Pagado')} 
+                                className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-orange-500 hover:bg-orange-600 text-white shadow-lg transition active:scale-95 disabled:opacity-50"
+                             >
+                                 <ChefHat size={20}/> Mandar a Cocina
+                             </button>
+                             <button 
+                                disabled={isSubmitting || limpiandoMesas} 
+                                onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                                className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition active:scale-95 disabled:opacity-50"
+                             >
+                                 <DollarSign size={20}/> Cobrar Ahora
+                             </button>
+                         </div>
                       ) : esCuentaAbierta ? (
-                         p.estado_preparacion === 'Pendiente' ? (
-                             <div className="flex gap-3">
-                                 <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Pagado')} className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-orange-500 hover:bg-orange-600 text-white shadow-lg transition active:scale-95 disabled:opacity-50">
-                                     <ChefHat size={20}/> Mandar a Cocina
-                                 </button>
-                                 <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="flex-1 py-4 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition active:scale-95 disabled:opacity-50">
-                                     <DollarSign size={20}/> Cobrar Ahora
-                                 </button>
-                             </div>
-                         ) : p.estado_preparacion === 'Pagado' ? (
-                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
-                                 <Clock size={24}/> En Cola (Cocina)
-                             </button>
-                         ) : p.estado_preparacion === 'Preparando' ? (
-                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
-                                 <ChefHat size={24}/> Preparando en Cocina
-                             </button>
-                         ) : p.estado_preparacion === 'Listo' ? (
-                             <button disabled className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-slate-100 text-slate-400 border-2 border-slate-200 transition cursor-not-allowed">
-                                 <BellRing size={24}/> Listo (Ve a Entregas)
-                             </button>
-                         ) : (
-                             <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
-                                 <DollarSign size={24}/> {tipoLimpio === 'Local' ? 'Cobrar y Liberar Mesa' : 'Cobrar Orden'}
-                             </button>
-                         )
-                      ) : p.metodo_pago === 'Efectivo' ? (
-                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 transition active:scale-95 disabled:opacity-50">
-                             <DollarSign size={24}/> Recibir Efectivo
-                         </button>
-                      ) : p.metodo_pago === 'Pendiente' ? (
-                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
-                             <DollarSign size={24}/> Cobrar y Entregar
+                         <button 
+                            disabled={isSubmitting || limpiandoMesas} 
+                            onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                            className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50"
+                         >
+                             <DollarSign size={24}/> Cobrar Orden
                          </button>
                       ) : (
-                         <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50">
+                         <button 
+                            disabled={isSubmitting || limpiandoMesas} 
+                            onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                            className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50"
+                         >
                              <CheckCircle2 size={24}/> Validar Pago
                          </button>
                       )}
+                    </div>
+                  </div>
+                )})}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* 👇 VISTA: MESAS PAGADAS (LISTAS PARA LIMPIAR) */}
+        {vistaActiva === 'mesas_pagadas' && (
+          <>
+            <h2 className="text-4xl font-black mb-10 text-slate-800">Mesas Pagadas (Listas para Limpiar)</h2>
+            {mesasPagadas.length === 0 ? (
+              <div className="text-center text-slate-400 mt-20"><CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/><p className="text-2xl font-bold">No hay mesas pendientes por limpiar.</p></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                {mesasPagadas.map(p => {
+                  let direccionPura = '';
+                  const tel = getTelefonoExtraido(p);
+                  const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
+
+                  if (p.direccion_entrega) {
+                     const partes = p.direccion_entrega.split('|').map(x => x.trim());
+                     direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+                  }
+
+                  return (
+                  <div key={p.id} className="bg-emerald-50 p-8 rounded-[40px] shadow-sm border-2 border-emerald-200 flex flex-col hover:shadow-md transition">
+                    <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-3xl font-black text-emerald-800">#{p.numero_pedido}</h3>
+                        <span className="text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                            <CheckCircle2 size={16}/> PAGADO ({p.metodo_pago})
+                        </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                        {tel && (
+                            <span className="text-xs font-black text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                <Phone size={12}/> {tel}
+                            </span>
+                        )}
+                        {p.mesa && (
+                            <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">
+                                📍 MESA {p.mesa}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="mb-4">
+                        <span className="text-xs font-black px-2.5 py-1 rounded-md uppercase tracking-widest inline-flex items-center gap-1.5 shadow-sm border bg-blue-50 text-blue-700 border-blue-200">
+                            🍽️ {tipoLimpio}
+                        </span>
+                    </div>
+                    
+                    <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
+                       <Utensils size={16}/> Comiendo en Mesa
+                    </div>
+
+                    <div className="mb-4 flex flex-col gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {renderBotonVerDetalle(p)}
+                        {renderBotonEditar(p)}
+                      </div>
+                      {renderBotonAgregarExtra(p)}
+                    </div>
+                    
+                    <div className="mt-auto pt-6 border-t border-emerald-200">
+                      <p className="text-4xl font-black text-emerald-600 mb-6">${p.total}</p>
+                      
+                      {/* 👇 AQUI ESTÁ LA SOLUCIÓN. USAMOS UNA LLAMADA DIRECTA FETCH AL BACKEND */}
+                      <button 
+                         disabled={isSubmitting || limpiandoMesas} 
+                         onClick={async () => {
+                             setLimpiandoMesas(true);
+                             try {
+                                 // 1. Mandamos el fantasma para liberar la mesa
+                                 await liberarMesaMagicamente(p.mesa);
+                                 
+                                 // 2. Mandamos el original al Historial (directo al backend, sin funciones intermedias)
+                                 await fetch(`${apiUrl}/pedidos/${p.id}/estado`, { 
+                                     method: 'PUT', 
+                                     headers: { 'Content-Type': 'application/json' }, 
+                                     body: JSON.stringify({ estado_preparacion: 'Finalizado' }) 
+                                 });
+                             } catch(e) {
+                                 console.error("Error al finalizar el pedido", e);
+                             }
+                             setLimpiandoMesas(false);
+                         }} 
+                         className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50"
+                      >
+                          {limpiandoMesas ? 'Liberando...' : <><CheckCircle2 size={24}/> Limpiar y Liberar Mesa</>}
+                      </button>
                     </div>
                   </div>
                 )})}
@@ -587,7 +782,8 @@ const VistasCaja = ({
                      notaCambio = cambioPart ? cambioPart : null;
                   }
 
-                  const esCuentaAbierta = p.metodo_pago === 'Por Cobrar';
+                  const esCuentaAbiertaLocal = tipoLimpio === 'Local' && (p.metodo_pago === 'Por Cobrar' || p.metodo_pago === 'Pendiente');
+                  const esMesaPagada = tipoLimpio === 'Local' && p.metodo_pago !== 'Por Cobrar' && p.metodo_pago !== 'Pendiente';
 
                   return (
                   <div key={p.id} className="bg-orange-50 p-8 rounded-[40px] shadow-lg shadow-orange-500/20 border-2 border-orange-400 flex flex-col transition animate-pulse">
@@ -629,21 +825,45 @@ const VistasCaja = ({
                     <div className="mt-auto pt-6 border-t border-orange-200">
                        {p.tipo_consumo === 'Domicilio' ? (
                           <div className="flex gap-3">
-                              <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'En Camino')} className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-purple-500 hover:bg-purple-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
+                              <button 
+                                 disabled={isSubmitting || limpiandoMesas} 
+                                 onClick={() => actualizarEstadoPedido(p.id, 'En Camino')} 
+                                 className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-purple-500 hover:bg-purple-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"
+                              >
                                   <MapPin size={24}/> Mandar a Reparto
                               </button>
-                              <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
+                              <button 
+                                 disabled={isSubmitting || limpiandoMesas} 
+                                 onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                                 className="flex-1 py-5 rounded-2xl font-black text-sm flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"
+                              >
                                   <DollarSign size={24}/> Cobrar Ahora
                               </button>
                           </div>
-                       ) : esCuentaAbierta ? (
-                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50">
-                              <Utensils size={28}/> {tipoLimpio === 'Local' ? 'Servir en Mesa' : 'Entregar al Cliente'}
+                       ) : (esCuentaAbiertaLocal || esMesaPagada) ? (
+                          <button 
+                             disabled={isSubmitting || limpiandoMesas} 
+                             onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} 
+                             className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"
+                          >
+                              <Utensils size={28}/> Servir en Mesa
                           </button>
                        ) : (p.metodo_pago === 'Pendiente' || p.metodo_pago === 'Por Cobrar') ? (
-                          <button disabled={isSubmitting} onClick={() => { setModalPago(p); setMontoRecibido(''); }} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> Cobrar y Entregar</button>
+                          <button 
+                             disabled={isSubmitting || limpiandoMesas} 
+                             onClick={() => { setModalPago(p); setMontoRecibido(''); }} 
+                             className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-xl transition active:scale-95 disabled:opacity-50"
+                          >
+                             <DollarSign size={28}/> Cobrar y Entregar
+                          </button>
                        ) : (
-                          <button disabled={isSubmitting} onClick={() => actualizarEstadoPedido(p.id, 'Entregado')} className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"><Check size={28}/> Marcar como Entregado</button>
+                          <button 
+                             disabled={isSubmitting || limpiandoMesas} 
+                             onClick={() => actualizarEstadoPedido(p.id, 'Finalizado')} 
+                             className="w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white shadow-xl transition active:scale-95 disabled:opacity-50"
+                          >
+                             <Check size={28}/> Marcar como Entregado
+                          </button>
                        )}
                     </div>
                   </div>
@@ -659,21 +879,21 @@ const VistasCaja = ({
             <div className="flex justify-between items-end mb-8"><h2 className="text-4xl font-black text-slate-800">Todos los Pedidos</h2></div>
             
             <div className="flex gap-2 mb-8 bg-slate-200 p-1 rounded-2xl w-fit flex-wrap">
-              {['Pagado', 'Preparando', 'Listo', 'Entregado', 'Cancelado'].map(tab => (
-                <button key={tab} disabled={isSubmitting} onClick={() => setSubVistaHistorial(tab)} className={`px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 ${subVistaHistorial === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  {tab === 'Pagado' ? 'En Cola' : tab === 'Preparando' ? 'En Cocina' : tab === 'Listo' ? 'Finalizados' : tab === 'Entregado' ? 'Entregados' : 'Cancelados'}
+              {['Pagado', 'Preparando', 'Listo', 'Entregado', 'Cancelado', 'Sincronizado Offline'].map(tab => (
+                <button key={tab} disabled={isSubmitting || limpiandoMesas} onClick={() => setSubVistaHistorial(tab)} className={`px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 ${subVistaHistorial === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                  {tab === 'Pagado' ? 'En Cola' : tab === 'Preparando' ? 'En Cocina' : tab === 'Listo' ? 'Finalizados' : tab === 'Entregado' ? 'Entregados' : tab}
                   <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${subVistaHistorial === tab ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
-                    {pedidos.filter(p => tab === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === tab).length}
+                    {pedidos.filter(p => tab === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino' || p.estado_preparacion === 'Finalizado') : p.estado_preparacion === tab).length}
                   </span>
                 </button>
               ))}
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === subVistaHistorial).length === 0 ? (
+              {pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino' || p.estado_preparacion === 'Finalizado') : p.estado_preparacion === subVistaHistorial).length === 0 ? (
                 <p className="text-slate-400 font-bold col-span-2 text-center mt-10">No hay pedidos en esta sección.</p>
               ) : (
-                pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino') : p.estado_preparacion === subVistaHistorial).map(p => {
+                pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino' || p.estado_preparacion === 'Finalizado') : p.estado_preparacion === subVistaHistorial).map(p => {
                   let direccionPura = '';
                   const tel = getTelefonoExtraido(p);
                   const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
@@ -715,7 +935,7 @@ const VistasCaja = ({
                            {renderBotonVerDetalle(p)}
                            
                            {configGlobal?.ticket_impresion_activa && (
-                              <button disabled={isSubmitting} onClick={() => lanzarImpresion(p)} className="bg-slate-800 text-white hover:bg-slate-700 px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition shadow-md w-full sm:w-auto disabled:opacity-50">
+                              <button disabled={isSubmitting || limpiandoMesas} onClick={() => lanzarImpresion(p)} className="bg-slate-800 text-white hover:bg-slate-700 px-4 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition shadow-md w-full sm:w-auto disabled:opacity-50">
                                  <FileText size={15}/> Reimprimir
                               </button>
                            )}
@@ -820,6 +1040,42 @@ const VistasCaja = ({
           </div>
         )}
       </div>
+
+      {/* MODAL BONITO PARA LIBERAR MESAS */}
+      {modalLiberarMesa && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md text-center animate-in zoom-in duration-200">
+            <div className="mx-auto bg-red-100 text-red-600 w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-inner">
+               <AlertTriangle size={48} />
+            </div>
+            <h2 className="text-3xl font-black text-slate-800 mb-2">
+              {modalLiberarMesa.todas ? 'Liberar Todas las Mesas' : `Liberar Mesa ${modalLiberarMesa.mesa}`}
+            </h2>
+            <p className="text-slate-500 font-medium mb-8 px-2">
+              {modalLiberarMesa.todas
+                ? '¿Estás seguro de forzar la limpieza de todo el mapa? Esta acción no se puede deshacer.'
+                : 'El sistema no detecta un pedido activo en tu turno de hoy. ¿Deseas forzar la limpieza de esta mesa?'}
+            </p>
+            <div className="flex gap-4">
+              <button 
+                disabled={limpiandoMesas} 
+                onClick={() => setModalLiberarMesa(null)} 
+                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                disabled={limpiandoMesas} 
+                onClick={confirmarLiberacionMesa} 
+                className="flex-[2] py-4 bg-red-500 text-white font-black text-lg rounded-2xl hover:bg-red-600 shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {limpiandoMesas ? 'Limpiando...' : 'Sí, Forzar Liberación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

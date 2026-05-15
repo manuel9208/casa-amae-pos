@@ -31,32 +31,29 @@ const CheckoutFlujo = ({
   setContador, 
   reiniciarKiosco,
   metodoPagoFinal,
-  mesaQR 
+  mesaQR,
+  isOffline // 👇 Recibimos si estamos sin internet
 }) => {
 
   const [telefonoRecoger, setTelefonoRecoger] = useState('');
   const [pasoTelefono, setPasoTelefono] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Estado para el nombre del cliente (estilo cafetería)
   const [nombreOrden, setNombreOrden] = useState(clienteActivo?.nombre || '');
 
-  // Verificamos si quien usa la pantalla es un empleado (Admin/Cajero)
   const esPersonalInterno = user && user.rol && (user.rol === 'admin' || user.rol === 'cajero' || user.usuario === 'kiosco');
 
   const [mesasDisponibles, setMesasDisponibles] = useState([]);
   const [mesaSeleccionadaInterna, setMesaSeleccionadaInterna] = useState(null);
 
-  // Auto-completar el nombre si el cliente inició sesión
   useEffect(() => {
      if (clienteActivo?.nombre) {
          setNombreOrden(clienteActivo.nombre);
      }
   }, [clienteActivo]);
 
-  // Cargar las mesas disponibles si es un cajero o mesero
   useEffect(() => {
-    if (esPersonalInterno) {
+    if (esPersonalInterno && !isOffline) {
       fetch(`${apiUrl}/mesas`)
         .then(res => res.json())
         .then(data => {
@@ -64,9 +61,8 @@ const CheckoutFlujo = ({
         })
         .catch(e => console.error("Error cargando mesas:", e));
     }
-  }, [apiUrl, esPersonalInterno]);
+  }, [apiUrl, esPersonalInterno, isOffline]);
 
-  // Si el cliente escaneó un QR de mesa, forzamos el consumo Local
   useEffect(() => {
     if (pantallaActual === 'consumo' && mesaQR) {
         procesarTipoConsumo('Local');
@@ -74,19 +70,18 @@ const CheckoutFlujo = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pantallaActual, mesaQR]);
 
-  // ==========================================
-  // LÓGICA DE UPSELLING (VENTAS CRUZADAS)
-  // ==========================================
   const [promociones, setPromociones] = useState([]);
   const [upsellMostrado, setUpsellMostrado] = useState(false);
   const [promocionVigente, setPromocionVigente] = useState(null);
 
   useEffect(() => {
-    fetch(`${apiUrl}/promociones`)
-      .then(res => res.json())
-      .then(data => setPromociones(Array.isArray(data) ? data : []))
-      .catch(e => console.error("Error cargando promociones:", e));
-  }, [apiUrl]);
+    if (!isOffline) {
+        fetch(`${apiUrl}/promociones`)
+          .then(res => res.json())
+          .then(data => setPromociones(Array.isArray(data) ? data : []))
+          .catch(e => console.error("Error cargando promociones:", e));
+    }
+  }, [apiUrl, isOffline]);
 
   useEffect(() => {
     if (pantallaActual === 'consumo' && !upsellMostrado && promociones.length > 0 && !mesaQR) {
@@ -106,13 +101,10 @@ const CheckoutFlujo = ({
            if (!diasActivos.includes(hoy)) return false;
            if (horaActual < p.hora_inicio || horaActual > p.hora_fin) return false;
            
-           // Filtro por Producto Trigger
            if (p.producto_trigger_id) {
                const tieneTriggerProd = carrito.some(item => Number(item.id) === Number(p.producto_trigger_id));
                if (!tieneTriggerProd) return false;
-           } 
-           // Filtro por Categoría Trigger
-           else if (p.categoria_trigger) {
+           } else if (p.categoria_trigger) {
                const catTriggerLimpia = String(p.categoria_trigger).trim().toLowerCase();
                const tieneTriggerCat = carrito.some(item => {
                   const catItem = String(item.categoria || item.clasificacion || '').trim().toLowerCase();
@@ -121,7 +113,6 @@ const CheckoutFlujo = ({
                if (!tieneTriggerCat) return false;
            }
            
-           // Evitar mostrar si ya lleva el producto de oferta en el carrito
            const yaTieneOferta = carrito.some(item => Number(item.id) === Number(p.producto_oferta_id));
            if (yaTieneOferta) return false;
            
@@ -162,9 +153,6 @@ const CheckoutFlujo = ({
     setPromocionVigente(null); 
   };
 
-  // ==========================================
-  // FLUJO DE DIRECCIONAMIENTO DE VISTAS
-  // ==========================================
   const procesarTipoConsumo = (tipo) => { 
     setTipoConsumo(tipo); 
     
@@ -177,7 +165,6 @@ const CheckoutFlujo = ({
             seleccionarPago('Pendiente', null, tipo);
         }
     } else if (tipo === 'Local' || tipo === 'Para llevar') {
-        // Obligamos a pedir el nombre siempre en mostrador
         setPantallaActual('pedir_nombre');
     } else {
         seleccionarPago('Pendiente', null, tipo);
@@ -194,7 +181,6 @@ const CheckoutFlujo = ({
             seleccionarPago('Pendiente', null, 'Local');
         }
     } else if (tipoConsumo === 'Para llevar') {
-        // 👇 AQUÍ ESTÁ EL ARREGLO: "Para Llevar" se manda como 'Pendiente' para que no pida método de pago y la caja lo procese
         seleccionarPago('Pendiente', null, 'Para llevar'); 
     }
   };
@@ -221,9 +207,6 @@ const CheckoutFlujo = ({
     setPantallaActual('pago');
   };
 
-  // ==========================================
-  // CONEXIÓN CON BASE DE DATOS Y GUARDADO
-  // ==========================================
   const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega, tipoBypass = null, mesaBypass = null) => {
     setErrorTransaccion(''); 
     setMetodoPagoFinal(metodoSeleccionado);
@@ -238,7 +221,6 @@ const CheckoutFlujo = ({
         origenCalculado = 'Kiosco'; 
     }
     
-    // Inyectamos notas, teléfonos o el nombre en el campo de dirección
     let notaDireccion = direccionFinalConAviso;
     const tel = clienteActivo ? clienteActivo.telefono : telefonoRecoger;
 
@@ -254,7 +236,6 @@ const CheckoutFlujo = ({
         notaDireccion = `TEL: ${tel}`;
     }
 
-    // Expandir carrito (desglosar cantidades)
     const carritoExpandido = [];
     carrito.forEach(item => {
         const qty = item.cantidad || 1;
@@ -263,7 +244,6 @@ const CheckoutFlujo = ({
         }
     });
 
-    // 👇 LA REGLA DE ORO: Toda orden nace como Pendiente para que la apruebe el cajero.
     let estadoInicial = 'Pendiente';
     if (tipoReal === 'Recoger') {
         estadoInicial = 'Por Confirmar';
@@ -290,6 +270,35 @@ const CheckoutFlujo = ({
       mesa: mesaFinal 
     };
 
+    // 👇 LA MAGIA OFFLINE: Si no hay internet, lo guardamos en la "Libreta Secreta"
+    if (isOffline) {
+       try {
+           const pedidosOffline = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
+           
+           // Inventamos un número de pedido para que la comanda funcione localmente
+           const numeroFalso = Math.floor(Math.random() * 90000) + 10000;
+           const idOffline = `OFF-${numeroFalso}`;
+           
+           const paqueteOffline = {
+               ...paquete,
+               es_offline: true,
+               numero_pedido_offline: idOffline,
+               fecha_guardado_local: new Date().toISOString()
+           };
+           
+           pedidosOffline.push(paqueteOffline);
+           localStorage.setItem('pedidos_offline', JSON.stringify(pedidosOffline));
+           
+           // Avisamos al componente que el guardado local fue un éxito
+           setNumeroPedidoReal(idOffline);
+           return true;
+       } catch (errorLocal) {
+           setErrorTransaccion('No hay memoria suficiente en la tablet para guardar el pedido offline.');
+           return false;
+       }
+    }
+
+    // SI HAY INTERNET, FUNCIONA COMO SIEMPRE
     try {
       const url = pedidoEditandoId ? `${apiUrl}/pedidos/${pedidoEditandoId}` : `${apiUrl}/pedidos`; 
       const res = await fetch(url, { 
@@ -359,13 +368,8 @@ const CheckoutFlujo = ({
 
   const asignarMesaYEnviar = (mesaNombre) => {
     setMesaSeleccionadaInterna(mesaNombre);
-    // 👇 Esto crea la orden como Local y cuenta abierta
     seleccionarPago('Por Cobrar', null, 'Local', mesaNombre);
   };
-
-  // ==========================================
-  // RENDERIZADO DE LAS VISTAS
-  // ==========================================
 
   if (pantallaActual === 'consumo' && mesaQR) return null;
 
@@ -376,8 +380,8 @@ const CheckoutFlujo = ({
             <h2 className="text-3xl font-black mb-2 texto-destacado">Datos de Contacto</h2>
             <p className="text-slate-500 font-medium mb-8">
               {tipoConsumo === 'Domicilio' 
-                ? 'Ingresa un número de celular para que el repartidor pueda contactarte.'
-                : 'Ingresa un número de celular para confirmar tu pedido.'}
+                ? 'Ingresa un celular para que el repartidor pueda contactarte.'
+                : 'Ingresa un celular para confirmar tu pedido.'}
             </p>
             <input 
                 type="tel" 
@@ -815,11 +819,25 @@ const CheckoutFlujo = ({
   if (pantallaActual === 'finalizado') {
     return (
       <div className="max-w-2xl mx-auto mt-20 text-center animate-in zoom-in">
-        <div className="bg-emerald-100 text-emerald-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 text-6xl shadow-inner">✓</div>
-        <h2 className="text-6xl font-black mb-4 texto-destacado">¡Orden Registrada!</h2>
+        {/* 👇 NOTA VISUAL SI SE GUARDÓ OFFLINE */}
+        {isOffline ? (
+            <div className="bg-red-100 text-red-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 text-6xl shadow-inner">📝</div>
+        ) : (
+            <div className="bg-emerald-100 text-emerald-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 text-6xl shadow-inner">✓</div>
+        )}
+        
+        <h2 className="text-6xl font-black mb-4 texto-destacado">
+            {isOffline ? '¡Anotado en la Libreta!' : '¡Orden Registrada!'}
+        </h2>
+        
         <p className="text-3xl text-slate-500 mb-6">Tu número de orden es el <span className="text-slate-900 font-black text-6xl block mt-4 mb-8">#{numeroPedidoReal}</span></p>
         
-        {tipoConsumo === 'Recoger' ? (
+        {isOffline ? (
+             <div className="bg-red-50 border border-red-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
+                <p className="text-red-800 font-black text-2xl mb-2">Pasar a cocina manualmente.</p>
+                <p className="text-red-700 font-medium text-lg">Debido a la falta de internet, este pedido se guardó localmente. <strong>Escribe un ticket a mano y pásalo a la cocina para que lo preparen.</strong></p>
+             </div>
+        ) : tipoConsumo === 'Recoger' ? (
              <div className="bg-orange-50 border border-orange-200 p-8 rounded-3xl mb-12 max-w-lg mx-auto">
                 <p className="text-orange-800 font-black text-2xl mb-2">Pedido en revisión.</p>
                 <p className="text-orange-700 font-medium text-lg">En breve nos comunicaremos contigo para confirmar tu orden.</p>

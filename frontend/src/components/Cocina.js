@@ -11,10 +11,15 @@ const Cocina = ({ user, onLogout }) => {
   const [faltanteSelec, setFaltanteSelec] = useState('');
   const [propuestaSelec, setPropuestaSelec] = useState('');
 
-  // 👇 SEGURO ANTI-DOBLE CLIC PARA COCINA
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+
+  // 👇 FUNCIÓN ANTI-PANTALLA BLANCA: Asegura que el carrito siempre sea una lista válida
+  const getCarrito = (p) => {
+    if (!p || !p.carrito) return [];
+    return typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito;
+  };
 
   useEffect(() => {
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
@@ -32,12 +37,13 @@ const Cocina = ({ user, onLogout }) => {
   }, [apiUrl]);
 
   const actualizarEstadoPedido = async (p, nuevoEstadoLocal) => {
-    if (isSubmitting) return; // Bloqueo si ya está cargando
+    if (isSubmitting) return; 
     setIsSubmitting(true);
 
     const area = filtroTab;
+    const carritoArray = getCarrito(p);
     
-    const nuevoCarrito = (p.carrito || []).map(item => {
+    const nuevoCarrito = carritoArray.map(item => {
       if (area === 'Todo' || item.destino === area) {
         return { ...item, estado: nuevoEstadoLocal };
       }
@@ -66,7 +72,7 @@ const Cocina = ({ user, onLogout }) => {
       }
     } catch (error) { alert('Error de conexión con el servidor.'); }
     
-    setIsSubmitting(false); // Liberamos el botón
+    setIsSubmitting(false); 
   };
 
   const enviarAlerta = async (e) => {
@@ -99,9 +105,10 @@ const Cocina = ({ user, onLogout }) => {
   };
 
   const pedidosVisibles = pedidos.filter(p => {
-    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente') return false;
+    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente' || p.estado_preparacion === 'Finalizado') return false;
     
-    const itemsDeEstaArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
+    const carritoArray = getCarrito(p);
+    const itemsDeEstaArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
     if (itemsDeEstaArea.length === 0) return false;
 
     const estaAreaLista = itemsDeEstaArea.every(i => i.estado === 'Listo');
@@ -111,7 +118,8 @@ const Cocina = ({ user, onLogout }) => {
   });
 
   const hayPedidoEnPreparacion = pedidosVisibles.some(p => {
-    const itemsArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
+    const carritoArray = getCarrito(p);
+    const itemsArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
     if (itemsArea.length === 0) return false;
     const estadoDeEstaArea = itemsArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
     return estadoDeEstaArea === 'Preparando';
@@ -136,11 +144,12 @@ const Cocina = ({ user, onLogout }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {pedidosVisibles.map(p => {
-          const itemsDeEstaArea = p.carrito?.filter(i => filtroTab === 'Todo' || i.destino === filtroTab) || [];
+          const carritoArray = getCarrito(p);
+          const itemsDeEstaArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
           const areaEstado = itemsDeEstaArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsDeEstaArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
 
           const itemsAgrupados = [];
-          (p.carrito || []).forEach((item, idx) => {
+          carritoArray.forEach((item, idx) => {
               if (filtroTab !== 'Todo' && item.destino !== filtroTab) return;
               const getExtrasStr = (extras) => (extras||[]).map(e => e.nombre).sort().join('|');
               const extStr = getExtrasStr(item.extras);
@@ -155,11 +164,14 @@ const Cocina = ({ user, onLogout }) => {
           
           const maxTiempo = Math.max(...itemsDeEstaArea.map(i => Number(i.tiempo_preparacion) || 15));
 
+          // 👇 RELOJ REPARADO: Formateo universal para evitar el NaN en tablets
           let minsTranscurridos = 0;
           if (p.tiempo_inicio_preparacion) {
-              const timeString = p.tiempo_inicio_preparacion.endsWith('Z') ? p.tiempo_inicio_preparacion : `${p.tiempo_inicio_preparacion}Z`;
+              const timeString = String(p.tiempo_inicio_preparacion).replace(' ', 'T');
               const inicioPrep = new Date(timeString).getTime();
-              minsTranscurridos = Math.max(0, Math.floor((ahora - inicioPrep) / 60000));
+              if (!isNaN(inicioPrep)) {
+                  minsTranscurridos = Math.max(0, Math.floor((ahora - inicioPrep) / 60000));
+              }
           }
 
           let colorBorde = 'border-slate-700'; let shadow = '';
@@ -171,7 +183,6 @@ const Cocina = ({ user, onLogout }) => {
           if (p.alerta_cocina) { colorBorde = 'border-red-500'; shadow = ''; } 
           
           const fechaHora = new Date(p.fecha_creacion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
           const mensajeVisible = p.alerta_cocina ? p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '') : '';
 
           return (

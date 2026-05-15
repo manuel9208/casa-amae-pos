@@ -222,21 +222,18 @@ exports.actualizarEstado = async (req, res) => {
     const pedidoActual = result.rows[0];
 
     // =========================================================================
-    // 👇 LA SOLUCIÓN DEL MAPA: ESTADOS DE LAS MESAS
+    // 👇 LA SOLUCIÓN DEL MAPA: ESTADOS DE LAS MESAS (CORREGIDO)
     // =========================================================================
     if (pedidoPrevio.mesa) {
-        // Detectamos si el pedido ya fue pagado con dinero real (No es Por Cobrar ni Pendiente)
-        const isPagadoDinero = (pedidoActual.metodo_pago === 'Efectivo' || pedidoActual.metodo_pago === 'Tarjeta' || pedidoActual.metodo_pago === 'Transferencia' || pedidoActual.metodo_pago === 'Mixto');
-
-        // Solo se libera la mesa si el pedido fue cancelado o si se sirvió (Entregado) Y YA FUE PAGADO
-        if (estado_preparacion === 'Cancelado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
+        // Solo se libera la mesa si el pedido fue cancelado o si llegó al final de su vida (Finalizado)
+        if (estado_preparacion === 'Cancelado' || estado_preparacion === 'Finalizado') {
              await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         } 
-        // Si el mesero sirve la comida (Entregado) pero aún NO está pagado, la mesa se pone en ROJO (Por Pagar)
-        else if (estado_preparacion === 'Entregado' && !isPagadoDinero) {
+        // Si el mesero sirve la comida (Entregado), la mesa se pone en ROJO (Comiendo) siempre, sin importar si ya pagó o no.
+        else if (estado_preparacion === 'Entregado') {
              await db.query("UPDATE mesas SET estado = 'Por Pagar' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         } 
-        // Mientras esté en cualquier otro estado del proceso, se mantiene Ocupada (Naranja)
+        // Mientras esté en cualquier otro estado del proceso (Pendiente, Preparando, Listo), se mantiene Ocupada (Naranja)
         else {
              await db.query("UPDATE mesas SET estado = 'Ocupada' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         }
@@ -246,8 +243,8 @@ exports.actualizarEstado = async (req, res) => {
     // LÓGICA DE PROGRAMA DE LEALTAD (PUNTOS Y FIDELIZACIÓN)
     // =========================================================================
     if (pedidoActual.cliente_id) {
-      const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado');
-      const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado');
+      const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
+      const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado' || estado_preparacion === 'Finalizado');
       
       // Si el pedido acaba de ser pagado y no lo estaba antes
       if (!yaEstabaPagado && ahoraEstaPagado) {
