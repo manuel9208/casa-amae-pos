@@ -38,7 +38,7 @@ exports.crearPedido = async (req, res) => {
     // Generar el siguiente número de pedido del día
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
-    // Insertamos el pedido y registramos la mesa
+    // Insertamos el pedido
     const insertQuery = `
       INSERT INTO pedidos (
         cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, 
@@ -71,7 +71,9 @@ exports.crearPedido = async (req, res) => {
         await db.query("UPDATE mesas SET estado = 'Ocupada', pedido_actual_id = $1 WHERE numero_mesa = $2", [pedidoInsertado.id, mesa]);
     }
 
-    // Descontar del inventario
+    // =======================================================
+    // MOTOR DE DESCUENTO DE INVENTARIO (CON SUB-RECETAS)
+    // =======================================================
     if (carrito && carrito.length > 0) { 
       for (const item of carrito) { 
         const prodId = item.id;
@@ -98,8 +100,25 @@ exports.crearPedido = async (req, res) => {
             }
 
             if (lotesADescontar > 0) {
+                // 1. Descontamos los INSUMOS PUROS directos del platillo
                 await db.query(
-                    `UPDATE insumos SET stock_actual = stock_actual - (r.cantidad_usada * $1) FROM recetas r WHERE insumos.id = r.insumo_id AND r.producto_id = $2`,
+                    `UPDATE insumos 
+                     SET stock_actual = stock_actual - (r.cantidad_usada * $1) 
+                     FROM recetas r 
+                     WHERE insumos.id = r.insumo_id AND r.producto_id = $2`,
+                    [lotesADescontar, prodId]
+                );
+
+                // 2. Descontamos los insumos que viven DENTRO de una SUB-RECETA
+                await db.query(
+                    `UPDATE insumos
+                     SET stock_actual = stock_actual - (
+                         r_sub.cantidad_usada * r_parent.cantidad_usada * $1 / COALESCE(NULLIF(p_sub.rendimiento, 0), 1)
+                     )
+                     FROM recetas r_parent
+                     JOIN productos p_sub ON r_parent.sub_producto_id = p_sub.id
+                     JOIN recetas r_sub ON p_sub.id = r_sub.producto_id
+                     WHERE insumos.id = r_sub.insumo_id AND r_parent.producto_id = $2`,
                     [lotesADescontar, prodId]
                 );
             }
@@ -158,11 +177,13 @@ exports.actualizarEstado = async (req, res) => {
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;
   
   try {
-    // Obtenemos los datos del pedido ANTES de actualizar para evaluar los cambios de estado (Mesa, Puntos, etc.)
+    // Obtenemos los datos del pedido ANTES de actualizar
     const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa FROM pedidos WHERE id = $1', [id]);
+    
     if (prevRes.rows.length === 0) {
         return res.status(404).json({ error: 'Pedido no encontrado' });
     }
+    
     const pedidoPrevio = prevRes.rows[0];
 
     // Construcción dinámica del query
@@ -170,48 +191,43 @@ exports.actualizarEstado = async (req, res) => {
     let params = [estado_preparacion];
     let pIdx = 2;
 
-    if (metodo_pago) {
-      query += `, metodo_pago = $${pIdx}`;
-      params.push(metodo_pago);
-      pIdx++;
+    if (metodo_pago) { 
+        query += `, metodo_pago = $${pIdx}`; 
+        params.push(metodo_pago); 
+        pIdx++; 
     }
-
-    if (carrito) {
-      query += `, carrito = $${pIdx}`;
-      params.push(JSON.stringify(carrito));
-      pIdx++;
+    if (carrito) { 
+        query += `, carrito = $${pIdx}`; 
+        params.push(JSON.stringify(carrito)); 
+        pIdx++; 
     }
-    
-    if (total !== undefined) {
-      query += `, total = $${pIdx}`;
-      params.push(total);
-      pIdx++;
+    if (total !== undefined) { 
+        query += `, total = $${pIdx}`; 
+        params.push(total); 
+        pIdx++; 
     }
-    
-    if (costo_envio !== undefined) {
-      query += `, costo_envio = $${pIdx}`;
-      params.push(costo_envio);
-      pIdx++;
+    if (costo_envio !== undefined) { 
+        query += `, costo_envio = $${pIdx}`; 
+        params.push(costo_envio); 
+        pIdx++; 
     }
-
-    if (pagos_mixtos !== undefined) {
-      query += `, pagos_mixtos = $${pIdx}`;
-      params.push(pagos_mixtos); 
-      pIdx++;
+    if (pagos_mixtos !== undefined) { 
+        query += `, pagos_mixtos = $${pIdx}`; 
+        params.push(pagos_mixtos); 
+        pIdx++; 
     }
 
     if (estado_preparacion === 'Preparando') {
-      query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
+        query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
     }
-    
     if (estado_preparacion === 'Listo') {
-      query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`;
+        query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`;
     }
     
-    if (chef_id) {
-      query += `, chef_id = $${pIdx}`; 
-      params.push(chef_id);
-      pIdx++;
+    if (chef_id) { 
+        query += `, chef_id = $${pIdx}`; 
+        params.push(chef_id); 
+        pIdx++; 
     }
 
     query += ` WHERE id = $${pIdx} RETURNING *`;
@@ -221,45 +237,43 @@ exports.actualizarEstado = async (req, res) => {
     const result = await db.query(query, params); 
     const pedidoActual = result.rows[0];
 
-    // =========================================================================
-    // 👇 LA SOLUCIÓN DEL MAPA: ESTADOS DE LAS MESAS (CORREGIDO)
-    // =========================================================================
+    // =========================================================
+    // LÓGICA DE MAPA: ESTADOS DE LAS MESAS
+    // =========================================================
     if (pedidoPrevio.mesa) {
-        // Solo se libera la mesa si el pedido fue cancelado o si llegó al final de su vida (Finalizado)
-        if (estado_preparacion === 'Cancelado' || estado_preparacion === 'Finalizado') {
+        const isPagadoDinero = (pedidoActual.metodo_pago === 'Efectivo' || pedidoActual.metodo_pago === 'Tarjeta' || pedidoActual.metodo_pago === 'Transferencia' || pedidoActual.metodo_pago === 'Mixto');
+
+        if (estado_preparacion === 'Cancelado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
              await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
-        } 
-        // Si el mesero sirve la comida (Entregado), la mesa se pone en ROJO (Comiendo) siempre, sin importar si ya pagó o no.
-        else if (estado_preparacion === 'Entregado') {
+        } else if (estado_preparacion === 'Entregado' && !isPagadoDinero) {
              await db.query("UPDATE mesas SET estado = 'Por Pagar' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
-        } 
-        // Mientras esté en cualquier otro estado del proceso (Pendiente, Preparando, Listo), se mantiene Ocupada (Naranja)
-        else {
+        } else {
              await db.query("UPDATE mesas SET estado = 'Ocupada' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         }
     }
 
-    // =========================================================================
-    // LÓGICA DE PROGRAMA DE LEALTAD (PUNTOS Y FIDELIZACIÓN)
-    // =========================================================================
+    // =========================================================
+    // LÓGICA DE PROGRAMA DE LEALTAD Y PUNTOS
+    // =========================================================
     if (pedidoActual.cliente_id) {
       const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
       const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado' || estado_preparacion === 'Finalizado');
       
-      // Si el pedido acaba de ser pagado y no lo estaba antes
+      // Abonar puntos si se acaba de pagar
       if (!yaEstabaPagado && ahoraEstaPagado) {
           try {
               const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
+              
               if (confRes.rows.length > 0) {
                   const config = confRes.rows[0];
                   
                   if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
-                      const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
                       
+                      const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
                       let totalElegible = 0;
+                      
                       const carritoItems = typeof pedidoActual.carrito === 'string' ? JSON.parse(pedidoActual.carrito) : pedidoActual.carrito;
 
-                      // Evaluar qué productos y categorías sí generan puntos
                       if (carritoItems && carritoItems.length > 0) {
                           for (const item of carritoItems) {
                               let genera = true;
@@ -273,17 +287,17 @@ exports.actualizarEstado = async (req, res) => {
 
                                   if (prodRes.rows.length > 0) {
                                       const data = prodRes.rows[0];
-                                      if (data.p_genera === false || data.c_genera === false) genera = false;
+                                      if (data.p_genera === false || data.c_genera === false) {
+                                          genera = false;
+                                      }
                                   }
                               }
-                              
                               if (genera) {
                                   totalElegible += Number(item.precioFinal || 0) * Number(item.cantidad || 1);
                               }
                           }
                       }
 
-                      // Calcular puntos a abonar
                       const puntosAGanar = Math.floor(totalElegible * (porcentaje / 100));
                       
                       if (puntosAGanar > 0) {
@@ -292,11 +306,11 @@ exports.actualizarEstado = async (req, res) => {
                   }
               }
           } catch(e) { 
-              console.log('Error abonando puntos de fidelidad:', e.message); 
+              console.log('Error abonando puntos:', e.message); 
           }
       }
 
-      // Si se cancela el pedido, devolvemos los puntos usados
+      // Regresar puntos si se cancela la orden
       if (estado_preparacion === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
           if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0) {
               await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
@@ -304,9 +318,9 @@ exports.actualizarEstado = async (req, res) => {
       }
     }
 
-    // =========================================================================
-    // LÓGICA DE NOTIFICACIONES WHATSAPP (META API)
-    // =========================================================================
+    // =========================================================
+    // LÓGICA DE META API WHATSAPP
+    // =========================================================
     if (estado_preparacion === 'Listo') {
       try {
         const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id, nombre_negocio FROM configuracion WHERE id = 1');
@@ -318,14 +332,10 @@ exports.actualizarEstado = async (req, res) => {
           
           if (pedidoActual.cliente_id) {
             const clienteRes = await db.query('SELECT telefono FROM clientes WHERE id = $1', [pedidoActual.cliente_id]);
-            if (clienteRes.rows.length > 0) {
-                telefonoCliente = clienteRes.rows[0].telefono;
-            }
+            if (clienteRes.rows.length > 0) telefonoCliente = clienteRes.rows[0].telefono;
           } else if (pedidoActual.direccion_entrega && pedidoActual.direccion_entrega.includes('CONTACTO:')) {
             const match = pedidoActual.direccion_entrega.match(/CONTACTO:\s*(\d+)/);
-            if (match && match[1]) {
-                telefonoCliente = match[1];
-            }
+            if (match && match[1]) telefonoCliente = match[1];
           }
 
           if (telefonoCliente && telefonoCliente.length === 10) {
@@ -382,7 +392,7 @@ exports.actualizarEstado = async (req, res) => {
           }
         }
       } catch (errWA) {
-        console.error("Fallo interno en la lógica de WhatsApp:", errWA.message);
+          console.error("Fallo interno en la lógica de WhatsApp:", errWA.message);
       }
     }
 

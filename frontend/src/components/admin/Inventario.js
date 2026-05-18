@@ -1,32 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2 } from 'lucide-react';
+import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Layers } from 'lucide-react';
 
 const Inventario = ({
-  // Props recibidas desde AdminPanel
   insumosDB, productos, clasificaciones, 
   apiUrl, refrescarDatos, showAlert, showConfirm
 }) => {
   
-  // === ESTADOS LOCALES DE INVENTARIO Y RECETAS ===
   const [subSeccionInventario, setSubSeccionInventario] = useState('insumos');
   
-  // Estados para Insumos
   const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
   
-  // Estados para Compras (Modal)
   const [modalCompra, setModalCompra] = useState(null);
   const [compraPaquetes, setCompraPaquetes] = useState('');
   const [compraCosto, setCompraCosto] = useState('');
 
-  // Estados para Recetas
   const [recetaCategoriaFiltro, setRecetaCategoriaFiltro] = useState('');
   const [recetaActivaId, setRecetaActivaId] = useState('');
   const [recetaItems, setRecetaItems] = useState([]);
-  const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
   const [rendimientoCalculadora, setRendimientoCalculadora] = useState(1);
+  
+  const [tipoIngresoReceta, setTipoIngresoReceta] = useState('insumo'); 
+  const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
+  const [nuevoItemSubReceta, setNuevoItemSubReceta] = useState({ sub_producto_id: '', cantidad_usada: '' });
 
-  // === EFECTO PARA CARGAR ITEMS DE LA RECETA ACTIVA ===
   useEffect(() => {
     if (recetaActivaId) { 
       const productoEncontrado = productos.find(p => Number(p.id) === Number(recetaActivaId));
@@ -43,7 +40,6 @@ const Inventario = ({
   }, [recetaActivaId, productos, apiUrl]);
 
 
-  // === LÓGICA DE INSUMOS ===
   const prepararEdicionInsumo = (i) => { 
     setEditandoInsumoId(i.id); 
     setNuevoInsumo(i); 
@@ -116,20 +112,57 @@ const Inventario = ({
         } catch(e) {}
     });
   };
+
+  // 👇 LÓGICA NUEVA: Crear una "Sub-Receta / Preparación Base" al vuelo sin ir al menú
+  const crearPreparacionBase = async () => {
+    if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación (Ej. Sushis) donde guardar esta base.", "warning");
+    
+    const nombreBase = prompt(`Nombre de la preparación base para ${recetaCategoriaFiltro} (Ej. Arroz para Sushi):`);
+    if (!nombreBase || nombreBase.trim() === '') return;
+
+    try {
+        const formData = new FormData();
+        formData.append('nombre', `${nombreBase.trim()} (Base)`); 
+        formData.append('categoria', recetaCategoriaFiltro);
+        formData.append('precio_base', 0);
+        formData.append('tiempo_preparacion', 0);
+        formData.append('disponible', false); // MUY IMPORTANTE: Lo oculta del Kiosco
+        formData.append('genera_puntos', false);
+        formData.append('emoji', '🥣');
+        
+        const res = await fetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
+        if (res.ok) {
+            const nuevoProd = await res.json();
+            showAlert("Éxito", "Preparación base creada. Ahora agrega los insumos que la componen.", "success");
+            await refrescarDatos(); 
+            setRecetaActivaId(nuevoProd.id); // Lo selecciona automáticamente en pantalla
+        } else {
+            showAlert("Error", "No se pudo crear la preparación.", "error");
+        }
+    } catch(e) {
+        showAlert("Error", "Error de conexión.", "error");
+    }
+  };
   
-  // === LÓGICA DE RECETAS ===
   const guardarItemReceta = async (e) => { 
     e.preventDefault(); 
     try { 
-      const payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: nuevoItemReceta.cantidad_usada }; 
+      let payload = {};
+      if (tipoIngresoReceta === 'insumo') {
+          payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: nuevoItemReceta.cantidad_usada };
+      } else {
+          payload = { producto_id: recetaActivaId, sub_producto_id: nuevoItemSubReceta.sub_producto_id, cantidad_usada: nuevoItemSubReceta.cantidad_usada };
+      }
+      
       const res = await fetch(`${apiUrl}/recetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
       if (res.ok) { 
         setNuevoItemReceta({ insumo_id: '', cantidad_usada: '' }); 
+        setNuevoItemSubReceta({ sub_producto_id: '', cantidad_usada: '' }); 
         const r = await fetch(`${apiUrl}/recetas/${recetaActivaId}`); 
         const dataR = await r.json(); 
         setRecetaItems(Array.isArray(dataR) ? dataR : []); 
       } else {
-        showAlert("Atención", "Ese insumo ya está en la receta o hubo un problema.", "warning");
+        showAlert("Atención", "Ese insumo/sub-receta ya está en la receta o hubo un problema.", "warning");
       }
     } catch(e) {} 
   };
@@ -159,14 +192,20 @@ const Inventario = ({
     }
   };
 
-  // === CÁLCULOS VISUALES ===
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
+
+  const subRecetasDisponibles = (productos || []).filter(p => Number(p.id) !== Number(recetaActivaId));
 
   let costoTotalRecetaCalculado = 0;
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
-      costoTotalRecetaCalculado += (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+        if (item.insumo_id) {
+            costoTotalRecetaCalculado += (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+        } 
+        else if (item.sub_producto_id) {
+            costoTotalRecetaCalculado += (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
+        }
     });
   }
 
@@ -302,7 +341,15 @@ const Inventario = ({
               </div>
 
               <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
-                <label className="block text-sm font-black text-blue-800 uppercase tracking-widest mb-3">2. Platillo a costear</label>
+                {/* 👇 BOTÓN PARA CREAR PREPARACIONES BASE RÁPIDAS */}
+                <div className="flex justify-between items-center mb-3">
+                   <label className="block text-sm font-black text-blue-800 uppercase tracking-widest">2. Platillo o Base</label>
+                   {recetaCategoriaFiltro && (
+                      <button onClick={crearPreparacionBase} className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1 rounded-md font-black uppercase tracking-widest transition shadow-sm border border-emerald-200">
+                         + Crear Base
+                      </button>
+                   )}
+                </div>
                 <select value={recetaActivaId} onChange={e => setRecetaActivaId(e.target.value)} className="w-full p-4 bg-white border border-blue-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg cursor-pointer shadow-sm">
                   <option value="">Seleccionar del Menú...</option>
                   {(productos || []).filter(p => !recetaCategoriaFiltro || p.categoria === recetaCategoriaFiltro).map(p => <option key={p.id} value={p.id}>{p.emoji} {p.nombre}</option>)}
@@ -320,19 +367,51 @@ const Inventario = ({
 
             {recetaActivaId && (
               <div className="mt-6 bg-slate-50 p-6 rounded-[24px] border border-slate-200">
-                <h4 className="font-bold text-slate-800 mb-4">4. Agregar Insumo a la Receta</h4>
+                <div className="flex items-center gap-4 mb-4 border-b border-slate-200 pb-4">
+                    <h4 className="font-bold text-slate-800 uppercase tracking-widest text-xs">4. Agregar elemento a la receta:</h4>
+                    <div className="flex bg-slate-200 p-1 rounded-xl">
+                        <button 
+                            onClick={() => setTipoIngresoReceta('insumo')} 
+                            className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${tipoIngresoReceta === 'insumo' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Insumo Puro
+                        </button>
+                        <button 
+                            onClick={() => setTipoIngresoReceta('subreceta')} 
+                            className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${tipoIngresoReceta === 'subreceta' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            <Layers size={14} /> Sub-Receta
+                        </button>
+                    </div>
+                </div>
+
                 <form onSubmit={guardarItemReceta} className="flex flex-col md:flex-row gap-4 items-stretch">
                   <div className="flex-1">
-                    <select required value={nuevoItemReceta.insumo_id} onChange={e => setNuevoItemReceta({...nuevoItemReceta, insumo_id: e.target.value})} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium">
-                      <option value="">Buscar Insumo...</option>
-                      {(insumosDB || []).map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
-                    </select>
+                    {tipoIngresoReceta === 'insumo' ? (
+                        <select required value={nuevoItemReceta.insumo_id} onChange={e => setNuevoItemReceta({...nuevoItemReceta, insumo_id: e.target.value})} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium text-slate-700">
+                          <option value="">Buscar Insumo...</option>
+                          {(insumosDB || []).map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
+                        </select>
+                    ) : (
+                        <select required value={nuevoItemSubReceta.sub_producto_id} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, sub_producto_id: e.target.value})} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
+                          <option value="">Buscar Sub-Receta (Platillo preparado)...</option>
+                          {(subRecetasDisponibles || []).map(prod => <option key={prod.id} value={prod.id}>{prod.emoji} {prod.nombre}</option>)}
+                        </select>
+                    )}
                   </div>
                   <div className="flex-1 flex items-center gap-2">
-                    <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold" />
-                    <span className="bg-slate-200 text-slate-600 px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap">Uso</span>
+                    {tipoIngresoReceta === 'insumo' ? (
+                        <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
+                    ) : (
+                        <input required type="number" step="0.01" placeholder="Porciones usadas" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuántas porciones de esta sub-receta vas a usar aquí?" />
+                    )}
+                    <span className={`px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap ${tipoIngresoReceta === 'insumo' ? 'bg-slate-200 text-slate-600' : 'bg-purple-200 text-purple-800'}`}>
+                        {tipoIngresoReceta === 'insumo' ? 'Uso' : 'Porciones'}
+                    </span>
                   </div>
-                  <button type="submit" className="md:w-auto px-8 py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition active:scale-95">Añadir a Receta</button>
+                  <button type="submit" className={`md:w-auto px-8 py-4 text-white rounded-xl font-bold transition active:scale-95 ${tipoIngresoReceta === 'insumo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                      Añadir a Receta
+                  </button>
                 </form>
               </div>
             )}
@@ -347,7 +426,7 @@ const Inventario = ({
                  <table className="w-full text-left border-collapse min-w-max">
                    <thead>
                      <tr className="bg-slate-100 text-slate-500 text-xs uppercase font-black">
-                       <th className="p-4">Ingrediente</th><th className="p-4">Uso</th><th className="p-4">Costo Calc.</th><th className="p-4 text-center">Acción</th>
+                       <th className="p-4">Ingrediente / Sub-Receta</th><th className="p-4">Uso</th><th className="p-4">Costo Calc.</th><th className="p-4 text-center">Acción</th>
                      </tr>
                    </thead>
                    <tbody>
@@ -355,13 +434,28 @@ const Inventario = ({
                        <tr><td colSpan="4" className="text-center p-6 text-slate-400 font-bold">Sin ingredientes. Usa el panel superior para añadir.</td></tr>
                      ) : (
                        recetaItems.map(item => {
-                         const costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+                         let nombreItem = '';
+                         let unidadItem = '';
+                         let costoItem = 0;
+                         let badge = null;
+
+                         if (item.insumo_id) {
+                             nombreItem = item.insumo_nombre;
+                             unidadItem = item.unidad_medida;
+                             costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+                         } else if (item.sub_producto_id) {
+                             nombreItem = item.sub_producto_nombre;
+                             unidadItem = 'Porciones';
+                             costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
+                             badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
+                         }
+
                          return (
-                           <tr key={item.id} className="border-b">
-                             <td className="p-4 font-bold text-slate-700">{item.insumo_nombre}</td>
-                             <td className="p-4 text-sm font-medium"><span className="bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{item.cantidad_usada} {item.unidad_medida}</span></td>
+                           <tr key={item.id} className="border-b hover:bg-slate-50">
+                             <td className="p-4 font-bold text-slate-700 flex items-center">{nombreItem} {badge}</td>
+                             <td className="p-4 text-sm font-medium"><span className={`px-2 py-1 rounded font-bold ${item.sub_producto_id ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{item.cantidad_usada} {unidadItem}</span></td>
                              <td className="p-4 font-black text-slate-600">${costoItem.toFixed(2)}</td>
-                             <td className="p-4 text-center"><button onClick={() => eliminarItemReceta(item.id)} className="text-red-400 hover:text-red-600"><Trash2 size={18}/></button></td>
+                             <td className="p-4 text-center"><button onClick={() => eliminarItemReceta(item.id)} className="text-red-400 hover:text-red-600 bg-white p-2 rounded-lg shadow-sm border border-slate-100"><Trash2 size={18}/></button></td>
                            </tr>
                          )
                        })
