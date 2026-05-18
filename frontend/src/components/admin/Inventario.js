@@ -113,7 +113,6 @@ const Inventario = ({
     });
   };
 
-  // 👇 LÓGICA NUEVA: Crear una "Sub-Receta / Preparación Base" al vuelo sin ir al menú
   const crearPreparacionBase = async () => {
     if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación (Ej. Sushis) donde guardar esta base.", "warning");
     
@@ -126,7 +125,7 @@ const Inventario = ({
         formData.append('categoria', recetaCategoriaFiltro);
         formData.append('precio_base', 0);
         formData.append('tiempo_preparacion', 0);
-        formData.append('disponible', false); // MUY IMPORTANTE: Lo oculta del Kiosco
+        formData.append('disponible', false); 
         formData.append('genera_puntos', false);
         formData.append('emoji', '🥣');
         
@@ -135,7 +134,7 @@ const Inventario = ({
             const nuevoProd = await res.json();
             showAlert("Éxito", "Preparación base creada. Ahora agrega los insumos que la componen.", "success");
             await refrescarDatos(); 
-            setRecetaActivaId(nuevoProd.id); // Lo selecciona automáticamente en pantalla
+            setRecetaActivaId(nuevoProd.id); 
         } else {
             showAlert("Error", "No se pudo crear la preparación.", "error");
         }
@@ -184,7 +183,7 @@ const Inventario = ({
         body: JSON.stringify({ rendimiento: rendimientoCalculadora }) 
       }); 
       if (res.ok) { 
-        showAlert("¡Éxito!", "Porciones (rendimiento) guardadas correctamente.", "success");
+        showAlert("¡Éxito!", "Rendimiento guardado correctamente.", "success");
         refrescarDatos(); 
       } 
     } catch (error) { 
@@ -341,7 +340,6 @@ const Inventario = ({
               </div>
 
               <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
-                {/* 👇 BOTÓN PARA CREAR PREPARACIONES BASE RÁPIDAS */}
                 <div className="flex justify-between items-center mb-3">
                    <label className="block text-sm font-black text-blue-800 uppercase tracking-widest">2. Platillo o Base</label>
                    {recetaCategoriaFiltro && (
@@ -356,12 +354,24 @@ const Inventario = ({
                 </select>
               </div>
 
+              {/* 👇 SECCIÓN 3 MEJORADA VISUALMENTE PARA EXPLICAR LOS GRAMOS/PIEZAS */}
               <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
-                <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Porciones por Receta</label>
+                <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
                 <div className="flex gap-2">
-                  <input type="number" min="1" step="0.01" value={rendimientoCalculadora} onChange={e => setRendimientoCalculadora(e.target.value)} className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" title="¿Cuántos platillos salen de esta receta?" />
-                  <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95" title="Guardar rendimiento en la base de datos">Guardar</button>
+                  <input 
+                     type="number" 
+                     min="0.01" 
+                     step="0.01" 
+                     value={rendimientoCalculadora} 
+                     onChange={e => setRendimientoCalculadora(e.target.value)} 
+                     className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" 
+                     placeholder="Ej: 6000"
+                  />
+                  <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95">Guardar</button>
                 </div>
+                <p className="text-[11px] text-purple-600/80 mt-2 font-bold leading-tight">
+                  Ej: 1 (Plato final), 14 (Piezas de galleta) o 6000 (Gramos totales si es una olla de arroz).
+                </p>
               </div>
             </div>
 
@@ -403,10 +413,11 @@ const Inventario = ({
                     {tipoIngresoReceta === 'insumo' ? (
                         <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
                     ) : (
-                        <input required type="number" step="0.01" placeholder="Porciones usadas" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuántas porciones de esta sub-receta vas a usar aquí?" />
+                        // 👇 TEXTO ACTUALIZADO PARA HACER SENTIDO CON GRAMOS/PIEZAS
+                        <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base? (Si el rendimiento está en gramos, pon gramos aquí)" />
                     )}
                     <span className={`px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap ${tipoIngresoReceta === 'insumo' ? 'bg-slate-200 text-slate-600' : 'bg-purple-200 text-purple-800'}`}>
-                        {tipoIngresoReceta === 'insumo' ? 'Uso' : 'Porciones'}
+                        {tipoIngresoReceta === 'insumo' ? 'Uso' : 'Uso / Cant.'}
                     </span>
                   </div>
                   <button type="submit" className={`md:w-auto px-8 py-4 text-white rounded-xl font-bold transition active:scale-95 ${tipoIngresoReceta === 'insumo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
@@ -445,7 +456,7 @@ const Inventario = ({
                              costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
                          } else if (item.sub_producto_id) {
                              nombreItem = item.sub_producto_nombre;
-                             unidadItem = 'Porciones';
+                             unidadItem = 'Unidades'; // 👈 Cambiado visualmente
                              costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
                              badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                          }
@@ -471,7 +482,7 @@ const Inventario = ({
                      <p className="text-2xl font-black text-slate-700">${costoTotalRecetaCalculado.toFixed(2)}</p>
                    </div>
                    <div className="text-right bg-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-sm">
-                     <p className="text-xs font-black text-emerald-700 uppercase tracking-widest mb-1">Costo por Platillo</p>
+                     <p className="text-xs font-black text-emerald-700 uppercase tracking-widest mb-1">Costo por Rendimiento</p>
                      <p className="text-3xl font-black text-emerald-600">${(costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora)).toFixed(2)}</p>
                    </div>
                  </div>
