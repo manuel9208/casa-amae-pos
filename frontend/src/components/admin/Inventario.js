@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Layers, Box } from 'lucide-react';
+import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Layers, Box, Scale } from 'lucide-react';
 
 const Inventario = ({
   insumosDB, productos, clasificaciones, 
@@ -8,7 +8,6 @@ const Inventario = ({
   
   const [subSeccionInventario, setSubSeccionInventario] = useState('insumos');
   
-  // 👇 NUEVO ESTADO: Agregamos es_empaque
   const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', es_empaque: false });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
   
@@ -27,6 +26,10 @@ const Inventario = ({
 
   const [configTamanos, setConfigTamanos] = useState({});
   const [unidadConversionActiva, setUnidadConversionActiva] = useState('');
+
+  // Estado para el modal personalizado de Crear Base
+  const [modalCrearBase, setModalCrearBase] = useState(false);
+  const [nombreNuevaBase, setNombreNuevaBase] = useState('');
 
   useEffect(() => {
     if (recetaActivaId) { 
@@ -71,10 +74,8 @@ const Inventario = ({
     }
   }, [recetaActivaId, productos, apiUrl]);
 
-
   const prepararEdicionInsumo = (i) => { 
     setEditandoInsumoId(i.id); 
-    // 👇 Cargamos el estado de empaque al editar
     setNuevoInsumo({
         nombre: i.nombre, 
         unidad_medida: i.unidad_medida, 
@@ -152,15 +153,21 @@ const Inventario = ({
     });
   };
 
-  const crearPreparacionBase = async () => {
-    if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación (Ej. Sushis) donde guardar esta base.", "warning");
-    
-    const nombreBase = prompt(`Nombre de la preparación base para ${recetaCategoriaFiltro} (Ej. Arroz para Sushi):`);
-    if (!nombreBase || nombreBase.trim() === '') return;
+  // Función para abrir el modal amigable
+  const iniciarCreacionBase = () => {
+      if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación (Ej. Sushis) donde guardar esta base.", "warning");
+      setNombreNuevaBase('');
+      setModalCrearBase(true);
+  };
+
+  // Función para guardar desde el modal
+  const guardarNuevaBase = async (e) => {
+    e.preventDefault();
+    if (!nombreNuevaBase || nombreNuevaBase.trim() === '') return;
 
     try {
         const formData = new FormData();
-        formData.append('nombre', `${nombreBase.trim()} (Base)`); 
+        formData.append('nombre', `${nombreNuevaBase.trim()} (Base)`); 
         formData.append('categoria', recetaCategoriaFiltro);
         formData.append('precio_base', 0);
         formData.append('tiempo_preparacion', 0);
@@ -174,6 +181,7 @@ const Inventario = ({
             showAlert("Éxito", "Preparación base creada. Ahora agrega los insumos que la componen.", "success");
             await refrescarDatos(); 
             setRecetaActivaId(nuevoProd.id); 
+            setModalCrearBase(false);
         } else {
             showAlert("Error", "No se pudo crear la preparación.", "error");
         }
@@ -328,15 +336,23 @@ const Inventario = ({
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
   const subRecetasDisponibles = (productos || []).filter(p => Number(p.id) !== Number(recetaActivaId));
-  
-  // 👇 NUEVO: Filtramos solo los insumos que son empaques
   const empaquesDisponibles = (insumosDB || []).filter(i => i.es_empaque === true || i.es_empaque === 'true');
 
   let costoTotalRecetaCalculado = 0;
+  let pesoEstimadoReceta = 0; // 👇 NUEVA VARIABLE PARA EL PESO
+
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
         if (item.insumo_id) {
             costoTotalRecetaCalculado += (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+            
+            // 👇 CÁLCULO DEL PESO: Convierte Kilos y Litros a Gramos/Mililitros para sumar
+            const cantUsada = Number(item.cantidad_usada) || 0;
+            if (item.unidad_medida === 'KL' || item.unidad_medida === 'LT') {
+                pesoEstimadoReceta += (cantUsada * 1000);
+            } else if (item.unidad_medida === 'GR' || item.unidad_medida === 'ML') {
+                pesoEstimadoReceta += cantUsada;
+            }
         } 
         else if (item.sub_producto_id) {
             costoTotalRecetaCalculado += (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
@@ -419,7 +435,6 @@ const Inventario = ({
                 </div>
               </div>
               
-              {/* 👇 NUEVO CHECBOX: Para marcarlo como empaque */}
               <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-4">
                  <label className="flex items-center gap-3 cursor-pointer">
                     <input 
@@ -476,8 +491,7 @@ const Inventario = ({
                           <td className="p-4">
                             <p className="font-bold text-slate-800 text-base md:text-lg">
                                 {ins.nombre}
-                                {/* 👇 BADGE VISUAL DE EMPAQUE */}
-                                {(ins.es_empaque === true || ins.es_empaque === 'true') && (
+                                {ins.es_empaque && (
                                     <span className="ml-2 text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest align-middle">
                                         📦 Empaque
                                     </span>
@@ -524,8 +538,9 @@ const Inventario = ({
               <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
                 <div className="flex justify-between items-center mb-3">
                    <label className="block text-sm font-black text-blue-800 uppercase tracking-widest">2. Platillo o Base</label>
+                   {/* 👇 BOTÓN ACTUALIZADO: Llama al nuevo modal amigable */}
                    {recetaCategoriaFiltro && (
-                      <button onClick={crearPreparacionBase} className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1 rounded-md font-black uppercase tracking-widest transition shadow-sm border border-emerald-200">
+                      <button onClick={iniciarCreacionBase} className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1 rounded-md font-black uppercase tracking-widest transition shadow-sm border border-emerald-200">
                          + Crear Base
                       </button>
                    )}
@@ -593,7 +608,6 @@ const Inventario = ({
                             if (ins) setUnidadConversionActiva(ins.unidad_medida);
                         }} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium text-slate-700">
                           <option value="">Buscar Insumo...</option>
-                          {/* 👇 EXCLUIMOS LOS EMPAQUES DE LA RECETA DE COMIDA PURA */}
                           {(insumosDB || []).filter(i => i.es_empaque !== true && i.es_empaque !== 'true').map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
                         </select>
                     ) : (
@@ -641,6 +655,18 @@ const Inventario = ({
              <div className="bg-white p-10 rounded-[30px] text-center opacity-50 border border-slate-200"><p className="text-xl font-bold text-slate-400">Selecciona un platillo arriba para armar su receta.</p></div> 
           ) : ( 
              <div className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
+               
+               {/* 👇 NUEVO: INDICADOR VISUAL DEL PESO ESTIMADO DE LA OLLA */}
+               {pesoEstimadoReceta > 0 && (
+                   <div className="mb-4 flex items-center gap-2 text-indigo-600 bg-indigo-50 border border-indigo-100 p-3 rounded-xl w-fit">
+                       <Scale size={18}/>
+                       <span className="text-xs font-black uppercase tracking-widest">Peso Estimado de Olla/Batch:</span>
+                       <span className="font-black text-lg ml-1">
+                           {pesoEstimadoReceta >= 1000 ? `${(pesoEstimadoReceta / 1000).toFixed(2)} KG/LT` : `${pesoEstimadoReceta.toFixed(0)} GR/ML`}
+                       </span>
+                   </div>
+               )}
+
                <div className="border rounded-2xl overflow-x-auto mb-6">
                  <table className="w-full text-left border-collapse min-w-max">
                    <thead>
@@ -711,6 +737,18 @@ const Inventario = ({
                {/* SECCIÓN DE TAMAÑOS Y EMPAQUES EXCLUSIVOS */}
                {tamanosConfigurados.length > 0 && (
                  <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
+                    
+                    {/* 👇 NUEVO: COSTO TOTAL DE LA OLLA VISIBLE SIEMPRE */}
+                    <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-orange-100 shadow-sm mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><Package size={24}/></div>
+                            <div>
+                                <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Costo de Insumos Base</p>
+                                <p className="text-xl font-black text-slate-800">Receta Total: <span className="text-orange-600">${costoTotalRecetaCalculado.toFixed(2)}</span></p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-orange-200 pb-4">
                         <div>
                            <h4 className="text-orange-800 font-black flex items-center gap-2 text-lg">
@@ -782,7 +820,6 @@ const Inventario = ({
                                             <div className="space-y-2 mb-3">
                                                 {(configTam.empaques || []).map((emp, idx) => (
                                                     <div key={idx} className="flex items-center gap-2">
-                                                        {/* 👇 SOLO CARGA LOS INSUMOS MARCADOS COMO EMPAQUE */}
                                                         <select 
                                                             value={emp.insumo_id} 
                                                             onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'insumo_id', e.target.value)}
@@ -861,6 +898,40 @@ const Inventario = ({
             <div className="flex gap-4 mt-8">
               <button type="button" onClick={() => {setModalCompra(null); setCompraPaquetes(''); setCompraCosto('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>
               <button type="submit" className="flex-1 py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95">Guardar</button>
+            </div>
+          </form>
+        </div> 
+      )}
+
+      {/* 👇 NUEVO: MODAL AMIGABLE PARA CREAR BASES */}
+      {modalCrearBase && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
+          <form onSubmit={guardarNuevaBase} className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-emerald-200">
+            <h3 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2">
+                <Layers className="text-emerald-500"/> Crear Preparación Base
+            </h3>
+            <p className="text-slate-500 font-medium mb-6 text-sm">
+                Se guardará como una sub-receta oculta en la clasificación: <span className="font-bold text-emerald-600">{recetaCategoriaFiltro}</span>
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase mb-1">Nombre de la Base (Ej. Arroz Sushi)</label>
+                  <input 
+                      autoFocus 
+                      required 
+                      type="text" 
+                      value={nombreNuevaBase} 
+                      onChange={e => setNombreNuevaBase(e.target.value)} 
+                      className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 font-bold text-lg text-slate-700" 
+                      placeholder="Nombre de la receta..." 
+                  />
+              </div>
+            </div>
+            
+            <div className="flex gap-4 mt-8">
+              <button type="button" onClick={() => {setModalCrearBase(false); setNombreNuevaBase('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>
+              <button type="submit" className="flex-1 py-4 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 transition active:scale-95">Guardar Base</button>
             </div>
           </form>
         </div> 
