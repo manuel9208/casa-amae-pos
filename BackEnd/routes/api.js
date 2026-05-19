@@ -17,7 +17,7 @@ const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
 const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
-const mesaCtrl = require('../controllers/mesaController'); // 👇 NUEVO: Controlador de Mesas
+const mesaCtrl = require('../controllers/mesaController'); 
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -103,6 +103,7 @@ router.post('/productos', upload.single('imagen'), productoCtrl.crearProducto);
 router.put('/productos/:id', upload.single('imagen'), productoCtrl.actualizarProducto);
 router.delete('/productos/:id', productoCtrl.eliminarProducto);
 router.put('/productos/:id/rendimiento', productoCtrl.actualizarRendimiento);
+router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto); // 👇 ESTA ES LA RUTA QUE FALTABA
 
 // ==========================================
 // PEDIDOS Y FLUJO
@@ -139,7 +140,7 @@ router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 // ==========================================
 router.get('/mesas', mesaCtrl.obtenerMesas);
 router.post('/mesas', mesaCtrl.crearMesa);
-router.put('/mesas/posiciones', mesaCtrl.guardarPosiciones); // 👇 ESTA ES LA NUEVA
+router.put('/mesas/posiciones', mesaCtrl.guardarPosiciones); 
 router.put('/mesas/:id/estado', mesaCtrl.actualizarEstadoMesa);
 router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
 

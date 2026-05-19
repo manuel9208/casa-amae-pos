@@ -8,7 +8,7 @@
 -- DROP TABLE IF EXISTS recetas CASCADE;
 -- DROP TABLE IF EXISTS insumos CASCADE;
 -- DROP TABLE IF EXISTS detalle_pedidos CASCADE;
--- DROP TABLE IF EXISTS mesas CASCADE; -- 👇 NUEVO
+-- DROP TABLE IF EXISTS mesas CASCADE;
 -- DROP TABLE IF EXISTS pedidos CASCADE;
 -- DROP TABLE IF EXISTS promociones CASCADE;
 -- DROP TABLE IF EXISTS cupones CASCADE;
@@ -178,7 +178,8 @@ CREATE TABLE IF NOT EXISTS insumos (
     unidad_medida VARCHAR(10) NOT NULL, 
     cantidad_presentacion DECIMAL(10,2) NOT NULL, 
     costo_presentacion DECIMAL(10,2) NOT NULL,    
-    stock_actual DECIMAL(10,2) DEFAULT 0          
+    stock_actual DECIMAL(10,2) DEFAULT 0,
+    es_empaque BOOLEAN DEFAULT false -- 👇 NUEVA COLUMNA INTEGRADA AQUÍ
 );
 
 CREATE TABLE IF NOT EXISTS compras_insumos (
@@ -193,7 +194,8 @@ CREATE TABLE IF NOT EXISTS compras_insumos (
 CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
-    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE,
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE NULL, -- Acepta nulos para usar sub-recetas
+    sub_producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE NULL, -- 👇 NUEVA COLUMNA INTEGRADA AQUÍ
     cantidad_usada DECIMAL(10,2) NOT NULL 
 );
 
@@ -225,7 +227,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     tiempo_listo TIMESTAMP, 
     alerta_cocina TEXT DEFAULT NULL,
     
-    mesa VARCHAR(50) DEFAULT NULL, -- 👇 NUEVA COLUMNA INTEGRADA
+    mesa VARCHAR(50) DEFAULT NULL,
     
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -242,15 +244,15 @@ CREATE TABLE IF NOT EXISTS detalle_pedidos (
 );
 
 -- -------------------------------------------------------------------------
--- 7. GESTIÓN DE MESAS Y MAPEO VISUAL (👇 NUEVA TABLA)
+-- 7. GESTIÓN DE MESAS Y MAPEO VISUAL
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mesas (
     id SERIAL PRIMARY KEY,
     numero_mesa VARCHAR(20) UNIQUE NOT NULL,
     zona VARCHAR(50) DEFAULT 'General',
     estado VARCHAR(20) DEFAULT 'Libre' CHECK (estado IN ('Libre', 'Ocupada', 'Por Pagar')),
-    pos_x DECIMAL(10,2) DEFAULT 0, -- 👇 Integradas desde el inicio
-    pos_y DECIMAL(10,2) DEFAULT 0, -- 👇 Integradas desde el inicio
+    pos_x DECIMAL(10,2) DEFAULT 0, 
+    pos_y DECIMAL(10,2) DEFAULT 0, 
     pedido_actual_id INT REFERENCES pedidos(id) ON DELETE SET NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

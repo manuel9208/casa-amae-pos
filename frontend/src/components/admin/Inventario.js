@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Layers } from 'lucide-react';
+import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Layers, Box } from 'lucide-react';
 
 const Inventario = ({
   insumosDB, productos, clasificaciones, 
@@ -8,7 +8,8 @@ const Inventario = ({
   
   const [subSeccionInventario, setSubSeccionInventario] = useState('insumos');
   
-  const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' });
+  // 👇 NUEVO ESTADO: Agregamos es_empaque
+  const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', es_empaque: false });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
   
   const [modalCompra, setModalCompra] = useState(null);
@@ -24,8 +25,8 @@ const Inventario = ({
   const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
   const [nuevoItemSubReceta, setNuevoItemSubReceta] = useState({ sub_producto_id: '', cantidad_usada: '' });
 
-  // 👇 ESTADO MODIFICADO: Ahora guarda Rendimiento y Costo de Empaque por tamaño
   const [configTamanos, setConfigTamanos] = useState({});
+  const [unidadConversionActiva, setUnidadConversionActiva] = useState('');
 
   useEffect(() => {
     if (recetaActivaId) { 
@@ -38,10 +39,16 @@ const Inventario = ({
                   const opcionesArray = typeof productoEncontrado.opciones === 'string' ? JSON.parse(productoEncontrado.opciones) : productoEncontrado.opciones;
                   const tConfig = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
                   const initialConfig = {};
+                  
                   tConfig.forEach(t => {
+                      let empaquesCargados = t.empaques || [];
+                      if (t.insumo_empaque_id && empaquesCargados.length === 0) {
+                          empaquesCargados.push({ insumo_id: t.insumo_empaque_id, cantidad: 1 });
+                      }
+
                       initialConfig[t.nombre] = {
                           rendimiento: t.rendimiento_receta || '',
-                          empaque: t.costo_empaque || '' // Carga el empaque guardado
+                          empaques: empaquesCargados
                       };
                   });
                   setConfigTamanos(initialConfig);
@@ -67,12 +74,19 @@ const Inventario = ({
 
   const prepararEdicionInsumo = (i) => { 
     setEditandoInsumoId(i.id); 
-    setNuevoInsumo(i); 
+    // 👇 Cargamos el estado de empaque al editar
+    setNuevoInsumo({
+        nombre: i.nombre, 
+        unidad_medida: i.unidad_medida, 
+        cantidad_presentacion: i.cantidad_presentacion, 
+        costo_presentacion: i.costo_presentacion,
+        es_empaque: i.es_empaque === true || i.es_empaque === 'true'
+    }); 
   };
   
   const cancelarEdicionInsumo = () => { 
     setEditandoInsumoId(null); 
-    setNuevoInsumo({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '' }); 
+    setNuevoInsumo({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', es_empaque: false }); 
   };
   
   const guardarInsumo = async (e) => { 
@@ -180,13 +194,24 @@ const Inventario = ({
     });
 
     if (duplicado) {
-        return showAlert("Elemento Duplicado", "Este insumo o base ya fue agregado a la receta actual.", "warning");
+        return showAlert("Elemento Duplicado", "Este insumo o base ya fue agregado a la receta actual. Si deseas cambiar la cantidad, elimínalo de la tabla y vuelve a agregarlo.", "warning");
     }
 
     try { 
       let payload = {};
       if (tipoIngresoReceta === 'insumo') {
-          payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: nuevoItemReceta.cantidad_usada };
+          let cantidadFinal = Number(nuevoItemReceta.cantidad_usada);
+          const insumoSeleccionado = insumosDB.find(i => String(i.id) === String(nuevoItemReceta.insumo_id));
+          
+          if (insumoSeleccionado) {
+              if (insumoSeleccionado.unidad_medida === 'KL' && unidadConversionActiva === 'GR') {
+                  cantidadFinal = cantidadFinal / 1000;
+              } else if (insumoSeleccionado.unidad_medida === 'LT' && unidadConversionActiva === 'ML') {
+                  cantidadFinal = cantidadFinal / 1000;
+              }
+          }
+
+          payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: cantidadFinal };
       } else {
           payload = { producto_id: recetaActivaId, sub_producto_id: nuevoItemSubReceta.sub_producto_id, cantidad_usada: nuevoItemSubReceta.cantidad_usada };
       }
@@ -229,17 +254,47 @@ const Inventario = ({
     }
   };
 
-  // 👇 GUARDA TAMBIÉN EL EMPAQUE AHORA
+  const agregarEmpaqueTamanio = (tamNombre) => {
+      const current = configTamanos[tamNombre] || { rendimiento: '', empaques: [] };
+      setConfigTamanos({
+          ...configTamanos,
+          [tamNombre]: { ...current, empaques: [...(current.empaques || []), { insumo_id: '', cantidad: 1 }] }
+      });
+  };
+
+  const actualizarEmpaqueTamanio = (tamNombre, idx, campo, valor) => {
+      const current = configTamanos[tamNombre];
+      const nuevosEmpaques = [...current.empaques];
+      nuevosEmpaques[idx][campo] = valor;
+      setConfigTamanos({
+          ...configTamanos,
+          [tamNombre]: { ...current, empaques: nuevosEmpaques }
+      });
+  };
+
+  const eliminarEmpaqueTamanio = (tamNombre, idx) => {
+      const current = configTamanos[tamNombre];
+      const nuevosEmpaques = current.empaques.filter((_, i) => i !== idx);
+      setConfigTamanos({
+          ...configTamanos,
+          [tamNombre]: { ...current, empaques: nuevosEmpaques }
+      });
+  };
+
   const guardarRendimientosTamanos = async () => {
     if (!productoSeleccionado) return;
     try {
         const opcionesArray = typeof productoSeleccionado.opciones === 'string' ? JSON.parse(productoSeleccionado.opciones) : productoSeleccionado.opciones;
+        
         const nuevasOpciones = opcionesArray.map(o => {
             if (o.categoria === 'Tamaño' && configTamanos[o.nombre]) {
+                const empaquesValidos = (configTamanos[o.nombre].empaques || []).filter(e => e.insumo_id !== '');
                 return { 
                     ...o, 
                     rendimiento_receta: Number(configTamanos[o.nombre].rendimiento),
-                    costo_empaque: Number(configTamanos[o.nombre].empaque)
+                    empaques: empaquesValidos,
+                    costo_empaque: undefined,
+                    insumo_empaque_id: undefined
                 };
             }
             return o;
@@ -252,7 +307,7 @@ const Inventario = ({
         });
 
         if (res.ok) {
-            showAlert("¡Configuración Guardada!", "Los pesos y costos de empaque por tamaño se han grabado permanentemente.", "success");
+            showAlert("¡Configuración Guardada!", "Los rendimientos y empaques múltiples se han guardado permanentemente.", "success");
             refrescarDatos();
         } else {
             showAlert("Error", "No se pudieron guardar las modificaciones.", "error");
@@ -262,10 +317,20 @@ const Inventario = ({
     }
   };
 
+  const formatearCantidadVisual = (cantidad, unidad) => {
+      const cant = Number(cantidad);
+      if (unidad === 'KL' && cant < 1 && cant > 0) return `${(cant * 1000).toFixed(0)} GR`;
+      if (unidad === 'LT' && cant < 1 && cant > 0) return `${(cant * 1000).toFixed(0)} ML`;
+      return `${cant} ${unidad}`;
+  };
+
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
   const subRecetasDisponibles = (productos || []).filter(p => Number(p.id) !== Number(recetaActivaId));
+  
+  // 👇 NUEVO: Filtramos solo los insumos que son empaques
+  const empaquesDisponibles = (insumosDB || []).filter(i => i.es_empaque === true || i.es_empaque === 'true');
 
   let costoTotalRecetaCalculado = 0;
   if (recetaItems && recetaItems.length > 0) {
@@ -288,11 +353,18 @@ const Inventario = ({
       } catch (e) {}
   }
 
-  // Cálculos financieros base (Para platillos SIN tamaños)
   const costoPorPorcionBase = costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora);
   const luzAguaBase = costoPorPorcionBase * 0.15;
   const costoTotalRealBase = costoPorPorcionBase * 1.15;
-  const precioSugeridoBase = costoPorPorcionBase * 3;
+  const precioSugeridoBase = costoTotalRealBase * 3;
+
+  const insumoSeleccionadoActual = insumosDB.find(i => String(i.id) === String(nuevoItemReceta.insumo_id));
+  let opcionesDeUnidad = [];
+  if (insumoSeleccionadoActual) {
+      if (insumoSeleccionadoActual.unidad_medida === 'KL') opcionesDeUnidad = ['KL', 'GR'];
+      else if (insumoSeleccionadoActual.unidad_medida === 'LT') opcionesDeUnidad = ['LT', 'ML'];
+      else opcionesDeUnidad = [insumoSeleccionadoActual.unidad_medida];
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12 relative">
@@ -308,7 +380,6 @@ const Inventario = ({
       {subSeccionInventario === 'insumos' ? ( 
         <div className="space-y-8">
           
-          {/* ALERTA DE STOCK CRÍTICO */}
           {insumosCriticos.length > 0 && (
             <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl flex flex-col md:flex-row items-start gap-4 shadow-sm animate-in fade-in">
               <AlertTriangle className="text-red-500 w-10 h-10 flex-shrink-0" />
@@ -324,7 +395,7 @@ const Inventario = ({
           <div className="bg-white p-8 rounded-[30px] shadow-sm border border-slate-200">
             <h3 className="text-xl font-bold mb-6 text-slate-800 flex items-center gap-2">
               {editandoInsumoId ? <Edit className="text-blue-500" /> : <Plus className="text-emerald-500" />} 
-              {editandoInsumoId ? 'Editar Insumo' : 'Alta Rápida de Insumo'}
+              {editandoInsumoId ? 'Editar Insumo / Empaque' : 'Alta Rápida de Insumo / Empaque'}
             </h3>
             <form onSubmit={guardarInsumo} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -347,12 +418,29 @@ const Inventario = ({
                   <input required type="number" step="0.01" placeholder="Ej. 50.00" value={nuevoInsumo.costo_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, costo_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-slate-700 text-xl" />
                 </div>
               </div>
+              
+              {/* 👇 NUEVO CHECBOX: Para marcarlo como empaque */}
+              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-4">
+                 <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                       type="checkbox" 
+                       checked={nuevoInsumo.es_empaque} 
+                       onChange={e => setNuevoInsumo({...nuevoInsumo, es_empaque: e.target.checked})}
+                       className="w-5 h-5 accent-indigo-600"
+                    />
+                    <span className="font-black text-indigo-800 flex items-center gap-2">
+                       <Box size={18}/> ¿Es un Empaque / Desechable?
+                    </span>
+                 </label>
+                 <p className="text-xs text-indigo-600/80 font-bold ml-8 mt-1">Márcalo si es un domo, vaso, cuchara o servilleta. Así aparecerá en el simulador de Tamaños.</p>
+              </div>
+
               <div className="pt-2 flex flex-col md:flex-row gap-4">
                 {editandoInsumoId && (
                   <button type="button" onClick={cancelarEdicionInsumo} className="w-full md:w-1/3 p-4 bg-slate-100 text-slate-600 rounded-xl font-black hover:bg-slate-200 transition">Cancelar</button>
                 )}
                 <button type="submit" className={`flex-1 p-4 text-white rounded-xl font-black shadow-lg transition active:scale-95 ${editandoInsumoId ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
-                  {editandoInsumoId ? 'Actualizar Insumo' : 'Guardar Insumo en Inventario'}
+                  {editandoInsumoId ? 'Actualizar Registro' : 'Guardar en Inventario'}
                 </button>
               </div>
             </form>
@@ -376,17 +464,25 @@ const Inventario = ({
                   <tbody>
                     {insumosDB.map(ins => { 
                       const stock_paquetes = Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion));
-                      let colorClases = 'bg-red-100 text-red-700 border-red-200'; // Menos de 1 paquete (<1)
+                      let colorClases = 'bg-red-100 text-red-700 border-red-200'; 
                       if (stock_paquetes >= 3) {
-                          colorClases = 'bg-emerald-100 text-emerald-700 border-emerald-200'; // 3 o más
+                          colorClases = 'bg-emerald-100 text-emerald-700 border-emerald-200'; 
                       } else if (stock_paquetes >= 1) {
-                          colorClases = 'bg-yellow-100 text-yellow-700 border-yellow-200'; // Entre 1 y 2.99
+                          colorClases = 'bg-yellow-100 text-yellow-700 border-yellow-200'; 
                       }
                       
                       return ( 
                         <tr key={ins.id} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="p-4">
-                            <p className="font-bold text-slate-800 text-base md:text-lg">{ins.nombre}</p>
+                            <p className="font-bold text-slate-800 text-base md:text-lg">
+                                {ins.nombre}
+                                {/* 👇 BADGE VISUAL DE EMPAQUE */}
+                                {(ins.es_empaque === true || ins.es_empaque === 'true') && (
+                                    <span className="ml-2 text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest align-middle">
+                                        📦 Empaque
+                                    </span>
+                                )}
+                            </p>
                             <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">{ins.cantidad_presentacion} {ins.unidad_medida}</p>
                           </td>
                           <td className="p-4">
@@ -440,7 +536,6 @@ const Inventario = ({
                 </select>
               </div>
 
-              {/* 👇 OCULTA RENDIMIENTO GLOBAL SI TIENE TAMAÑOS */}
               {tamanosConfigurados.length === 0 ? (
                 <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
                     <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
@@ -491,9 +586,15 @@ const Inventario = ({
                 <form onSubmit={guardarItemReceta} className="flex flex-col md:flex-row gap-4 items-stretch">
                   <div className="flex-1">
                     {tipoIngresoReceta === 'insumo' ? (
-                        <select required value={nuevoItemReceta.insumo_id} onChange={e => setNuevoItemReceta({...nuevoItemReceta, insumo_id: e.target.value})} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium text-slate-700">
+                        <select required value={nuevoItemReceta.insumo_id} onChange={e => {
+                            const id = e.target.value;
+                            setNuevoItemReceta({...nuevoItemReceta, insumo_id: id});
+                            const ins = insumosDB.find(i => String(i.id) === String(id));
+                            if (ins) setUnidadConversionActiva(ins.unidad_medida);
+                        }} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium text-slate-700">
                           <option value="">Buscar Insumo...</option>
-                          {(insumosDB || []).map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
+                          {/* 👇 EXCLUIMOS LOS EMPAQUES DE LA RECETA DE COMIDA PURA */}
+                          {(insumosDB || []).filter(i => i.es_empaque !== true && i.es_empaque !== 'true').map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
                         </select>
                     ) : (
                         <select required value={nuevoItemSubReceta.sub_producto_id} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, sub_producto_id: e.target.value})} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
@@ -502,16 +603,31 @@ const Inventario = ({
                         </select>
                     )}
                   </div>
+                  
                   <div className="flex-1 flex items-center gap-2">
                     {tipoIngresoReceta === 'insumo' ? (
-                        <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
+                        <>
+                           <input required type="number" step="0.01" placeholder="Ej. 700" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
+                           {opcionesDeUnidad.length > 0 ? (
+                               <select 
+                                  value={unidadConversionActiva} 
+                                  onChange={e => setUnidadConversionActiva(e.target.value)}
+                                  className="w-24 p-4 rounded-xl font-black text-sm whitespace-nowrap bg-blue-100 text-blue-700 outline-none cursor-pointer"
+                               >
+                                  {opcionesDeUnidad.map(u => <option key={u} value={u}>{u}</option>)}
+                               </select>
+                           ) : (
+                               <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-slate-200 text-slate-600">Uso</span>
+                           )}
+                        </>
                     ) : (
-                        <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base? (Si el rendimiento está en gramos, pon gramos aquí)" />
+                        <>
+                           <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base? (Si el rendimiento está en gramos, pon gramos aquí)" />
+                           <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-purple-200 text-purple-800">Uso / Cant.</span>
+                        </>
                     )}
-                    <span className={`px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap ${tipoIngresoReceta === 'insumo' ? 'bg-slate-200 text-slate-600' : 'bg-purple-200 text-purple-800'}`}>
-                        {tipoIngresoReceta === 'insumo' ? 'Uso' : 'Uso / Cant.'}
-                    </span>
                   </div>
+                  
                   <button type="submit" className={`md:w-auto px-8 py-4 text-white rounded-xl font-bold transition active:scale-95 ${tipoIngresoReceta === 'insumo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                       Añadir a Receta
                   </button>
@@ -538,17 +654,17 @@ const Inventario = ({
                      ) : (
                        recetaItems.map(item => {
                          let nombreItem = '';
-                         let unidadItem = '';
+                         let usoVisual = '';
                          let costoItem = 0;
                          let badge = null;
 
                          if (item.insumo_id) {
                              nombreItem = item.insumo_nombre;
-                             unidadItem = item.unidad_medida;
+                             usoVisual = formatearCantidadVisual(item.cantidad_usada, item.unidad_medida);
                              costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
                          } else if (item.sub_producto_id) {
                              nombreItem = item.sub_producto_nombre;
-                             unidadItem = 'Unidades';
+                             usoVisual = `${item.cantidad_usada} Unidades`;
                              costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
                              badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                          }
@@ -556,7 +672,7 @@ const Inventario = ({
                          return (
                            <tr key={item.id} className="border-b hover:bg-slate-50">
                              <td className="p-4 font-bold text-slate-700 flex items-center">{nombreItem} {badge}</td>
-                             <td className="p-4 text-sm font-medium"><span className={`px-2 py-1 rounded font-bold ${item.sub_producto_id ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{item.cantidad_usada} {unidadItem}</span></td>
+                             <td className="p-4 text-sm font-medium"><span className={`px-2 py-1 rounded font-bold ${item.sub_producto_id ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{usoVisual}</span></td>
                              <td className="p-4 font-black text-slate-600">${costoItem.toFixed(2)}</td>
                              <td className="p-4 text-center"><button onClick={() => eliminarItemReceta(item.id)} className="text-red-400 hover:text-red-600 bg-white p-2 rounded-lg shadow-sm border border-slate-100"><Trash2 size={18}/></button></td>
                            </tr>
@@ -567,7 +683,6 @@ const Inventario = ({
                  </table>
                </div>
                
-               {/* RESUMEN DE COSTO GLOBAL (Solo si NO hay tamaños) */}
                {recetaItems.length > 0 && tamanosConfigurados.length === 0 && (
                  <div className="flex flex-col md:flex-row flex-wrap justify-end gap-4 border-t border-slate-100 pt-6">
                    <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
@@ -593,7 +708,7 @@ const Inventario = ({
                  </div>
                )}
 
-               {/* 👇 MODAL DE TAMAÑOS CON LA NUEVA LÓGICA DE EMPAQUE */}
+               {/* SECCIÓN DE TAMAÑOS Y EMPAQUES EXCLUSIVOS */}
                {tamanosConfigurados.length > 0 && (
                  <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-orange-200 pb-4">
@@ -601,7 +716,7 @@ const Inventario = ({
                            <h4 className="text-orange-800 font-black flex items-center gap-2 text-lg">
                                <AlertTriangle size={22}/> ¡Rendimiento y Empaques por Tamaño Fijo!
                            </h4>
-                           <p className="text-xs text-orange-600 font-bold mt-0.5">Calcula el margen exacto añadiendo el costo del domo/vaso de cada tamaño.</p>
+                           <p className="text-xs text-orange-600 font-bold mt-0.5">Calcula el margen exacto añadiendo el costo de todos los desechables de cada tamaño.</p>
                         </div>
                         <button 
                            onClick={guardarRendimientosTamanos}
@@ -616,60 +731,105 @@ const Inventario = ({
                             const precioBase = Number(productoSeleccionado.precio_base) || 0;
                             const precioVentaReal = precioBase + (Number(tam.precioExtra) || 0);
                             
-                            const configTam = configTamanos[tam.nombre] || { rendimiento: '', empaque: '' };
+                            const configTam = configTamanos[tam.nombre] || { rendimiento: '', empaques: [] };
                             const rendSimulado = Number(configTam.rendimiento) || 1;
-                            const costoEmpaque = Number(configTam.empaque) || 0;
                             
-                            // Matemáticas puras
+                            let costoEmpaqueTotal = 0;
+                            (configTam.empaques || []).forEach(emp => {
+                                if (emp.insumo_id) {
+                                    const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
+                                    if (ins) {
+                                        costoEmpaqueTotal += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                                    }
+                                }
+                            });
+                            
                             const costoInsumoSimulado = costoTotalRecetaCalculado / Math.max(1, rendSimulado);
-                            const costoTotalSimulado = costoInsumoSimulado + costoEmpaque; // Insumo Comida + Plástico
+                            const costoTotalSimulado = costoInsumoSimulado + costoEmpaqueTotal; 
                             
                             const luzAguaSimulado = costoTotalSimulado * 0.15;
                             const costoRealSimulado = costoTotalSimulado * 1.15;
-                            const sugeridoSimulado = costoTotalSimulado * 3;
+                            const sugeridoSimulado = costoRealSimulado * 3; 
                             
                             const utilidadReal = precioVentaReal - costoRealSimulado;
                             const margenReal = precioVentaReal > 0 ? (utilidadReal / precioVentaReal) * 100 : 0;
 
                             return (
-                                <div key={tam.nombre} className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 bg-white rounded-2xl border border-orange-100 shadow-sm">
-                                    <div className="w-full lg:w-1/5">
-                                        <p className="font-black text-slate-700 text-lg">{tam.nombre}</p>
-                                        <p className="text-xs font-bold text-blue-600 uppercase tracking-widest">P. Venta Menú: <span className="font-black">${precioVentaReal.toFixed(2)}</span></p>
-                                    </div>
-                                    
-                                    <div className="w-full lg:w-2/5 flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-36">Si de esta olla salen:</span>
+                                <div key={tam.nombre} className="flex flex-col xl:flex-row justify-between gap-4 p-5 bg-white rounded-2xl border border-orange-200 shadow-sm">
+                                    <div className="w-full xl:w-1/4">
+                                        <p className="font-black text-slate-800 text-xl">{tam.nombre}</p>
+                                        <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mt-1">P. Venta: <span className="font-black">${precioVentaReal.toFixed(2)}</span></p>
+                                        
+                                        <div className="mt-4 flex flex-col gap-2">
+                                            <span className="text-xs text-slate-500 font-bold uppercase tracking-widest">Rendimiento (Piezas de la olla)</span>
                                             <input 
                                                 type="number" 
                                                 placeholder="Ej. 20"
                                                 value={configTam.rendimiento} 
                                                 onChange={e => setConfigTamanos({...configTamanos, [tam.nombre]: {...configTam, rendimiento: e.target.value}})} 
-                                                className="w-full p-2 border border-orange-200 rounded-lg outline-none font-black text-orange-700 text-center focus:ring-2 focus:ring-orange-500 bg-orange-50/50 text-sm" 
+                                                className="w-full p-3 border border-orange-300 rounded-xl outline-none font-black text-orange-800 text-center focus:ring-2 focus:ring-orange-500 bg-orange-50" 
                                             />
-                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-24">pzs de este tam.</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-36">Costo Empaque/Domo:</span>
-                                            <input 
-                                                type="number" 
-                                                placeholder="Ej. 3.50"
-                                                value={configTam.empaque} 
-                                                onChange={e => setConfigTamanos({...configTamanos, [tam.nombre]: {...configTam, empaque: e.target.value}})} 
-                                                className="w-full p-2 border border-slate-200 rounded-lg outline-none font-black text-slate-700 text-center focus:ring-2 focus:ring-slate-500 text-sm" 
-                                            />
-                                            <span className="text-xs text-slate-400 font-bold whitespace-nowrap w-24">Pesos ($)</span>
                                         </div>
                                     </div>
+                                    
+                                    <div className="w-full xl:w-2/4 bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col justify-between">
+                                        <div>
+                                            <p className="text-xs font-black text-slate-600 uppercase tracking-widest mb-3 flex justify-between items-center">
+                                                <span className="flex items-center gap-1"><Box size={14}/> Empaques (Por 1 pza)</span>
+                                                <span className="text-slate-400 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">Total: ${costoEmpaqueTotal.toFixed(2)}</span>
+                                            </p>
+                                            
+                                            <div className="space-y-2 mb-3">
+                                                {(configTam.empaques || []).map((emp, idx) => (
+                                                    <div key={idx} className="flex items-center gap-2">
+                                                        {/* 👇 SOLO CARGA LOS INSUMOS MARCADOS COMO EMPAQUE */}
+                                                        <select 
+                                                            value={emp.insumo_id} 
+                                                            onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'insumo_id', e.target.value)}
+                                                            className="flex-1 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate focus:ring-1 focus:ring-slate-400"
+                                                        >
+                                                            <option value="">Selecciona empaque...</option>
+                                                            {empaquesDisponibles.map(ins => (
+                                                                <option key={ins.id} value={ins.id}>{ins.nombre}</option>
+                                                            ))}
+                                                        </select>
+                                                        <input 
+                                                            type="number" 
+                                                            min="0.01" 
+                                                            step="0.01" 
+                                                            value={emp.cantidad} 
+                                                            onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'cantidad', e.target.value)}
+                                                            className="w-16 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs text-center focus:ring-1 focus:ring-slate-400" 
+                                                            title="Cantidad utilizada de este empaque"
+                                                        />
+                                                        <button 
+                                                            onClick={() => eliminarEmpaqueTamanio(tam.nombre, idx)} 
+                                                            className="p-2 bg-white border border-red-200 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition"
+                                                        >
+                                                            <Trash2 size={14}/>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                {empaquesDisponibles.length === 0 && (
+                                                    <p className="text-xs text-slate-400 italic">No tienes insumos marcados como "Empaque" en el inventario.</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => agregarEmpaqueTamanio(tam.nombre)}
+                                            className="w-full py-2 border border-dashed border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-500 hover:bg-slate-100 rounded-lg text-xs font-black uppercase transition mt-auto"
+                                        >
+                                            + Añadir Empaque
+                                        </button>
+                                    </div>
 
-                                    <div className="w-full lg:w-2/5 grid grid-cols-2 gap-2 bg-slate-50/50 p-3 rounded-xl border border-slate-100 text-xs font-bold">
-                                        <p className="text-slate-500">Comida + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
-                                        <p className="text-red-500">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
-                                        <p className="text-amber-600">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
-                                        <p className="text-emerald-600">Venta Sugerida (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
-                                        <p className="col-span-2 text-slate-700 border-t border-dashed border-slate-200 pt-1 mt-1 font-black text-[13px]">
-                                            Margen Real Ganancia: <span className={margenReal > 65 ? "text-emerald-600" : "text-amber-600"}>{margenReal.toFixed(1)}%</span>
+                                    <div className="w-full xl:w-1/4 grid grid-cols-1 gap-2 bg-slate-100/50 p-4 rounded-xl border border-slate-100 text-xs font-bold self-start">
+                                        <p className="text-slate-500 flex justify-between">Base + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
+                                        <p className="text-red-500 flex justify-between">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
+                                        <p className="text-amber-600 flex justify-between">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
+                                        <p className="text-emerald-600 flex justify-between bg-emerald-50 px-2 py-1 -mx-2 rounded">Sugerido (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
+                                        <p className="text-slate-700 border-t border-dashed border-slate-300 pt-2 mt-1 font-black text-[13px] text-center">
+                                            Margen: <span className={margenReal > 65 ? "text-emerald-600" : "text-amber-600"}>{margenReal.toFixed(1)}%</span>
                                         </p>
                                     </div>
                                 </div>

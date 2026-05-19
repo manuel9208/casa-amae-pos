@@ -9,7 +9,8 @@ exports.obtenerInsumos = async (req, res) => {
             ...ins,
             stock_actual: isNaN(parseFloat(ins.stock_actual)) ? 0 : parseFloat(ins.stock_actual),
             costo_presentacion: isNaN(parseFloat(ins.costo_presentacion)) ? 0 : parseFloat(ins.costo_presentacion),
-            cantidad_presentacion: isNaN(parseFloat(ins.cantidad_presentacion)) || parseFloat(ins.cantidad_presentacion) <= 0 ? 1 : parseFloat(ins.cantidad_presentacion)
+            cantidad_presentacion: isNaN(parseFloat(ins.cantidad_presentacion)) || parseFloat(ins.cantidad_presentacion) <= 0 ? 1 : parseFloat(ins.cantidad_presentacion),
+            es_empaque: ins.es_empaque === true || ins.es_empaque === 'true' // 👇 Aseguramos que sea Booleano
         }));
         
         res.json(insumosLimpios); 
@@ -19,11 +20,11 @@ exports.obtenerInsumos = async (req, res) => {
 };
 
 exports.crearInsumo = async (req, res) => {
-    const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion } = req.body;
+    const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion, es_empaque } = req.body;
     try {
         const result = await db.query(
-            'INSERT INTO insumos (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual) VALUES ($1, $2, $3, $4, 0) RETURNING *', 
-            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion]
+            'INSERT INTO insumos (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque) VALUES ($1, $2, $3, $4, 0, $5) RETURNING *', 
+            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion, Boolean(es_empaque)]
         );
         res.status(201).json(result.rows[0]);
     } catch(e) { 
@@ -34,11 +35,11 @@ exports.crearInsumo = async (req, res) => {
 
 exports.actualizarInsumo = async (req, res) => {
     const { id } = req.params;
-    const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion } = req.body;
+    const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion, es_empaque } = req.body;
     try {
         const result = await db.query(
-            'UPDATE insumos SET nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4 WHERE id=$5 RETURNING *', 
-            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion, id]
+            'UPDATE insumos SET nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4, es_empaque=$5 WHERE id=$6 RETURNING *', 
+            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion, Boolean(es_empaque), id]
         );
         res.json(result.rows[0]);
     } catch (error) { 
@@ -50,17 +51,15 @@ exports.actualizarInsumo = async (req, res) => {
 // ================= CORREGIDO: Escudo total contra NaN =================
 exports.comprarInsumo = async (req, res) => {
     const { id } = req.params;
-    // Aceptamos las llaves que manden desde cualquier componente frontal (Caja o Admin)
     let paquetes_comprados = req.body.paquetes_comprados !== undefined ? req.body.paquetes_comprados : req.body.paquetes;
     let nuevo_costo_paquete = req.body.nuevo_costo_paquete !== undefined ? req.body.nuevo_costo_paquete : req.body.costo_unitario;
 
     try {
-        await db.query('BEGIN'); // Iniciar transacción segura
+        await db.query('BEGIN'); 
 
         const ins = await db.query('SELECT cantidad_presentacion, costo_presentacion, stock_actual FROM insumos WHERE id = $1', [id]);
         if (ins.rows.length === 0) throw new Error(`Insumo no encontrado: ${id}`);
         
-        // Verificaciones matemáticas seguras
         const cant_paquete = parseFloat(ins.rows[0].cantidad_presentacion) || 1;
         const paquetes = parseFloat(paquetes_comprados) || 0;
         
@@ -72,26 +71,23 @@ exports.comprarInsumo = async (req, res) => {
         const stock_agregado = cant_paquete * paquetes;
         const costo_total = paquetes * costo_uni;
         
-        // Limpiamos el stock actual por si la BD ya estaba corrupta con un NaN
         const stock_actual_real = parseFloat(ins.rows[0].stock_actual) || 0;
         const nuevo_stock_total = stock_actual_real + stock_agregado;
 
-        // 1. Actualizar el stock y el costo en la tabla principal
         const result = await db.query(
             'UPDATE insumos SET stock_actual = $1, costo_presentacion = $2 WHERE id = $3 RETURNING *', 
             [nuevo_stock_total, costo_uni, id]
         );
 
-        // 2. Guardar el movimiento en la nueva tabla de historial de compras
         await db.query(
             'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total) VALUES ($1, $2, $3, $4)',
             [id, paquetes, costo_uni, costo_total]
         );
 
-        await db.query('COMMIT'); // Guardar cambios
+        await db.query('COMMIT'); 
         res.json(result.rows[0]);
     } catch(e) { 
-        await db.query('ROLLBACK'); // Deshacer si hay error
+        await db.query('ROLLBACK'); 
         console.error("Error al comprar insumo:", e);
         res.status(500).json({error: 'Error al comprar insumo'}); 
     }
@@ -115,7 +111,6 @@ exports.obtenerComprasHoy = async (req, res) => {
 exports.reiniciarStock = async (req, res) => {
     const { id } = req.params;
     try {
-        // Al forzarlo a 0 borramos permanentemente cualquier NaN que se haya colado
         const result = await db.query(
             'UPDATE insumos SET stock_actual = 0 WHERE id = $1 RETURNING *', 
             [id]
