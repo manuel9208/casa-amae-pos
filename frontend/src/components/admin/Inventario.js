@@ -24,14 +24,34 @@ const Inventario = ({
   const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
   const [nuevoItemSubReceta, setNuevoItemSubReceta] = useState({ sub_producto_id: '', cantidad_usada: '' });
 
-  // 👇 NUEVO: Estado para el simulador visual de tamaños
-  const [simuladorRendimientos, setSimuladorRendimientos] = useState({});
+  // 👇 ESTADO MODIFICADO: Ahora guarda Rendimiento y Costo de Empaque por tamaño
+  const [configTamanos, setConfigTamanos] = useState({});
 
   useEffect(() => {
     if (recetaActivaId) { 
-      setSimuladorRendimientos({}); // Limpiamos el simulador al cambiar de receta
       const productoEncontrado = productos.find(p => Number(p.id) === Number(recetaActivaId));
-      if (productoEncontrado) setRendimientoCalculadora(productoEncontrado.rendimiento || 1);
+      if (productoEncontrado) {
+          setRendimientoCalculadora(productoEncontrado.rendimiento || 1);
+          
+          if (productoEncontrado.opciones) {
+              try {
+                  const opcionesArray = typeof productoEncontrado.opciones === 'string' ? JSON.parse(productoEncontrado.opciones) : productoEncontrado.opciones;
+                  const tConfig = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
+                  const initialConfig = {};
+                  tConfig.forEach(t => {
+                      initialConfig[t.nombre] = {
+                          rendimiento: t.rendimiento_receta || '',
+                          empaque: t.costo_empaque || '' // Carga el empaque guardado
+                      };
+                  });
+                  setConfigTamanos(initialConfig);
+              } catch(e) {
+                  setConfigTamanos({});
+              }
+          } else {
+              setConfigTamanos({});
+          }
+      }
       
       fetch(`${apiUrl}/recetas/${recetaActivaId}`)
         .then(r => r.json())
@@ -40,7 +60,7 @@ const Inventario = ({
     } else { 
       setRecetaItems([]); 
       setRendimientoCalculadora(1); 
-      setSimuladorRendimientos({});
+      setConfigTamanos({});
     }
   }, [recetaActivaId, productos, apiUrl]);
 
@@ -151,7 +171,6 @@ const Inventario = ({
   const guardarItemReceta = async (e) => { 
     e.preventDefault(); 
     
-    // 👇 ESCUDO ANTI-DUPLICADOS (Solución al Problema 1)
     const duplicado = recetaItems.find(item => {
         if (tipoIngresoReceta === 'insumo') {
             return Number(item.insumo_id) === Number(nuevoItemReceta.insumo_id);
@@ -161,7 +180,7 @@ const Inventario = ({
     });
 
     if (duplicado) {
-        return showAlert("Elemento Duplicado", "Este insumo o base ya fue agregado a la receta actual. Si deseas cambiar la cantidad, elimínalo de la tabla y vuelve a agregarlo.", "warning");
+        return showAlert("Elemento Duplicado", "Este insumo o base ya fue agregado a la receta actual.", "warning");
     }
 
     try { 
@@ -210,6 +229,39 @@ const Inventario = ({
     }
   };
 
+  // 👇 GUARDA TAMBIÉN EL EMPAQUE AHORA
+  const guardarRendimientosTamanos = async () => {
+    if (!productoSeleccionado) return;
+    try {
+        const opcionesArray = typeof productoSeleccionado.opciones === 'string' ? JSON.parse(productoSeleccionado.opciones) : productoSeleccionado.opciones;
+        const nuevasOpciones = opcionesArray.map(o => {
+            if (o.categoria === 'Tamaño' && configTamanos[o.nombre]) {
+                return { 
+                    ...o, 
+                    rendimiento_receta: Number(configTamanos[o.nombre].rendimiento),
+                    costo_empaque: Number(configTamanos[o.nombre].empaque)
+                };
+            }
+            return o;
+        });
+
+        const res = await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ opciones: nuevasOpciones })
+        });
+
+        if (res.ok) {
+            showAlert("¡Configuración Guardada!", "Los pesos y costos de empaque por tamaño se han grabado permanentemente.", "success");
+            refrescarDatos();
+        } else {
+            showAlert("Error", "No se pudieron guardar las modificaciones.", "error");
+        }
+    } catch (error) {
+        showAlert("Error", "Error de red o servidor.", "error");
+    }
+  };
+
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
@@ -227,7 +279,6 @@ const Inventario = ({
     });
   }
 
-  // 👇 LÓGICA PARA DETECTAR TAMAÑOS (Solución al Problema 2)
   const productoSeleccionado = (productos || []).find(p => Number(p.id) === Number(recetaActivaId));
   let tamanosConfigurados = [];
   if (productoSeleccionado && productoSeleccionado.opciones) {
@@ -236,6 +287,12 @@ const Inventario = ({
           tamanosConfigurados = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
       } catch (e) {}
   }
+
+  // Cálculos financieros base (Para platillos SIN tamaños)
+  const costoPorPorcionBase = costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora);
+  const luzAguaBase = costoPorPorcionBase * 0.15;
+  const costoTotalRealBase = costoPorPorcionBase * 1.15;
+  const precioSugeridoBase = costoPorPorcionBase * 3;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12 relative">
@@ -383,24 +440,32 @@ const Inventario = ({
                 </select>
               </div>
 
-              <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
-                <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
-                <div className="flex gap-2">
-                  <input 
-                     type="number" 
-                     min="0.01" 
-                     step="0.01" 
-                     value={rendimientoCalculadora} 
-                     onChange={e => setRendimientoCalculadora(e.target.value)} 
-                     className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" 
-                     placeholder="Ej: 6000"
-                  />
-                  <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95">Guardar</button>
+              {/* 👇 OCULTA RENDIMIENTO GLOBAL SI TIENE TAMAÑOS */}
+              {tamanosConfigurados.length === 0 ? (
+                <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
+                    <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
+                    <div className="flex gap-2">
+                    <input 
+                        type="number" 
+                        min="0.01" 
+                        step="0.01" 
+                        value={rendimientoCalculadora} 
+                        onChange={e => setRendimientoCalculadora(e.target.value)} 
+                        className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" 
+                        placeholder="Ej: 6000"
+                    />
+                    <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95">Guardar</button>
+                    </div>
+                    <p className="text-[11px] text-purple-600/80 mt-2 font-bold leading-tight">
+                    Ej: 1 (Plato final), 14 (Piezas de galleta) o 6000 (Gramos totales si es una olla de arroz).
+                    </p>
                 </div>
-                <p className="text-[11px] text-purple-600/80 mt-2 font-bold leading-tight">
-                  Ej: 1 (Plato final), 14 (Piezas de galleta) o 6000 (Gramos totales si es una olla de arroz).
-                </p>
-              </div>
+              ) : (
+                <div className="bg-orange-50/50 p-6 rounded-3xl border border-orange-100 flex flex-col items-center justify-center text-center">
+                    <AlertTriangle className="text-orange-500 mb-2" size={32}/>
+                    <p className="text-orange-700 font-bold text-sm">El rendimiento y los empaques de este platillo se configuran por Tamaño Fijo en la parte inferior.</p>
+                </div>
+              )}
             </div>
 
             {recetaActivaId && (
@@ -502,68 +567,114 @@ const Inventario = ({
                  </table>
                </div>
                
-               {/* RESUMEN DE COSTO GLOBAL */}
-               {recetaItems.length > 0 && (
-                 <div className="flex flex-col md:flex-row justify-end gap-4 border-t border-slate-100 pt-6">
+               {/* RESUMEN DE COSTO GLOBAL (Solo si NO hay tamaños) */}
+               {recetaItems.length > 0 && tamanosConfigurados.length === 0 && (
+                 <div className="flex flex-col md:flex-row flex-wrap justify-end gap-4 border-t border-slate-100 pt-6">
                    <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                     <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Total Receta</p>
+                     <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Total Olla/Batch</p>
                      <p className="text-2xl font-black text-slate-700">${costoTotalRecetaCalculado.toFixed(2)}</p>
                    </div>
-                   <div className="text-right bg-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-sm">
-                     <p className="text-xs font-black text-emerald-700 uppercase tracking-widest mb-1">Costo por Rendimiento</p>
-                     <p className="text-3xl font-black text-emerald-600">${(costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora)).toFixed(2)}</p>
+                   <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                     <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Insumo Unitario</p>
+                     <p className="text-2xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p>
+                   </div>
+                   <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                     <p className="text-xs font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p>
+                     <p className="text-2xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
+                   </div>
+                   <div className="text-right bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                     <p className="text-xs font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real Total</p>
+                     <p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p>
+                   </div>
+                   <div className="text-right bg-emerald-600 p-4 rounded-2xl shadow-md text-white">
+                     <p className="text-xs font-black text-emerald-200 uppercase tracking-widest mb-1">Venta Sugerida (*3)</p>
+                     <p className="text-3xl font-black">${precioSugeridoBase.toFixed(2)}</p>
                    </div>
                  </div>
                )}
 
-               {/* 👇 NUEVO: SIMULADOR DE TAMAÑOS EN TIEMPO REAL */}
+               {/* 👇 MODAL DE TAMAÑOS CON LA NUEVA LÓGICA DE EMPAQUE */}
                {tamanosConfigurados.length > 0 && (
                  <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
-                    <h4 className="text-orange-800 font-black mb-3 flex items-center gap-2">
-                        <AlertTriangle size={22}/> ¡Este platillo tiene Tamaños (Chico/Med/Gde)!
-                    </h4>
-                    <p className="text-orange-700 text-sm mb-6 font-medium leading-relaxed">
-                        Detectamos que este platillo tiene diferentes tamaños configurados en el Menú. 
-                        <strong> Si cada tamaño lleva cantidades diferentes de ingredientes</strong>, la mejor forma de llevar el inventario es crear un platillo individual por tamaño (Ej. "Rol Chico") en lugar de usar la casilla de tamaños fijos. <br/>
-                        Pero si deseas mantenerlo así, aquí tienes un <strong>simulador</strong> para que calcules la rentabilidad de cada tamaño si sabes cuánto te rinde la olla:
-                    </p>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-orange-200 pb-4">
+                        <div>
+                           <h4 className="text-orange-800 font-black flex items-center gap-2 text-lg">
+                               <AlertTriangle size={22}/> ¡Rendimiento y Empaques por Tamaño Fijo!
+                           </h4>
+                           <p className="text-xs text-orange-600 font-bold mt-0.5">Calcula el margen exacto añadiendo el costo del domo/vaso de cada tamaño.</p>
+                        </div>
+                        <button 
+                           onClick={guardarRendimientosTamanos}
+                           className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition shadow-md active:scale-95"
+                        >
+                           💾 Guardar Tamaños
+                        </button>
+                    </div>
                     
-                    <div className="bg-white rounded-2xl p-5 border border-orange-100 shadow-sm">
-                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Simulador de Costos y Margen</p>
-                        <div className="space-y-4">
-                            {tamanosConfigurados.map(tam => {
-                                const precioBase = Number(productoSeleccionado.precio_base) || 0;
-                                const precioVenta = precioBase + (Number(tam.precioExtra) || 0);
-                                const rendSimulado = simuladorRendimientos[tam.nombre] || 1;
-                                const costoSimulado = costoTotalRecetaCalculado / Math.max(1, rendSimulado);
-                                const utilidad = precioVenta - costoSimulado;
-                                const margen = precioVenta > 0 ? (utilidad / precioVenta) * 100 : 0;
+                    <div className="space-y-4">
+                        {tamanosConfigurados.map(tam => {
+                            const precioBase = Number(productoSeleccionado.precio_base) || 0;
+                            const precioVentaReal = precioBase + (Number(tam.precioExtra) || 0);
+                            
+                            const configTam = configTamanos[tam.nombre] || { rendimiento: '', empaque: '' };
+                            const rendSimulado = Number(configTam.rendimiento) || 1;
+                            const costoEmpaque = Number(configTam.empaque) || 0;
+                            
+                            // Matemáticas puras
+                            const costoInsumoSimulado = costoTotalRecetaCalculado / Math.max(1, rendSimulado);
+                            const costoTotalSimulado = costoInsumoSimulado + costoEmpaque; // Insumo Comida + Plástico
+                            
+                            const luzAguaSimulado = costoTotalSimulado * 0.15;
+                            const costoRealSimulado = costoTotalSimulado * 1.15;
+                            const sugeridoSimulado = costoTotalSimulado * 3;
+                            
+                            const utilidadReal = precioVentaReal - costoRealSimulado;
+                            const margenReal = precioVentaReal > 0 ? (utilidadReal / precioVentaReal) * 100 : 0;
 
-                                return (
-                                    <div key={tam.nombre} className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                                        <div className="w-full lg:w-1/4">
-                                            <p className="font-black text-slate-700 text-lg">{tam.nombre}</p>
-                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Venta: <span className="text-blue-500">${precioVenta}</span></p>
-                                        </div>
-                                        <div className="w-full lg:w-2/4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
-                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap">Si esta receta rinde:</span>
+                            return (
+                                <div key={tam.nombre} className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 bg-white rounded-2xl border border-orange-100 shadow-sm">
+                                    <div className="w-full lg:w-1/5">
+                                        <p className="font-black text-slate-700 text-lg">{tam.nombre}</p>
+                                        <p className="text-xs font-bold text-blue-600 uppercase tracking-widest">P. Venta Menú: <span className="font-black">${precioVentaReal.toFixed(2)}</span></p>
+                                    </div>
+                                    
+                                    <div className="w-full lg:w-2/5 flex flex-col gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-36">Si de esta olla salen:</span>
                                             <input 
                                                 type="number" 
                                                 placeholder="Ej. 20"
-                                                value={simuladorRendimientos[tam.nombre] || ''} 
-                                                onChange={e => setSimuladorRendimientos({...simuladorRendimientos, [tam.nombre]: Number(e.target.value)})} 
-                                                className="w-full sm:w-24 p-3 border border-blue-200 rounded-lg outline-none font-black text-blue-700 text-center focus:ring-2 focus:ring-blue-500 bg-blue-50" 
+                                                value={configTam.rendimiento} 
+                                                onChange={e => setConfigTamanos({...configTamanos, [tam.nombre]: {...configTam, rendimiento: e.target.value}})} 
+                                                className="w-full p-2 border border-orange-200 rounded-lg outline-none font-black text-orange-700 text-center focus:ring-2 focus:ring-orange-500 bg-orange-50/50 text-sm" 
                                             />
-                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap">piezas de tamaño {tam.nombre}</span>
+                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-24">pzs de este tam.</span>
                                         </div>
-                                        <div className="w-full lg:w-1/4 lg:text-right bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
-                                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-1">Costo: <span className="text-red-500 font-black ml-1">${costoSimulado.toFixed(2)}</span></p>
-                                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Margen: <span className="text-emerald-500 font-black ml-1">{margen.toFixed(1)}%</span></p>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap w-36">Costo Empaque/Domo:</span>
+                                            <input 
+                                                type="number" 
+                                                placeholder="Ej. 3.50"
+                                                value={configTam.empaque} 
+                                                onChange={e => setConfigTamanos({...configTamanos, [tam.nombre]: {...configTam, empaque: e.target.value}})} 
+                                                className="w-full p-2 border border-slate-200 rounded-lg outline-none font-black text-slate-700 text-center focus:ring-2 focus:ring-slate-500 text-sm" 
+                                            />
+                                            <span className="text-xs text-slate-400 font-bold whitespace-nowrap w-24">Pesos ($)</span>
                                         </div>
                                     </div>
-                                )
-                            })}
-                        </div>
+
+                                    <div className="w-full lg:w-2/5 grid grid-cols-2 gap-2 bg-slate-50/50 p-3 rounded-xl border border-slate-100 text-xs font-bold">
+                                        <p className="text-slate-500">Comida + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
+                                        <p className="text-red-500">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
+                                        <p className="text-amber-600">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
+                                        <p className="text-emerald-600">Venta Sugerida (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
+                                        <p className="col-span-2 text-slate-700 border-t border-dashed border-slate-200 pt-1 mt-1 font-black text-[13px]">
+                                            Margen Real Ganancia: <span className={margenReal > 65 ? "text-emerald-600" : "text-amber-600"}>{margenReal.toFixed(1)}%</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            )
+                        })}
                     </div>
                  </div>
                )}

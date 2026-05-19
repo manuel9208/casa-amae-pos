@@ -51,3 +51,19 @@ exports.eliminarInsumoReceta = async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar item de receta' });
   }
 };
+
+// 👇 NUEVA FUNCIÓN: Permite guardar de manera persistente los rendimientos por tamaño
+exports.actualizarOpcionesProducto = async (req, res) => {
+  const { id } = req.params;
+  const { opciones } = req.body;
+  try {
+    const result = await db.query(
+      'UPDATE productos SET opciones = $1 WHERE id = $2 RETURNING *',
+      [JSON.stringify(opciones), id]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error al actualizar opciones del producto:", error);
+    res.status(500).json({ error: 'Error al actualizar especificaciones de tamaños' });
+  }
+};
