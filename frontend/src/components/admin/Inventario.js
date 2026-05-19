@@ -751,7 +751,6 @@ const Inventario = ({
                             </>
                         )}
                     </div>
-                    {/* 👇 ASISTENTE VISUAL PARA SABER CUÁNTO RINDE LA BASE */}
                     {tipoIngresoReceta === 'subreceta' && nuevoItemSubReceta.sub_producto_id && (() => {
                         const subP = productos.find(p => String(p.id) === String(nuevoItemSubReceta.sub_producto_id));
                         if(subP) {
@@ -831,7 +830,6 @@ const Inventario = ({
                                  }
                              }
                              
-                             // 👇 VISUALIZADOR INTELIGENTE DE OLLAS COMPLETAS
                              if (Number(item.cantidad_usada) === rendSub) {
                                  usoVisual = `1 Olla/Batch Completo (${rendSub} ${unidadSub})`;
                              } else {
@@ -856,28 +854,40 @@ const Inventario = ({
                  </table>
                </div>
                
+               {/* 👇 LÓGICA INTELIGENTE: Si la receta NO rinde Piezas, oculta el unitario porque no sirve */}
                {recetaItems.length > 0 && tamanosConfigurados.length === 0 && (
                  <div className="flex flex-col md:flex-row flex-wrap justify-end gap-4 border-t border-slate-100 pt-6">
                    <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
                      <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Total Olla/Batch</p>
                      <p className="text-2xl font-black text-slate-700">${costoTotalRecetaCalculado.toFixed(2)}</p>
                    </div>
-                   <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                     <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Insumo Unitario</p>
-                     <p className="text-2xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p>
-                   </div>
-                   <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                     <p className="text-xs font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p>
-                     <p className="text-2xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
-                   </div>
-                   <div className="text-right bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
-                     <p className="text-xs font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real Total</p>
-                     <p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p>
-                   </div>
-                   <div className="text-right bg-emerald-600 p-4 rounded-2xl shadow-md text-white">
-                     <p className="text-xs font-black text-emerald-200 uppercase tracking-widest mb-1">Venta Sugerida (*3)</p>
-                     <p className="text-3xl font-black">${precioSugeridoBase.toFixed(2)}</p>
-                   </div>
+                   
+                   {unidadRendimiento === 'PZ' ? (
+                       <>
+                           <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                             <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Insumo Unitario</p>
+                             <p className="text-2xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                             <p className="text-xs font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p>
+                             <p className="text-2xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-right bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                             <p className="text-xs font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real Total</p>
+                             <p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-right bg-emerald-600 p-4 rounded-2xl shadow-md text-white">
+                             <p className="text-xs font-black text-emerald-200 uppercase tracking-widest mb-1">Venta Sugerida (*3)</p>
+                             <p className="text-3xl font-black">${precioSugeridoBase.toFixed(2)}</p>
+                           </div>
+                       </>
+                   ) : (
+                       <div className="text-right bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-sm flex items-center">
+                          <p className="text-sm font-black text-blue-700">
+                              💡 Al ser una receta base en <span className="font-black text-xl mx-1">{unidadRendimiento}</span>, el precio de venta sugerido se calculará cuando uses esta base en el platillo final.
+                          </p>
+                       </div>
+                   )}
                  </div>
                )}
 
@@ -1048,7 +1058,7 @@ const Inventario = ({
         </div> 
       )}
 
-      {/* 👇 MODAL AMIGABLE PARA CREAR BASES */}
+      {/* 👇 NUEVO: MODAL AMIGABLE PARA CREAR BASES */}
       {modalCrearBase && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
           <form onSubmit={guardarNuevaBase} className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-emerald-200">
