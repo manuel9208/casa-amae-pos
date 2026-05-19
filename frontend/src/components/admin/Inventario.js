@@ -374,7 +374,12 @@ const Inventario = ({
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
-  const subRecetasDisponibles = (productos || []).filter(p => Number(p.id) !== Number(recetaActivaId));
+  // 👇 FILTRO MEJORADO: Solo muestra productos marcados como "disponible: false" (que son las bases ocultas)
+  const subRecetasDisponibles = (productos || []).filter(p => 
+      Number(p.id) !== Number(recetaActivaId) && 
+      (p.disponible === false || p.disponible === 'false')
+  );
+  
   const empaquesDisponibles = (insumosDB || []).filter(i => i.es_empaque === true || i.es_empaque === 'true');
 
   let costoTotalRecetaCalculado = 0;
@@ -712,6 +717,7 @@ const Inventario = ({
                             }
                         }} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
                           <option value="">Buscar Sub-Receta (Platillo preparado)...</option>
+                          {/* 👇 FILTRO APLICADO: Solo muestra productos que NO están disponibles en Kiosco (Sub-recetas puras) */}
                           {(subRecetasDisponibles || []).map(prod => <option key={prod.id} value={prod.id}>{prod.emoji} {prod.nombre}</option>)}
                         </select>
                     )}
@@ -837,7 +843,8 @@ const Inventario = ({
                              }
 
                              costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
-                             badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black" title="Incluye 15% de gastos operativos">Sub-Receta (+15% Luz)</span>;
+                             // 👇 VISUAL CORREGIDO: Se quitó el (+15% Luz)
+                             badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                          }
 
                          return (
@@ -854,7 +861,6 @@ const Inventario = ({
                  </table>
                </div>
                
-               {/* 👇 LÓGICA INTELIGENTE: Si la receta NO rinde Piezas, oculta el unitario porque no sirve */}
                {recetaItems.length > 0 && tamanosConfigurados.length === 0 && (
                  <div className="flex flex-col md:flex-row flex-wrap justify-end gap-4 border-t border-slate-100 pt-6">
                    <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">

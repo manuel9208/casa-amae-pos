@@ -3,14 +3,14 @@ const db = require('../config/db');
 exports.obtenerReceta = async (req, res) => {
   const { producto_id } = req.params;
   try {
-    // 👇 MÁGIA SQL CORREGIDA: Se multiplicó por 1.15 para heredar el Costo Real Operativo a la sub-receta
+    // 👇 MÁGIA SQL CORREGIDA: Se quitó el * 1.15 para no cobrar la luz dos veces. Pasa el costo crudo.
     const result = await db.query(`
       SELECT r.id, r.producto_id, r.cantidad_usada, 
              r.insumo_id, i.nombre as insumo_nombre, i.unidad_medida, 
              i.costo_presentacion, i.cantidad_presentacion,
              r.sub_producto_id, p.nombre as sub_producto_nombre, p.rendimiento as sub_producto_rendimiento,
              (
-                SELECT COALESCE(SUM((i2.costo_presentacion / COALESCE(NULLIF(i2.cantidad_presentacion, 0), 1)) * r2.cantidad_usada), 0) * 1.15
+                SELECT COALESCE(SUM((i2.costo_presentacion / COALESCE(NULLIF(i2.cantidad_presentacion, 0), 1)) * r2.cantidad_usada), 0)
                 FROM recetas r2
                 JOIN insumos i2 ON r2.insumo_id = i2.id
                 WHERE r2.producto_id = r.sub_producto_id
