@@ -18,7 +18,9 @@ const Inventario = ({
   const [recetaCategoriaFiltro, setRecetaCategoriaFiltro] = useState('');
   const [recetaActivaId, setRecetaActivaId] = useState('');
   const [recetaItems, setRecetaItems] = useState([]);
+  
   const [rendimientoCalculadora, setRendimientoCalculadora] = useState(1);
+  const [unidadRendimiento, setUnidadRendimiento] = useState('PZ');
   
   const [tipoIngresoReceta, setTipoIngresoReceta] = useState('insumo'); 
   const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
@@ -27,7 +29,6 @@ const Inventario = ({
   const [configTamanos, setConfigTamanos] = useState({});
   const [unidadConversionActiva, setUnidadConversionActiva] = useState('');
 
-  // Estado para el modal personalizado de Crear Base
   const [modalCrearBase, setModalCrearBase] = useState(false);
   const [nombreNuevaBase, setNombreNuevaBase] = useState('');
 
@@ -40,26 +41,35 @@ const Inventario = ({
           if (productoEncontrado.opciones) {
               try {
                   const opcionesArray = typeof productoEncontrado.opciones === 'string' ? JSON.parse(productoEncontrado.opciones) : productoEncontrado.opciones;
+                  
                   const tConfig = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
                   const initialConfig = {};
-                  
                   tConfig.forEach(t => {
                       let empaquesCargados = t.empaques || [];
                       if (t.insumo_empaque_id && empaquesCargados.length === 0) {
                           empaquesCargados.push({ insumo_id: t.insumo_empaque_id, cantidad: 1 });
                       }
-
                       initialConfig[t.nombre] = {
                           rendimiento: t.rendimiento_receta || '',
                           empaques: empaquesCargados
                       };
                   });
                   setConfigTamanos(initialConfig);
+
+                  const optUnidad = opcionesArray.find(o => o.categoria === 'UnidadRendimiento');
+                  if (optUnidad) {
+                      setUnidadRendimiento(optUnidad.nombre);
+                  } else {
+                      setUnidadRendimiento('PZ');
+                  }
+
               } catch(e) {
                   setConfigTamanos({});
+                  setUnidadRendimiento('PZ');
               }
           } else {
               setConfigTamanos({});
+              setUnidadRendimiento('PZ');
           }
       }
       
@@ -71,6 +81,7 @@ const Inventario = ({
       setRecetaItems([]); 
       setRendimientoCalculadora(1); 
       setConfigTamanos({});
+      setUnidadRendimiento('PZ');
     }
   }, [recetaActivaId, productos, apiUrl]);
 
@@ -153,14 +164,12 @@ const Inventario = ({
     });
   };
 
-  // Función para abrir el modal amigable
   const iniciarCreacionBase = () => {
       if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación (Ej. Sushis) donde guardar esta base.", "warning");
       setNombreNuevaBase('');
       setModalCrearBase(true);
   };
 
-  // Función para guardar desde el modal
   const guardarNuevaBase = async (e) => {
     e.preventDefault();
     if (!nombreNuevaBase || nombreNuevaBase.trim() === '') return;
@@ -175,6 +184,9 @@ const Inventario = ({
         formData.append('genera_puntos', false);
         formData.append('emoji', '🥣');
         
+        const opcionesDefault = [{ categoria: 'UnidadRendimiento', nombre: 'GR' }];
+        formData.append('opciones', JSON.stringify(opcionesDefault));
+
         const res = await fetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
         if (res.ok) {
             const nuevoProd = await res.json();
@@ -218,10 +230,23 @@ const Inventario = ({
                   cantidadFinal = cantidadFinal / 1000;
               }
           }
-
           payload = { producto_id: recetaActivaId, insumo_id: nuevoItemReceta.insumo_id, cantidad_usada: cantidadFinal };
+      
       } else {
-          payload = { producto_id: recetaActivaId, sub_producto_id: nuevoItemSubReceta.sub_producto_id, cantidad_usada: nuevoItemSubReceta.cantidad_usada };
+          let cantidadFinal = Number(nuevoItemSubReceta.cantidad_usada);
+          const prodSeleccionado = productos.find(p => String(p.id) === String(nuevoItemSubReceta.sub_producto_id));
+          
+          if (prodSeleccionado) {
+              let unidadBase = 'PZ';
+              if (prodSeleccionado.opciones) {
+                  const ops = typeof prodSeleccionado.opciones === 'string' ? JSON.parse(prodSeleccionado.opciones) : prodSeleccionado.opciones;
+                  const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+                  if (opt) unidadBase = opt.nombre;
+              }
+              if (unidadBase === 'KL' && unidadConversionActiva === 'GR') cantidadFinal = cantidadFinal / 1000;
+              if (unidadBase === 'LT' && unidadConversionActiva === 'ML') cantidadFinal = cantidadFinal / 1000;
+          }
+          payload = { producto_id: recetaActivaId, sub_producto_id: nuevoItemSubReceta.sub_producto_id, cantidad_usada: cantidadFinal };
       }
       
       const res = await fetch(`${apiUrl}/recetas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); 
@@ -248,15 +273,29 @@ const Inventario = ({
   const guardarRendimiento = async () => {
     if (!recetaActivaId) return;
     try { 
-      const res = await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
+      await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ rendimiento: rendimientoCalculadora }) 
       }); 
-      if (res.ok) { 
-        showAlert("¡Éxito!", "Rendimiento guardado correctamente.", "success");
-        refrescarDatos(); 
-      } 
+
+      const prod = productos.find(p => Number(p.id) === Number(recetaActivaId));
+      let opcionesArray = [];
+      if (prod && prod.opciones) {
+          opcionesArray = typeof prod.opciones === 'string' ? JSON.parse(prod.opciones) : prod.opciones;
+      }
+      
+      const opcionesFiltradas = opcionesArray.filter(o => o.categoria !== 'UnidadRendimiento');
+      opcionesFiltradas.push({ categoria: 'UnidadRendimiento', nombre: unidadRendimiento });
+
+      await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ opciones: opcionesFiltradas })
+      });
+
+      showAlert("¡Éxito!", "Rendimiento guardado correctamente.", "success");
+      refrescarDatos(); 
     } catch (error) { 
       showAlert("Error", "No se pudo guardar.", "error"); 
     }
@@ -339,14 +378,13 @@ const Inventario = ({
   const empaquesDisponibles = (insumosDB || []).filter(i => i.es_empaque === true || i.es_empaque === 'true');
 
   let costoTotalRecetaCalculado = 0;
-  let pesoEstimadoReceta = 0; // 👇 NUEVA VARIABLE PARA EL PESO
+  let pesoEstimadoReceta = 0; 
 
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
         if (item.insumo_id) {
             costoTotalRecetaCalculado += (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
             
-            // 👇 CÁLCULO DEL PESO: Convierte Kilos y Litros a Gramos/Mililitros para sumar
             const cantUsada = Number(item.cantidad_usada) || 0;
             if (item.unidad_medida === 'KL' || item.unidad_medida === 'LT') {
                 pesoEstimadoReceta += (cantUsada * 1000);
@@ -356,6 +394,21 @@ const Inventario = ({
         } 
         else if (item.sub_producto_id) {
             costoTotalRecetaCalculado += (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
+
+            let unidadSub = 'PZ';
+            const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
+            if (prodRef && prodRef.opciones) {
+                const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
+                const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+                if (opt) unidadSub = opt.nombre;
+            }
+
+            const cantUsada = Number(item.cantidad_usada) || 0;
+            if (unidadSub === 'KL' || unidadSub === 'LT') {
+                pesoEstimadoReceta += (cantUsada * 1000);
+            } else if (unidadSub === 'GR' || unidadSub === 'ML') {
+                pesoEstimadoReceta += cantUsada;
+            }
         }
     });
   }
@@ -374,12 +427,27 @@ const Inventario = ({
   const costoTotalRealBase = costoPorPorcionBase * 1.15;
   const precioSugeridoBase = costoTotalRealBase * 3;
 
-  const insumoSeleccionadoActual = insumosDB.find(i => String(i.id) === String(nuevoItemReceta.insumo_id));
   let opcionesDeUnidad = [];
-  if (insumoSeleccionadoActual) {
-      if (insumoSeleccionadoActual.unidad_medida === 'KL') opcionesDeUnidad = ['KL', 'GR'];
-      else if (insumoSeleccionadoActual.unidad_medida === 'LT') opcionesDeUnidad = ['LT', 'ML'];
-      else opcionesDeUnidad = [insumoSeleccionadoActual.unidad_medida];
+  if (tipoIngresoReceta === 'insumo') {
+      const insumoSeleccionadoActual = insumosDB.find(i => String(i.id) === String(nuevoItemReceta.insumo_id));
+      if (insumoSeleccionadoActual) {
+          if (insumoSeleccionadoActual.unidad_medida === 'KL') opcionesDeUnidad = ['KL', 'GR'];
+          else if (insumoSeleccionadoActual.unidad_medida === 'LT') opcionesDeUnidad = ['LT', 'ML'];
+          else opcionesDeUnidad = [insumoSeleccionadoActual.unidad_medida];
+      }
+  } else {
+      const subRecetaActual = productos.find(p => String(p.id) === String(nuevoItemSubReceta.sub_producto_id));
+      if (subRecetaActual) {
+          let unidadBase = 'PZ';
+          if (subRecetaActual.opciones) {
+              const ops = typeof subRecetaActual.opciones === 'string' ? JSON.parse(subRecetaActual.opciones) : subRecetaActual.opciones;
+              const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+              if (opt) unidadBase = opt.nombre;
+          }
+          if (unidadBase === 'KL') opcionesDeUnidad = ['KL', 'GR'];
+          else if (unidadBase === 'LT') opcionesDeUnidad = ['LT', 'ML'];
+          else opcionesDeUnidad = [unidadBase];
+      }
   }
 
   return (
@@ -538,7 +606,6 @@ const Inventario = ({
               <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
                 <div className="flex justify-between items-center mb-3">
                    <label className="block text-sm font-black text-blue-800 uppercase tracking-widest">2. Platillo o Base</label>
-                   {/* 👇 BOTÓN ACTUALIZADO: Llama al nuevo modal amigable */}
                    {recetaCategoriaFiltro && (
                       <button onClick={iniciarCreacionBase} className="text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1 rounded-md font-black uppercase tracking-widest transition shadow-sm border border-emerald-200">
                          + Crear Base
@@ -554,20 +621,31 @@ const Inventario = ({
               {tamanosConfigurados.length === 0 ? (
                 <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
                     <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
-                    <div className="flex gap-2">
-                    <input 
-                        type="number" 
-                        min="0.01" 
-                        step="0.01" 
-                        value={rendimientoCalculadora} 
-                        onChange={e => setRendimientoCalculadora(e.target.value)} 
-                        className="w-full p-4 bg-white border border-purple-200 rounded-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" 
-                        placeholder="Ej: 6000"
-                    />
-                    <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-2xl font-bold transition shadow-sm active:scale-95">Guardar</button>
+                    <div className="flex gap-0">
+                        <input 
+                            type="number" 
+                            min="0.01" 
+                            step="0.01" 
+                            value={rendimientoCalculadora} 
+                            onChange={e => setRendimientoCalculadora(e.target.value)} 
+                            className="w-full p-4 bg-white border border-purple-200 rounded-l-2xl outline-none focus:ring-2 focus:ring-purple-500 font-black text-lg text-center shadow-sm" 
+                            placeholder="Ej: 6000"
+                        />
+                        <select 
+                            value={unidadRendimiento} 
+                            onChange={e => setUnidadRendimiento(e.target.value)}
+                            className="p-4 bg-purple-50 text-purple-800 font-black border-y border-purple-200 outline-none cursor-pointer text-xs md:text-base"
+                        >
+                            <option value="PZ">PZ</option>
+                            <option value="GR">GR</option>
+                            <option value="KL">KL</option>
+                            <option value="ML">ML</option>
+                            <option value="LT">LT</option>
+                        </select>
+                        <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-r-2xl font-bold transition shadow-sm active:scale-95 border-y border-r border-purple-600">Guardar</button>
                     </div>
                     <p className="text-[11px] text-purple-600/80 mt-2 font-bold leading-tight">
-                    Ej: 1 (Plato final), 14 (Piezas de galleta) o 6000 (Gramos totales si es una olla de arroz).
+                        Selecciona si tu olla rinde en Gramos, Litros o Porciones Finales.
                     </p>
                 </div>
               ) : (
@@ -584,13 +662,21 @@ const Inventario = ({
                     <h4 className="font-bold text-slate-800 uppercase tracking-widest text-xs">4. Agregar elemento a la receta:</h4>
                     <div className="flex bg-slate-200 p-1 rounded-xl">
                         <button 
-                            onClick={() => setTipoIngresoReceta('insumo')} 
+                            onClick={() => {
+                                setTipoIngresoReceta('insumo');
+                                setUnidadConversionActiva('');
+                                setNuevoItemReceta({ insumo_id: '', cantidad_usada: '' });
+                            }} 
                             className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${tipoIngresoReceta === 'insumo' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Insumo Puro
                         </button>
                         <button 
-                            onClick={() => setTipoIngresoReceta('subreceta')} 
+                            onClick={() => {
+                                setTipoIngresoReceta('subreceta');
+                                setUnidadConversionActiva('');
+                                setNuevoItemSubReceta({ sub_producto_id: '', cantidad_usada: '' });
+                            }} 
                             className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${tipoIngresoReceta === 'subreceta' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             <Layers size={14} /> Sub-Receta
@@ -611,38 +697,81 @@ const Inventario = ({
                           {(insumosDB || []).filter(i => i.es_empaque !== true && i.es_empaque !== 'true').map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
                         </select>
                     ) : (
-                        <select required value={nuevoItemSubReceta.sub_producto_id} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, sub_producto_id: e.target.value})} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
+                        <select required value={nuevoItemSubReceta.sub_producto_id} onChange={e => {
+                            const id = e.target.value;
+                            setNuevoItemSubReceta({...nuevoItemSubReceta, sub_producto_id: id});
+                            const prod = productos.find(p => String(p.id) === String(id));
+                            if (prod) {
+                                let u = 'PZ';
+                                if (prod.opciones) {
+                                    const ops = typeof prod.opciones === 'string' ? JSON.parse(prod.opciones) : prod.opciones;
+                                    const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+                                    if (opt) u = opt.nombre;
+                                }
+                                setUnidadConversionActiva(u);
+                            }
+                        }} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
                           <option value="">Buscar Sub-Receta (Platillo preparado)...</option>
                           {(subRecetasDisponibles || []).map(prod => <option key={prod.id} value={prod.id}>{prod.emoji} {prod.nombre}</option>)}
                         </select>
                     )}
                   </div>
                   
-                  <div className="flex-1 flex items-center gap-2">
-                    {tipoIngresoReceta === 'insumo' ? (
-                        <>
-                           <input required type="number" step="0.01" placeholder="Ej. 700" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
-                           {opcionesDeUnidad.length > 0 ? (
-                               <select 
-                                  value={unidadConversionActiva} 
-                                  onChange={e => setUnidadConversionActiva(e.target.value)}
-                                  className="w-24 p-4 rounded-xl font-black text-sm whitespace-nowrap bg-blue-100 text-blue-700 outline-none cursor-pointer"
-                               >
-                                  {opcionesDeUnidad.map(u => <option key={u} value={u}>{u}</option>)}
-                               </select>
-                           ) : (
-                               <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-slate-200 text-slate-600">Uso</span>
-                           )}
-                        </>
-                    ) : (
-                        <>
-                           <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base? (Si el rendimiento está en gramos, pon gramos aquí)" />
-                           <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-purple-200 text-purple-800">Uso / Cant.</span>
-                        </>
-                    )}
+                  <div className="flex-1 flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        {tipoIngresoReceta === 'insumo' ? (
+                            <>
+                               <input required type="number" step="0.01" placeholder="Ej. 700" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
+                               {opcionesDeUnidad.length > 0 ? (
+                                   <select 
+                                      value={unidadConversionActiva} 
+                                      onChange={e => setUnidadConversionActiva(e.target.value)}
+                                      className="w-24 p-4 rounded-xl font-black text-sm whitespace-nowrap bg-blue-100 text-blue-700 outline-none cursor-pointer"
+                                   >
+                                      {opcionesDeUnidad.map(u => <option key={u} value={u}>{u}</option>)}
+                                   </select>
+                               ) : (
+                                   <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-slate-200 text-slate-600">Uso</span>
+                               )}
+                            </>
+                        ) : (
+                            <>
+                               <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base?" />
+                               {opcionesDeUnidad.length > 0 ? (
+                                   <select 
+                                      value={unidadConversionActiva} 
+                                      onChange={e => setUnidadConversionActiva(e.target.value)}
+                                      className="w-24 p-4 rounded-xl font-black text-sm whitespace-nowrap bg-purple-200 text-purple-800 outline-none cursor-pointer"
+                                   >
+                                      {opcionesDeUnidad.map(u => <option key={u} value={u}>{u}</option>)}
+                                   </select>
+                               ) : (
+                                   <span className="px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap bg-purple-200 text-purple-800">Uso / Cant.</span>
+                               )}
+                            </>
+                        )}
+                    </div>
+                    {/* 👇 ASISTENTE VISUAL PARA SABER CUÁNTO RINDE LA BASE */}
+                    {tipoIngresoReceta === 'subreceta' && nuevoItemSubReceta.sub_producto_id && (() => {
+                        const subP = productos.find(p => String(p.id) === String(nuevoItemSubReceta.sub_producto_id));
+                        if(subP) {
+                            let u = 'PZ';
+                            if (subP.opciones) {
+                                const ops = typeof subP.opciones === 'string' ? JSON.parse(subP.opciones) : subP.opciones;
+                                const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+                                if (opt) u = opt.nombre;
+                            }
+                            return (
+                                <p className="text-[10px] text-purple-600 font-bold leading-tight mt-1 pl-2 border-l-2 border-purple-300">
+                                    💡 1 Olla de esta base rinde: <span className="bg-purple-100 px-1 rounded">{subP.rendimiento || 1} {u}</span>.<br/>Si usas la olla entera, escribe {subP.rendimiento || 1}.
+                                </p>
+                            )
+                        }
+                        return null;
+                    })()}
                   </div>
                   
-                  <button type="submit" className={`md:w-auto px-8 py-4 text-white rounded-xl font-bold transition active:scale-95 ${tipoIngresoReceta === 'insumo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                  <button type="submit" className={`md:w-auto px-8 py-4 text-white rounded-xl font-bold transition active:scale-95 self-start ${tipoIngresoReceta === 'insumo' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                       Añadir a Receta
                   </button>
                 </form>
@@ -656,7 +785,6 @@ const Inventario = ({
           ) : ( 
              <div className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
                
-               {/* 👇 NUEVO: INDICADOR VISUAL DEL PESO ESTIMADO DE LA OLLA */}
                {pesoEstimadoReceta > 0 && (
                    <div className="mb-4 flex items-center gap-2 text-indigo-600 bg-indigo-50 border border-indigo-100 p-3 rounded-xl w-fit">
                        <Scale size={18}/>
@@ -690,9 +818,28 @@ const Inventario = ({
                              costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
                          } else if (item.sub_producto_id) {
                              nombreItem = item.sub_producto_nombre;
-                             usoVisual = `${item.cantidad_usada} Unidades`;
+                             
+                             let unidadSub = 'PZ';
+                             let rendSub = 1;
+                             const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
+                             if (prodRef) {
+                                 rendSub = Number(prodRef.rendimiento) || 1;
+                                 if (prodRef.opciones) {
+                                     const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
+                                     const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
+                                     if (opt) unidadSub = opt.nombre;
+                                 }
+                             }
+                             
+                             // 👇 VISUALIZADOR INTELIGENTE DE OLLAS COMPLETAS
+                             if (Number(item.cantidad_usada) === rendSub) {
+                                 usoVisual = `1 Olla/Batch Completo (${rendSub} ${unidadSub})`;
+                             } else {
+                                 usoVisual = formatearCantidadVisual(item.cantidad_usada, unidadSub);
+                             }
+
                              costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
-                             badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
+                             badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black" title="Incluye 15% de gastos operativos">Sub-Receta (+15% Luz)</span>;
                          }
 
                          return (
@@ -734,11 +881,9 @@ const Inventario = ({
                  </div>
                )}
 
-               {/* SECCIÓN DE TAMAÑOS Y EMPAQUES EXCLUSIVOS */}
                {tamanosConfigurados.length > 0 && (
                  <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
                     
-                    {/* 👇 NUEVO: COSTO TOTAL DE LA OLLA VISIBLE SIEMPRE */}
                     <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-orange-100 shadow-sm mb-6">
                         <div className="flex items-center gap-3">
                             <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><Package size={24}/></div>
@@ -848,7 +993,7 @@ const Inventario = ({
                                                     </div>
                                                 ))}
                                                 {empaquesDisponibles.length === 0 && (
-                                                    <p className="text-xs text-slate-400 italic">No tienes insumos marcados como "Empaque" en el inventario.</p>
+                                                    <p className="text-xs text-slate-400 italic">No tienes insumos marcados como "Empaque".</p>
                                                 )}
                                             </div>
                                         </div>
@@ -903,7 +1048,7 @@ const Inventario = ({
         </div> 
       )}
 
-      {/* 👇 NUEVO: MODAL AMIGABLE PARA CREAR BASES */}
+      {/* 👇 MODAL AMIGABLE PARA CREAR BASES */}
       {modalCrearBase && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
           <form onSubmit={guardarNuevaBase} className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-emerald-200">
@@ -916,7 +1061,7 @@ const Inventario = ({
             
             <div className="space-y-4">
               <div>
-                  <label className="block text-xs font-black text-slate-400 uppercase mb-1">Nombre de la Base (Ej. Arroz Sushi)</label>
+                  <label className="block text-xs font-black text-slate-400 uppercase mb-1">Nombre de la Base (Ej. Masa Base)</label>
                   <input 
                       autoFocus 
                       required 
