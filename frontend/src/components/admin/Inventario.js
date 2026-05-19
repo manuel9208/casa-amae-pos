@@ -24,8 +24,12 @@ const Inventario = ({
   const [nuevoItemReceta, setNuevoItemReceta] = useState({ insumo_id: '', cantidad_usada: '' });
   const [nuevoItemSubReceta, setNuevoItemSubReceta] = useState({ sub_producto_id: '', cantidad_usada: '' });
 
+  // 👇 NUEVO: Estado para el simulador visual de tamaños
+  const [simuladorRendimientos, setSimuladorRendimientos] = useState({});
+
   useEffect(() => {
     if (recetaActivaId) { 
+      setSimuladorRendimientos({}); // Limpiamos el simulador al cambiar de receta
       const productoEncontrado = productos.find(p => Number(p.id) === Number(recetaActivaId));
       if (productoEncontrado) setRendimientoCalculadora(productoEncontrado.rendimiento || 1);
       
@@ -36,6 +40,7 @@ const Inventario = ({
     } else { 
       setRecetaItems([]); 
       setRendimientoCalculadora(1); 
+      setSimuladorRendimientos({});
     }
   }, [recetaActivaId, productos, apiUrl]);
 
@@ -145,6 +150,20 @@ const Inventario = ({
   
   const guardarItemReceta = async (e) => { 
     e.preventDefault(); 
+    
+    // 👇 ESCUDO ANTI-DUPLICADOS (Solución al Problema 1)
+    const duplicado = recetaItems.find(item => {
+        if (tipoIngresoReceta === 'insumo') {
+            return Number(item.insumo_id) === Number(nuevoItemReceta.insumo_id);
+        } else {
+            return Number(item.sub_producto_id) === Number(nuevoItemSubReceta.sub_producto_id);
+        }
+    });
+
+    if (duplicado) {
+        return showAlert("Elemento Duplicado", "Este insumo o base ya fue agregado a la receta actual. Si deseas cambiar la cantidad, elimínalo de la tabla y vuelve a agregarlo.", "warning");
+    }
+
     try { 
       let payload = {};
       if (tipoIngresoReceta === 'insumo') {
@@ -161,7 +180,7 @@ const Inventario = ({
         const dataR = await r.json(); 
         setRecetaItems(Array.isArray(dataR) ? dataR : []); 
       } else {
-        showAlert("Atención", "Ese insumo/sub-receta ya está en la receta o hubo un problema.", "warning");
+        showAlert("Atención", "Hubo un problema al guardar en la base de datos.", "error");
       }
     } catch(e) {} 
   };
@@ -206,6 +225,16 @@ const Inventario = ({
             costoTotalRecetaCalculado += (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
         }
     });
+  }
+
+  // 👇 LÓGICA PARA DETECTAR TAMAÑOS (Solución al Problema 2)
+  const productoSeleccionado = (productos || []).find(p => Number(p.id) === Number(recetaActivaId));
+  let tamanosConfigurados = [];
+  if (productoSeleccionado && productoSeleccionado.opciones) {
+      try {
+          const opcionesArray = typeof productoSeleccionado.opciones === 'string' ? JSON.parse(productoSeleccionado.opciones) : productoSeleccionado.opciones;
+          tamanosConfigurados = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
+      } catch (e) {}
   }
 
   return (
@@ -354,7 +383,6 @@ const Inventario = ({
                 </select>
               </div>
 
-              {/* 👇 SECCIÓN 3 MEJORADA VISUALMENTE PARA EXPLICAR LOS GRAMOS/PIEZAS */}
               <div className="bg-purple-50/50 p-6 rounded-3xl border border-purple-100">
                 <label className="block text-sm font-black text-purple-800 uppercase tracking-widest mb-3">3. Rendimiento (Total que sale)</label>
                 <div className="flex gap-2">
@@ -413,7 +441,6 @@ const Inventario = ({
                     {tipoIngresoReceta === 'insumo' ? (
                         <input required type="number" step="0.01" placeholder="Cant. usada" value={nuevoItemReceta.cantidad_usada} onChange={e => setNuevoItemReceta({...nuevoItemReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-slate-200 rounded-xl outline-none font-bold text-center" />
                     ) : (
-                        // 👇 TEXTO ACTUALIZADO PARA HACER SENTIDO CON GRAMOS/PIEZAS
                         <input required type="number" step="0.01" placeholder="Ej. 200" value={nuevoItemSubReceta.cantidad_usada} onChange={e => setNuevoItemSubReceta({...nuevoItemSubReceta, cantidad_usada: e.target.value})} className="w-full p-4 border border-purple-200 rounded-xl outline-none font-bold text-center text-purple-800" title="¿Cuánto vas a usar de la base? (Si el rendimiento está en gramos, pon gramos aquí)" />
                     )}
                     <span className={`px-4 py-4 rounded-xl font-black text-sm whitespace-nowrap ${tipoIngresoReceta === 'insumo' ? 'bg-slate-200 text-slate-600' : 'bg-purple-200 text-purple-800'}`}>
@@ -456,7 +483,7 @@ const Inventario = ({
                              costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
                          } else if (item.sub_producto_id) {
                              nombreItem = item.sub_producto_nombre;
-                             unidadItem = 'Unidades'; // 👈 Cambiado visualmente
+                             unidadItem = 'Unidades';
                              costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
                              badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                          }
@@ -475,6 +502,7 @@ const Inventario = ({
                  </table>
                </div>
                
+               {/* RESUMEN DE COSTO GLOBAL */}
                {recetaItems.length > 0 && (
                  <div className="flex flex-col md:flex-row justify-end gap-4 border-t border-slate-100 pt-6">
                    <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
@@ -487,6 +515,59 @@ const Inventario = ({
                    </div>
                  </div>
                )}
+
+               {/* 👇 NUEVO: SIMULADOR DE TAMAÑOS EN TIEMPO REAL */}
+               {tamanosConfigurados.length > 0 && (
+                 <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
+                    <h4 className="text-orange-800 font-black mb-3 flex items-center gap-2">
+                        <AlertTriangle size={22}/> ¡Este platillo tiene Tamaños (Chico/Med/Gde)!
+                    </h4>
+                    <p className="text-orange-700 text-sm mb-6 font-medium leading-relaxed">
+                        Detectamos que este platillo tiene diferentes tamaños configurados en el Menú. 
+                        <strong> Si cada tamaño lleva cantidades diferentes de ingredientes</strong>, la mejor forma de llevar el inventario es crear un platillo individual por tamaño (Ej. "Rol Chico") en lugar de usar la casilla de tamaños fijos. <br/>
+                        Pero si deseas mantenerlo así, aquí tienes un <strong>simulador</strong> para que calcules la rentabilidad de cada tamaño si sabes cuánto te rinde la olla:
+                    </p>
+                    
+                    <div className="bg-white rounded-2xl p-5 border border-orange-100 shadow-sm">
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Simulador de Costos y Margen</p>
+                        <div className="space-y-4">
+                            {tamanosConfigurados.map(tam => {
+                                const precioBase = Number(productoSeleccionado.precio_base) || 0;
+                                const precioVenta = precioBase + (Number(tam.precioExtra) || 0);
+                                const rendSimulado = simuladorRendimientos[tam.nombre] || 1;
+                                const costoSimulado = costoTotalRecetaCalculado / Math.max(1, rendSimulado);
+                                const utilidad = precioVenta - costoSimulado;
+                                const margen = precioVenta > 0 ? (utilidad / precioVenta) * 100 : 0;
+
+                                return (
+                                    <div key={tam.nombre} className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                        <div className="w-full lg:w-1/4">
+                                            <p className="font-black text-slate-700 text-lg">{tam.nombre}</p>
+                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Venta: <span className="text-blue-500">${precioVenta}</span></p>
+                                        </div>
+                                        <div className="w-full lg:w-2/4 flex flex-col sm:flex-row sm:items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
+                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap">Si esta receta rinde:</span>
+                                            <input 
+                                                type="number" 
+                                                placeholder="Ej. 20"
+                                                value={simuladorRendimientos[tam.nombre] || ''} 
+                                                onChange={e => setSimuladorRendimientos({...simuladorRendimientos, [tam.nombre]: Number(e.target.value)})} 
+                                                className="w-full sm:w-24 p-3 border border-blue-200 rounded-lg outline-none font-black text-blue-700 text-center focus:ring-2 focus:ring-blue-500 bg-blue-50" 
+                                            />
+                                            <span className="text-xs text-slate-500 font-bold whitespace-nowrap">piezas de tamaño {tam.nombre}</span>
+                                        </div>
+                                        <div className="w-full lg:w-1/4 lg:text-right bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-1">Costo: <span className="text-red-500 font-black ml-1">${costoSimulado.toFixed(2)}</span></p>
+                                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Margen: <span className="text-emerald-500 font-black ml-1">{margen.toFixed(1)}%</span></p>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                 </div>
+               )}
+
              </div>
           )}
         </div> 
