@@ -1,5 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { DollarSign, CheckCircle2, XCircle, BellRing, MessageSquare, AlertTriangle, CreditCard, Smartphone, MapPin, PackagePlus, PlusCircle, ShoppingBag, ChefHat, Wallet, Home, Phone } from 'lucide-react'; 
+import React from 'react';
+import { DollarSign, CheckCircle2, XCircle, BellRing } from 'lucide-react';
+
+import ModalPago from './modales/ModalPago';
+import ModalEditarPedido from './modales/ModalEditarPedido';
+import ModalIdentificar from './modales/ModalIdentificar';
+import ModalCompraRapida from './modales/ModalCompraRapida';
+import ModalResolver from './modales/ModalResolver';
+import ModalAgregarExtra from './modales/ModalAgregarExtra';
+import ModalZonaEnvio from './modales/ModalZonaEnvio';
+import ModalVerDetalle from './modales/ModalVerDetalle';
+import ModalAperturaCaja from './modales/ModalAperturaCaja';
 
 const ModalesCaja = ({
   fondoCaja, iniciarTurno, inputFondo, setInputFondo,
@@ -10,111 +20,16 @@ const ModalesCaja = ({
   paquetesComprados, setPaquetesComprados, registrarCompraRapida,
   alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
   alertaCobroExtra, setAlertaCobroExtra,
-  
   modalEditarPedido, setModalEditarPedido, guardarEdicionPedido,
-
-  isSubmitting,
-  modalVerDetalle, setModalVerDetalle,
-  
+  isSubmitting, modalVerDetalle, setModalVerDetalle,
   modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
   telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
   buscarClienteParaPedido, registrarClienteParaPedido, onGoToKiosco
 }) => {
 
-  const [modoMixto, setModoMixto] = useState(false);
-  const [montoEfectivoMixto, setMontoEfectivoMixto] = useState('');
-  const [montoTarjetaMixto, setMontoTarjetaMixto] = useState('');
-  const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
-
-  const [editConsumo, setEditConsumo] = useState('');
-  const [editDireccion, setEditDireccion] = useState('');
-
-  useEffect(() => {
-    if (modalEditarPedido) {
-      setEditConsumo(modalEditarPedido.tipo_consumo || 'Local');
-      let dirPura = modalEditarPedido.direccion_entrega || '';
-      if (modalEditarPedido.tipo_consumo === 'Domicilio' && dirPura.includes('|')) {
-         dirPura = dirPura.split('|')[0].trim();
-      }
-      setEditDireccion(dirPura);
-    }
-  }, [modalEditarPedido]);
-
-  const getIconoPago = (metodo) => { 
-    if(metodo==='Tarjeta') return <CreditCard size={16}/>; 
-    if(metodo==='Transferencia') return <Smartphone size={16}/>; 
-    if(metodo==='Mixto') return <Wallet size={16}/>;
-    return <DollarSign size={16}/>; 
-  };
-
-  const getTarifasEnvio = () => {
-    if (!configGlobal?.tarifas_envio) return [];
-    try {
-      return typeof configGlobal.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio) : configGlobal.tarifas_envio;
-    } catch (e) { return []; }
-  };
-
-  const calcularRestanteMixto = () => {
-     if (!modalPago) return 0;
-     const total = Number(modalPago.total);
-     const ef = Number(montoEfectivoMixto) || 0;
-     const ta = Number(montoTarjetaMixto) || 0;
-     const tr = Number(montoTransferenciaMixto) || 0;
-     return (total - ef - ta - tr).toFixed(2);
-  };
-
-  const procesarCobroMixto = () => {
-    if (Number(calcularRestanteMixto()) !== 0) return; 
-    
-    const desglosePagos = [];
-    if (Number(montoEfectivoMixto) > 0) desglosePagos.push({ metodo: 'Efectivo', monto: Number(montoEfectivoMixto) });
-    if (Number(montoTarjetaMixto) > 0) desglosePagos.push({ metodo: 'Tarjeta', monto: Number(montoTarjetaMixto) });
-    if (Number(montoTransferenciaMixto) > 0) desglosePagos.push({ metodo: 'Transferencia', monto: Number(montoTransferenciaMixto) });
-
-    procesarPago(null, false, JSON.stringify(desglosePagos));
-    
-    setModoMixto(false);
-    setMontoEfectivoMixto('');
-    setMontoTarjetaMixto('');
-    setMontoTransferenciaMixto('');
-  };
-
-  const cerrarModalPago = () => {
-    setModalPago(null);
-    setModoMixto(false);
-    setMontoEfectivoMixto('');
-    setMontoTarjetaMixto('');
-    setMontoTransferenciaMixto('');
-    setMontoRecibido('');
-  };
-
-  const submitEdicionPedido = (e) => {
-    e.preventDefault();
-    let payload = { tipo_consumo: editConsumo };
-    
-    if (editConsumo === 'Domicilio') {
-       if (!editDireccion.trim()) return alert("Debes agregar la dirección si es a Domicilio.");
-       payload.direccion_entrega = editDireccion;
-    } else if (editConsumo === 'Recoger en Local') {
-       if (!editDireccion.trim() && modalEditarPedido.cliente_nombre) {
-         payload.direccion_entrega = `PEDIDO POR TELÉFONO - ${modalEditarPedido.cliente_nombre}`;
-       } else {
-         payload.direccion_entrega = editDireccion || 'Para pasar a recoger';
-       }
-    } else {
-       payload.direccion_entrega = ''; 
-       payload.costo_envio = 0; 
-       
-       if (modalEditarPedido.tipo_consumo === 'Domicilio' && Number(modalEditarPedido.costo_envio) > 0) {
-          payload.total = Math.max(0, Number(modalEditarPedido.total) - Number(modalEditarPedido.costo_envio));
-       }
-    }
-
-    guardarEdicionPedido(modalEditarPedido.id, payload);
-  };
-
   return (
     <>
+      {/* ALERTAS GLOBALES (TOASTS) */}
       {alertaCaja && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[999] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${
@@ -136,16 +51,15 @@ const ModalesCaja = ({
         </div>
       )}
 
+      {/* ALERTA DE COBRO EXTRA OBLIGATORIO */}
       {alertaCobroExtra && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[999] p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-lg text-center animate-in zoom-in duration-300 border-4 border-orange-500">
             <div className="mx-auto bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mb-6 animate-pulse shadow-lg shadow-orange-500/30">
                <DollarSign size={64} />
             </div>
-            
             <h2 className="text-5xl font-black text-slate-800 mb-2 uppercase tracking-tight">¡Cobrar Ahora!</h2>
             <p className="text-xl font-bold text-slate-500 mb-8">El cliente ha solicitado un ingrediente extra de último minuto.</p>
-            
             <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 mb-8 text-left">
                <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-4">
                   <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Orden</p>
@@ -163,617 +77,55 @@ const ModalesCaja = ({
                   </div>
                </div>
             </div>
-
-            <button 
-               onClick={() => setAlertaCobroExtra(null)} 
-               className="w-full bg-orange-500 hover:bg-orange-600 text-white py-6 rounded-3xl font-black text-2xl shadow-xl shadow-orange-500/30 transition active:scale-95 flex items-center justify-center gap-3"
-            >
+            <button onClick={() => setAlertaCobroExtra(null)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-6 rounded-3xl font-black text-2xl shadow-xl shadow-orange-500/30 transition active:scale-95 flex items-center justify-center gap-3">
                <CheckCircle2 size={32} /> ¡Entendido, ya lo cobré!
             </button>
           </div>
         </div>
       )}
 
-      {fondoCaja === null && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-          <form onSubmit={iniciarTurno} className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-md text-center animate-in zoom-in">
-            <span className="text-6xl mb-6 block">💵</span>
-            <h2 className="text-3xl font-black text-slate-800 mb-2">Apertura de Caja</h2>
-            <p className="text-slate-500 font-medium mb-8">¿Con cuánta feria (efectivo) inicias tu turno hoy?</p>
-            <input 
-              type="number" required autoFocus min="0" step="0.5" 
-              value={inputFondo} onChange={e => setInputFondo(e.target.value)} 
-              className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-6 text-center text-4xl font-black outline-none focus:border-emerald-500 text-slate-800 mb-6" 
-              placeholder="$0.00" 
-            />
-            <button type="submit" disabled={inputFondo===''} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg transition disabled:opacity-50">Comenzar Turno</button>
-          </form>
-        </div>
-      )}
+      {/* COMPONENTES MODALES MODULARIZADOS */}
+      <ModalAperturaCaja fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo} />
+      
+      <ModalIdentificar 
+         modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} 
+         telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} 
+         buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} 
+      />
 
-      {modalIdentificar && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4">
-          <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-2xl w-full max-w-md animate-in zoom-in">
-            
-            {pasoIdentificar === 'telefono' ? (
-                <form onSubmit={buscarClienteParaPedido} className="text-center">
-                    <span className="text-6xl mb-6 block">👥</span>
-                    <h2 className="text-3xl font-black text-slate-800 mb-2">Identificar Cliente</h2>
-                    <p className="text-slate-500 font-medium mb-6">Ingresa el celular del cliente para acumular puntos, o continúa como invitado.</p>
-                    
-                    <input 
-                        type="tel" maxLength="10" autoFocus disabled={isSubmitting}
-                        value={telClienteNuevo} onChange={e => setTelClienteNuevo(e.target.value.replace(/\D/g, ''))} 
-                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-5 text-center text-3xl font-black outline-none focus:border-blue-500 text-slate-800 mb-6 tracking-widest" 
-                        placeholder="000 000 0000" 
-                    />
-                    
-                    <div className="flex gap-4 mb-4">
-                        <button type="button" disabled={isSubmitting} onClick={() => setModalIdentificar(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
-                        <button type="submit" disabled={telClienteNuevo.length !== 10 || isSubmitting} className="flex-[2] py-4 bg-blue-600 text-white font-black text-lg rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition">Buscar Cliente</button>
-                    </div>
-                    
-                    <button type="button" disabled={isSubmitting} onClick={() => { setModalIdentificar(false); onGoToKiosco(null); }} className="w-full py-4 text-blue-600 font-bold hover:bg-blue-50 rounded-2xl transition underline">Omitir y continuar como Invitado</button>
-                </form>
-            ) : (
-                <form onSubmit={registrarClienteParaPedido} className="text-center">
-                    <span className="text-6xl mb-4 block">✨</span>
-                    <h2 className="text-2xl font-black text-slate-800 mb-1">¡Nuevo Cliente!</h2>
-                    <p className="text-slate-500 font-medium mb-6">Regístralo rápido para que gane puntos.</p>
-                    
-                    <div className="space-y-4 text-left">
-                        <div className="grid grid-cols-2 gap-4">
-                            <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.nombre} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nombre: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Nombre *" />
-                            <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.apellido} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, apellido: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Apellido *" />
-                        </div>
-                        <input type="email" disabled={isSubmitting} value={datosNuevoCliente.correo} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, correo: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Correo (Opcional)" />
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nacimiento</label>
-                                <input type="date" disabled={isSubmitting} value={datosNuevoCliente.fecha_nacimiento} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, fecha_nacimiento: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">NIP (4 dígitos) *</label>
-                                <input type="text" maxLength="4" required disabled={isSubmitting} value={datosNuevoCliente.nip} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nip: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500 tracking-[0.5em] text-center" placeholder="1234" />
-                            </div>
-                        </div>
-                    </div>
+      <ModalCompraRapida 
+         modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} 
+         setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting}
+      />
 
-                    <div className="flex gap-4 mt-8">
-                        <button type="button" disabled={isSubmitting} onClick={() => setPasoIdentificar('telefono')} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Atrás</button>
-                        <button type="submit" disabled={isSubmitting} className="flex-[2] py-4 bg-emerald-500 text-white font-black text-lg rounded-2xl hover:bg-emerald-600 shadow-lg disabled:opacity-50 transition">Completar Registro</button>
-                    </div>
-                </form>
-            )}
+      <ModalAgregarExtra 
+         modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} 
+         catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting}
+      />
 
-          </div>
-        </div>
-      )}
+      <ModalZonaEnvio 
+         modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} 
+         configGlobal={configGlobal} isSubmitting={isSubmitting}
+      />
 
-      {modalCompraRapida && !insumoComprar && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-4xl h-[80vh] flex flex-col animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center border-b pb-6 mb-6">
-              <div>
-                <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3">
-                  <PackagePlus className="text-emerald-500" size={32} /> Compras Rápidas
-                </h2>
-                <p className="text-slate-500 font-bold mt-1">Registra la entrada de insumos de emergencia.</p>
-              </div>
-              <button onClick={() => setModalCompraRapida(false)} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-3 rounded-full transition">
-                <XCircle size={28} />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-2 bg-slate-50 rounded-2xl border border-slate-100">
-              {insumosDB.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 font-bold">No hay insumos registrados en la base de datos.</div>
-              ) : (
-                <table className="w-full text-left">
-                  <thead className="sticky top-0 bg-slate-100 shadow-sm z-10">
-                    <tr>
-                      <th className="p-4 text-xs font-black text-slate-400 uppercase tracking-widest">Insumo</th>
-                      <th className="p-4 text-xs font-black text-slate-400 uppercase tracking-widest text-center">Stock Actual</th>
-                      <th className="p-4 text-xs font-black text-slate-400 uppercase tracking-widest text-center">Costo Unit.</th>
-                      <th className="p-4 text-xs font-black text-slate-400 uppercase tracking-widest text-right">Acción</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {insumosDB.map(insumo => (
-                      <tr key={insumo.id} className="hover:bg-white transition group">
-                        <td className="p-4">
-                          <p className="font-black text-slate-700">{insumo.nombre}</p>
-                          <p className="text-xs font-bold text-slate-400">{insumo.cantidad_presentacion} {insumo.unidad_medida}</p>
-                        </td>
-                        <td className="p-4 text-center">
-                          <span className={`px-3 py-1 rounded-lg text-xs font-black ${Number(insumo.stock_actual) <= 0 ? 'bg-red-100 text-red-600' : 'bg-slate-200 text-slate-600'}`}>
-                            {Number(insumo.stock_actual || 0).toFixed(2)} {insumo.unidad_medida}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center font-bold text-slate-600">${Number(insumo.costo_presentacion || 0).toFixed(2)}</td>
-                        <td className="p-4 text-right">
-                          <button 
-                            onClick={() => { setInsumoComprar(insumo); setPaquetesComprados(''); }}
-                            className="bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-4 py-2 rounded-xl font-black text-sm transition shadow-sm"
-                          >
-                            Registrar Compra
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalResolver 
+         modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} 
+         accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} 
+         enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting}
+      />
 
-      {insumoComprar && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-          <form onSubmit={registrarCompraRapida} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4">
-            <h2 className="text-2xl font-black text-slate-800 mb-1">Ingresar Stock</h2>
-            <p className="text-slate-500 font-bold mb-6 pb-4 border-b">
-              Insumo: <span className="text-blue-600">{insumoComprar.nombre}</span> ({insumoComprar.cantidad_presentacion} {insumoComprar.unidad_medida})
-            </p>
+      <ModalPago 
+         modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting}
+      />
 
-            <div className="space-y-6 mb-8">
-              <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Paquetes / Cajas Compradas</label>
-                <input 
-                  type="number" 
-                  min="0.1" step="0.1" required autoFocus disabled={isSubmitting}
-                  value={paquetesComprados} 
-                  onChange={(e) => setPaquetesComprados(e.target.value)} 
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black outline-none focus:border-emerald-500 text-slate-800 disabled:opacity-50" 
-                  placeholder="Ej. 2" 
-                />
-              </div>
+      <ModalEditarPedido 
+         modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} 
+         onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting}
+      />
 
-              <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Costo Fijo del Paquete ($)</label>
-                <div className="w-full bg-slate-100 border border-slate-200 rounded-2xl p-4 text-center text-2xl font-black text-slate-500 cursor-not-allowed">
-                  ${Number(insumoComprar.costo_presentacion) ? Number(insumoComprar.costo_presentacion).toFixed(2) : '0.00'}
-                </div>
-                <p className="text-[10px] text-center text-slate-400 mt-2 font-bold">*El costo unitario solo puede modificarse desde el panel de Administrador.</p>
-              </div>
-
-              <div className="bg-blue-50 border border-blue-100 p-6 rounded-3xl text-center">
-                <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-1">Total Pagado a Proveedor</p>
-                <p className="text-5xl font-black text-blue-700">
-                  ${paquetesComprados && Number(insumoComprar.costo_presentacion) ? (Number(paquetesComprados) * Number(insumoComprar.costo_presentacion)).toFixed(2) : '0.00'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-4">
-              <button disabled={isSubmitting} type="button" onClick={() => { setInsumoComprar(null); setPaquetesComprados(''); }} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-              <button type="submit" disabled={!paquetesComprados || Number(paquetesComprados) <= 0 || isSubmitting} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition flex justify-center items-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {modalAgregarExtra && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[70] p-4">
-          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg animate-in zoom-in duration-200">
-            <div className="flex items-center gap-3 mb-6 border-b pb-4">
-              <PlusCircle className="text-emerald-500" size={32} />
-              <div>
-                <h2 className="text-2xl font-black text-slate-800">Agregar Extra</h2>
-                <p className="text-sm font-bold text-slate-500">A {modalAgregarExtra.itemSeleccionado.nombre}</p>
-              </div>
-            </div>
-
-            <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">Selecciona el extra a cobrar:</p>
-            
-            <div className="space-y-3 mb-8 max-h-60 overflow-y-auto pr-2">
-              {(() => {
-                const categoriaPlatillo = modalAgregarExtra.itemSeleccionado.categoria || modalAgregarExtra.itemSeleccionado.clasificacion || '';
-                const catLimpia = String(categoriaPlatillo).trim().toLowerCase();
-                
-                const extrasDisponibles = catalogoIngredientes.filter(ing => {
-                  const ingCatLimpia = String(ing.clasificacion_nombre || '').trim().toLowerCase();
-                  const permite = ing.permite_extra === true || ing.permite_extra === 'true' || ing.permite_extra === 't';
-                  return ingCatLimpia === catLimpia && permite;
-                });
-                
-                if (extrasDisponibles.length === 0) {
-                  return (
-                    <div className="bg-orange-50 text-orange-700 p-4 rounded-xl border border-orange-200 flex items-center gap-3">
-                      <AlertTriangle size={20} />
-                      <p className="font-bold text-sm">No hay extras permitidos para la categoría "{categoriaPlatillo}".</p>
-                    </div>
-                  );
-                }
-
-                return extrasDisponibles.map(extra => (
-                  <button 
-                    key={extra.id} 
-                    disabled={isSubmitting}
-                    onClick={() => confirmarAgregarExtra(modalAgregarExtra.pedidoOriginal, modalAgregarExtra.itemIndex, extra)}
-                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition group text-left disabled:opacity-50"
-                  >
-                    <span className="font-black text-slate-700 group-hover:text-emerald-800">{extra.nombre}</span>
-                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-emerald-600 group-hover:text-white transition">
-                      {Number(extra.precio_extra) > 0 ? `+ $${Number(extra.precio_extra).toFixed(2)}` : 'Gratis'}
-                    </span>
-                  </button>
-                ));
-              })()}
-            </div>
-
-            <div className="flex gap-4">
-              <button disabled={isSubmitting} onClick={() => setModalAgregarExtra(null)} className="w-full py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalZonaEnvio && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl animate-in zoom-in duration-200">
-            <div className="flex items-center gap-3 mb-6 border-b pb-4">
-              <MapPin className="text-purple-500" size={32} />
-              <h2 className="text-2xl font-black text-slate-800">Asignar Zona de Envío</h2>
-            </div>
-            
-            <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100 flex justify-between items-center">
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Orden a Domicilio</p>
-                <p className="font-bold text-slate-800 text-lg">#{modalZonaEnvio.numero_pedido}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Actual</p>
-                <p className="font-black text-2xl text-blue-600">${modalZonaEnvio.total}</p>
-              </div>
-            </div>
-
-            <p className="text-sm font-bold text-slate-50 mb-4 uppercase tracking-widest">Selecciona la zona correspondiente:</p>
-            
-            <div className="space-y-3 mb-8 max-h-60 overflow-y-auto pr-2">
-              {getTarifasEnvio().length === 0 ? (
-                <div className="bg-orange-50 text-orange-700 p-4 rounded-xl border border-orange-200 flex items-center gap-3">
-                  <AlertTriangle size={20} />
-                  <p className="font-bold text-sm">No hay zonas configuradas. Se enviará a cocina con costo de envío $0.</p>
-                </div>
-              ) : (
-                getTarifasEnvio().map((tarifa, index) => (
-                  <button 
-                    key={index} 
-                    disabled={isSubmitting}
-                    onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, tarifa)}
-                    className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition group disabled:opacity-50"
-                  >
-                    <span className="font-black text-slate-700 group-hover:text-purple-800">{tarifa.zona}</span>
-                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-purple-600 group-hover:text-white transition">
-                      + ${tarifa.costo}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-
-            <div className="flex gap-4">
-              <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-              {getTarifasEnvio().length === 0 && (
-                 <button disabled={isSubmitting} onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, {zona: 'Sin Zona', costo: 0})} className="flex-[2] py-5 bg-purple-600 text-white font-black text-xl rounded-2xl hover:bg-purple-700 shadow-lg transition disabled:opacity-50">Mandar a Cocina (Envío $0)</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalResolver && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <form onSubmit={enviarRespuestaCocina} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl">
-            <div className="flex items-center gap-3 mb-6 border-b pb-4"><BellRing className="text-red-500" size={32} /><h2 className="text-2xl font-black text-slate-800">Responder a Cocina</h2></div>
-            <div className="bg-red-50 p-4 rounded-2xl mb-6 border border-red-100"><p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Mensaje del Chef:</p><p className="text-lg font-black text-red-700">{modalResolver.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '')}</p></div>
-
-            <div className="space-y-4 mb-8">
-              <div>
-                <label className="block text-sm font-black text-slate-400 uppercase mb-2">1. Platillo con el problema</label>
-                <select required value={itemAfectadoIdx} onChange={(e) => {setItemAfectadoIdx(e.target.value); setIngredienteReemplazo('');}} disabled={modalResolver.alerta_cocina.includes('[IDX:') || isSubmitting} className={`w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none text-slate-700 ${modalResolver.alerta_cocina.includes('[IDX:') ? 'opacity-70 cursor-not-allowed' : 'focus:border-blue-500'}`}>
-                  <option value="">Selecciona el platillo...</option>
-                  {(modalResolver.carrito || []).map((item, idx) => {
-                    const extrasStr = (item.extras || []).map(e => e.nombre).join(', ');
-                    const nombreLabel = `${item.nombre}${extrasStr ? ` (${extrasStr})` : ''}`;
-                    return <option key={idx} value={idx}>{nombreLabel}</option>
-                  })}
-                </select>
-              </div>
-
-              {itemAfectadoIdx !== '' && (
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 animate-in fade-in">
-                  <label className="block text-sm font-black text-slate-400 uppercase mb-3">2. ¿Qué decidió el cliente?</label>
-                  <div className="flex flex-col gap-3 mb-4">
-                    {(() => {
-                      const match = modalResolver.alerta_cocina.match(/Propuesta: (.*)/);
-                      const propuestaChef = match ? match[1] : null;
-                      if (propuestaChef && propuestaChef !== 'Ninguna' && propuestaChef !== 'Solo quitarlo') {
-                        return (
-                          <label className={`w-full flex items-center gap-3 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'aceptar' ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}>
-                            <input disabled={isSubmitting} type="radio" name="accion" value="aceptar" checked={accionAlerta === 'aceptar'} onChange={() => setAccionAlerta('aceptar')} className="hidden" /><CheckCircle2 size={20}/> Aceptar Propuesta: {propuestaChef}
-                          </label>
-                        );
-                      }
-                      return null;
-                    })()}
-                    
-                    <div className="flex gap-3">
-                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'quitar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input disabled={isSubmitting} type="radio" name="accion" value="quitar" checked={accionAlerta === 'quitar'} onChange={() => setAccionAlerta('quitar')} className="hidden" /> Quitar Faltante</label>
-                      <label className={`flex-1 flex items-center justify-center gap-2 cursor-pointer p-4 border rounded-xl font-bold transition ${accionAlerta === 'cambiar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white text-slate-600 hover:border-slate-300'}`}><input disabled={isSubmitting} type="radio" name="accion" value="cambiar" checked={accionAlerta === 'cambiar'} onChange={() => setAccionAlerta('cambiar')} className="hidden" /> Cambiarlo por...</label>
-                    </div>
-                  </div>
-
-                  {accionAlerta === 'cambiar' && (
-                    <div className="animate-in fade-in zoom-in duration-200 mt-4 pt-4 border-t border-slate-200">
-                      <label className="block text-xs font-black text-slate-400 uppercase mb-2">Opciones Base de este Platillo</label>
-                      <select disabled={isSubmitting} required value={ingredienteReemplazo} onChange={(e) => setIngredienteReemplazo(e.target.value)} className="w-full p-4 bg-white border border-slate-200 rounded-xl font-bold outline-none focus:border-blue-500 text-slate-700 shadow-sm">
-                        <option value="">Selecciona reemplazo...</option>
-                        {(() => {
-                          const itemSeleccionado = modalResolver.carrito[itemAfectadoIdx];
-                          if(!itemSeleccionado) return null;
-                          const bases = catalogoIngredientes.filter(ing => ing.clasificacion_nombre === itemSeleccionado.categoria && ing.tipo === 'base');
-                          return bases.length > 0 ? bases.map(b => <option key={b.id} value={b.nombre}>{b.nombre}</option>) : <option disabled>No hay ingredientes base registrados.</option>;
-                        })()}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-4">
-              <button disabled={isSubmitting} type="button" onClick={() => {setModalResolver(null); setItemAfectadoIdx('');}} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-              <button type="submit" disabled={itemAfectadoIdx === '' || (accionAlerta==='cambiar' && !ingredienteReemplazo) || isSubmitting} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition flex items-center justify-center gap-2"><MessageSquare size={24}/> {isSubmitting ? 'Enviando...' : 'Enviar Respuesta'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL DE PAGOS */}
-      {modalPago && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200 max-h-screen overflow-y-auto">
-            
-            <div className="flex justify-between items-center mb-6 border-b pb-4">
-              <div>
-                 <h2 className="text-3xl md:text-4xl font-black text-slate-800">Orden #{modalPago.numero_pedido}</h2>
-                 {/* 👇 INDICADOR DE MESA EN EL MODAL DE PAGO */}
-                 {modalPago.mesa && (
-                    <span className="text-sm font-black text-indigo-600 bg-indigo-100 px-3 py-1 rounded-lg mt-2 inline-flex items-center gap-1">
-                       📍 MESA {modalPago.mesa}
-                    </span>
-                 )}
-              </div>
-              <span className={`text-sm md:text-lg font-bold px-3 py-1.5 md:px-4 md:py-2 rounded-xl flex items-center gap-2 tracking-wide uppercase ${modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar' ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-600'}`}>
-                {getIconoPago(modalPago.metodo_pago)} <span className="hidden sm:inline">{modalPago.metodo_pago === 'Por Cobrar' ? 'Cuenta Abierta' : modalPago.metodo_pago}</span>
-              </span>
-            </div>
-            
-            <div className="bg-slate-50 p-4 md:p-6 rounded-3xl mb-6 md:mb-8 flex justify-between items-center border border-slate-100">
-              <div><p className="text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Total a Cobrar</p><p className="text-4xl md:text-5xl font-black text-blue-600">${modalPago.total}</p></div>
-              <div className="text-right"><p className="text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p><p className="text-lg md:text-xl font-bold text-slate-700">{modalPago.cliente_nombre || 'Invitado'}</p><p className="text-xs md:text-sm font-bold text-slate-500">{modalPago.tipo_consumo}</p></div>
-            </div>
-
-            {modoMixto ? (
-               <div className="space-y-6 animate-in slide-in-from-right">
-                  <p className="font-black text-slate-400 uppercase tracking-widest text-sm mb-4 text-center">Desglose de Pago Mixto:</p>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     <div>
-                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><DollarSign size={14}/> Efectivo</label>
-                       <input type="number" min="0" step="0.5" value={montoEfectivoMixto} onChange={e => setMontoEfectivoMixto(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl p-4 text-center text-xl font-black outline-none focus:border-emerald-500 text-slate-800" placeholder="$0" />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><CreditCard size={14}/> Tarjeta</label>
-                       <input type="number" min="0" step="0.5" value={montoTarjetaMixto} onChange={e => setMontoTarjetaMixto(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl p-4 text-center text-xl font-black outline-none focus:border-blue-500 text-slate-800" placeholder="$0" />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-bold text-slate-500 uppercase mb-2 flex items-center gap-1"><Smartphone size={14}/> Transferencia</label>
-                       <input type="number" min="0" step="0.5" value={montoTransferenciaMixto} onChange={e => setMontoTransferenciaMixto(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-xl p-4 text-center text-xl font-black outline-none focus:border-purple-500 text-slate-800" placeholder="$0" />
-                     </div>
-                  </div>
-
-                  <div className={`p-4 rounded-2xl text-center border-2 transition-all ${Number(calcularRestanteMixto()) === 0 ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
-                     <p className="text-sm font-bold uppercase tracking-widest mb-1">Diferencia</p>
-                     <p className="text-3xl font-black">${calcularRestanteMixto()}</p>
-                     {Number(calcularRestanteMixto()) !== 0 && <p className="text-xs font-bold mt-1">La suma de los pagos debe ser exactamente igual al total.</p>}
-                  </div>
-
-                  <div className="flex gap-4 pt-4 border-t border-slate-100">
-                    <button disabled={isSubmitting} onClick={() => setModoMixto(false)} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Atrás</button>
-                    <button disabled={Number(calcularRestanteMixto()) !== 0 || isSubmitting} onClick={procesarCobroMixto} className="flex-[2] py-4 md:py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Procesando...' : 'Confirmar Cobro Mixto'}</button>
-                  </div>
-               </div>
-            ) : (modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar') ? (
-              <div className="space-y-6 text-center">
-                <p className="font-black text-slate-400 uppercase tracking-widest text-sm mb-4">Selecciona el método de pago final:</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
-                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Efectivo'})} className="bg-emerald-50 hover:border-emerald-500 border-2 border-transparent text-emerald-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><DollarSign size={28}/> <span className="text-sm md:text-base">Efectivo</span></button>
-                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Tarjeta'})} className="bg-blue-50 hover:border-blue-500 border-2 border-transparent text-blue-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><CreditCard size={28}/> <span className="text-sm md:text-base">Tarjeta</span></button>
-                    <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Transferencia'})} className="bg-purple-50 hover:border-purple-500 border-2 border-transparent text-purple-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Smartphone size={28}/> <span className="text-sm md:text-base">Transf.</span></button>
-                    
-                    <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 hover:border-indigo-500 border-2 border-transparent text-indigo-700 p-4 md:p-6 rounded-[24px] font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28}/> <span className="text-sm md:text-base">Dividir Pago</span></button>
-                </div>
-                <div className="flex flex-col md:flex-row gap-3 md:gap-4 pt-4 border-t border-slate-100">
-                    <button disabled={isSubmitting} onClick={cerrarModalPago} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-                    
-                    {modalPago.estado_preparacion === 'Pendiente' && (
-                       <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="py-4 md:py-5 px-4 md:px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center justify-center gap-2" title="Mandar a cocina y cobrar al final"><ChefHat size={24}/> Cocinar (Cobro final)</button>
-                    )}
-
-                    <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50">Anular Pedido</button>
-                </div>
-              </div>
-            ) : modalPago.metodo_pago === 'Efectivo' ? (
-              <div className="space-y-6 animate-in fade-in">
-                <div><label className="block text-sm font-black text-slate-400 uppercase mb-3">Monto Recibido</label><input type="number" autoFocus disabled={isSubmitting} value={montoRecibido} onChange={(e) => setMontoRecibido(e.target.value)} className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl p-4 md:p-6 text-center text-3xl md:text-4xl font-black outline-none focus:border-blue-500 text-slate-800 disabled:opacity-50" placeholder="$0.00" /></div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(modalPago.total)} className="bg-slate-100 hover:bg-blue-100 hover:text-blue-700 text-slate-700 font-black py-3 md:py-4 rounded-xl transition text-base md:text-lg disabled:opacity-50">Exacto</button>
-                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(100)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-3 md:py-4 rounded-xl transition text-base md:text-lg disabled:opacity-50">$100</button>
-                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(200)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-3 md:py-4 rounded-xl transition text-base md:text-lg disabled:opacity-50">$200</button>
-                  <button disabled={isSubmitting} onClick={() => setMontoRecibido(500)} className="bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-700 font-black py-3 md:py-4 rounded-xl transition text-base md:text-lg disabled:opacity-50">$500</button>
-                </div>
-                {montoRecibido && Number(montoRecibido) >= Number(modalPago.total) && ( 
-                  <div className="bg-emerald-50 border border-emerald-200 p-4 md:p-6 rounded-2xl text-center">
-                    <p className="text-xs md:text-sm font-black text-emerald-600 uppercase tracking-widest mb-1">Cambio a devolver</p>
-                    <p className="text-4xl md:text-5xl font-black text-emerald-500">${(Number(montoRecibido) - Number(modalPago.total)).toFixed(2)}</p>
-                  </div> 
-                )}
-                <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
-                  <button disabled={isSubmitting} onClick={cerrarModalPago} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center">Cancelar</button>
-                  
-                  <div className="flex gap-3 w-full">
-                     <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
-                     <button disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total) || isSubmitting} onClick={() => procesarPago()} className="flex-1 py-4 md:py-5 bg-emerald-500 text-white font-black text-lg md:text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Procesando...' : 'Cobrar'}</button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center space-y-6 md:space-y-8 animate-in fade-in">
-                <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-3xl">
-                  <AlertTriangle className="mx-auto text-blue-500 mb-4" size={40}/>
-                  <h3 className="text-xl md:text-2xl font-black text-blue-900 mb-2">Validación Manual Requerida</h3>
-                  <p className="text-sm md:text-base text-blue-700 font-medium">Verifica en la {modalPago.metodo_pago === 'Tarjeta' ? 'Terminal Bancaria' : 'App de tu Banco / WhatsApp'} que el cobro por <strong>${modalPago.total}</strong> haya sido exitoso.</p>
-                </div>
-                <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
-                  <button disabled={isSubmitting} onClick={cerrarModalPago} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center">Cancelar</button>
-                  
-                  <div className="flex gap-3 w-full">
-                     <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
-                     <button disabled={isSubmitting} onClick={() => procesarPago()} className="flex-1 py-4 md:py-5 bg-blue-600 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={24}/> {isSubmitting ? 'Validando...' : 'Pago Validado'}</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* MODAL PARA EDITAR TIPO DE CONSUMO / DIRECCIÓN (Punto 4) */}
-      {modalEditarPedido && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-          <form onSubmit={submitEdicionPedido} className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg flex flex-col animate-in zoom-in duration-200">
-            <div className="flex justify-between items-center border-b pb-5 mb-5 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-100 text-blue-700 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center shadow-inner">
-                    <Smartphone size={20} className="md:w-6 md:h-6" />
-                </div>
-                <div>
-                    <h2 className="text-xl md:text-2xl font-black text-slate-800">Editar Información</h2>
-                    <p className="text-xs md:text-sm font-bold text-slate-500">Orden #{modalEditarPedido.numero_pedido}</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setModalEditarPedido(null)} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-2 md:p-2.5 rounded-full transition">
-                <XCircle size={24} />
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-black text-slate-400 uppercase tracking-widest mb-3">Tipo de Consumo</label>
-                <div className="grid grid-cols-2 gap-3">
-                   <button type="button" onClick={() => setEditConsumo('Local')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Local' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><Home size={18}/> Local</button>
-                   <button type="button" onClick={() => setEditConsumo('Para llevar')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Para llevar' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><PackagePlus size={18}/> Para Llevar</button>
-                   <button type="button" onClick={() => setEditConsumo('Domicilio')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Domicilio' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><MapPin size={18}/> Domicilio</button>
-                   <button type="button" onClick={() => setEditConsumo('Recoger en Local')} className={`p-4 rounded-xl border-2 font-bold flex items-center gap-2 justify-center transition-all ${editConsumo === 'Recoger en Local' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-500'}`}><Phone size={18}/> Recoger</button>
-                </div>
-              </div>
-
-              {(editConsumo === 'Domicilio' || editConsumo === 'Recoger en Local') && (
-                 <div className="animate-in fade-in">
-                    <label className="block text-sm font-black text-slate-400 uppercase tracking-widest mb-3">
-                       {editConsumo === 'Domicilio' ? 'Dirección de Entrega' : 'Notas / Referencia'}
-                    </label>
-                    <textarea 
-                       required={editConsumo === 'Domicilio'}
-                       value={editDireccion} 
-                       onChange={(e) => setEditDireccion(e.target.value)}
-                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-800 font-bold resize-none h-24"
-                       placeholder={editConsumo === 'Domicilio' ? 'Calle, número, colonia...' : 'Ej. Carro rojo, pasa en 10 min...'}
-                    />
-                 </div>
-              )}
-            </div>
-
-            <div className="flex gap-4 pt-6 mt-6 border-t border-slate-100">
-               <button type="button" disabled={isSubmitting} onClick={() => setModalEditarPedido(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-               <button type="submit" disabled={isSubmitting} className="flex-1 py-4 bg-blue-600 text-white font-black text-lg rounded-2xl hover:bg-blue-700 shadow-lg disabled:opacity-50 transition">Guardar Cambios</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* MODAL VER DETALLE */}
-      {modalVerDetalle && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center z-[80] p-4">
-          <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-lg h-[80vh] flex flex-col animate-in zoom-in duration-200">
-            
-            <div className="flex justify-between items-center border-b pb-5 mb-5 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-100 text-blue-700 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center shadow-inner">
-                    <ShoppingBag size={20} className="md:w-6 md:h-6" />
-                </div>
-                <div>
-                    <h2 className="text-xl md:text-2xl font-black text-slate-800">Detalle de Platillos</h2>
-                    <p className="text-xs md:text-sm font-bold text-slate-500">Orden #{modalVerDetalle.numero_pedido} - {modalVerDetalle.cliente_nombre || 'Invitado'}</p>
-                </div>
-              </div>
-              <button onClick={() => setModalVerDetalle(null)} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-2 md:p-2.5 rounded-full transition">
-                <XCircle size={24} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto pr-2 space-y-3 md:space-y-4">
-              {(() => {
-                const items = typeof modalVerDetalle.carrito === 'string' ? JSON.parse(modalVerDetalle.carrito) : modalVerDetalle.carrito;
-                if (!items || items.length === 0) return <p className="text-center text-slate-400 py-10 font-bold">Este pedido no tiene platillos registrados.</p>;
-                
-                return items.map((item, idx) => (
-                    <div key={idx} className="bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start gap-3">
-                            <p className="text-sm md:text-base font-black text-slate-800 leading-snug">
-                                {item.cantidad || 1}x {item.nombre}
-                            </p>
-                            <span className="text-[10px] md:text-xs font-black text-blue-600 bg-blue-100 px-2 py-1 md:px-3 rounded-lg shrink-0">
-                                ${Number(item.precioFinal || item.precio_base || item.precio || 0).toFixed(2)}
-                            </span >
-                        </div>
-                        
-                        {item.extras && item.extras.length > 0 && (
-                            <div className="mt-3 pl-3 border-l-2 border-slate-200 space-y-1">
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Extras Solicitados:</p>
-                                {item.extras.map((extra, eIdx) => (
-                                    <p key={eIdx} className="text-[10px] md:text-xs font-bold text-slate-600 flex justify-between items-center bg-white p-1.5 rounded-md border border-slate-100">
-                                        <span>+ {extra.nombre}</span>
-                                        {Number(extra.precioExtra || extra.precio || 0) > 0 && (
-                                            <span className="text-emerald-600 font-black">+${Number(extra.precioExtra || extra.precio || 0).toFixed(2)}</span>
-                                        )}
-                                    </p>
-                                ))}
-                            </div>
-                        )}
-                        
-                        {item.nota && (
-                            <div className="mt-3 bg-orange-50 p-2.5 rounded-xl border border-orange-100 text-orange-800 text-[10px] md:text-xs font-medium">
-                                <strong>Nota:</strong> {item.nota}
-                            </div>
-                        )}
-                    </div>
-                ));
-              })()}
-            </div>
-
-            <div className="border-t pt-4 md:pt-5 mt-4 md:mt-5 flex justify-between items-center shrink-0">
-                <p className="text-xs md:text-sm font-bold text-slate-500">Monto Total Cobrado:</p>
-                <p className="text-2xl md:text-3xl font-black text-blue-600">${Number(modalVerDetalle.total).toFixed(2)}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      <ModalVerDetalle 
+         modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle}
+      />
     </>
   );
 };

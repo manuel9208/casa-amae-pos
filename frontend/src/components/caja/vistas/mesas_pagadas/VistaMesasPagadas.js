@@ -1,0 +1,125 @@
+import React from 'react';
+import { CheckCircle2, Phone, Utensils } from 'lucide-react';
+
+const VistaMesasPagadas = ({
+  mesasPagadas,
+  isSubmitting,
+  limpiandoMesas,
+  setLimpiandoMesas,
+  getTelefonoExtraido,
+  renderBotonVerDetalle,
+  renderBotonEditar,
+  renderBotonAgregarExtra,
+  liberarMesaMagicamente,
+  apiUrl
+}) => {
+  return (
+    <>
+      <h2 className="text-4xl font-black mb-10 text-slate-800">Mesas Pagadas (Listas para Limpiar)</h2>
+      {mesasPagadas.length === 0 ? (
+        <div className="text-center text-slate-400 mt-20">
+          <CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/>
+          <p className="text-2xl font-bold">No hay mesas pendientes por limpiar.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+          {mesasPagadas.map(p => {
+            let direccionPura = '';
+            const tel = getTelefonoExtraido(p);
+            const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
+
+            if (p.direccion_entrega) {
+               const partes = p.direccion_entrega.split('|').map(x => x.trim());
+               direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+            }
+
+            return (
+            <div key={p.id} className="bg-emerald-50 p-8 rounded-[40px] shadow-sm border-2 border-emerald-200 flex flex-col hover:shadow-md transition">
+              <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-3xl font-black text-emerald-800">#{p.numero_pedido}</h3>
+                  <span className="text-xs font-black px-3 py-1.5 rounded-lg flex items-center gap-1 uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                      <CheckCircle2 size={16}/> PAGADO ({p.metodo_pago})
+                  </span>
+              </div>
+              
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                  {tel && (
+                      <span className="text-xs font-black text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                          <Phone size={12}/> {tel}
+                      </span>
+                  )}
+                  {p.mesa && (
+                      <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">
+                          📍 MESA {p.mesa}
+                      </span>
+                  )}
+              </div>
+
+              <div className="mb-4">
+                  <span className="text-xs font-black px-2.5 py-1 rounded-md uppercase tracking-widest inline-flex items-center gap-1.5 shadow-sm border bg-blue-50 text-blue-700 border-blue-200">
+                      🍽️ {tipoLimpio}
+                  </span>
+              </div>
+              
+              <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
+                 <Utensils size={16}/> Comiendo en Mesa
+              </div>
+
+              <div className="mb-4 flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  {renderBotonVerDetalle(p)}
+                  {renderBotonEditar(p)}
+                </div>
+                {renderBotonAgregarExtra(p)}
+              </div>
+              
+              <div className="mt-auto pt-6 border-t border-emerald-200">
+                <p className="text-4xl font-black text-emerald-600 mb-6">${p.total}</p>
+                
+                <button 
+                   disabled={isSubmitting || limpiandoMesas} 
+                   onClick={async () => {
+                       setLimpiandoMesas(true);
+                       try {
+                           // 1. Mapeamos el carrito interno cambiando el estado de cada plato a 'Finalizado'
+                           // Esto limpia de inmediato la pantalla de la TV (KDS)
+                           const carritoActual = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
+                           const nuevoCarrito = carritoActual.map(item => ({ ...item, estado: 'Finalizado' }));
+
+                           // 2. Mandamos la actualización del pedido a 'Finalizado' PRIMERO, desvinculando la mesa.
+                           // Al enviar mesa: null, el trigger del servidor no volverá a bloquear la mesa.
+                           await fetch(`${apiUrl}/pedidos/${p.id}/estado`, { 
+                               method: 'PUT', 
+                               headers: { 'Content-Type': 'application/json' }, 
+                               body: JSON.stringify({ 
+                                   estado_preparacion: 'Finalizado',
+                                   carrito: nuevoCarrito,
+                                   mesa: null 
+                               }) 
+                           });
+
+                           // 3. AL FINAL, ejecutamos la liberación de la mesa por el método de cancelación fantasma
+                           // Como la orden ya se guardó y no está amarrada a la mesa, quedará en estado 'Libre' permanentemente
+                           if (p.mesa) {
+                               await liberarMesaMagicamente(p.mesa);
+                           }
+                       } catch(e) {
+                           console.error("Error en flujo de liberación:", e);
+                       }
+                       setLimpiandoMesas(false);
+                   }} 
+                   className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50"
+                >
+                    {limpiandoMesas ? 'Liberando...' : <><CheckCircle2 size={24}/> Limpiar y Liberar Mesa</>}
+                </button>
+              </div>
+            </div>
+          )})}
+        </div>
+      )}
+    </>
+  );
+};
+
+export default VistaMesasPagadas;

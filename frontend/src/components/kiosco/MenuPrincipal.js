@@ -1,33 +1,30 @@
 import React, { useState } from 'react';
-import { Ticket, XCircle, CheckCircle2 } from 'lucide-react'; 
+import CategoriasGrid from './menu/CategoriasGrid';
+import ProductosGrid from './menu/ProductosGrid';
+import CarritoLateral from './menu/CarritoLateral';
 
 const MenuPrincipal = ({ 
   configGlobal, productos, clasificaciones, carrito, setCarrito, 
   baseUrl, setPantallaActual, pedidoEditandoId, clienteActivo, 
-  descuentoPuntos, setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar,
+  setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar,
+  calcularSubtotal, descuentoPuntosDinero, descuentoPuntosPuntosFisicos, 
+  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
   
-  calcularSubtotal, 
-  descuentoPuntosDinero, 
-  descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos,
-  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl,
-  mesaQR,
-  isOffline // 👇 Recibimos si estamos sin internet
+  guardarEdicionDirecta, // 👇 Recibimos la nueva función
+  isSubmitting           // 👇 Recibimos el estado de carga
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
-
   const [inputCupon, setInputCupon] = useState('');
   const [errorCupon, setErrorCupon] = useState('');
   const [buscandoCupon, setBuscandoCupon] = useState(false);
 
-  // === LÓGICA DE NEGOCIO CERRADO ===
   const isCerrado = configGlobal.negocio_abierto === false || configGlobal.negocio_abierto === 'false' || configGlobal.negocio_abierto === 0;
   const mensajeCierre = configGlobal.mensaje_cierre || 'El negocio se encuentra cerrado temporalmente. Por favor, vuelve más tarde.';
 
-  // === FUNCIONES DE UTILIDAD PARA EL CARRITO ===
   const cambiarCantidadCart = (idTicket, delta) => {
     setCarrito(carrito.map(item => {
       if (item.idTicket === idTicket) {
-        const nuevaCant = (item.cantidad || 1) + delta;
+        const nuevaCant = (item.amount || item.cantidad || 1) + delta;
         return { ...item, cantidad: Math.max(1, nuevaCant) };
       }
       return item;
@@ -58,16 +55,11 @@ const MenuPrincipal = ({
     return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
   };
 
-  // === VALIDAR CUPÓN EN LA BASE DE DATOS ===
   const validarCupon = async (e) => {
     e.preventDefault();
     setErrorCupon('');
     if (!inputCupon.trim()) return;
-
-    // 👇 Si no hay internet, bloqueamos la validación
-    if (isOffline) {
-        return setErrorCupon('No se pueden validar cupones sin Internet.');
-    }
+    if (isOffline) return setErrorCupon('No se pueden validar cupones sin Internet.');
     
     setBuscandoCupon(true);
     try {
@@ -76,9 +68,7 @@ const MenuPrincipal = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ codigo: inputCupon })
       });
-      
       const data = await res.json();
-      
       if (res.ok) {
         setCuponActivo(data);
         setInputCupon('');
@@ -93,9 +83,7 @@ const MenuPrincipal = ({
 
   return (
     <div className="flex flex-col lg:flex-row gap-8 h-[75vh]">
-      {/* SECCIÓN IZQUIERDA: MENÚ */}
       <div className="w-full lg:w-2/3 flex flex-col h-full">
-        
         {isCerrado && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center gap-4">
             <span className="text-4xl">⏸️</span>
@@ -107,187 +95,25 @@ const MenuPrincipal = ({
         )}
 
         {!categoriaActiva ? (
-          <div className="flex flex-col h-full">
-            <h2 className="text-4xl font-black mb-8 text-slate-800">{configGlobal.kiosco_mensaje || '¿Qué se te antoja hoy?'}</h2>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-6 pr-2">
-              {categoriasUnicas.map(cat => {
-                const portada = getPortadaCategoria(cat);
-                return (
-                  <button key={cat} onClick={() => setCategoriaActiva(cat)} className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-100 flex flex-col items-center justify-center active:scale-95 transition-all hover:shadow-lg min-h-[220px] group">
-                    {portada.imagen_url ? (
-                      <img src={portada.imagen_url?.startsWith('http') ? portada.imagen_url : `${baseUrl}${portada.imagen_url}`} alt={cat} className="w-24 h-24 object-cover rounded-full shadow-md mb-6 group-hover:scale-110 transition-transform" />
-                    ) : (
-                      <span className="text-7xl mb-6 group-hover:scale-110 transition-transform">{portada.emoji}</span>
-                    )}
-                    <h3 className="text-2xl font-black text-slate-700 tracking-tight">{cat}</h3>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={baseUrl} />
         ) : (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between mb-8 gap-4 bg-white p-4 rounded-3xl shadow-sm border">
-              <h2 className="text-3xl font-black text-slate-800 ml-4">{categoriaActiva}</h2>
-              <button onClick={() => setCategoriaActiva(null)} className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-black text-lg transition flex items-center justify-center shadow-lg active:scale-95">⬅ Volver</button>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-6 pr-2">
-              {productosFiltrados.map((p) => {
-                const tieneOpciones = p.opciones?.length > 0;
-                return (
-                  <button key={p.id} onClick={() => abrirModalProducto(p)} className="bg-white p-6 rounded-[30px] shadow-sm border border-gray-100 flex flex-col items-center active:scale-95 transition-transform hover:shadow-md hover:border-blue-200">
-                    {p.imagen_url ? (
-                      <img src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-28 h-28 object-cover rounded-2xl shadow-sm mb-4" />
-                    ) : (
-                      <span className="text-6xl mb-4 bg-slate-50 w-28 h-28 flex items-center justify-center rounded-2xl">{p.emoji}</span>
-                    )}
-                    <h3 className="text-xl font-bold text-center leading-tight text-slate-700">{p.nombre}</h3>
-                    <span className={`mt-4 px-4 py-2 rounded-full font-black ${tieneOpciones ? 'bg-emerald-50 text-emerald-600 text-sm' : 'bg-slate-100 text-blue-600'}`}>
-                      {tieneOpciones ? 'Personalizar' : `$${p.precio_base}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <ProductosGrid categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva} productosFiltrados={productosFiltrados} abrirModalProducto={abrirModalProducto} baseUrl={baseUrl} />
         )}
       </div>
 
-      {/* SECCIÓN DERECHA: CARRITO Y DESCUENTOS */}
-      <div className="w-full lg:w-1/3 bg-white rounded-[40px] shadow-xl p-8 border flex flex-col h-full relative">
-        {pedidoEditandoId && (<div className="absolute top-0 left-0 right-0 bg-orange-500 text-white text-center py-2 rounded-t-[40px] text-xs font-black uppercase tracking-widest shadow-md">Editando Orden Activa</div>)}
-        <h2 className={`text-2xl font-black mb-6 border-b pb-4 text-slate-800 ${pedidoEditandoId ? 'mt-4' : ''}`}>Tu Orden</h2>
+      <CarritoLateral 
+        carrito={carrito} pedidoEditandoId={pedidoEditandoId} cambiarCantidadCart={cambiarCantidadCart} 
+        editarItem={editarItem} quitarDelCarrito={quitarDelCarrito} isOffline={isOffline} 
+        inputCupon={inputCupon} setInputCupon={setInputCupon} errorCupon={errorCupon} 
+        setErrorCupon={setErrorCupon} buscandoCupon={buscandoCupon} validarCupon={validarCupon} 
+        cuponActivo={cuponActivo} setCuponActivo={setCuponActivo} clienteActivo={clienteActivo} 
+        descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos} configGlobal={configGlobal} 
+        setModalNip={setModalNip} descuentoCuponDinero={descuentoCuponDinero} descuentoPuntosDinero={descuentoPuntosDinero} 
+        calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual} 
         
-        <div className="flex-1 overflow-y-auto pr-2">
-          {carrito.length === 0 ? (
-            <div className="text-center py-20 opacity-20"><span className="text-6xl block mb-4">🛒</span><p className="font-bold">Tu carrito está vacío</p></div>
-          ) : (
-            carrito.map((item) => (
-              <div key={item.idTicket} className="flex justify-between items-start mb-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <div className="flex-1 pr-2">
-                  <span className="font-black block text-lg text-slate-700">
-                    {item.cantidad > 1 && <span className="text-blue-600 mr-2">{item.cantidad}x</span>}
-                    {item.nombre}
-                  </span>
-                  <ul className="text-xs mt-1 space-y-1">
-                    {item.extras?.map((e, idx) => (
-                      <li key={idx} className={e.nombre.startsWith('Sin ') ? 'text-red-400 line-through font-medium' : e.nombre.startsWith('📝') || e.nombre.startsWith('🔸') ? 'text-slate-600 italic bg-white px-2 py-1 rounded-lg border inline-block mt-1 font-medium' : 'text-blue-500 font-bold'}>{e.nombre}</li>
-                    ))}
-                  </ul>
-                  <span className="font-black text-blue-600 block mt-2 text-xl">${item.precioFinal * (item.cantidad || 1)}</span>
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                    <button onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="px-3 py-1 font-black text-slate-500 hover:bg-slate-100">-</button>
-                    <span className="px-2 py-1 font-black text-slate-800 text-sm">{item.cantidad || 1}</span>
-                    <button onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="px-3 py-1 font-black text-slate-500 hover:bg-slate-100">+</button>
-                  </div>
-                  <div className="flex gap-2 mt-1">
-                    <button onClick={() => editarItem(item)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-xl bg-white shadow-sm border border-slate-100">✏️</button>
-                    <button onClick={() => quitarDelCarrito(item.idTicket)} className="p-2 text-red-500 hover:bg-red-100 rounded-xl bg-white shadow-sm border border-slate-100">❌</button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="pt-4 border-t mt-auto space-y-4">
-          
-          {/* SECCIÓN DE DESCUENTOS (CUPONES Y PUNTOS) */}
-          {carrito.length > 0 && (
-              <div className="space-y-3 border-b border-slate-100 pb-4 mb-2">
-                 
-                 {/* 1. SECCIÓN CUPÓN */}
-                 {!cuponActivo ? (
-                    <form onSubmit={validarCupon} className="flex gap-2 relative">
-                        <Ticket size={20} className="absolute left-3 top-3 text-slate-400" />
-                        <input 
-                            type="text" 
-                            disabled={isOffline}
-                            placeholder="Código de cupón" 
-                            value={inputCupon}
-                            onChange={e => { setInputCupon(e.target.value.toUpperCase()); setErrorCupon(''); }}
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm font-bold outline-none focus:border-rose-500 uppercase text-slate-700 disabled:opacity-50"
-                        />
-                        <button type="submit" disabled={!inputCupon || buscandoCupon || isOffline} className="bg-rose-500 hover:bg-rose-600 text-white px-4 rounded-xl text-sm font-black disabled:opacity-50 transition active:scale-95 shadow-sm">
-                            {buscandoCupon ? '...' : 'Aplicar'}
-                        </button>
-                    </form>
-                 ) : (
-                    <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex justify-between items-center animate-in zoom-in duration-200">
-                        <div className="flex items-center gap-2">
-                            <div className="bg-rose-500 text-white p-1.5 rounded-lg"><CheckCircle2 size={16}/></div>
-                            <div>
-                                <p className="text-xs font-black text-rose-800 uppercase tracking-widest">{cuponActivo.codigo}</p>
-                                <p className="text-[10px] text-rose-600 font-bold leading-tight">Descuento aplicado</p>
-                            </div>
-                        </div>
-                        <button onClick={() => setCuponActivo(null)} className="text-rose-400 hover:text-rose-600 p-2"><XCircle size={18}/></button>
-                    </div>
-                 )}
-                 {errorCupon && <p className="text-[10px] font-black text-red-500 bg-red-50 px-2 py-1 rounded text-center">{errorCupon}</p>}
-
-                 {/* 2. SECCIÓN PUNTOS FIDELIDAD */}
-                 {clienteActivo && clienteActivo.puntos > 0 && descuentoPuntosPuntosFisicos === 0 && (
-                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-xl flex justify-between items-center">
-                        <div className="text-xs">
-                           <p className="font-black text-blue-900 flex items-center gap-1.5">⭐ {clienteActivo.puntos} Pts. Disponibles</p>
-                           <p className="text-blue-600 font-medium">Equivalen a ${(clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2)}</p>
-                        </div>
-                        
-                        {(configGlobal.puntos_canje_activo === true || configGlobal.puntos_canje_activo === 'true' || configGlobal.puntos_canje_activo === undefined) ? (
-                            <button disabled={isOffline} onClick={() => setModalNip(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-black text-xs hover:bg-blue-700 shadow-sm transition active:scale-95 disabled:opacity-50">Canjear</button>
-                        ) : (
-                            <span className="text-[10px] bg-slate-200 text-slate-500 font-bold px-2 py-1 rounded">No canjeable hoy</span>
-                        )}
-                    </div>
-                 )}
-              </div>
-          )}
-
-          {/* RESUMEN DE TOTALES */}
-          <div className="space-y-1">
-              {(descuentoCuponDinero > 0 || descuentoPuntosDinero > 0) && (
-                  <div className="flex justify-between items-center text-slate-400 text-sm font-bold mb-1">
-                      <span>Subtotal:</span>
-                      <span>${calcularSubtotal().toFixed(2)}</span>
-                  </div>
-              )}
-              
-              {descuentoCuponDinero > 0 && (
-                  <div className="flex justify-between items-center text-rose-500 font-black text-sm">
-                      <span className="uppercase tracking-widest text-xs">Cupón ({cuponActivo.codigo}):</span>
-                      <span>-${descuentoCuponDinero.toFixed(2)}</span>
-                  </div>
-              )}
-
-              {descuentoPuntosDinero > 0 && (
-                  <div className="flex justify-between items-center text-blue-500 font-black text-sm">
-                      <span className="uppercase tracking-widest text-xs flex items-center gap-1">⭐ Puntos ({descuentoPuntosPuntosFisicos}):</span>
-                      <span>-${descuentoPuntosDinero.toFixed(2)}</span>
-                  </div>
-              )}
-              
-              <div className="flex justify-between items-center pt-2">
-                 <span className="text-slate-500 font-black uppercase tracking-widest">Total:</span>
-                 <span className="text-4xl font-black text-slate-800">${calcularTotal().toFixed(2)}</span>
-              </div>
-          </div>
-          
-          <button 
-            onClick={() => setPantallaActual('consumo')} 
-            disabled={carrito.length === 0 || isCerrado} 
-            className={`w-full text-white py-5 rounded-2xl text-xl font-black shadow-lg disabled:shadow-none transition-transform active:scale-95 ${
-              isCerrado 
-                ? 'bg-red-500 cursor-not-allowed opacity-50' 
-                : (carrito.length === 0 ? 'bg-slate-300' : (pedidoEditandoId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'))
-            }`}
-          >
-            {isCerrado ? 'Fuera de Horario' : (pedidoEditandoId ? 'Guardar Cambios' : 'Confirmar Orden')}
-          </button>
-        </div>
-      </div>
+        guardarEdicionDirecta={guardarEdicionDirecta} // 👇 Pasamos el prop
+        isSubmitting={isSubmitting} // 👇 Pasamos el prop
+      />
     </div>
   );
 };

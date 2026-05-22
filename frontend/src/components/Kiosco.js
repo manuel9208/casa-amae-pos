@@ -12,8 +12,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const mesaQR = useMesaQR();
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  
-  // 👇 NUEVO: Estado para saber si hay pedidos en la "Libreta Secreta" y si está sincronizando
   const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(0);
   const [estaSincronizando, setEstaSincronizando] = useState(false);
 
@@ -32,6 +30,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const [pantallaActual, setPantallaActual] = useState('cargando'); 
   const [misPedidos, setMisPedidos] = useState([]);
   const [pedidoEditandoId, setPedidoEditandoId] = useState(null); 
+  const [isSubmitting, setIsSubmitting] = useState(false); 
   
   // === 3. ESTADOS DE CHECKOUT ===
   const [tipoConsumo, setTipoConsumo] = useState(null); 
@@ -53,8 +52,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   const [cuponActivo, setCuponActivo] = useState(null); 
   const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0); 
+  const [promocionVigente, setPromocionVigente] = useState(null);
 
-  // 👇 NUEVO: Función para checar cuántos pedidos hay en la libreta secreta
   const checarPedidosOffline = () => {
     try {
         const pedidos = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
@@ -66,7 +65,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   useEffect(() => {
     checarPedidosOffline();
-  }, [pantallaActual]); // Revisar cada que cambie de pantalla (por ejemplo, después de un cobro)
+  }, [pantallaActual]); 
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -81,7 +80,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
   }, []);
 
-  // === CARGA INICIAL Y MONITOREO DE DATOS ===
   useEffect(() => { 
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
@@ -105,7 +103,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     fetchConfig(); 
     const intervalConfig = setInterval(fetchConfig, 5000); 
     return () => clearInterval(intervalConfig);
-
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -165,7 +162,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setPantallaActual('menu'); 
     }
     return () => clearInterval(intervaloPedidos);
-    
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteActivo, ordenExterna]);
 
@@ -175,7 +171,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setErrorTransaccion(''); setPedidoEditandoId(null); 
       setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0); 
       setCuponActivo(null); setDescuentoCuponDinero(0);
-      if (ordenExterna && onLogout) onLogout(); else setPantallaActual('menu'); 
+      
+      // 👇 Retornar a la Caja en lugar de cerrar sesión
+      if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
     } else { 
       if (mesaQR) {
           window.location.reload();
@@ -183,7 +181,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           setTimeout(() => { if (onLogout) onLogout(); }, 50); 
       }
     }
-  }, [user, ordenExterna, onLogout, mesaQR]);
+  }, [user, ordenExterna, onVolverAdmin, onLogout, mesaQR]);
 
   useEffect(() => { 
     let timer; 
@@ -257,7 +255,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
   };
 
-  // 👇 NUEVO: FUNCIÓN PARA ENVIAR PEDIDOS OFFLINE AL SERVIDOR (FASE 3)
   const sincronizarPedidosOffline = async () => {
     if (isOffline || estaSincronizando) return;
     
@@ -269,23 +266,17 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
            return;
        }
 
-       // Iteramos sobre los pedidos guardados
        for (let i = 0; i < pedidos.length; i++) {
            const pedido = pedidos[i];
-           
-           // Le cambiamos el estado para que el cajero sepa que es un pedido offline sincronizado
-           // y no lo mande a cocina, sino directo a su historial.
            const payloadSincronizacion = {
                ...pedido,
                estado_preparacion: 'Sincronizado Offline'
            };
 
-           // Quitamos marcas locales que no necesita la DB
            delete payloadSincronizacion.es_offline;
            delete payloadSincronizacion.numero_pedido_offline;
            delete payloadSincronizacion.fecha_guardado_local;
 
-           // Hacemos el POST
            const res = await fetch(`${apiUrl}/pedidos`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
@@ -294,12 +285,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
            if (!res.ok) {
                console.error('Error al sincronizar el pedido:', pedido.numero_pedido_offline);
-               // Detenemos el ciclo para intentarlo después
                break; 
            }
        }
 
-       // Si todo salió bien, vaciamos la libreta secreta
        localStorage.setItem('pedidos_offline', '[]');
        checarPedidosOffline();
        alert("¡Todos los pedidos se han sincronizado correctamente con la base de datos!");
@@ -311,9 +300,81 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     setEstaSincronizando(false);
   };
 
+  const agregarUpsellAlCarrito = () => {
+    let precioFinal = Number(promocionVigente.valor_descuento);
+    
+    if (promocionVigente.tipo_descuento === 'porcentaje') {
+       let precioBase = 0;
+       if (productos && productos.length > 0) {
+          const prodOriginal = productos.find(p => p.id === promocionVigente.producto_oferta_id);
+          if (prodOriginal) precioBase = Number(prodOriginal.precio_base);
+       }
+       precioFinal = precioBase - (precioBase * (precioFinal / 100));
+    }
+    
+    const nuevoItem = {
+       idTicket: Math.random().toString(36).substr(2, 9),
+       id: promocionVigente.producto_oferta_id,
+       nombre: promocionVigente.oferta_nombre,
+       precioFinal: Math.max(0, precioFinal), 
+       cantidad: 1,
+       extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }]
+    };
+    
+    setCarrito([...carrito, nuevoItem]);
+    setPromocionVigente(null); 
+  };
+
+  // 👇 NUEVO: FUNCIÓN PARA GUARDAR DIRECTO SIN PASAR POR CHECKOUT
+  const guardarEdicionDirecta = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    const carritoExpandido = [];
+    carrito.forEach(item => {
+        const qty = item.cantidad || 1;
+        for(let i = 0; i < qty; i++) {
+            carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i});
+        }
+    });
+
+    const paquete = {
+      cliente_id: ordenExterna.cliente_id,
+      tipo_consumo: ordenExterna.tipo_consumo,
+      metodo_pago: ordenExterna.metodo_pago,
+      origen: ordenExterna.origen,
+      direccion_entrega: ordenExterna.direccion_entrega,
+      estado_preparacion: ordenExterna.estado_preparacion,
+      mesa: ordenExterna.mesa,
+      
+      carrito: carritoExpandido,
+      total: calcularTotal(),
+      descuento_puntos: descuentoPuntosPuntosFisicos,
+      cupon_codigo: cuponActivo && descuentoCuponDinero > 0 ? cuponActivo.codigo : ordenExterna.cupon_codigo
+    };
+
+    try {
+      const res = await fetch(`${apiUrl}/pedidos/${pedidoEditandoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paquete)
+      });
+
+      if (res.ok) {
+         reiniciarKiosco(); // Regresa al cajero instantáneamente
+      } else {
+         alert("Error al actualizar la orden en el servidor.");
+      }
+    } catch(e) {
+       alert("Error de red. Asegúrate de tener conexión.");
+    }
+    setIsSubmitting(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-8 relative">
       
+      {/* BANNER OFFLINE */}
       {isOffline && (
         <div className="bg-red-500 text-white text-center py-3 px-4 rounded-2xl mb-6 font-black flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top-4 shadow-lg shadow-red-500/30">
           <span className="animate-pulse text-2xl">🔴</span> 
@@ -324,7 +385,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         </div>
       )}
 
-      {/* 👇 NUEVO: Banner verde para sincronizar cuando regresa el internet */}
+      {/* BANNER DE SINCRONIZACIÓN */}
       {!isOffline && pedidosOfflinePendientes > 0 && (
         <div className="bg-emerald-500 text-white py-4 px-6 rounded-2xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 shadow-xl shadow-emerald-500/30">
           <div className="flex items-center gap-3">
@@ -334,11 +395,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                   <p className="text-sm font-medium">Tienes <strong>{pedidosOfflinePendientes} pedido(s)</strong> en la libreta listos para enviarse a la base de datos.</p>
               </div>
           </div>
-          <button 
-             onClick={sincronizarPedidosOffline} 
-             disabled={estaSincronizando}
-             className="bg-slate-900 text-white font-black px-6 py-3 rounded-xl shadow-sm hover:bg-slate-800 active:scale-95 transition-all w-full md:w-auto disabled:opacity-50"
-          >
+          <button onClick={sincronizarPedidosOffline} disabled={estaSincronizando} className="bg-slate-900 text-white font-black px-6 py-3 rounded-xl shadow-sm hover:bg-slate-800 active:scale-95 transition-all w-full md:w-auto disabled:opacity-50">
              {estaSincronizando ? 'Sincronizando...' : 'Sincronizar Ahora'}
           </button>
         </div>
@@ -354,26 +411,22 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
                 <p className="text-sm text-slate-500 font-bold leading-tight">Hola, {clienteActivo.nombre}</p>
                 <p className="text-blue-600 font-black tracking-tight">
                     {clienteActivo.puntos} Puntos 
-                    <span className="text-[10px] text-slate-400 font-medium ml-1">
-                    (${ (clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2) })
-                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium ml-1">(${ (clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2) })</span>
                 </p>
                 </div>
-                <button onClick={() => setTimeout(() => onLogout(), 50)} className="ml-4 text-xs font-bold bg-slate-100 px-3 py-1 rounded-lg hover:bg-red-100 hover:text-red-600">Salir</button>
+                <button onClick={() => setTimeout(() => onLogout(), 50)} className="ml-4 text-xs font-bold bg-slate-100 px-3 py-1 rounded-lg hover:bg-red-100 hover:text-red-600 transition">Salir</button>
             </div> 
             ) : ( 
             <div className="bg-white px-6 py-3 rounded-full shadow-sm border"><p className="text-sm font-bold text-slate-400">{ordenExterna ? `Editando orden` : 'Invitado'}</p></div> 
             )}
 
             {mesaQR && (
-               <div className="bg-indigo-600 text-white px-6 py-3 rounded-full shadow-sm font-black flex items-center gap-2">
-                  📍 MESA {mesaQR}
-               </div>
+               <div className="bg-indigo-600 text-white px-6 py-3 rounded-full shadow-sm font-black flex items-center gap-2">📍 MESA {mesaQR}</div>
             )}
         </div>
 
-        {user?.rol === 'admin' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-xl hover:bg-slate-800">⬅ Panel Admin</button>}
-        {user?.rol === 'cajero' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-emerald-500 text-slate-900 px-6 py-3 rounded-full font-black shadow-xl hover:bg-emerald-400">⬅ Volver a Caja</button>}
+        {user?.rol === 'admin' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-xl hover:bg-slate-800 transition">⬅ Panel Admin</button>}
+        {user?.rol === 'cajero' && !ordenExterna && <button onClick={onVolverAdmin} className="bg-emerald-500 text-slate-900 px-6 py-3 rounded-full font-black shadow-xl hover:bg-emerald-400 transition">⬅ Volver a Caja</button>}
       </div>
 
       {errorTransaccion && ( <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-xl mb-6 shadow-sm"><p className="font-bold">🚨 {errorTransaccion}</p></div> )}
@@ -390,16 +443,14 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           clienteActivo={clienteActivo} setModalNip={setModalNip} 
           calcularTotal={calcularTotal} calcularSubtotal={calcularSubtotal}
           setProductoEnEspera={setProductoEnEspera} setItemAEditar={setItemAEditar}
+          descuentoPuntosDinero={descuentoPuntosDinero} descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos}
+          setDescuentoPuntosPuntosFisicos={setDescuentoPuntosPuntosFisicos} cuponActivo={cuponActivo}
+          setCuponActivo={setCuponActivo} descuentoCuponDinero={descuentoCuponDinero} apiUrl={apiUrl} mesaQR={mesaQR} isOffline={isOffline} 
+          setPromocionVigente={setPromocionVigente}
           
-          descuentoPuntosDinero={descuentoPuntosDinero}
-          descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos}
-          setDescuentoPuntosPuntosFisicos={setDescuentoPuntosPuntosFisicos}
-          cuponActivo={cuponActivo}
-          setCuponActivo={setCuponActivo}
-          descuentoCuponDinero={descuentoCuponDinero}
-          apiUrl={apiUrl}
-          mesaQR={mesaQR}
-          isOffline={isOffline} 
+          // 👇 AQUÍ ES DONDE FALTABA PASAR LAS PROPS. ESTA VEZ SÍ SE VAN AL HIJO.
+          guardarEdicionDirecta={guardarEdicionDirecta} 
+          isSubmitting={isSubmitting} 
         />
       )}
 
@@ -409,27 +460,19 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           tipoConsumo={tipoConsumo} setTipoConsumo={setTipoConsumo}
           direccionEntrega={direccionEntrega} setDireccionEntrega={setDireccionEntrega}
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
-          carrito={carrito} calcularTotal={calcularTotal} 
-          
-          setCarrito={setCarrito}
-          productos={productos}
-
-          descuentoPuntos={descuentoPuntosPuntosFisicos} 
-          cuponActivo={cuponActivo}
-          descuentoCuponDinero={descuentoCuponDinero}
-
+          carrito={carrito} calcularTotal={calcularTotal} setCarrito={setCarrito} productos={productos}
+          descuentoPuntos={descuentoPuntosPuntosFisicos} cuponActivo={cuponActivo} descuentoCuponDinero={descuentoCuponDinero}
           clienteActivo={clienteActivo} ordenExterna={ordenExterna} user={user}
           pedidoEditandoId={pedidoEditandoId} apiUrl={apiUrl} configGlobal={configGlobal}
           setErrorTransaccion={setErrorTransaccion} setMetodoPagoFinal={setMetodoPagoFinal}
           numeroPedidoReal={numeroPedidoReal} setNumeroPedidoReal={setNumeroPedidoReal}
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
-          metodoPagoFinal={metodoPagoFinal}
-          mesaQR={mesaQR}
-          isOffline={isOffline} 
+          metodoPagoFinal={metodoPagoFinal} mesaQR={mesaQR} isOffline={isOffline} 
+          setPromocionVigente={setPromocionVigente}
         />
       )}
 
-      {/* MODALES GLOBALES */}
+      {/* MODAL NIP FIDELIDAD */}
       {modalNip && ( 
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
           <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center">
@@ -447,6 +490,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         </div> 
       )}
       
+      {/* MODAL PERSONALIZAR PLATILLO */}
       {productoEnEspera && ( 
         <ModalPersonalizar 
           productoEnEspera={productoEnEspera} setProductoEnEspera={setProductoEnEspera}
@@ -454,6 +498,38 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           carrito={carrito} setCarrito={setCarrito} 
           catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones}
         />
+      )}
+
+      {/* MODAL PROMOCIÓN / UPSELL */}
+      {promocionVigente && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300">
+            <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+               <span className="text-5xl">🎁</span>
+            </div>
+            <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Espera! Oferta Especial 🔥</h2>
+            <p className="text-slate-500 font-medium mb-6">¿Te gustaría agregar esto a tu orden?</p>
+            
+            <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-6 mb-8 transform hover:scale-105 transition">
+               {promocionVigente.oferta_imagen && (
+                  <img 
+                      src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${baseUrl}${promocionVigente.oferta_imagen}`} 
+                      className="w-32 h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" 
+                      alt="promo" 
+                  />
+               )}
+               <h3 className="font-black text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
+               <p className="text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
+                 {promocionVigente.tipo_descuento === 'porcentaje' ? `¡Llévalo con ${promocionVigente.valor_descuento}% de descuento!` : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
+               </p>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a mi orden!</button>
+              <button onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias, continuar a pago</button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>

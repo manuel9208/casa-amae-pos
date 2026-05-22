@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp, Gift, Map } from 'lucide-react'; // 👇 Añadí Map para las mesas
+import { LayoutGrid, ShoppingCart, Users, LogOut, MonitorPlay, BookOpen, Settings, Package, X, TrendingUp, Gift, Map } from 'lucide-react';
 
 const Sidebar = ({ 
   user, 
@@ -17,11 +17,10 @@ const Sidebar = ({
   canViewClientes,
   canViewReportes,
   canViewPromociones,
-  canViewMesas // 👇 NUEVO PROP RECIBIDO PARA VER MESAS
+  canViewMesas
 }) => {
   return (
     <>
-      {/* ================= OVERLAY MÓVIL ================= */}
       {menuAbierto && (
         <div 
           className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 lg:hidden"
@@ -29,7 +28,6 @@ const Sidebar = ({
         />
       )}
 
-      {/* ================= SIDEBAR ================= */}
       <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white p-6 flex flex-col transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 shrink-0 ${menuAbierto ? 'translate-x-0' : '-translate-x-full'}`}>
         
         <button 
@@ -95,7 +93,6 @@ const Sidebar = ({
             </button>
           )}
 
-          {/* 👇 NUEVO BOTÓN: GESTIÓN DE MESAS Y QR */}
           {canViewMesas && (
             <button 
               onClick={() => { setSeccion('mesas'); setMenuAbierto(false); }} 

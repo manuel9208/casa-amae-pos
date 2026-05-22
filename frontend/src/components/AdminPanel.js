@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShoppingCart, AlertTriangle, CheckCircle2, Menu } from 'lucide-react';
-import Sidebar from './admin/Sidebar';
-import Configuracion from './admin/Configuracion';
-import GestionUsuarios from './admin/GestionUsuarios';
-import Catalogos from './admin/Catalogos';
-import Inventario from './admin/Inventario';
-import GestionMenu from './admin/GestionMenu';
-import GestionClientes from './admin/GestionClientes';
-import ReporteVentas from './admin/ReporteVentas';
-import Promociones from './admin/Promociones'; 
-import GestionMesas from './admin/GestionMesas'; // 👇 NUEVO: Módulo de Gestión de Mesas
+import Sidebar from './admin/sidebar/Sidebar'; // 👇 Ruta corregida a la nueva carpeta
+import AdminConfiguracion from './admin/AdminConfiguracion'; 
+import AdminUsuarios from './admin/AdminUsuarios'; 
+import AdminCatalogos from './admin/AdminCatalogos'; 
+import AdminInventario from './admin/AdminInventario'; 
+import AdminMenu from './admin/AdminMenu'; 
+import AdminClientes from './admin/AdminClientes'; 
+import AdminReportes from './admin/AdminReportes'; 
+import AdminPromociones from './admin/AdminPromociones'; 
+import AdminMesas from './admin/AdminMesas'; 
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -46,10 +46,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true; 
-  
-  // Solo el dueño absoluto (usuario: admin) puede gestionar promociones y mesas
   const canViewPromociones = isGlobalAdmin; 
-  const canViewMesas = isGlobalAdmin; // 👇 NUEVO PERMISO
+  const canViewMesas = isGlobalAdmin; 
   
   // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
@@ -133,7 +131,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewClientes={canViewClientes} 
         canViewReportes={canViewReportes}
         canViewPromociones={canViewPromociones}
-        canViewMesas={canViewMesas} // 👇 Pasamos el permiso al Sidebar
+        canViewMesas={canViewMesas} 
       />
 
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
@@ -151,7 +149,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         <div className="flex-1 p-4 md:p-8 overflow-y-auto">
         
           {seccion === 'menu' && canViewMenu && (
-            <GestionMenu 
+            <AdminMenu 
               {...commonProps}
               productos={productos} 
               clasificaciones={clasificaciones} 
@@ -161,7 +159,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           )}
           
           {seccion === 'inventario' && canViewInventario && ( 
-            <Inventario 
+            <AdminInventario 
               {...commonProps}
               insumosDB={insumosDB} 
               productos={productos} 
@@ -170,7 +168,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           )}
           
           {seccion === 'catalogos' && canViewCatalogos && ( 
-            <Catalogos 
+            <AdminCatalogos 
               {...commonProps}
               clasificaciones={clasificaciones} 
               catalogoIngredientes={catalogoIngredientes} 
@@ -179,7 +177,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           )}
           
           {seccion === 'configuracion' && canViewConfig && ( 
-            <Configuracion 
+            <AdminConfiguracion 
               {...commonProps}
               configGlobal={configGlobal} 
               setConfigGlobal={setConfigGlobal}
@@ -187,36 +185,35 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           )}
           
           {seccion === 'usuarios' && canViewUsuarios && ( 
-            <GestionUsuarios 
+            <AdminUsuarios 
               {...commonProps}
               usuariosDB={usuariosDB}
             />
           )}
 
           {seccion === 'clientes' && canViewClientes && ( 
-            <GestionClientes 
+            <AdminClientes 
               apiUrl={apiUrl} 
               showAlert={showAlert} 
             />
           )}
 
           {seccion === 'reportes' && canViewReportes && ( 
-            <ReporteVentas 
+            <AdminReportes 
               apiUrl={apiUrl} 
               showAlert={showAlert} 
             />
           )}
 
           {seccion === 'promociones' && canViewPromociones && ( 
-            <Promociones 
+            <AdminPromociones 
               {...commonProps} 
               productos={productos} 
             />
           )}
 
-          {/* 👇 NUEVA PESTAÑA: GESTIÓN DE MESAS */}
           {seccion === 'mesas' && canViewMesas && ( 
-            <GestionMesas 
+            <AdminMesas 
               apiUrl={apiUrl} 
             />
           )}

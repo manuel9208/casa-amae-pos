@@ -17,7 +17,8 @@ const App = () => {
   
   // ESTADOS PARA EL CAJERO Y SU KIOSCO
   const [vistaCaja, setVistaCaja] = useState('caja'); 
-  const [clienteCajero, setClienteCajero] = useState(null); // 👇 NUEVO: Guarda al cliente que el cajero acaba de registrar
+  const [clienteCajero, setClienteCajero] = useState(null); 
+  const [ordenCajero, setOrdenCajero] = useState(null); 
 
   const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
@@ -54,7 +55,7 @@ const App = () => {
       } catch(e) {}
     }
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { if(data) setConfigGlobal(data); }).catch(console.error);
-  }, []);
+  }, []); // 👇 ¡Corregido! Quitamos 'apiUrl' de aquí porque es una constante externa
 
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
@@ -95,7 +96,7 @@ const App = () => {
     if (usuarioActivo) { try { await fetch(`${apiUrl}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario_id: usuarioActivo.id }) }); } catch (error) {} }
     localStorage.removeItem('pos_sesion'); 
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); 
-    setVistaCaja('caja'); setClienteCajero(null); // Limpiamos la memoria del cajero
+    setVistaCaja('caja'); setClienteCajero(null); setOrdenCajero(null); 
     setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
   };
 
@@ -152,7 +153,7 @@ const App = () => {
       .border-blue-600, .border-blue-500 { border-color: var(--c-primario) !important; }
       .hover\\:bg-blue-700:hover { background-color: color-mix(in srgb, var(--c-primario) 80%, black) !important; }
       .bg-blue-50 { background-color: color-mix(in srgb, var(--c-primario) 8%, white) !important; border-color: color-mix(in srgb, var(--c-primario) 20%, white) !important;}
-      .focus\\:border-blue-500:focus, .focus\\:ring-blue-500:focus { border-color: var(--c-primario) !important; --tw-ring-color: var(--c-primario) !important; }
+      .focus\\:border-blue-500:focus, .focus\\:ring-blue-500:focus { border-color: var(--c-primario) !important; --tw-ring-color: var(--tw-ring-color) !important; }
 
       .bg-emerald-500, .bg-emerald-600 { background-color: var(--c-secundario) !important; }
       .text-emerald-500, .text-emerald-600 { color: var(--c-secundario) !important; }
@@ -164,7 +165,7 @@ const App = () => {
       .tema-cliente .bg-slate-100, .tema-cliente .bg-gray-50 { background-color: var(--c-fondo) !important; }
       .tema-cliente .bg-white { background-color: var(--c-tarjetas) !important; border-color: color-mix(in srgb, var(--c-texto-prin) 10%, transparent) !important; }
       .tema-cliente .bg-slate-50 { background-color: color-mix(in srgb, var(--c-tarjetas) 95%, black) !important; border-color: color-mix(in srgb, var(--c-texto-prin) 10%, transparent) !important; }
-      .tema-cliente .text-slate-900, .tema-cliente .text-slate-800, .tema-cliente .text-slate-700 { color: var(--c-texto-prin) !important; }
+      .tema-cliente .text-slate-900, .tema-cliente .text-slate-800, .tema-cliente text-slate-700 { color: var(--c-texto-prin) !important; }
       .tema-cliente .text-slate-600, .tema-cliente .text-slate-500, .tema-cliente .text-slate-400 { color: var(--c-texto-sec) !important; }
       .tema-cliente .texto-destacado { color: var(--c-texto-kiosco) !important; }
       .tema-cliente input, .tema-cliente textarea { color: var(--c-texto-prin) !important; background-color: color-mix(in srgb, var(--c-tarjetas) 95%, white) !important; }
@@ -184,11 +185,9 @@ const App = () => {
     
     if (usuarioActivo.rol === 'cajero') {
       if (vistaCaja === 'kiosco') {
-         // 👇 Pasamos el cliente que el cajero acaba de registrar al Kiosco
-         return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={clienteCajero} onVolverAdmin={() => { setVistaCaja('caja'); setClienteCajero(null); }} onLogout={cerrarSesion} /></div></>;
+         return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={clienteCajero} ordenExterna={ordenCajero} onVolverAdmin={() => { setVistaCaja('caja'); setClienteCajero(null); setOrdenCajero(null); }} onLogout={cerrarSesion} /></div></>;
       }
-      // 👇 Recibimos al cliente desde la Caja y cambiamos la vista
-      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={(cliente) => { setClienteCajero(cliente || null); setVistaCaja('kiosco'); }} /></>;
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={(cliente, orden) => { setClienteCajero(cliente || null); setOrdenCajero(orden || null); setVistaCaja('kiosco'); }} /></>;
     }
 
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
