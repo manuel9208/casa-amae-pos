@@ -42,7 +42,6 @@ const PantallaTV = ({ onLogout }) => {
       onLogout();
     } else {
       console.warn("Forzando salida de emergencia...");
-      // 👇 Usar la misma clave que App.js
       localStorage.removeItem('pos_sesion'); 
       window.location.href = '/'; 
     }
@@ -74,19 +73,24 @@ const PantallaTV = ({ onLogout }) => {
     }
   };
 
-  // === 4. PROCESAMIENTO DE PEDIDOS ===
+  // === 4. PROCESAMIENTO DE PEDIDOS (CORREGIDO) ===
   const subPedidos = [];
   pedidos.forEach(p => {
-      if (p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Pendiente') return;
+      // 👇 SOLUCIÓN: Agregamos 'Finalizado' a la lista de estados que la TV debe desaparecer
+      if (['Cancelado', 'Entregado', 'Pendiente', 'Finalizado'].includes(p.estado_preparacion)) return;
 
-      const itemsCocina = p.carrito?.filter(i => i.destino === 'Cocina') || [];
-      const itemsBarra = p.carrito?.filter(i => i.destino === 'Barra') || [];
+      // Parseo seguro del carrito por si viene como String desde la base de datos
+      const carritoArray = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
+
+      // Filtramos descartando los platillos que ya hayan sido finalizados (entregados)
+      const itemsCocina = carritoArray.filter(i => i.destino === 'Cocina' && i.estado !== 'Finalizado');
+      const itemsBarra = carritoArray.filter(i => i.destino === 'Barra' && i.estado !== 'Finalizado');
 
       const getEstado = (items) => {
-          if (items.length === 0) return null;
+          if (items.length === 0) return null; // Si no hay platillos o ya todos se entregaron, lo desaparece
           if (items.every(i => i.estado === 'Listo')) return 'Listo';
           if (items.some(i => i.estado === 'Preparando' || i.estado === 'Listo')) return 'Preparando';
-          return 'Pagado'; 
+          return 'Pagado'; // Equivalente a "En Cola"
       };
 
       const estCocina = getEstado(itemsCocina);
