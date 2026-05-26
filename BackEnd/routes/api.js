@@ -18,6 +18,7 @@ const recetaCtrl = require('../controllers/recetaController');
 const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController'); 
+const notificacionCtrl = require('../controllers/notificacionController'); // 👈 NUEVO CONTROLADOR
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -54,12 +55,17 @@ router.delete('/cupones/:id', configCtrl.eliminarCupon);
 router.post('/cupones/validar', configCtrl.validarCupon);
 
 // ==========================================
-// PROMOCIONES Y UPSELLING (NUEVO)
+// PROMOCIONES Y UPSELLING
 // ==========================================
 router.get('/promociones', promocionCtrl.obtenerPromociones);
 router.post('/promociones', promocionCtrl.crearPromocion);
 router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
 router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
+
+// ==========================================
+// NOTIFICACIONES PUSH (NUEVO)
+// ==========================================
+router.post('/suscripciones', notificacionCtrl.guardarSuscripcion);
 
 // ==========================================
 // AUTENTICACIÓN Y CLIENTES
@@ -103,7 +109,7 @@ router.post('/productos', upload.single('imagen'), productoCtrl.crearProducto);
 router.put('/productos/:id', upload.single('imagen'), productoCtrl.actualizarProducto);
 router.delete('/productos/:id', productoCtrl.eliminarProducto);
 router.put('/productos/:id/rendimiento', productoCtrl.actualizarRendimiento);
-router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto); // 👇 ESTA ES LA RUTA QUE FALTABA
+router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto);
 
 // ==========================================
 // PEDIDOS Y FLUJO

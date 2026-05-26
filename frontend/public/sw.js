@@ -59,3 +59,51 @@ self.addEventListener('activate', event => {
     })
   );
 });
+
+// ============================================================================
+// 4. NOTIFICACIONES PUSH (NUEVO)
+// ============================================================================
+
+// Escucha el evento "push" que manda el backend (incluso minimizado)
+self.addEventListener('push', function(event) {
+    if (event.data) {
+      const data = event.data.json();
+      
+      const options = {
+        body: data.body,
+        icon: '/logo192.png', // Debe coincidir con el logo en tu carpeta public
+        badge: '/logo192.png', // El icono pequeño de la barra superior en Android
+        vibrate: [200, 100, 200, 100, 200, 100, 200], // Patrón de vibración tipo llamada/alerta
+        data: {
+            dateOfArrival: Date.now(),
+            primaryKey: 1,
+            url: self.registration.scope // Redirige a la app si hacen clic en la notificación
+        }
+      };
+      
+      // Muestra la alerta nativa en Windows/Android/iOS
+      event.waitUntil(
+        self.registration.showNotification(data.title, options)
+      );
+    }
+});
+  
+// Qué pasa cuando el usuario toca la notificación
+self.addEventListener('notificationclick', function(event) {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window' }).then(windowClients => {
+            // Si el Kiosco o la Caja ya está abierta en una pestaña, la trae al frente
+            for (var i = 0; i < windowClients.length; i++) {
+                var client = windowClients[i];
+                if (client.url === event.notification.data.url && 'focus' in client) {
+                    return client.focus();
+                }
+            }
+            // Si estaba completamente cerrada, la abre
+            if (clients.openWindow) {
+                return clients.openWindow(event.notification.data.url);
+            }
+        })
+    );
+});

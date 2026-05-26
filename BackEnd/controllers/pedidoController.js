@@ -1,4 +1,49 @@
 const db = require('../config/db');
+const webpush = require('web-push');
+
+// ==========================================
+// HELPERS PARA NOTIFICACIONES PUSH
+// ==========================================
+const notificarCliente = async (cliente_id, titulo, cuerpo) => {
+    if(!cliente_id) return;
+    try {
+        const subs = await db.query("SELECT suscripcion FROM suscripciones_push WHERE cliente_id = $1", [cliente_id]);
+        const payload = JSON.stringify({ title: titulo, body: cuerpo });
+        
+        for(let row of subs.rows) {
+            const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
+            await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (cliente):", e.message));
+        }
+    } catch(e) {
+        console.error("Error al notificar cliente:", e.message);
+    }
+};
+
+const notificarStaff = async (rolesArray, titulo, cuerpo) => {
+    try {
+        let query = "SELECT s.suscripcion FROM suscripciones_push s JOIN usuarios u ON s.usuario_id = u.id";
+        let subs;
+        
+        if (rolesArray && rolesArray.length > 0) {
+            const placeholders = rolesArray.map((_, i) => `$${i+1}`).join(',');
+            query += ` WHERE u.rol IN (${placeholders})`;
+            subs = await db.query(query, rolesArray);
+        } else {
+            subs = await db.query(query);
+        }
+
+        const payload = JSON.stringify({ title: titulo, body: cuerpo });
+        
+        for(let row of subs.rows) {
+            const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
+            await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (staff):", e.message));
+        }
+    } catch(e) {
+        console.error("Error al notificar staff:", e.message);
+    }
+};
+// ==========================================
+
 
 exports.obtenerPedidosHoy = async (req, res) => { 
   try { 
@@ -132,6 +177,13 @@ exports.crearPedido = async (req, res) => {
     } 
 
     await db.query('COMMIT');
+    
+    // 👇 DISPARO DE NOTIFICACIONES PUSH: NUEVO PEDIDO
+    notificarStaff(['cajero', 'admin'], '¡Nuevo Pedido!', `La orden #${pedidoInsertado.numero_pedido} acaba de llegar desde el Kiosco.`);
+    if (cliente_id) {
+        notificarCliente(cliente_id, 'Orden Recibida 🕒', `Tu orden #${pedidoInsertado.numero_pedido} está en espera de confirmación.`);
+    }
+
     res.status(201).json(pedidoInsertado);
 
   } catch (error) { 
@@ -394,6 +446,17 @@ exports.actualizarEstado = async (req, res) => {
       } catch (errWA) {
           console.error("Fallo interno en la lógica de WhatsApp:", errWA.message);
       }
+    }
+
+    // 👇 DISPARO DE NOTIFICACIONES PUSH BASADO EN EL CAMBIO DE ESTADO
+    if (estado_preparacion === 'Pagado' || estado_preparacion === 'Por Confirmar') {
+        notificarStaff(['chef', 'cocinero', 'cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
+    } else if (estado_preparacion === 'Preparando') {
+        notificarCliente(pedidoActual.cliente_id, '¡En el fuego! 🔥', `El chef ya está preparando tu orden #${pedidoActual.numero_pedido}.`);
+        notificarStaff(['cajero', 'admin'], 'Preparando Orden', `Cocina comenzó a preparar la orden #${pedidoActual.numero_pedido}.`);
+    } else if (estado_preparacion === 'Listo') {
+        notificarCliente(pedidoActual.cliente_id, '¡Tu comida está lista! 🍔', `Tu orden #${pedidoActual.numero_pedido} está lista para entregar.`);
+        notificarStaff(['cajero', 'admin'], 'Orden Lista ✅', `Cocina terminó la orden #${pedidoActual.numero_pedido}.`);
     }
 
     res.json(pedidoActual);

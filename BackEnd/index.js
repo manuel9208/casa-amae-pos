@@ -6,9 +6,21 @@ process.env.TZ = 'America/Mazatlan';
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const webpush = require('web-push'); // 👈 NUEVO: Importar web-push
 const apiRoutes = require('./routes/api');
 
 const app = express();
+
+// 👇 NUEVO: Configuración de llaves VAPID para notificaciones Push
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_EMAIL || 'mailto:soporte@tudominio.com',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+} else {
+  console.warn("⚠️ Faltan las llaves VAPID en el archivo .env. Las notificaciones Push no funcionarán.");
+}
 
 // --- CONFIGURACIÓN DE CORS MEJORADA ---
 // Esto permite que cualquier dispositivo (PC, Celular, Tablet) se conecte

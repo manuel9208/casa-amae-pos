@@ -4,6 +4,7 @@ import Caja from './components/Caja';
 import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV'; 
+import { suscribirANotificaciones } from './pushManager'; // 👈 NUEVO: Importamos el gestor de notificaciones
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -38,24 +39,40 @@ const App = () => {
   const iniciarSesionPersistente = (tipo, data) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
-    if (tipo === 'empleado') setUsuarioActivo(data);
-    if (tipo === 'cliente') setClienteActivo(data);
+    
+    if (tipo === 'empleado') {
+        setUsuarioActivo(data);
+        suscribirANotificaciones(data.id, null); // 👈 NUEVO: Suscribe al empleado
+    }
+    if (tipo === 'cliente') {
+        setClienteActivo(data);
+        suscribirANotificaciones(null, data.id); // 👈 NUEVO: Suscribe al cliente
+    }
   };
 
   useEffect(() => {
     if (!localStorage.getItem('pos_device_id')) localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
     const sesionGuardada = localStorage.getItem('pos_sesion');
+    
     if (sesionGuardada) {
       try {
         const { tipo, data, expiracion } = JSON.parse(sesionGuardada);
         if (new Date().getTime() < expiracion) {
-          if (tipo === 'empleado') setUsuarioActivo(data);
-          if (tipo === 'cliente') setClienteActivo(data);
-        } else { localStorage.removeItem('pos_sesion'); }
+          if (tipo === 'empleado') {
+              setUsuarioActivo(data);
+              suscribirANotificaciones(data.id, null); // 👈 NUEVO: Renueva suscripción si recarga la página
+          }
+          if (tipo === 'cliente') {
+              setClienteActivo(data);
+              suscribirANotificaciones(null, data.id); // 👈 NUEVO: Renueva suscripción si recarga la página
+          }
+        } else { 
+            localStorage.removeItem('pos_sesion'); 
+        }
       } catch(e) {}
     }
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { if(data) setConfigGlobal(data); }).catch(console.error);
-  }, []); // 👇 ¡Corregido! Quitamos 'apiUrl' de aquí porque es una constante externa
+  }, []);
 
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
