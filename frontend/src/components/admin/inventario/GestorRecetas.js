@@ -16,6 +16,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   const [configTamanos, setConfigTamanos] = useState({});
   const [unidadConversionActiva, setUnidadConversionActiva] = useState('');
 
+  const [empaquesUnicos, setEmpaquesUnicos] = useState([]);
+
   const [modalCrearBase, setModalCrearBase] = useState(false);
   const [nombreNuevaBase, setNombreNuevaBase] = useState('');
 
@@ -28,24 +30,36 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
               try {
                   const opcionesArray = typeof productoEncontrado.opciones === 'string' ? JSON.parse(productoEncontrado.opciones) : productoEncontrado.opciones;
                   const tConfig = (opcionesArray || []).filter(o => o.categoria === 'Tamaño');
-                  const initialConfig = {};
-                  tConfig.forEach(t => {
-                      let empaquesCargados = t.empaques || [];
-                      if (t.insumo_empaque_id && empaquesCargados.length === 0) {
-                          empaquesCargados.push({ insumo_id: t.insumo_empaque_id, cantidad: 1 });
-                      }
-                      initialConfig[t.nombre] = { rendimiento: t.rendimiento_receta || '', empaques: empaquesCargados };
-                  });
-                  setConfigTamanos(initialConfig);
+                  
+                  if (tConfig.length > 0) {
+                      const initialConfig = {};
+                      tConfig.forEach(t => {
+                          let empaquesCargados = t.empaques || [];
+                          if (t.insumo_empaque_id && empaquesCargados.length === 0) {
+                              empaquesCargados.push({ insumo_id: t.insumo_empaque_id, cantidad: 1 });
+                          }
+                          initialConfig[t.nombre] = { rendimiento: t.rendimiento_receta || '', empaques: empaquesCargados };
+                      });
+                      setConfigTamanos(initialConfig);
+                  } else {
+                      setConfigTamanos({});
+                  }
+
+                  const optEmpaquesUnicos = opcionesArray.find(o => o.categoria === 'EmpaquesUnicos');
+                  if (optEmpaquesUnicos && optEmpaquesUnicos.empaques) {
+                      setEmpaquesUnicos(optEmpaquesUnicos.empaques);
+                  } else {
+                      setEmpaquesUnicos([]);
+                  }
 
                   const optUnidad = opcionesArray.find(o => o.categoria === 'UnidadRendimiento');
                   if (optUnidad) setUnidadRendimiento(optUnidad.nombre);
                   else setUnidadRendimiento('PZ');
               } catch(e) {
-                  setConfigTamanos({}); setUnidadRendimiento('PZ');
+                  setConfigTamanos({}); setUnidadRendimiento('PZ'); setEmpaquesUnicos([]);
               }
           } else {
-              setConfigTamanos({}); setUnidadRendimiento('PZ');
+              setConfigTamanos({}); setUnidadRendimiento('PZ'); setEmpaquesUnicos([]);
           }
       }
       
@@ -54,7 +68,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
         .then(data => setRecetaItems(Array.isArray(data) ? data : []))
         .catch(console.error); 
     } else { 
-      setRecetaItems([]); setRendimientoCalculadora(1); setConfigTamanos({}); setUnidadRendimiento('PZ');
+      setRecetaItems([]); setRendimientoCalculadora(1); setConfigTamanos({}); setUnidadRendimiento('PZ'); setEmpaquesUnicos([]);
     }
   }, [recetaActivaId, productos, apiUrl]);
 
@@ -151,7 +165,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
     }); 
   };
 
-  const guardarRendimiento = async () => {
+  const guardarRendimientoYEmpaques = async () => {
     if (!recetaActivaId) return;
     try { 
       await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
@@ -162,14 +176,20 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
       let opcionesArray = [];
       if (prod && prod.opciones) opcionesArray = typeof prod.opciones === 'string' ? JSON.parse(prod.opciones) : prod.opciones;
       
-      const opcionesFiltradas = opcionesArray.filter(o => o.categoria !== 'UnidadRendimiento');
+      const opcionesFiltradas = opcionesArray.filter(o => o.categoria !== 'UnidadRendimiento' && o.categoria !== 'EmpaquesUnicos');
+      
       opcionesFiltradas.push({ categoria: 'UnidadRendimiento', nombre: unidadRendimiento });
+      
+      const empaquesValidos = empaquesUnicos.filter(e => e.insumo_id !== '');
+      if (empaquesValidos.length > 0) {
+          opcionesFiltradas.push({ categoria: 'EmpaquesUnicos', nombre: 'Empaques Base', empaques: empaquesValidos });
+      }
 
       await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opciones: opcionesFiltradas })
       });
 
-      showAlert("¡Éxito!", "Rendimiento guardado correctamente.", "success");
+      showAlert("¡Éxito!", "Configuración guardada correctamente.", "success");
       refrescarDatos(); 
     } catch (error) { 
       showAlert("Error", "No se pudo guardar.", "error"); 
@@ -225,6 +245,21 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
     }
   };
 
+  const agregarEmpaqueUnico = () => {
+      setEmpaquesUnicos([...empaquesUnicos, { insumo_id: '', cantidad: 1 }]);
+  };
+
+  const actualizarEmpaqueUnico = (idx, campo, valor) => {
+      const nuevos = [...empaquesUnicos];
+      nuevos[idx][campo] = valor;
+      setEmpaquesUnicos(nuevos);
+  };
+
+  const eliminarEmpaqueUnico = (idx) => {
+      setEmpaquesUnicos(empaquesUnicos.filter((_, i) => i !== idx));
+  };
+
+
   const formatearCantidadVisual = (cantidad, unidad) => {
       const cant = Number(cantidad);
       if (unidad === 'KL' && cant < 1 && cant > 0) return `${(cant * 1000).toFixed(0)} GR`;
@@ -272,9 +307,25 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   }
 
   const costoPorPorcionBase = costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora);
-  const luzAguaBase = costoPorPorcionBase * 0.15;
-  const costoTotalRealBase = costoPorPorcionBase * 1.15;
+  
+  let costoEmpaquesUnicoTotal = 0;
+  if (tamanosConfigurados.length === 0) {
+      empaquesUnicos.forEach(emp => {
+          if (emp.insumo_id) {
+              const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
+              if (ins) costoEmpaquesUnicoTotal += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+          }
+      });
+  }
+
+  const costoConEmpaquesUnico = costoPorPorcionBase + costoEmpaquesUnicoTotal;
+  const luzAguaBase = costoConEmpaquesUnico * 0.15;
+  const costoTotalRealBase = costoConEmpaquesUnico * 1.15;
   const precioSugeridoBase = costoTotalRealBase * 3;
+
+  const precioBaseUnico = Number(productoSeleccionado?.precio_base) || 0;
+  const utilidadUnico = precioBaseUnico - costoTotalRealBase;
+  const margenUnico = precioBaseUnico > 0 ? (utilidadUnico / precioBaseUnico) * 100 : 0;
 
   let opcionesDeUnidad = [];
   if (tipoIngresoReceta === 'insumo') {
@@ -346,7 +397,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                     >
                         <option value="PZ">PZ</option><option value="GR">GR</option><option value="KL">KL</option><option value="ML">ML</option><option value="LT">LT</option>
                     </select>
-                    <button onClick={guardarRendimiento} disabled={!recetaActivaId} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:hover:bg-purple-600 text-white px-4 rounded-r-2xl font-bold transition shadow-sm active:scale-95 border-y border-r border-purple-600">Guardar</button>
                 </div>
                 <p className="text-[11px] text-purple-600/80 mt-2 font-bold leading-tight">Selecciona si tu olla rinde en Gramos, Litros o Porciones Finales.</p>
             </div>
@@ -526,49 +576,98 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
              </table>
            </div>
            
+           {/* PANEL DE EMPAQUES Y COSTOS PARA PLATILLOS DE TAMAÑO ÚNICO */}
            {recetaItems.length > 0 && tamanosConfigurados.length === 0 && (
-             <div className="flex flex-col md:flex-row flex-wrap justify-end gap-4 border-t border-slate-100 pt-6">
-               <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                 <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Total Olla/Batch</p>
-                 <p className="text-2xl font-black text-slate-700">${costoTotalRecetaCalculado.toFixed(2)}</p>
-               </div>
+             <div className="border-t border-slate-200 pt-8 mt-8">
                
-               {unidadRendimiento === 'PZ' ? (
-                   <>
-                       <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                         <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-1">Costo Insumo Unitario</p>
-                         <p className="text-2xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p>
+               <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mb-6">
+                    <div className="flex items-center gap-3">
+                        <div className="p-3 bg-blue-100 text-blue-600 rounded-xl"><Package size={24}/></div>
+                        <div>
+                            <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Costo de Insumos Base (Olla Completa)</p>
+                            <p className="text-xl font-black text-slate-800">Receta Total: <span className="text-blue-600">${costoTotalRecetaCalculado.toFixed(2)}</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-6 mb-8">
+                    {/* Columna de Empaques Unitarios */}
+                    <div className="flex-1 bg-slate-50 p-6 rounded-2xl border border-slate-200">
+                        <div className="flex justify-between items-center mb-4">
+                            <p className="text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-1"><Box size={16}/> Empaques (Por cada porción)</p>
+                            <span className="text-slate-500 bg-white px-3 py-1 rounded shadow-sm border border-slate-100 font-bold text-sm">Total: ${costoEmpaquesUnicoTotal.toFixed(2)}</span>
+                        </div>
+                        
+                        <div className="space-y-3 mb-4">
+                            {empaquesUnicos.map((emp, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                    {/* 👇 AQUÍ ESTÁ EL CAMBIO PARA TAMAÑO ÚNICO: Mostramos el costo unitario c/u */}
+                                    <select value={emp.insumo_id} onChange={e => actualizarEmpaqueUnico(idx, 'insumo_id', e.target.value)} className="flex-1 p-3 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 focus:ring-2 focus:ring-blue-500">
+                                        <option value="">Selecciona empaque...</option>
+                                        {empaquesDisponibles.map(ins => (
+                                            <option key={ins.id} value={ins.id}>
+                                                {ins.nombre} - ${(ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)).toFixed(2)} c/u
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <input type="number" min="0.01" step="0.01" value={emp.cantidad} onChange={e => actualizarEmpaqueUnico(idx, 'cantidad', e.target.value)} className="w-20 p-3 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-center focus:ring-2 focus:ring-blue-500" title="Cantidad" />
+                                    <button onClick={() => eliminarEmpaqueUnico(idx)} className="p-3 bg-white border border-red-200 text-red-400 hover:text-white hover:bg-red-500 rounded-xl transition"><Trash2 size={18}/></button>
+                                </div>
+                            ))}
+                            {empaquesDisponibles.length === 0 && <p className="text-xs text-slate-400 italic">No tienes insumos marcados como "Empaque".</p>}
+                        </div>
+                        <button onClick={agregarEmpaqueUnico} className="w-full py-3 border-2 border-dashed border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-500 hover:bg-white rounded-xl text-xs font-black uppercase transition">+ Añadir Empaque Unitario</button>
+                    </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row flex-wrap justify-end items-end gap-4">
+                   {unidadRendimiento === 'PZ' ? (
+                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+                           <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Costo Platillo Base</p>
+                             <p className="text-xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                             <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p>
+                             <p className="text-xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-center bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
+                             <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real + Empaque</p>
+                             <p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p>
+                           </div>
+                           <div className="text-center bg-emerald-600 p-4 rounded-2xl shadow-md text-white relative">
+                             <p className="text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1">Venta Sugerida (*3)</p>
+                             <p className="text-3xl font-black">${precioSugeridoBase.toFixed(2)}</p>
+                             <div className="absolute -top-3 -right-3 bg-slate-900 text-white text-[10px] font-black px-2 py-1 rounded-full shadow-md border-2 border-white">
+                                {margenUnico > 65 ? <span className="text-emerald-400">✅ {margenUnico.toFixed(0)}%</span> : <span className="text-red-400">⚠️ {margenUnico.toFixed(0)}%</span>}
+                             </div>
+                           </div>
                        </div>
-                       <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                         <p className="text-xs font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p>
-                         <p className="text-2xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
+                   ) : (
+                       <div className="w-full text-center bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-sm">
+                          <p className="text-sm font-black text-blue-700">
+                              💡 Al ser una receta base en <span className="font-black text-xl mx-1">{unidadRendimiento}</span>, el precio de venta sugerido se calculará cuando uses esta base dentro del platillo final.
+                          </p>
                        </div>
-                       <div className="text-right bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm">
-                         <p className="text-xs font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real Total</p>
-                         <p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p>
-                       </div>
-                       <div className="text-right bg-emerald-600 p-4 rounded-2xl shadow-md text-white">
-                         <p className="text-xs font-black text-emerald-200 uppercase tracking-widest mb-1">Venta Sugerida (*3)</p>
-                         <p className="text-3xl font-black">${precioSugeridoBase.toFixed(2)}</p>
-                       </div>
-                   </>
-               ) : (
-                   <div className="text-right bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-sm flex items-center">
-                      <p className="text-sm font-black text-blue-700">
-                          💡 Al ser una receta base en <span className="font-black text-xl mx-1">{unidadRendimiento}</span>, el precio de venta sugerido se calculará cuando uses esta base en el platillo final.
-                      </p>
-                   </div>
-               )}
+                   )}
+
+                   {/* Botón Maestro Guardar Rendimiento Único */}
+                   <button onClick={guardarRendimientoYEmpaques} className="w-full mt-4 bg-slate-800 hover:bg-slate-900 text-white px-8 py-5 rounded-2xl font-black text-sm uppercase tracking-widest transition shadow-lg shadow-slate-500/30 active:scale-95 flex items-center justify-center gap-2">
+                       💾 Guardar Rendimiento y Empaques
+                   </button>
+               </div>
+
              </div>
            )}
 
+           {/* PANEL DE TAMAÑOS FIJOS (Sigue igual) */}
            {tamanosConfigurados.length > 0 && (
              <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-orange-100 shadow-sm mb-6">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><Package size={24}/></div>
                         <div>
-                            <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Costo de Insumos Base</p>
+                            <p className="text-xs font-black text-slate-500 uppercase tracking-widest">Costo de Insumos Base (Olla Completa)</p>
                             <p className="text-xl font-black text-slate-800">Receta Total: <span className="text-orange-600">${costoTotalRecetaCalculado.toFixed(2)}</span></p>
                         </div>
                     </div>
@@ -581,7 +680,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                        </h4>
                        <p className="text-xs text-orange-600 font-bold mt-0.5">Calcula el margen exacto añadiendo el costo de todos los desechables de cada tamaño.</p>
                     </div>
-                    <button onClick={guardarRendimientosTamanos} className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition shadow-md active:scale-95">
+                    <button onClick={guardarRendimientosTamanos} className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition shadow-md active:scale-95">
                        💾 Guardar Tamaños
                     </button>
                 </div>
@@ -634,9 +733,14 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                         <div className="space-y-2 mb-3">
                                             {(configTam.empaques || []).map((emp, idx) => (
                                                 <div key={idx} className="flex items-center gap-2">
+                                                    {/* 👇 AQUÍ ESTÁ EL CAMBIO PARA TAMAÑOS FIJOS: Mostramos el costo unitario c/u */}
                                                     <select value={emp.insumo_id} onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'insumo_id', e.target.value)} className="flex-1 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate focus:ring-1 focus:ring-slate-400">
                                                         <option value="">Selecciona empaque...</option>
-                                                        {empaquesDisponibles.map(ins => <option key={ins.id} value={ins.id}>{ins.nombre}</option>)}
+                                                        {empaquesDisponibles.map(ins => (
+                                                            <option key={ins.id} value={ins.id}>
+                                                                {ins.nombre} - ${(ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)).toFixed(2)} c/u
+                                                            </option>
+                                                        ))}
                                                     </select>
                                                     <input type="number" min="0.01" step="0.01" value={emp.cantidad} onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'cantidad', e.target.value)} className="w-16 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs text-center focus:ring-1 focus:ring-slate-400" title="Cantidad utilizada de este empaque" />
                                                     <button onClick={() => eliminarEmpaqueTamanio(tam.nombre, idx)} className="p-2 bg-white border border-red-200 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition"><Trash2 size={14}/></button>
