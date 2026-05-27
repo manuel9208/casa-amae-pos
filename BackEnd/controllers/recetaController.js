@@ -3,14 +3,20 @@ const db = require('../config/db');
 exports.obtenerReceta = async (req, res) => {
   const { producto_id } = req.params;
   try {
-    // 👇 MÁGIA SQL CORREGIDA: Se quitó el * 1.15 para no cobrar la luz dos veces. Pasa el costo crudo.
+    // 👇 CONFIGURACIÓN DE COSTOS DE ALTA PRECISIÓN:
+    // Ahora dividimos el costo unitario entre el factor_rendimiento para obtener el COSTO REAL UTILIZABLE.
     const result = await db.query(`
       SELECT r.id, r.producto_id, r.cantidad_usada, 
              r.insumo_id, i.nombre as insumo_nombre, i.unidad_medida, 
-             i.costo_presentacion, i.cantidad_presentacion,
+             i.costo_presentacion, i.cantidad_presentacion, i.factor_rendimiento, i.tipo_rendimiento,
              r.sub_producto_id, p.nombre as sub_producto_nombre, p.rendimiento as sub_producto_rendimiento,
+             
+             -- 1. Costo unitario neto por gramo/pieza ya considerando Merma o Expansión
+             (i.costo_presentacion / COALESCE(NULLIF(i.cantidad_presentacion, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento, 0), 1) as costo_unitario_real,
+             
+             -- 2. Costo de la Sub-Receta completa recalculada con los rendimientos individuales de sus insumos
              (
-                SELECT COALESCE(SUM((i2.costo_presentacion / COALESCE(NULLIF(i2.cantidad_presentacion, 0), 1)) * r2.cantidad_usada), 0)
+                SELECT COALESCE(SUM(((i2.costo_presentacion / COALESCE(NULLIF(i2.cantidad_presentacion, 0), 1)) / COALESCE(NULLIF(i2.factor_rendimiento, 0), 1)) * r2.cantidad_usada), 0)
                 FROM recetas r2
                 JOIN insumos i2 ON r2.insumo_id = i2.id
                 WHERE r2.producto_id = r.sub_producto_id

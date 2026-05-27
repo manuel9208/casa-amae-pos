@@ -8,7 +8,12 @@ const ListaProductos = ({
 }) => {
 
   const nombreCategoriaSeleccionada = (clasificaciones || []).find(c => Number(c.id) === Number(categoriaSelect))?.nombre;
-  const productosEnCategoria = (productos || []).filter(p => p.categoria === nombreCategoriaSeleccionada);
+  
+  // 👇 MAGIA AQUÍ: Filtramos por categoría, pero EXCLUIMOS las preparaciones internas (Bases)
+  const productosEnCategoria = (productos || []).filter(p => 
+      p.categoria === nombreCategoriaSeleccionada && 
+      !p.nombre.includes('(Base)')
+  );
 
   const eliminarProducto = (id) => { 
     showConfirm("Eliminar Platillo", "¿Seguro que deseas borrar este platillo permanentemente?", async () => { 

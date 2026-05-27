@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Box } from 'lucide-react';
+import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Box, Percent } from 'lucide-react';
 
 const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
-  const [nuevoInsumo, setNuevoInsumo] = useState({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', es_empaque: false });
+  const [nuevoInsumo, setNuevoInsumo] = useState({ 
+      nombre: '', 
+      unidad_medida: 'KL', 
+      cantidad_presentacion: '', 
+      costo_presentacion: '', 
+      es_empaque: false,
+      tipo_rendimiento: 'Directo', 
+      peso_prueba_crudo: '', 
+      peso_prueba_limpio: '' 
+  });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
   
   const [modalCompra, setModalCompra] = useState(null);
@@ -16,13 +25,19 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
         unidad_medida: i.unidad_medida, 
         cantidad_presentacion: i.cantidad_presentacion, 
         costo_presentacion: i.costo_presentacion,
-        es_empaque: i.es_empaque === true || i.es_empaque === 'true'
+        es_empaque: i.es_empaque === true || i.es_empaque === 'true',
+        tipo_rendimiento: i.tipo_rendimiento || 'Directo',
+        peso_prueba_crudo: i.peso_prueba_crudo || '',
+        peso_prueba_limpio: i.peso_prueba_limpio || ''
     }); 
   };
   
   const cancelarEdicionInsumo = () => { 
     setEditandoInsumoId(null); 
-    setNuevoInsumo({ nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', es_empaque: false }); 
+    setNuevoInsumo({ 
+        nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', costo_presentacion: '', 
+        es_empaque: false, tipo_rendimiento: 'Directo', peso_prueba_crudo: '', peso_prueba_limpio: '' 
+    }); 
   };
   
   const guardarInsumo = async (e) => { 
@@ -89,6 +104,14 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
+  // Calcula el porcentaje de rendimiento visualmente para que el usuario sepa qué pasará
+  let porcentajeRendimientoCalculado = 100;
+  if (nuevoInsumo.tipo_rendimiento !== 'Directo') {
+      const pC = parseFloat(nuevoInsumo.peso_prueba_crudo) || 0;
+      const pL = parseFloat(nuevoInsumo.peso_prueba_limpio) || 0;
+      if (pC > 0) porcentajeRendimientoCalculado = (pL / pC) * 100;
+  }
+
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
       {insumosCriticos.length > 0 && (
@@ -138,7 +161,51 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
              <p className="text-xs text-indigo-600/80 font-bold ml-8 mt-1">Márcalo si es un domo, vaso, cuchara o servilleta. Así aparecerá en el simulador de Tamaños.</p>
           </div>
 
-          <div className="pt-2 flex flex-col md:flex-row gap-4">
+          {/* 👇 NUEVO BLOQUE: CONTROL DE RENDIMIENTO (MERMAS) */}
+          {!nuevoInsumo.es_empaque && (
+              <div className="mt-6 border-t border-slate-100 pt-6">
+                <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <Percent size={16} className="text-amber-500"/> Factor de Rendimiento (Mermas)
+                </h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label className="block text-xs font-black text-slate-400 uppercase mb-1">Comportamiento del Producto</label>
+                        <select value={nuevoInsumo.tipo_rendimiento} onChange={e => setNuevoInsumo({...nuevoInsumo, tipo_rendimiento: e.target.value})} className="w-full p-4 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl outline-none font-black text-center cursor-pointer">
+                            <option value="Directo">1. Se usa directo (Rinde 100%)</option>
+                            <option value="Merma">2. Tiene Merma (Se pela/limpia)</option>
+                            <option value="Expansión">3. Se Expande (Ej. Arroz/Frijol)</option>
+                        </select>
+                    </div>
+
+                    {nuevoInsumo.tipo_rendimiento !== 'Directo' && (
+                        <>
+                            <div>
+                                <label className="block text-xs font-black text-slate-400 uppercase mb-1">Pesaje de Prueba (Crudo/Sucio)</label>
+                                <input required type="number" step="0.01" placeholder={`Ej. 400 ${nuevoInsumo.unidad_medida}`} value={nuevoInsumo.peso_prueba_crudo} onChange={e => setNuevoInsumo({...nuevoInsumo, peso_prueba_crudo: e.target.value})} className="w-full p-4 bg-slate-50 border border-amber-200 rounded-xl outline-none font-bold text-center" />
+                                <p className="text-[10px] text-slate-400 mt-1 font-bold">Pesa 1 sola pieza tal cual se compró.</p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black text-slate-400 uppercase mb-1">Pesaje de Prueba (Limpio/Cocido)</label>
+                                <input required type="number" step="0.01" placeholder={`Ej. 200 ${nuevoInsumo.unidad_medida}`} value={nuevoInsumo.peso_prueba_limpio} onChange={e => setNuevoInsumo({...nuevoInsumo, peso_prueba_limpio: e.target.value})} className="w-full p-4 bg-white border border-amber-400 shadow-inner rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-amber-700 text-center text-xl" />
+                                <p className="text-[10px] text-slate-400 mt-1 font-bold">Pésalo otra vez ya listo para cocinar.</p>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {nuevoInsumo.tipo_rendimiento !== 'Directo' && nuevoInsumo.peso_prueba_crudo && nuevoInsumo.peso_prueba_limpio && (
+                    <div className="mt-4 bg-slate-800 p-4 rounded-xl flex items-center justify-between text-white">
+                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">Rendimiento Real Calculado:</span>
+                        <span className={`text-2xl font-black ${porcentajeRendimientoCalculado < 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {porcentajeRendimientoCalculado.toFixed(1)}%
+                        </span>
+                    </div>
+                )}
+              </div>
+          )}
+
+          <div className="pt-6 flex flex-col md:flex-row gap-4">
             {editandoInsumoId && (
               <button type="button" onClick={cancelarEdicionInsumo} className="w-full md:w-1/3 p-4 bg-slate-100 text-slate-600 rounded-xl font-black hover:bg-slate-200 transition">Cancelar</button>
             )}
@@ -177,11 +244,16 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
                   return ( 
                     <tr key={ins.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="p-4">
-                        <p className="font-bold text-slate-800 text-base md:text-lg">
+                        <p className="font-bold text-slate-800 text-base md:text-lg flex items-center gap-2">
                             {ins.nombre}
                             {ins.es_empaque && (
-                                <span className="ml-2 text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest align-middle">
+                                <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest align-middle">
                                     📦 Empaque
+                                </span>
+                            )}
+                            {ins.factor_rendimiento && Number(ins.factor_rendimiento) !== 1 && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase tracking-widest align-middle ${Number(ins.factor_rendimiento) < 1 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {(Number(ins.factor_rendimiento) * 100).toFixed(0)}% RND
                                 </span>
                             )}
                         </p>
@@ -221,7 +293,14 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
                 <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-1">Costo Total Compra</p>
                 <p className="text-3xl font-black text-blue-700">${totalCalculadoModalCompra.toFixed(2)}</p>
             </div>
-            <div className="flex gap-4 mt-8">
+            
+            {modalCompra.factor_rendimiento && Number(modalCompra.factor_rendimiento) !== 1 && (
+                <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800 font-bold text-center">
+                    💡 Entrarán <span className="text-amber-600 text-sm font-black mx-1">{(Number(compraPaquetes || 0) * Number(modalCompra.cantidad_presentacion) * Number(modalCompra.factor_rendimiento)).toFixed(2)} {modalCompra.unidad_medida}</span> utilizables a tu inventario.
+                </div>
+            )}
+
+            <div className="flex gap-4 mt-6">
               <button type="button" onClick={() => {setModalCompra(null); setCompraPaquetes(''); setCompraCosto('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>
               <button type="submit" className="flex-1 py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95">Guardar</button>
             </div>
