@@ -34,54 +34,49 @@ const Login = ({ onLogin, onInvitado }) => {
     if(onLogin) onLogin(telefono);
   };
 
-  // 👇 LA MAGIA DEFINITIVA: Reconstrucción absoluta con Regex
   const getImageUrl = (url) => {
     if (!url) return '';
     
     const strUrl = String(url).trim();
 
-    // 1. RECONSTRUCCIÓN BLINDADA PARA CLOUDINARY
     if (strUrl.includes('cloudinary.com')) {
-      // Esta expresión regular ignora TODO lo que haya antes de res.cloudinary.com
-      // y captura únicamente la ruta de la imagen.
       const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
       if (match && match[1]) {
-        // Reconstruimos la URL limpia desde cero. Es imposible que se cuele el dominio de Render aquí.
         return `https://res.cloudinary.com/${match[1]}`;
       }
     }
 
-    // 2. Limpieza para otras URLs absolutas
     const lastHttp = strUrl.lastIndexOf('http');
     if (lastHttp > 0) {
       return strUrl.substring(lastHttp);
     }
 
-    // 3. URLs absolutas correctas
     if (strUrl.startsWith('http')) return strUrl;
 
-    // 4. Archivos locales
     return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-slate-800">
-      <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border border-slate-100 relative overflow-hidden">
+      {/* 👇 AQUÍ AMPLIAMOS LA CAJA: max-w-xl (más ancha) y p-10 md:p-16 (más alta y espaciosa) */}
+      <div className="bg-white p-10 md:p-16 rounded-[50px] shadow-2xl max-w-xl w-full text-center border border-slate-100 relative overflow-hidden">
         
         <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
         <div className="absolute -bottom-32 -right-32 w-64 h-64 bg-orange-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
 
         <div className="relative z-10">
           
-          {/* Renderizado de Imagen */}
+          {/* Contenedor del Logo Gigante */}
           {config.logo_url ? (
-            <img 
-               src={getImageUrl(config.logo_url)}
-               alt="Logo" 
-               className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" 
-            />
+            <div className="flex justify-center items-center h-32 md:h-40 mb-10 mt-4">
+              <img 
+                 src={getImageUrl(config.logo_url)}
+                 alt="Logo" 
+                 className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" 
+              />
+            </div>
           ) : (
-            <div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">
+            <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-lg shadow-blue-500/30">
               🍔
             </div>
           )}
@@ -90,11 +85,11 @@ const Login = ({ onLogin, onInvitado }) => {
             {config.nombre_negocio ? config.nombre_negocio : 'Bienvenido'}
           </h1>
           
-          <p className="text-slate-500 font-medium mb-10 text-lg">Ingresa tu número para continuar</p>
+          <p className="text-slate-500 font-medium mb-12 text-lg">Ingresa tu número para continuar</p>
 
           <form onSubmit={handleSubmit} className="space-y-6 text-left">
             <div>
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4 text-center">
                 Celular a 10 dígitos
               </label>
               <input 
@@ -121,7 +116,7 @@ const Login = ({ onLogin, onInvitado }) => {
 
           <button 
             onClick={onInvitado} 
-            className="mt-8 text-slate-400 hover:text-slate-600 font-bold text-sm transition-colors"
+            className="mt-10 text-slate-400 hover:text-slate-600 font-bold text-sm transition-colors"
           >
             Entrar directo como Invitado
           </button>

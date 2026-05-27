@@ -3,25 +3,26 @@
 -- =========================================================================
 
 -- 1. LIMPIEZA (Opcional: Descomentar para resetear la base de datos)
--- DROP TABLE IF EXISTS registro_asistencias CASCADE;
--- DROP TABLE IF EXISTS compras_insumos CASCADE;
--- DROP TABLE IF EXISTS recetas CASCADE;
--- DROP TABLE IF EXISTS insumos CASCADE;
--- DROP TABLE IF EXISTS detalle_pedidos CASCADE;
--- DROP TABLE IF EXISTS mesas CASCADE;
--- DROP TABLE IF EXISTS pedidos CASCADE;
--- DROP TABLE IF EXISTS promociones CASCADE;
--- DROP TABLE IF EXISTS cupones CASCADE;
--- DROP TABLE IF EXISTS catalogo_ingredientes CASCADE;
--- DROP TABLE IF EXISTS clasificaciones CASCADE;
--- DROP TABLE IF EXISTS clientes CASCADE;
--- DROP TABLE IF EXISTS productos CASCADE;
--- DROP TABLE IF EXISTS usuarios CASCADE;
--- DROP TABLE IF EXISTS configuracion CASCADE;
+-- DROP TABLE IF EXISTS registro_asistencias CASCADE; [cite: 1]
+-- DROP TABLE IF EXISTS suscripciones_push CASCADE; -- 👇 NUEVA TABLA
+-- DROP TABLE IF EXISTS compras_insumos CASCADE; [cite: 2]
+-- DROP TABLE IF EXISTS recetas CASCADE; [cite: 2]
+-- DROP TABLE IF EXISTS insumos CASCADE; [cite: 3]
+-- DROP TABLE IF EXISTS detalle_pedidos CASCADE; [cite: 3]
+-- DROP TABLE IF EXISTS mesas CASCADE; [cite: 4]
+-- DROP TABLE IF EXISTS pedidos CASCADE; [cite: 4]
+-- DROP TABLE IF EXISTS promociones CASCADE; [cite: 5]
+-- DROP TABLE IF EXISTS cupones CASCADE; [cite: 5]
+-- DROP TABLE IF EXISTS catalogo_ingredientes CASCADE; [cite: 6]
+-- DROP TABLE IF EXISTS clasificaciones CASCADE; [cite: 6]
+-- DROP TABLE IF EXISTS clientes CASCADE; [cite: 7]
+-- DROP TABLE IF EXISTS productos CASCADE; [cite: 7]
+-- DROP TABLE IF EXISTS usuarios CASCADE; [cite: 8]
+-- DROP TABLE IF EXISTS configuracion CASCADE; [cite: 8]
 
 -- CONFIGURACIÓN DE ENTORNO
 -- Establece la zona horaria para que coincida con el servidor local
-ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
+ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan'; [cite: 9]
 
 -- -------------------------------------------------------------------------
 -- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Envíos)
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS configuracion (
     whatsapp VARCHAR(20) DEFAULT '6721238015',
     banco VARCHAR(50) DEFAULT 'BBVA Bancomer',
     cuenta VARCHAR(50) DEFAULT '012345678901234567',
-    titular VARCHAR(100) DEFAULT 'Restaurante POS SA de CV',
+    titular VARCHAR(100) DEFAULT 'Restaurante POS SA de CV', [cite: 10]
     
     -- Colores y Branding General
     color_primario VARCHAR(20) DEFAULT '#2563eb',
@@ -43,20 +44,20 @@ CREATE TABLE IF NOT EXISTS configuracion (
     color_fondo VARCHAR(20) DEFAULT '#f1f5f9',
     color_fondo_tarjetas VARCHAR(20) DEFAULT '#ffffff',
     color_texto_principal VARCHAR(20) DEFAULT '#1e293b',
-    color_texto_secundario VARCHAR(20) DEFAULT '#64748b',
+    color_texto_secundario VARCHAR(20) DEFAULT '#64748b', [cite: 11]
     
     -- Tipografías
     fuente_titulos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
-    fuente_textos VARCHAR(50) DEFAULT 'system-ui, sans-serif',
+    fuente_textos VARCHAR(50) DEFAULT 'system-ui, sans-serif', [cite: 11]
     
     -- Kiosco
     kiosco_mensaje VARCHAR(100) DEFAULT '¿Qué se te antoja hoy?',
-    color_texto_kiosco VARCHAR(20) DEFAULT '#1e293b',
+    color_texto_kiosco VARCHAR(20) DEFAULT '#1e293b', [cite: 11]
     
     -- Pantalla TV KDS (Gestión de Pedidos)
     tv_msg_cola VARCHAR(50) DEFAULT 'EN COLA',
     tv_msg_progreso VARCHAR(50) DEFAULT 'PREPARANDO',
-    tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!',
+    tv_msg_listo VARCHAR(50) DEFAULT '¡LISTOS!', [cite: 12]
     
     -- Carrusel TV Promocional (Multimedia)
     tv_carrusel_activo BOOLEAN DEFAULT false,
@@ -64,37 +65,37 @@ CREATE TABLE IF NOT EXISTS configuracion (
     tv_imagen_1 VARCHAR(255),
     tv_imagen_2 VARCHAR(255),
     tv_imagen_3 VARCHAR(255),
-    tv_video VARCHAR(255), -- Ruta del video de 10s
+    tv_video VARCHAR(255), -- Ruta del video de 10s [cite: 12]
 
     -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
-    mensaje_cierre TEXT,
+    mensaje_cierre TEXT, [cite: 12, 13]
 
     -- Configuración de Ticket de Venta
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
     ticket_modo_impresion VARCHAR(20) DEFAULT 'pdf',
     ticket_domicilio TEXT,
     ticket_mensaje_final TEXT,
-    ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
+    ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS', [cite: 13]
 
     -- Configuración de Envíos a Domicilio
     tarifas_envio JSONB DEFAULT '[]'::jsonb,
-    mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
+    mensaje_envio TEXT DEFAULT 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.', [cite: 13]
 
     -- Programa de Lealtad (Puntos)
     puntos_activos BOOLEAN DEFAULT true,
     puntos_canje_activo BOOLEAN DEFAULT true,
     puntos_porcentaje DECIMAL(10,2) DEFAULT 10,
-    puntos_valor_peso DECIMAL(10,2) DEFAULT 1.00,
+    puntos_valor_peso DECIMAL(10,2) DEFAULT 1.00, [cite: 13, 14]
 
     -- Notificaciones WhatsApp API Oficial
     wa_api_activa BOOLEAN DEFAULT FALSE,
     wa_api_token TEXT,
-    wa_phone_id TEXT
+    wa_phone_id TEXT [cite: 14]
 );
 
 -- -------------------------------------------------------------------------
--- 3. TABLAS DE USUARIOS, ASISTENCIAS Y CLIENTES
+-- 3. TABLAS DE USUARIOS, ASISTENCIAS, CLIENTES Y NOTIFICACIONES
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
@@ -106,7 +107,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 15, 16]
 );
 
 -- Tabla Reloj Checador: Registro de Entradas y Salidas
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS registro_asistencias (
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE,
     hora_entrada TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     hora_salida TIMESTAMP,
-    fecha DATE DEFAULT CURRENT_DATE
+    fecha DATE DEFAULT CURRENT_DATE [cite: 16]
 );
 
 CREATE TABLE IF NOT EXISTS clientes (
@@ -127,7 +128,16 @@ CREATE TABLE IF NOT EXISTS clientes (
     fecha_nacimiento DATE,
     puntos INTEGER DEFAULT 0,
     nip VARCHAR(4) DEFAULT '0000', 
-    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 17]
+);
+
+-- 👇 NUEVA TABLA: Notificaciones Push (Integrada con relación a usuarios y clientes)
+CREATE TABLE IF NOT EXISTS suscripciones_push (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NULL, -- Si es un empleado (Caja/Cocina)
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE NULL, -- Si es un cliente
+    suscripcion JSONB NOT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- -------------------------------------------------------------------------
@@ -139,7 +149,7 @@ CREATE TABLE IF NOT EXISTS clasificaciones (
     destino VARCHAR(20) DEFAULT 'Cocina', 
     emoji VARCHAR(20),
     imagen_url TEXT,
-    genera_puntos BOOLEAN DEFAULT true
+    genera_puntos BOOLEAN DEFAULT true [cite: 18]
 );
 
 CREATE TABLE IF NOT EXISTS productos (
@@ -157,7 +167,7 @@ CREATE TABLE IF NOT EXISTS productos (
     estado VARCHAR(20) DEFAULT 'Activo',
     disponible BOOLEAN DEFAULT TRUE, 
     genera_puntos BOOLEAN DEFAULT true,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 19, 20]
 );
 
 CREATE TABLE IF NOT EXISTS catalogo_ingredientes (
@@ -166,7 +176,7 @@ CREATE TABLE IF NOT EXISTS catalogo_ingredientes (
     nombre VARCHAR(100) NOT NULL,
     tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('base', 'extra')),
     precio_extra DECIMAL(10,2) DEFAULT 0,
-    permite_extra BOOLEAN DEFAULT true
+    permite_extra BOOLEAN DEFAULT true [cite: 20]
 );
 
 -- -------------------------------------------------------------------------
@@ -179,7 +189,13 @@ CREATE TABLE IF NOT EXISTS insumos (
     cantidad_presentacion DECIMAL(10,2) NOT NULL, 
     costo_presentacion DECIMAL(10,2) NOT NULL,    
     stock_actual DECIMAL(10,2) DEFAULT 0,
-    es_empaque BOOLEAN DEFAULT false -- 👇 NUEVA COLUMNA INTEGRADA AQUÍ
+    es_empaque BOOLEAN DEFAULT false, [cite: 21]
+    
+    -- 👇 NUEVAS COLUMNAS: Sistema de Rendimiento y Merma
+    tipo_rendimiento VARCHAR(20) DEFAULT 'Directo',
+    peso_prueba_crudo DECIMAL(10,2) DEFAULT NULL,
+    peso_prueba_limpio DECIMAL(10,2) DEFAULT NULL,
+    factor_rendimiento DECIMAL(10,4) DEFAULT 1.0000
 );
 
 CREATE TABLE IF NOT EXISTS compras_insumos (
@@ -188,14 +204,14 @@ CREATE TABLE IF NOT EXISTS compras_insumos (
     paquetes DECIMAL(10,2),
     costo_unitario DECIMAL(10,2),
     costo_total DECIMAL(10,2),
-    fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 22]
 );
 
 CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
     insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE NULL, -- Acepta nulos para usar sub-recetas
-    sub_producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE NULL, -- 👇 NUEVA COLUMNA INTEGRADA AQUÍ
+    sub_producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE NULL, [cite: 23]
     cantidad_usada DECIMAL(10,2) NOT NULL 
 );
 
@@ -215,7 +231,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     
     -- Costos y Tiempos
     costo_envio DECIMAL(10,2) DEFAULT 0, 
-    descuento_puntos INTEGER DEFAULT 0,
+    descuento_puntos INTEGER DEFAULT 0, [cite: 24, 25]
     
     -- Soporte para pagos mixtos y cupones
     cupon_codigo VARCHAR(50), 
@@ -229,18 +245,18 @@ CREATE TABLE IF NOT EXISTS pedidos (
     
     mesa VARCHAR(50) DEFAULT NULL,
     
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 25]
 );
 
 -- ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
-CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
+CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion); [cite: 26]
 
 CREATE TABLE IF NOT EXISTS detalle_pedidos (
     id SERIAL PRIMARY KEY,
     pedido_id INT REFERENCES pedidos(id) ON DELETE CASCADE,
     nombre_producto VARCHAR(100),
     precio DECIMAL(10,2),
-    extras JSONB 
+    extras JSONB  [cite: 27]
 );
 
 -- -------------------------------------------------------------------------
@@ -254,7 +270,7 @@ CREATE TABLE IF NOT EXISTS mesas (
     pos_x DECIMAL(10,2) DEFAULT 0, 
     pos_y DECIMAL(10,2) DEFAULT 0, 
     pedido_actual_id INT REFERENCES pedidos(id) ON DELETE SET NULL,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 28]
 );
 
 -- -------------------------------------------------------------------------
@@ -271,7 +287,7 @@ CREATE TABLE IF NOT EXISTS cupones (
     usos_actuales INTEGER DEFAULT 0,
     fecha_expiracion TIMESTAMP NULL,
     activo BOOLEAN DEFAULT true,
-    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 29]
 );
 
 -- Tabla de Upselling y Happy Hour
@@ -288,7 +304,7 @@ CREATE TABLE IF NOT EXISTS promociones (
   hora_inicio TIME NOT NULL,
   hora_fin TIME NOT NULL,
   activo BOOLEAN DEFAULT true,
-  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP [cite: 30]
 );
 
 -- =========================================================================
@@ -298,16 +314,16 @@ CREATE TABLE IF NOT EXISTS promociones (
 -- Iniciar configuración única (Fila ID 1)
 INSERT INTO configuracion (id, nombre_negocio) 
 VALUES (1, 'Mi Restaurante') 
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO NOTHING; [cite: 31]
 
 -- Admin por defecto (Recuerda actualizar el password después de iniciar)
 INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) 
 VALUES ('Administrador Global', 'admin', 'admin123', 'admin', '{"ventas": true, "inventario": true, "usuarios": true}'::jsonb, 6721190608)
-ON CONFLICT (usuario) DO NOTHING;
+ON CONFLICT (usuario) DO NOTHING; [cite: 32]
 
 -- Clasificaciones base para arranque
 INSERT INTO clasificaciones (nombre, destino, emoji) VALUES 
 ('Bebidas', 'Barra', '🥤'), 
 ('Sushis', 'Cocina', '🍣'), 
 ('Postres', 'Barra', '🍰')
-ON CONFLICT (nombre) DO NOTHING;
+ON CONFLICT (nombre) DO NOTHING; [cite: 33]

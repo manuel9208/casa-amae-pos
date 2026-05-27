@@ -4,7 +4,7 @@ import Caja from './components/Caja';
 import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV'; 
-import { suscribirANotificaciones } from './pushManager'; // 👈 NUEVO: Importamos el gestor de notificaciones
+import { suscribirANotificaciones } from './pushManager'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -16,7 +16,6 @@ const App = () => {
   const [vistaAdmin, setVistaAdmin] = useState('panel'); 
   const [vistaTV, setVistaTV] = useState(false); 
   
-  // ESTADOS PARA EL CAJERO Y SU KIOSCO
   const [vistaCaja, setVistaCaja] = useState('caja'); 
   const [clienteCajero, setClienteCajero] = useState(null); 
   const [ordenCajero, setOrdenCajero] = useState(null); 
@@ -36,17 +35,36 @@ const App = () => {
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b' 
   });
 
+  const getImageUrl = (url) => {
+    if (!url) return '';
+    const strUrl = String(url).trim();
+
+    if (strUrl.includes('cloudinary.com')) {
+      const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
+      if (match && match[1]) {
+        return `https://res.cloudinary.com/${match[1]}`;
+      }
+    }
+
+    const lastHttp = strUrl.lastIndexOf('http');
+    if (lastHttp > 0) return strUrl.substring(lastHttp);
+    
+    if (strUrl.startsWith('http')) return strUrl;
+    
+    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
+  };
+
   const iniciarSesionPersistente = (tipo, data) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
     
     if (tipo === 'empleado') {
         setUsuarioActivo(data);
-        suscribirANotificaciones(data.id, null); // 👈 NUEVO: Suscribe al empleado
+        suscribirANotificaciones(data.id, null); 
     }
     if (tipo === 'cliente') {
         setClienteActivo(data);
-        suscribirANotificaciones(null, data.id); // 👈 NUEVO: Suscribe al cliente
+        suscribirANotificaciones(null, data.id); 
     }
   };
 
@@ -60,18 +78,44 @@ const App = () => {
         if (new Date().getTime() < expiracion) {
           if (tipo === 'empleado') {
               setUsuarioActivo(data);
-              suscribirANotificaciones(data.id, null); // 👈 NUEVO: Renueva suscripción si recarga la página
+              suscribirANotificaciones(data.id, null); 
           }
           if (tipo === 'cliente') {
               setClienteActivo(data);
-              suscribirANotificaciones(null, data.id); // 👈 NUEVO: Renueva suscripción si recarga la página
+              suscribirANotificaciones(null, data.id); 
           }
         } else { 
             localStorage.removeItem('pos_sesion'); 
         }
       } catch(e) {}
     }
-    fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { if(data) setConfigGlobal(data); }).catch(console.error);
+    
+    fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { 
+      if(data) {
+        setConfigGlobal(data); 
+        
+        if (data.logo_url) {
+            const iconUrl = getImageUrl(data.logo_url);
+            
+            let linkFavicon = document.querySelector("link[rel~='icon']");
+            if (!linkFavicon) {
+                linkFavicon = document.createElement('link');
+                linkFavicon.rel = 'icon';
+                document.head.appendChild(linkFavicon);
+            }
+            linkFavicon.href = iconUrl;
+
+            let linkApple = document.querySelector("link[rel='apple-touch-icon']");
+            if (!linkApple) {
+                linkApple = document.createElement('link');
+                linkApple.rel = 'apple-touch-icon';
+                document.head.appendChild(linkApple);
+            }
+            linkApple.href = iconUrl;
+        }
+      }
+    }).catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleIdentificar = async (e) => {
@@ -115,25 +159,6 @@ const App = () => {
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); 
     setVistaCaja('caja'); setClienteCajero(null); setOrdenCajero(null); 
     setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
-  };
-
-  const getImageUrl = (url) => {
-    if (!url) return '';
-    const strUrl = String(url).trim();
-
-    if (strUrl.includes('cloudinary.com')) {
-      const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
-      if (match && match[1]) {
-        return `https://res.cloudinary.com/${match[1]}`;
-      }
-    }
-
-    const lastHttp = strUrl.lastIndexOf('http');
-    if (lastHttp > 0) return strUrl.substring(lastHttp);
-    
-    if (strUrl.startsWith('http')) return strUrl;
-    
-    return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
   const inyectarEstilos = () => {
@@ -215,14 +240,22 @@ const App = () => {
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
-      <div className="tema-cliente min-h-screen flex items-center justify-center p-4 font-sans">
-        <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-md w-full text-center border relative overflow-hidden">
+      <div className="tema-cliente min-h-screen flex items-center justify-center p-4 font-sans text-slate-800">
+        <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-lg w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
+            
+            {/* 👇 AQUÍ APLICAMOS EL ZOOM AL LOGO RESPETANDO TODO TU DISEÑO PRODUCTIVO */}
             {configGlobal.logo_url ? (    
-              <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-28 object-contain mx-auto mb-6 drop-shadow-sm" />
+              <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
+                <img 
+                   src={getImageUrl(configGlobal.logo_url)} 
+                   alt="Logo" 
+                   className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" 
+                />
+              </div>
             ) : (    
-              <div className="bg-blue-600 text-white w-24 h-24 flex items-center justify-center rounded-[28px] mx-auto mb-6 text-5xl shadow-lg shadow-blue-500/30">🍔</div>
+              <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30">🍔</div>
             )}
             
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
