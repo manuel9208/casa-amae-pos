@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Edit, Plus, Package, ShoppingBag, RotateCcw, Trash2, Box, Percent } from 'lucide-react';
 
 const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
@@ -14,9 +14,19 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
   });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
   
+  // Estado para la unidad visual de la prueba (Gramos, Kilos, etc.)
+  const [unidadPrueba, setUnidadPrueba] = useState('GR');
+
   const [modalCompra, setModalCompra] = useState(null);
   const [compraPaquetes, setCompraPaquetes] = useState('');
   const [compraCosto, setCompraCosto] = useState('');
+
+  // Sincroniza la unidad de prueba con la unidad principal
+  useEffect(() => {
+      if (nuevoInsumo.unidad_medida === 'KL') setUnidadPrueba('GR');
+      else if (nuevoInsumo.unidad_medida === 'LT') setUnidadPrueba('ML');
+      else setUnidadPrueba(nuevoInsumo.unidad_medida);
+  }, [nuevoInsumo.unidad_medida]);
 
   const prepararEdicionInsumo = (i) => { 
     setEditandoInsumoId(i.id); 
@@ -101,10 +111,31 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
     });
   };
 
+  // 👇 LÓGICA DE CONVERSIÓN VISUAL PARA LAS PRUEBAS
+  const getDisplayValue = (val) => {
+      if (val === '' || val === null || val === undefined) return '';
+      let num = parseFloat(val);
+      if (isNaN(num)) return '';
+      if (nuevoInsumo.unidad_medida === 'KL' && unidadPrueba === 'GR') return (num * 1000).toString();
+      if (nuevoInsumo.unidad_medida === 'LT' && unidadPrueba === 'ML') return (num * 1000).toString();
+      return num.toString();
+  };
+
+  const handleTestValueChange = (field, displayValue) => {
+      if (displayValue === '') {
+          setNuevoInsumo({...nuevoInsumo, [field]: ''});
+          return;
+      }
+      let num = parseFloat(displayValue);
+      // Auto convertir a la unidad base (KL o LT) antes de guardar en el estado
+      if (nuevoInsumo.unidad_medida === 'KL' && unidadPrueba === 'GR') num = num / 1000;
+      if (nuevoInsumo.unidad_medida === 'LT' && unidadPrueba === 'ML') num = num / 1000;
+      setNuevoInsumo({...nuevoInsumo, [field]: num});
+  };
+
   const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
 
-  // Calcula el porcentaje de rendimiento visualmente para que el usuario sepa qué pasará
   let porcentajeRendimientoCalculado = 100;
   if (nuevoInsumo.tipo_rendimiento !== 'Directo') {
       const pC = parseFloat(nuevoInsumo.peso_prueba_crudo) || 0;
@@ -161,7 +192,7 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
              <p className="text-xs text-indigo-600/80 font-bold ml-8 mt-1">Márcalo si es un domo, vaso, cuchara o servilleta. Así aparecerá en el simulador de Tamaños.</p>
           </div>
 
-          {/* 👇 NUEVO BLOQUE: CONTROL DE RENDIMIENTO (MERMAS) */}
+          {/* 👇 BLOQUE ACTUALIZADO: CONTROL DE RENDIMIENTO CON SELECTOR INTELIGENTE */}
           {!nuevoInsumo.es_empaque && (
               <div className="mt-6 border-t border-slate-100 pt-6">
                 <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -179,18 +210,34 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
                     </div>
 
                     {nuevoInsumo.tipo_rendimiento !== 'Directo' && (
-                        <>
+                        <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-amber-50/30 p-4 rounded-2xl border border-amber-100">
+                            
+                            {/* Selector de Unidad de la Prueba */}
+                            <div className="md:col-span-2 flex justify-between items-center bg-white p-3 rounded-xl border border-amber-200 shadow-sm">
+                                <label className="text-xs font-black text-slate-600 uppercase tracking-widest">¿En qué unidad pesaste la prueba?</label>
+                                <select 
+                                    value={unidadPrueba} 
+                                    onChange={e => setUnidadPrueba(e.target.value)} 
+                                    className="bg-amber-100 text-amber-800 font-black px-4 py-2 rounded-lg outline-none cursor-pointer text-sm"
+                                >
+                                    {nuevoInsumo.unidad_medida === 'KL' && <><option value="GR">Gramos (GR)</option><option value="KL">Kilos (KL)</option></>}
+                                    {nuevoInsumo.unidad_medida === 'LT' && <><option value="ML">Mililitros (ML)</option><option value="LT">Litros (LT)</option></>}
+                                    {(nuevoInsumo.unidad_medida === 'GR' || nuevoInsumo.unidad_medida === 'ML' || nuevoInsumo.unidad_medida === 'PZ') && <option value={nuevoInsumo.unidad_medida}>{nuevoInsumo.unidad_medida}</option>}
+                                </select>
+                            </div>
+
                             <div>
-                                <label className="block text-xs font-black text-slate-400 uppercase mb-1">Pesaje de Prueba (Crudo/Sucio)</label>
-                                <input required type="number" step="0.01" placeholder={`Ej. 400 ${nuevoInsumo.unidad_medida}`} value={nuevoInsumo.peso_prueba_crudo} onChange={e => setNuevoInsumo({...nuevoInsumo, peso_prueba_crudo: e.target.value})} className="w-full p-4 bg-slate-50 border border-amber-200 rounded-xl outline-none font-bold text-center" />
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pesaje (Crudo/Sucio) en {unidadPrueba}</label>
+                                <input required type="number" step="0.001" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '400' : '0.4'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_crudo)} onChange={e => handleTestValueChange('peso_prueba_crudo', e.target.value)} className="w-full p-4 bg-white border border-amber-200 rounded-xl outline-none font-bold text-center focus:ring-2 focus:ring-amber-500" />
                                 <p className="text-[10px] text-slate-400 mt-1 font-bold">Pesa 1 sola pieza tal cual se compró.</p>
                             </div>
+                            
                             <div>
-                                <label className="block text-xs font-black text-slate-400 uppercase mb-1">Pesaje de Prueba (Limpio/Cocido)</label>
-                                <input required type="number" step="0.01" placeholder={`Ej. 200 ${nuevoInsumo.unidad_medida}`} value={nuevoInsumo.peso_prueba_limpio} onChange={e => setNuevoInsumo({...nuevoInsumo, peso_prueba_limpio: e.target.value})} className="w-full p-4 bg-white border border-amber-400 shadow-inner rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-amber-700 text-center text-xl" />
+                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pesaje (Limpio/Cocido) en {unidadPrueba}</label>
+                                <input required type="number" step="0.001" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '200' : '0.2'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_limpio)} onChange={e => handleTestValueChange('peso_prueba_limpio', e.target.value)} className="w-full p-4 bg-white border border-amber-400 shadow-inner rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-amber-700 text-center text-xl" />
                                 <p className="text-[10px] text-slate-400 mt-1 font-bold">Pésalo otra vez ya listo para cocinar.</p>
                             </div>
-                        </>
+                        </div>
                     )}
                 </div>
 
