@@ -273,6 +273,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   let costoTotalRecetaCalculado = 0;
   let pesoEstimadoReceta = 0; 
 
+  // 👇 LÓGICA CORREGIDA: Extracción de costos de empaques dentro de sub-recetas
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
         if (item.insumo_id) {
@@ -282,14 +283,29 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
             else if (item.unidad_medida === 'GR' || item.unidad_medida === 'ML') pesoEstimadoReceta += cantUsada;
         } 
         else if (item.sub_producto_id) {
-            costoTotalRecetaCalculado += (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
+            let costoSubEmpaques = 0;
             let unidadSub = 'PZ';
             const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
             if (prodRef && prodRef.opciones) {
                 const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
                 const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                 if (opt) unidadSub = opt.nombre;
+                
+                // Escarbamos para ver si esta sub-receta tiene empaques ocultos
+                const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
+                if (optEmp && optEmp.empaques) {
+                    optEmp.empaques.forEach(emp => {
+                        const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
+                        if (ins) costoSubEmpaques += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                    });
+                }
             }
+            
+            const costoBaseSubreceta = Number(item.costo_subreceta) || 0;
+            const costoUnitarioReal = costoBaseSubreceta + costoSubEmpaques;
+            
+            costoTotalRecetaCalculado += costoUnitarioReal * item.cantidad_usada;
+            
             const cantUsada = Number(item.cantidad_usada) || 0;
             if (unidadSub === 'KL' || unidadSub === 'LT') pesoEstimadoReceta += (cantUsada * 1000);
             else if (unidadSub === 'GR' || unidadSub === 'ML') pesoEstimadoReceta += cantUsada;
@@ -298,6 +314,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   }
 
   const productoSeleccionado = (productos || []).find(p => Number(p.id) === Number(recetaActivaId));
+  const esSubReceta = productoSeleccionado?.nombre?.includes('(Base)') || productoSeleccionado?.disponible === false || productoSeleccionado?.disponible === 'false';
+  
   let tamanosConfigurados = [];
   if (productoSeleccionado && productoSeleccionado.opciones) {
       try {
@@ -542,6 +560,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                          
                          let unidadSub = 'PZ';
                          let rendSub = 1;
+                         let costoSubEmpaques = 0; // 👇 Calculamos los empaques de la sub-receta
+                         
                          const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
                          if (prodRef) {
                              rendSub = Number(prodRef.rendimiento) || 1;
@@ -549,6 +569,15 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                  const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
                                  const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                                  if (opt) unidadSub = opt.nombre;
+                                 
+                                 // Extraemos empaques anidados
+                                 const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
+                                 if (optEmp && optEmp.empaques) {
+                                     optEmp.empaques.forEach(emp => {
+                                         const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
+                                         if (ins) costoSubEmpaques += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                                     });
+                                 }
                              }
                          }
                          
@@ -558,7 +587,10 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                              usoVisual = formatearCantidadVisual(item.cantidad_usada, unidadSub);
                          }
 
-                         costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
+                         // 👇 Sumamos Costo Insumos + Costo Empaques
+                         const costoTotalSubrecetaUnitaria = (Number(item.costo_subreceta) || 0) + costoSubEmpaques;
+                         costoItem = costoTotalSubrecetaUnitaria * item.cantidad_usada;
+                         
                          badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                      }
 
@@ -601,7 +633,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                         <div className="space-y-3 mb-4">
                             {empaquesUnicos.map((emp, idx) => (
                                 <div key={idx} className="flex items-center gap-2">
-                                    {/* 👇 AQUÍ ESTÁ EL CAMBIO PARA TAMAÑO ÚNICO: Mostramos el costo unitario c/u */}
                                     <select value={emp.insumo_id} onChange={e => actualizarEmpaqueUnico(idx, 'insumo_id', e.target.value)} className="flex-1 p-3 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 focus:ring-2 focus:ring-blue-500">
                                         <option value="">Selecciona empaque...</option>
                                         {empaquesDisponibles.map(ins => (
@@ -621,7 +652,16 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                 </div>
 
                 <div className="flex flex-col md:flex-row flex-wrap justify-end items-end gap-4">
-                   {unidadRendimiento === 'PZ' ? (
+                   {/* 👇 PANTALLA INTELIGENTE: Oculta Luz/Agua y Márgenes si es una sub-receta */}
+                   {esSubReceta ? (
+                       <div className="w-full bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center shadow-sm">
+                           <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Costo Neto de la Base (Insumos + Empaques)</p>
+                           <p className="text-4xl font-black text-slate-800">${costoConEmpaquesUnico.toFixed(2)}</p>
+                           <div className="mt-4 inline-block bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold px-4 py-2 rounded-lg">
+                               💡 Al ser una preparación base, la <strong>Luz/Agua (15%)</strong> y el margen de ganancia se calcularán automáticamente cuando la agregues a tu platillo final.
+                           </div>
+                       </div>
+                   ) : unidadRendimiento === 'PZ' ? (
                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
                            <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
                              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Costo Platillo Base</p>
@@ -660,7 +700,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
              </div>
            )}
 
-           {/* PANEL DE TAMAÑOS FIJOS (Sigue igual) */}
+           {/* PANEL DE TAMAÑOS FIJOS */}
            {tamanosConfigurados.length > 0 && (
              <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
                 <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-orange-100 shadow-sm mb-6">
@@ -733,7 +773,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                         <div className="space-y-2 mb-3">
                                             {(configTam.empaques || []).map((emp, idx) => (
                                                 <div key={idx} className="flex items-center gap-2">
-                                                    {/* 👇 AQUÍ ESTÁ EL CAMBIO PARA TAMAÑOS FIJOS: Mostramos el costo unitario c/u */}
                                                     <select value={emp.insumo_id} onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'insumo_id', e.target.value)} className="flex-1 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate focus:ring-1 focus:ring-slate-400">
                                                         <option value="">Selecciona empaque...</option>
                                                         {empaquesDisponibles.map(ins => (
@@ -752,15 +791,23 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                     <button onClick={() => agregarEmpaqueTamanio(tam.nombre)} className="w-full py-2 border border-dashed border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-500 hover:bg-slate-100 rounded-lg text-xs font-black uppercase transition mt-auto">+ Añadir Empaque</button>
                                 </div>
 
-                                <div className="w-full xl:w-1/4 grid grid-cols-1 gap-2 bg-slate-100/50 p-4 rounded-xl border border-slate-100 text-xs font-bold self-start">
-                                    <p className="text-slate-500 flex justify-between">Base + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
-                                    <p className="text-red-500 flex justify-between">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
-                                    <p className="text-amber-600 flex justify-between">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
-                                    <p className="text-emerald-600 flex justify-between bg-emerald-50 px-2 py-1 -mx-2 rounded">Sugerido (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
-                                    <p className="text-slate-700 border-t border-dashed border-slate-300 pt-2 mt-1 font-black text-[13px] text-center">
-                                        Margen: <span className={margenReal > 65 ? "text-emerald-600" : "text-amber-600"}>{margenReal.toFixed(1)}%</span>
-                                    </p>
-                                </div>
+                                {esSubReceta ? (
+                                    <div className="w-full xl:w-1/4 flex flex-col justify-center items-center bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
+                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Costo Neto Base</p>
+                                        <p className="text-2xl font-black text-slate-800">${costoTotalSimulado.toFixed(2)}</p>
+                                        <p className="text-[9px] text-blue-600 font-bold mt-2 bg-blue-50 px-2 py-1 rounded">Luz/Agua se cobra en platillo final.</p>
+                                    </div>
+                                ) : (
+                                    <div className="w-full xl:w-1/4 grid grid-cols-1 gap-2 bg-slate-100/50 p-4 rounded-xl border border-slate-100 text-xs font-bold self-start">
+                                        <p className="text-slate-500 flex justify-between">Base + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
+                                        <p className="text-red-500 flex justify-between">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
+                                        <p className="text-amber-600 flex justify-between">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
+                                        <p className="text-emerald-600 flex justify-between bg-emerald-50 px-2 py-1 -mx-2 rounded">Sugerido (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
+                                        <p className="text-slate-700 border-t border-dashed border-slate-300 pt-2 mt-1 font-black text-[13px] text-center">
+                                            Margen: <span className={margenReal > 65 ? "text-emerald-600" : "text-amber-600"}>{margenReal.toFixed(1)}%</span>
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         )
                     })}
