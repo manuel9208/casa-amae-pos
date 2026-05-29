@@ -226,16 +226,17 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
             const cantUsada = Number(item.cantidad_usada) || 0;
             if (item.unidad_medida === 'KL' || item.unidad_medida === 'LT') pesoEstimadoReceta += (cantUsada * 1000); else if (item.unidad_medida === 'GR' || item.unidad_medida === 'ML') pesoEstimadoReceta += cantUsada;
         } else if (item.sub_producto_id) {
-            let costoSubEmpaques = 0; let unidadSub = 'PZ';
+            let unidadSub = 'PZ';
             const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
             if (prodRef && prodRef.opciones) {
                 const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
                 const opt = ops.find(o => o.categoria === 'UnidadRendimiento'); if (opt) unidadSub = opt.nombre;
-                const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
-                if (optEmp && optEmp.empaques) { optEmp.empaques.forEach(emp => { const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id)); if (ins) { const f = Number(ins.factor_rendimiento) || 1; costoSubEmpaques += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / f) * (Number(emp.cantidad) || 0); } }); }
             }
-            const costoUnitarioReal = (Number(item.costo_subreceta) || 0) + costoSubEmpaques;
+            
+            // 👇 MAGIA LIMPIA: Usamos directo el costo súper-calculado del backend
+            const costoUnitarioReal = Number(item.costo_subreceta) || 0;
             costoTotalRecetaCalculado += costoUnitarioReal * item.cantidad_usada;
+            
             const cantUsada = Number(item.cantidad_usada) || 0;
             if (unidadSub === 'KL' || unidadSub === 'LT') pesoEstimadoReceta += (cantUsada * 1000); else if (unidadSub === 'GR' || unidadSub === 'ML') pesoEstimadoReceta += cantUsada;
         }

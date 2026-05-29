@@ -1,4 +1,3 @@
-// src/components/admin/inventario/recetas/TablaIngredientes.js
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 
@@ -48,7 +47,6 @@ const TablaIngredientes = ({ recetaItems, insumosDB, productos, eliminarItemRece
                     
                     let unidadSub = 'PZ';
                     let rendSub = 1;
-                    let costoSubEmpaques = 0; 
                     
                     const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
                     if (prodRef) {
@@ -57,17 +55,6 @@ const TablaIngredientes = ({ recetaItems, insumosDB, productos, eliminarItemRece
                             const ops = typeof prodRef.opciones === 'string' ? JSON.parse(prodRef.opciones) : prodRef.opciones;
                             const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                             if (opt) unidadSub = opt.nombre;
-                            
-                            const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
-                            if (optEmp && optEmp.empaques) {
-                                optEmp.empaques.forEach(emp => {
-                                    const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
-                                    if (ins) {
-                                        const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
-                                        costoSubEmpaques += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp) * (Number(emp.cantidad) || 0);
-                                    }
-                                });
-                            }
                         }
                     }
                     
@@ -77,8 +64,8 @@ const TablaIngredientes = ({ recetaItems, insumosDB, productos, eliminarItemRece
                         usoVisual = formatearCantidadVisual(item.cantidad_usada, unidadSub);
                     }
 
-                    const costoTotalSubrecetaUnitaria = (Number(item.costo_subreceta) || 0) + costoSubEmpaques;
-                    costoItem = costoTotalSubrecetaUnitaria * item.cantidad_usada;
+                    // 👇 MAGIA LIMPIA: El backend ya mandó el costo total (Insumos + Mermas + Empaques anidados)
+                    costoItem = (Number(item.costo_subreceta) || 0) * item.cantidad_usada;
                     
                     badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
                     vistaMerma = <span className="text-slate-300 font-bold text-[10px] uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">Ya Incluida</span>;

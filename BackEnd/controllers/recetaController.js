@@ -4,18 +4,32 @@ exports.obtenerReceta = async (req, res) => {
   const { producto_id } = req.params;
   try {
     const result = await db.query(`
-      WITH RECURSIVE Explosion AS (
-          -- CASO BASE: Todos los items de todas las recetas
+      WITH RECURSIVE EmpaquesCosto AS (
+          SELECT p.id as producto_id,
+                 COALESCE(SUM(
+                     ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * (emp->>'cantidad')::numeric
+                 ), 0) as costo_empaques_batch
+          FROM productos p
+          LEFT JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(p.opciones) = 'array' THEN p.opciones ELSE '[]'::jsonb END
+          ) AS opt ON opt->>'categoria' = 'EmpaquesUnicos'
+          LEFT JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(opt->'empaques') = 'array' THEN opt->'empaques' ELSE '[]'::jsonb END
+          ) AS emp ON true
+          LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int
+          GROUP BY p.id
+      ),
+      Explosion AS (
           SELECT 
               r.producto_id AS root_producto_id,
               r.insumo_id,
               r.sub_producto_id,
               r.cantidad_usada::numeric AS qty_factor
           FROM recetas r
+          WHERE r.producto_id IN (SELECT sub_producto_id FROM recetas WHERE producto_id = $1 AND sub_producto_id IS NOT NULL)
           
           UNION ALL
           
-          -- RECURSIÓN: Si el item es una sub-receta, extraemos sus ingredientes infinitamente
           SELECT 
               e.root_producto_id,
               r.insumo_id,
@@ -26,13 +40,25 @@ exports.obtenerReceta = async (req, res) => {
           JOIN recetas r ON r.producto_id = p.id
           WHERE e.sub_producto_id IS NOT NULL
       ),
-      CostosAnidados AS (
-          -- SUMAMOS EL COSTO DE LA EXPLOSIÓN DE INSUMOS
+      CostoTotalSubrecetas AS (
           SELECT 
               e.root_producto_id as producto_id,
-              SUM(((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * e.qty_factor) as costo_total_bruto
+              
+              COALESCE(SUM(CASE WHEN e.insumo_id IS NOT NULL THEN 
+                  ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * e.qty_factor
+              ELSE 0 END), 0)
+              +
+              COALESCE(SUM(CASE WHEN e.sub_producto_id IS NOT NULL THEN 
+                  (ec_sub.costo_empaques_batch / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) * e.qty_factor
+              ELSE 0 END), 0)
+              +
+              COALESCE(MAX(ec_root.costo_empaques_batch), 0) as costo_total_bruto
+              
           FROM Explosion e
-          JOIN insumos i ON e.insumo_id = i.id
+          LEFT JOIN insumos i ON e.insumo_id = i.id
+          LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id
+          LEFT JOIN EmpaquesCosto ec_sub ON e.sub_producto_id = ec_sub.producto_id
+          LEFT JOIN EmpaquesCosto ec_root ON e.root_producto_id = ec_root.producto_id
           GROUP BY e.root_producto_id
       )
       
@@ -41,12 +67,10 @@ exports.obtenerReceta = async (req, res) => {
              i.costo_presentacion, i.cantidad_presentacion, i.factor_rendimiento, i.tipo_rendimiento,
              r.sub_producto_id, p.nombre as sub_producto_nombre, p.rendimiento as sub_producto_rendimiento,
              
-             -- 1. Costo unitario neto por gramo/pieza ya considerando Merma o Expansión
              ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) as costo_unitario_real,
              
-             -- 2. Costo de la Sub-Receta con explosión infinita
              (SELECT (ca.costo_total_bruto / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) 
-              FROM CostosAnidados ca 
+              FROM CostoTotalSubrecetas ca 
               JOIN productos p_sub ON p_sub.id = ca.producto_id 
               WHERE ca.producto_id = r.sub_producto_id) as costo_subreceta
              
@@ -59,7 +83,6 @@ exports.obtenerReceta = async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener receta:", error);
-    // 👇 Esto nos dirá exactamente dónde duele si vuelve a fallar
     res.status(500).json({ error: 'Error al obtener receta', detalle: error.message });
   }
 };

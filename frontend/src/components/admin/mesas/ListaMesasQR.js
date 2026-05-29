@@ -4,6 +4,9 @@ import { LayoutGrid, PlusCircle, Trash2, QrCode, MapPin, AlertTriangle } from 'l
 const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting, setIsSubmitting }) => {
   const [nuevaMesa, setNuevaMesa] = useState('');
   const [nuevaZona, setNuevaZona] = useState('Salón Principal');
+  
+  // Nuevo estado para controlar el modal de confirmación
+  const [mesaAEliminar, setMesaAEliminar] = useState(null);
 
   const crearMesa = async (e) => {
     e.preventDefault();
@@ -31,13 +34,14 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
     setIsSubmitting(false);
   };
 
-  const eliminarMesa = async (id, numero) => {
-    if (!window.confirm(`¿Estás seguro de eliminar la mesa ${numero}?`)) return;
+  // Función que realmente ejecuta el borrado tras confirmar
+  const ejecutarEliminacion = async () => {
+    if (!mesaAEliminar) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/mesas/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${apiUrl}/mesas/${mesaAEliminar.id}`, { method: 'DELETE' });
       if (res.ok) {
-        mostrarAlerta('Eliminada', `La mesa ${numero} fue borrada.`);
+        mostrarAlerta('Eliminada', `La mesa ${mesaAEliminar.numero_mesa} fue borrada.`);
         cargarMesas();
       } else {
         mostrarAlerta('Error', 'No se pudo eliminar la mesa.', 'error');
@@ -46,6 +50,7 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
       mostrarAlerta('Error', 'Problema de conexión con el servidor.', 'error');
     }
     setIsSubmitting(false);
+    setMesaAEliminar(null); // Cierra el modal
   };
 
   const descargarQR = async (mesa) => {
@@ -140,7 +145,8 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
                   <div key={mesa.id} className="bg-slate-50 border border-slate-200 p-5 rounded-2xl flex flex-col group hover:border-blue-300 transition">
                     <div className="flex justify-between items-start mb-4">
                       <p className="text-2xl font-black text-slate-800">{mesa.numero_mesa}</p>
-                      <button disabled={isSubmitting} onClick={() => eliminarMesa(mesa.id, mesa.numero_mesa)} className="text-slate-300 hover:text-red-500 transition disabled:opacity-50">
+                      {/* Aquí reemplazamos el window.confirm por el estado del nuevo modal */}
+                      <button disabled={isSubmitting} onClick={() => setMesaAEliminar(mesa)} className="text-slate-300 hover:text-red-500 transition disabled:opacity-50">
                         <Trash2 size={20}/>
                       </button>
                     </div>
@@ -172,6 +178,39 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
           ))
         )}
       </div>
+
+      {/* NUEVO MODAL DE CONFIRMACIÓN DE ELIMINACIÓN */}
+      {mesaAEliminar && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-red-100">
+            <div className="flex justify-center mb-5">
+              <div className="bg-red-50 p-4 rounded-full text-red-500">
+                <Trash2 size={40} />
+              </div>
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 text-center mb-2">¿Eliminar Mesa?</h3>
+            <p className="text-slate-500 text-center font-medium mb-8">
+              Estás a punto de borrar permanentemente la mesa <span className="font-black text-red-600">"{mesaAEliminar.numero_mesa}"</span> de la zona <span className="font-bold text-slate-700">{mesaAEliminar.zona}</span>. Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-4">
+              <button 
+                disabled={isSubmitting}
+                onClick={() => setMesaAEliminar(null)} 
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition"
+              >
+                Cancelar
+              </button>
+              <button 
+                disabled={isSubmitting}
+                onClick={ejecutarEliminacion} 
+                className="flex-1 py-3.5 bg-red-500 text-white font-black rounded-xl hover:bg-red-600 shadow-lg shadow-red-500/30 transition active:scale-95 disabled:opacity-50"
+              >
+                {isSubmitting ? 'Borrando...' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
