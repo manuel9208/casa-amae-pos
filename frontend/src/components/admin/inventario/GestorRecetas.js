@@ -273,11 +273,12 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   let costoTotalRecetaCalculado = 0;
   let pesoEstimadoReceta = 0; 
 
-  // 👇 LÓGICA CORREGIDA: Extracción de costos de empaques dentro de sub-recetas
   if (recetaItems && recetaItems.length > 0) {
     recetaItems.forEach(item => {
         if (item.insumo_id) {
-            costoTotalRecetaCalculado += (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+            const factorRendimiento = Number(item.factor_rendimiento) || 1;
+            costoTotalRecetaCalculado += ((item.costo_presentacion / Math.max(1, item.cantidad_presentacion)) / factorRendimiento) * item.cantidad_usada;
+            
             const cantUsada = Number(item.cantidad_usada) || 0;
             if (item.unidad_medida === 'KL' || item.unidad_medida === 'LT') pesoEstimadoReceta += (cantUsada * 1000);
             else if (item.unidad_medida === 'GR' || item.unidad_medida === 'ML') pesoEstimadoReceta += cantUsada;
@@ -291,12 +292,14 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                 const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                 if (opt) unidadSub = opt.nombre;
                 
-                // Escarbamos para ver si esta sub-receta tiene empaques ocultos
                 const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
                 if (optEmp && optEmp.empaques) {
                     optEmp.empaques.forEach(emp => {
                         const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
-                        if (ins) costoSubEmpaques += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                        if (ins) {
+                            const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                            costoSubEmpaques += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp) * (Number(emp.cantidad) || 0);
+                        }
                     });
                 }
             }
@@ -331,7 +334,10 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
       empaquesUnicos.forEach(emp => {
           if (emp.insumo_id) {
               const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
-              if (ins) costoEmpaquesUnicoTotal += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+              if (ins) {
+                  const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                  costoEmpaquesUnicoTotal += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp) * (Number(emp.cantidad) || 0);
+              }
           }
       });
   }
@@ -538,29 +544,50 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
              <table className="w-full text-left border-collapse min-w-max">
                <thead>
                  <tr className="bg-slate-100 text-slate-500 text-xs uppercase font-black">
-                   <th className="p-4">Ingrediente / Sub-Receta</th><th className="p-4">Uso</th><th className="p-4">Costo Calc.</th><th className="p-4 text-center">Acción</th>
+                   {/* 👇 NUEVA COLUMNA DE MERMA AGREGADA AL ENCABEZADO */}
+                   <th className="p-4">Ingrediente / Sub-Receta</th><th className="p-4">Uso</th><th className="p-4">Merma (Desperdicio)</th><th className="p-4">Costo Calc.</th><th className="p-4 text-center">Acción</th>
                  </tr>
                </thead>
                <tbody>
                  {(recetaItems || []).length === 0 ? (
-                   <tr><td colSpan="4" className="text-center p-6 text-slate-400 font-bold">Sin ingredientes. Usa el panel superior para añadir.</td></tr>
+                   <tr><td colSpan="5" className="text-center p-6 text-slate-400 font-bold">Sin ingredientes. Usa el panel superior para añadir.</td></tr>
                  ) : (
                    recetaItems.map(item => {
                      let nombreItem = '';
                      let usoVisual = '';
                      let costoItem = 0;
                      let badge = null;
+                     
+                     // Variables para la columna visual de merma
+                     let vistaMerma = <span className="text-slate-400 font-bold text-xs">0% ($0.00)</span>;
 
                      if (item.insumo_id) {
                          nombreItem = item.insumo_nombre;
                          usoVisual = formatearCantidadVisual(item.cantidad_usada, item.unidad_medida);
-                         costoItem = (item.costo_presentacion / item.cantidad_presentacion) * item.cantidad_usada;
+                         
+                         const factorRendimiento = Number(item.factor_rendimiento) || 1;
+                         const costoBruto = (item.costo_presentacion / Math.max(1, item.cantidad_presentacion)) * item.cantidad_usada;
+                         costoItem = costoBruto / factorRendimiento;
+                         
+                         // Lógica visual de la merma
+                         const porcentajeMerma = (1 - factorRendimiento) * 100;
+                         const costoExtraPorMerma = costoItem - costoBruto;
+
+                         if (porcentajeMerma > 0) {
+                             vistaMerma = (
+                                 <div className="flex flex-col">
+                                     <span className="text-red-500 font-black text-sm">{porcentajeMerma.toFixed(0)}%</span>
+                                     <span className="text-xs text-red-400 font-bold">+${costoExtraPorMerma.toFixed(2)} extra</span>
+                                 </div>
+                             );
+                         }
+
                      } else if (item.sub_producto_id) {
                          nombreItem = item.sub_producto_nombre;
                          
                          let unidadSub = 'PZ';
                          let rendSub = 1;
-                         let costoSubEmpaques = 0; // 👇 Calculamos los empaques de la sub-receta
+                         let costoSubEmpaques = 0; 
                          
                          const prodRef = productos.find(p => Number(p.id) === Number(item.sub_producto_id));
                          if (prodRef) {
@@ -570,12 +597,14 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                  const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                                  if (opt) unidadSub = opt.nombre;
                                  
-                                 // Extraemos empaques anidados
                                  const optEmp = ops.find(o => o.categoria === 'EmpaquesUnicos');
                                  if (optEmp && optEmp.empaques) {
                                      optEmp.empaques.forEach(emp => {
                                          const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
-                                         if (ins) costoSubEmpaques += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                                         if (ins) {
+                                             const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                                             costoSubEmpaques += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp) * (Number(emp.cantidad) || 0);
+                                         }
                                      });
                                  }
                              }
@@ -587,17 +616,20 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                              usoVisual = formatearCantidadVisual(item.cantidad_usada, unidadSub);
                          }
 
-                         // 👇 Sumamos Costo Insumos + Costo Empaques
                          const costoTotalSubrecetaUnitaria = (Number(item.costo_subreceta) || 0) + costoSubEmpaques;
                          costoItem = costoTotalSubrecetaUnitaria * item.cantidad_usada;
                          
                          badge = <span className="ml-2 text-[8px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded uppercase tracking-widest font-black">Sub-Receta</span>;
+                         // Para sub-recetas, la merma ya está calculada por dentro, así que mostramos N/A
+                         vistaMerma = <span className="text-slate-300 font-bold text-[10px] uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">Ya Incluida</span>;
                      }
 
                      return (
                        <tr key={item.id} className="border-b hover:bg-slate-50">
                          <td className="p-4 font-bold text-slate-700 flex items-center">{nombreItem} {badge}</td>
                          <td className="p-4 text-sm font-medium"><span className={`px-2 py-1 rounded font-bold ${item.sub_producto_id ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{usoVisual}</span></td>
+                         {/* 👇 RENDERIZAMOS LA CELDA VISUAL DE LA MERMA */}
+                         <td className="p-4">{vistaMerma}</td>
                          <td className="p-4 font-black text-slate-600">${costoItem.toFixed(2)}</td>
                          <td className="p-4 text-center"><button onClick={() => eliminarItemReceta(item.id)} className="text-red-400 hover:text-red-600 bg-white p-2 rounded-lg shadow-sm border border-slate-100"><Trash2 size={18}/></button></td>
                        </tr>
@@ -635,11 +667,15 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                 <div key={idx} className="flex items-center gap-2">
                                     <select value={emp.insumo_id} onChange={e => actualizarEmpaqueUnico(idx, 'insumo_id', e.target.value)} className="flex-1 p-3 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 focus:ring-2 focus:ring-blue-500">
                                         <option value="">Selecciona empaque...</option>
-                                        {empaquesDisponibles.map(ins => (
-                                            <option key={ins.id} value={ins.id}>
-                                                {ins.nombre} - ${(ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)).toFixed(2)} c/u
-                                            </option>
-                                        ))}
+                                        {empaquesDisponibles.map(ins => {
+                                            const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                                            const costoUnitario = (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp;
+                                            return (
+                                                <option key={ins.id} value={ins.id}>
+                                                    {ins.nombre} - ${costoUnitario.toFixed(2)} c/u
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                     <input type="number" min="0.01" step="0.01" value={emp.cantidad} onChange={e => actualizarEmpaqueUnico(idx, 'cantidad', e.target.value)} className="w-20 p-3 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 text-center focus:ring-2 focus:ring-blue-500" title="Cantidad" />
                                     <button onClick={() => eliminarEmpaqueUnico(idx)} className="p-3 bg-white border border-red-200 text-red-400 hover:text-white hover:bg-red-500 rounded-xl transition"><Trash2 size={18}/></button>
@@ -652,7 +688,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                 </div>
 
                 <div className="flex flex-col md:flex-row flex-wrap justify-end items-end gap-4">
-                   {/* 👇 PANTALLA INTELIGENTE: Oculta Luz/Agua y Márgenes si es una sub-receta */}
                    {esSubReceta ? (
                        <div className="w-full bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center shadow-sm">
                            <p className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">Costo Neto de la Base (Insumos + Empaques)</p>
@@ -691,7 +726,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                        </div>
                    )}
 
-                   {/* Botón Maestro Guardar Rendimiento Único */}
                    <button onClick={guardarRendimientoYEmpaques} className="w-full mt-4 bg-slate-800 hover:bg-slate-900 text-white px-8 py-5 rounded-2xl font-black text-sm uppercase tracking-widest transition shadow-lg shadow-slate-500/30 active:scale-95 flex items-center justify-center gap-2">
                        💾 Guardar Rendimiento y Empaques
                    </button>
@@ -737,7 +771,10 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                         (configTam.empaques || []).forEach(emp => {
                             if (emp.insumo_id) {
                                 const ins = insumosDB.find(i => String(i.id) === String(emp.insumo_id));
-                                if (ins) costoEmpaqueTotal += (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) * (Number(emp.cantidad) || 0);
+                                if (ins) {
+                                    const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                                    costoEmpaqueTotal += ((ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp) * (Number(emp.cantidad) || 0);
+                                }
                             }
                         });
                         
@@ -775,11 +812,15 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
                                                 <div key={idx} className="flex items-center gap-2">
                                                     <select value={emp.insumo_id} onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'insumo_id', e.target.value)} className="flex-1 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate focus:ring-1 focus:ring-slate-400">
                                                         <option value="">Selecciona empaque...</option>
-                                                        {empaquesDisponibles.map(ins => (
-                                                            <option key={ins.id} value={ins.id}>
-                                                                {ins.nombre} - ${(ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)).toFixed(2)} c/u
-                                                            </option>
-                                                        ))}
+                                                        {empaquesDisponibles.map(ins => {
+                                                            const factorRendimientoEmp = Number(ins.factor_rendimiento) || 1;
+                                                            const costoUnitario = (ins.costo_presentacion / Math.max(1, ins.cantidad_presentacion)) / factorRendimientoEmp;
+                                                            return (
+                                                                <option key={ins.id} value={ins.id}>
+                                                                    {ins.nombre} - ${costoUnitario.toFixed(2)} c/u
+                                                                </option>
+                                                            );
+                                                        })}
                                                     </select>
                                                     <input type="number" min="0.01" step="0.01" value={emp.cantidad} onChange={e => actualizarEmpaqueTamanio(tam.nombre, idx, 'cantidad', e.target.value)} className="w-16 p-2 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs text-center focus:ring-1 focus:ring-slate-400" title="Cantidad utilizada de este empaque" />
                                                     <button onClick={() => eliminarEmpaqueTamanio(tam.nombre, idx)} className="p-2 bg-white border border-red-200 text-red-400 hover:text-white hover:bg-red-500 rounded-lg transition"><Trash2 size={14}/></button>

@@ -3,27 +3,37 @@ const db = require('../config/db');
 exports.obtenerReceta = async (req, res) => {
   const { producto_id } = req.params;
   try {
-    // 👇 MÁGIA SQL CORREGIDA: Saca el costo del insumo si es directo, o de la sub-receta recursiva
     const result = await db.query(`
-      WITH RECURSIVE CostosSubrecetas AS (
-          -- CASO BASE: Obtener el costo de los insumos puros
-          SELECT r.producto_id, 
-                 SUM(((i.costo_presentacion / COALESCE(NULLIF(i.cantidad_presentacion, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento, 0), 1)) * r.cantidad_usada) as costo_insumos_puros
+      WITH RECURSIVE Explosion AS (
+          -- CASO BASE: Todos los items de todas las recetas
+          SELECT 
+              r.producto_id AS root_producto_id,
+              r.insumo_id,
+              r.sub_producto_id,
+              r.cantidad_usada AS qty_factor
           FROM recetas r
-          JOIN insumos i ON r.insumo_id = i.id
-          GROUP BY r.producto_id
+          
+          UNION ALL
+          
+          -- RECURSIÓN: Si el item es una sub-receta, extraemos sus ingredientes infinitamente
+          SELECT 
+              e.root_producto_id,
+              r.insumo_id,
+              r.sub_producto_id,
+              (e.qty_factor / COALESCE(NULLIF(p.rendimiento, 0), 1)) * r.cantidad_usada
+          FROM Explosion e
+          JOIN productos p ON e.sub_producto_id = p.id
+          JOIN recetas r ON r.producto_id = p.id
+          WHERE e.sub_producto_id IS NOT NULL
       ),
       CostosAnidados AS (
-          -- SUMAMOS: Insumos Puros + Sub-recetas hijas
-          SELECT p.id as producto_id, p.rendimiento,
-                 COALESCE(cp.costo_insumos_puros, 0) + 
-                 COALESCE((SELECT SUM((cr.costo_insumos_puros / COALESCE(NULLIF(psub.rendimiento, 0), 1)) * r_sub.cantidad_usada)
-                           FROM recetas r_sub
-                           JOIN CostosSubrecetas cr ON r_sub.sub_producto_id = cr.producto_id
-                           JOIN productos psub ON r_sub.sub_producto_id = psub.id
-                           WHERE r_sub.producto_id = p.id), 0) as costo_total_bruto
-          FROM productos p
-          LEFT JOIN CostosSubrecetas cp ON p.id = cp.producto_id
+          -- SUMAMOS EL COSTO DE LA EXPLOSIÓN DE INSUMOS
+          SELECT 
+              e.root_producto_id as producto_id,
+              SUM(((i.costo_presentacion / COALESCE(NULLIF(i.cantidad_presentacion, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento, 0), 1)) * e.qty_factor) as costo_total_bruto
+          FROM Explosion e
+          JOIN insumos i ON e.insumo_id = i.id
+          GROUP BY e.root_producto_id
       )
       
       SELECT r.id, r.producto_id, r.cantidad_usada, 
@@ -34,8 +44,11 @@ exports.obtenerReceta = async (req, res) => {
              -- 1. Costo unitario neto por gramo/pieza ya considerando Merma o Expansión
              (i.costo_presentacion / COALESCE(NULLIF(i.cantidad_presentacion, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento, 0), 1) as costo_unitario_real,
              
-             -- 2. Costo Real de la Sub-Receta extraído del bloque recursivo
-             (SELECT (costo_total_bruto / COALESCE(NULLIF(rendimiento, 0), 1)) FROM CostosAnidados WHERE producto_id = r.sub_producto_id) as costo_subreceta
+             -- 2. Costo de la Sub-Receta con explosión infinita
+             (SELECT (ca.costo_total_bruto / COALESCE(NULLIF(p_sub.rendimiento, 0), 1)) 
+              FROM CostosAnidados ca 
+              JOIN productos p_sub ON p_sub.id = ca.producto_id 
+              WHERE ca.producto_id = r.sub_producto_id) as costo_subreceta
              
       FROM recetas r
       LEFT JOIN insumos i ON r.insumo_id = i.id
