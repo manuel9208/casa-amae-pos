@@ -5,11 +5,16 @@ import InsightsVentas from './reportes/InsightsVentas';
 import TendenciasVentas from './reportes/TendenciasVentas';
 import ResumenFinanciero from './reportes/ResumenFinanciero';
 import TablaDesgloseVentas from './reportes/TablaDesgloseVentas';
+import VistaCortesHistorico from './reportes/VistaCortesHistorico';
+import { BarChart3, History } from 'lucide-react';
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
   const [cargando, setCargando] = useState(true);
   
+  // Control de sub-módulos principal
+  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas' o 'cortes'
+
   const [filtroActivo, setFiltroActivo] = useState('dia');
   const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);
   const [clasificaciones, setClasificaciones] = useState([]);
@@ -41,8 +46,10 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo]);
 
   useEffect(() => {
-    cargarReporte(filtroActivo, fechaCustom);
-  }, [cargarReporte, filtroActivo, fechaCustom]);
+    if (vistaModulo === 'ventas') {
+      cargarReporte(filtroActivo, fechaCustom);
+    }
+  }, [cargarReporte, filtroActivo, fechaCustom, vistaModulo]);
 
   const formaterMoneda = (cantidad) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cantidad || 0);
@@ -64,29 +71,56 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
       
-      <FiltrosVentas 
-        filtroActivo={filtroActivo} setFiltroActivo={setFiltroActivo}
-        fechaCustom={fechaCustom} setFechaCustom={setFechaCustom}
-        clasificaciones={clasificaciones}
-        filtroClasificacion={filtroClasificacion} setFiltroClasificacion={setFiltroClasificacion}
-        filtroConsumo={filtroConsumo} setFiltroConsumo={setFiltroConsumo}
-        cargando={cargando} reporte={reporte} handleImprimir={handleImprimir}
-      />
+      {/* 🆕 SELECTOR DE FLUJO DE TRABAJO (Estilo Apple Táctil) */}
+      <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden">
+        <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+          📊 Inteligencia del Negocio
+        </h2>
+        <div className="flex bg-slate-100 p-1 rounded-2xl">
+          <button 
+            onClick={() => setVistaModulo('ventas')} 
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <BarChart3 size={16}/> Reporte Ventas
+          </button>
+          <button 
+            onClick={() => setVistaModulo('cortes')} 
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${vistaModulo === 'cortes' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <History size={16}/> Histórico de Cortes
+          </button>
+        </div>
+      </div>
 
-      {cargando ? (
-        <div className="flex flex-col justify-center items-center py-20 print:hidden animate-pulse">
-          <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
-          <p className="font-bold text-slate-500">Procesando reporte financiero...</p>
-        </div>
-      ) : reporte ? (
-        <div className="space-y-6">
-          <ProyeccionesVentas proyecciones={reporte.proyecciones} />
-          <InsightsVentas insights={reporte.insights} filtroActivo={filtroActivo} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
-          <TendenciasVentas comparativas={reporte.comparativas} />
-          <ResumenFinanciero resumen={reporte.resumen} formaterMoneda={formaterMoneda} />
-          <TablaDesgloseVentas detalles={reporte.detalles} formaterMoneda={formaterMoneda} />
-        </div>
-      ) : null}
+      {vistaModulo === 'ventas' ? (
+        <>
+          <FiltrosVentas 
+            filtroActivo={filtroActivo} setFiltroActivo={setFiltroActivo}
+            fechaCustom={fechaCustom} setFechaCustom={setFechaCustom}
+            clasificaciones={clasificaciones}
+            filtroClasificacion={filtroClasificacion} setFiltroClasificacion={setFiltroClasificacion}
+            filtroConsumo={filtroConsumo} setFiltroConsumo={setFiltroConsumo}
+            cargando={cargando} reporte={reporte} handleImprimir={handleImprimir}
+          />
+
+          {cargando ? (
+            <div className="flex flex-col justify-center items-center py-20 print:hidden animate-pulse">
+              <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+              <p className="font-bold text-slate-500">Procesando reporte financiero...</p>
+            </div>
+          ) : reporte ? (
+            <div className="space-y-6">
+              <ProyeccionesVentas proyecciones={reporte.proyecciones} />
+              <InsightsVentas insights={reporte.insights} filtroActivo={filtroActivo} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
+              <TendenciasVentas comparativas={reporte.comparativas} />
+              <ResumenFinanciero resumen={reporte.resumen} formaterMoneda={formaterMoneda} />
+              <TablaDesgloseVentas detalles={reporte.detalles} formaterMoneda={formaterMoneda} />
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
+      )}
     </div>
   );
 };

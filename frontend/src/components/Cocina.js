@@ -4,24 +4,24 @@ import GridPedidos from './cocina/GridPedidos';
 import ModalProblema from './cocina/ModalProblema';
 import ModalSolicitarInsumo from './cocina/ModalSolicitarInsumo';
 import ModalReportarMerma from './cocina/ModalReportarMerma';
-import { Users } from 'lucide-react';
+import { Users, UserCheck } from 'lucide-react';
 
 const Cocina = ({ user, onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
-  const [ayudantes, setAyudantes] = useState([]); // 👈 NUEVO: Estado de ayudantes
+  const [ayudantes, setAyudantes] = useState([]); 
   const [filtroTab, setFiltroTab] = useState('Todo'); 
   const [ahora, setAhora] = useState(Date.now());
   
+  // 🆕 Identificador del trabajador seleccionado actualmente en la pantalla táctil
+  const [trabajadorActivoId, setTrabajadorActivoId] = useState(user.id);
+
   const [modalAlerta, setModalAlerta] = useState(null); 
   const [faltanteSelec, setFaltanteSelec] = useState('');
   const [propuestaSelec, setPropuestaSelec] = useState('');
 
   const [modalInsumo, setModalInsumo] = useState(false);
   const [modalMerma, setModalMerma] = useState(false);
-  
-  // 👈 NUEVO: Estado para el modal de asignación de ayudante
-  const [pedidoParaAyudante, setPedidoParaAyudante] = useState(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -58,7 +58,6 @@ const Cocina = ({ user, onLogout }) => {
     return () => { clearInterval(intervalo); clearInterval(timerReloj); };
   }, [apiUrl, cargarDatos]);
 
-  // 👈 MODIFICADO: Ahora recibe el chef_id de quien tomó la comanda
   const actualizarEstadoPedido = async (p, nuevoEstadoLocal, idAyudanteAsignado = null) => {
     if (isSubmitting) return; 
     setIsSubmitting(true); 
@@ -78,8 +77,8 @@ const Cocina = ({ user, onLogout }) => {
     if (todosListos) estadoGlobal = 'Listo';
     else if (algunPreparando) estadoGlobal = 'Preparando';
 
-    // Definir quién se lleva el crédito (El ayudante que seleccionó su nombre, o el usuario logeado por defecto)
-    const chefResponsable = idAyudanteAsignado || user.id;
+    // Se asigna automáticamente el trabajador seleccionado de la barra global
+    const chefResponsable = idAyudanteAsignado || trabajadorActivoId;
 
     try {
       const res = await fetch(`${apiUrl}/pedidos/${p.id}/estado`, { 
@@ -88,7 +87,6 @@ const Cocina = ({ user, onLogout }) => {
       });
       if (res.ok) { 
         await fetch(`${apiUrl}/pedidos/hoy`).then(r=>r.json()).then(data => setPedidos(Array.isArray(data)?data:[]));
-        setPedidoParaAyudante(null); // Cerramos el modal si estaba abierto
       } 
     } catch (error) { 
       alert('Error de conexión con el servidor.'); 
@@ -134,14 +132,7 @@ const Cocina = ({ user, onLogout }) => {
     return true;
   });
 
-  const hayPedidoEnPreparacion = pedidosVisibles.some(p => {
-    const carritoArray = getCarrito(p);
-    const itemsArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
-    if (itemsArea.length === 0) return false;
-    return (itemsArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado') === 'Preparando';
-  });
-
-  // 👈 NUEVO: Filtrar ayudantes por su turno activo
+  // Filtrar ayudantes por su turno activo
   const ayudantesActivos = ayudantes.filter(a => {
     if (!a.permisos || !a.permisos.horario_entrada || !a.permisos.horario_salida) return true;
     const date = new Date();
@@ -153,55 +144,85 @@ const Cocina = ({ user, onLogout }) => {
     const minsSal = hSal * 60 + mSal;
     
     if (minsEnt <= minsSal) return currentMins >= minsEnt && currentMins <= minsSal;
-    return currentMins >= minsEnt || currentMins <= minsSal; // Turno nocturno cruzando medianoche
+    return currentMins >= minsEnt || currentMins <= minsSal; 
   });
 
+  // Helper para saber qué trabajador tiene actualmente una comanda en preparación
+  const obtenerOrdenActivaDeTrabajador = (id) => {
+    return pedidos.find(p => p.chef_id === id && p.estado_preparacion === 'Preparando');
+  };
+
+  // Obtener el nombre del usuario seleccionado para mostrarlo en la interfaz
+  const obtenerNombreTrabajadorActivo = () => {
+    if (trabajadorActivoId === user.id) return user.nombre;
+    const ayudante = ayudantes.find(a => a.id === trabajadorActivoId);
+    return ayudante ? ayudante.nombre : user.nombre;
+  };
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-6 relative">
+    <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-6 relative pb-32">
       <HeaderKDS 
          user={user} onLogout={onLogout} filtroTab={filtroTab} setFiltroTab={setFiltroTab}
          setModalInsumo={setModalInsumo} setModalMerma={setModalMerma}
       />
 
+      {/* 🆕 BARRA DE SELECCIÓN DE PERSONAL EN TURNO (Estilo Apple Táctil) */}
+      <div className="bg-slate-800 border border-slate-700/60 p-4 rounded-3xl mb-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-2 text-slate-300">
+          <Users size={18} className="text-blue-400"/>
+          <span className="text-sm font-black uppercase tracking-wider">Línea de Producción:</span>
+          <span className="text-xs bg-slate-900 text-emerald-400 px-3 py-1 rounded-full font-bold border border-slate-700 flex items-center gap-1">
+             <UserCheck size={12}/> Preparando ahora: {obtenerNombreTrabajadorActivo()}
+          </span>
+        </div>
+        
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+          {/* Botón del Chef Principal: Se muestra siempre como respaldo operativo o si no hay ayudantes */}
+          <button
+            onClick={() => setTrabajadorActivoId(user.id)}
+            className={`flex-1 md:flex-none px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 border flex flex-col items-center justify-center min-w-[120px] ${
+              trabajadorActivoId === user.id 
+                ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
+                : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <span>👨‍🍳 {user.nombre}</span>
+            {obtenerOrdenActivaDeTrabajador(user.id) && (
+              <span className="text-[9px] bg-red-900/60 text-red-300 px-1.5 rounded-md mt-0.5 font-bold animate-pulse">Ocupado #{obtenerOrdenActivaDeTrabajador(user.id).numero_pedido}</span>
+            )}
+          </button>
+
+          {/* Botones Dinámicos de los Ayudantes en su Horario Activo */}
+          {ayudantesActivos.map(a => {
+            const ordenActiva = obtenerOrdenActivaDeTrabajador(a.id);
+            const estaSeleccionado = trabajadorActivoId === a.id;
+            return (
+              <button
+                key={a.id}
+                onClick={() => setTrabajadorActivoId(a.id)}
+                className={`flex-1 md:flex-none px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 border flex flex-col items-center justify-center min-w-[120px] ${
+                  estaSeleccionado 
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>🔪 {a.nombre}</span>
+                {ordenActiva && (
+                  <span className="text-[9px] bg-red-900/60 text-red-300 px-1.5 rounded-md mt-0.5 font-bold animate-pulse">Ocupado #{ordenActiva.numero_pedido}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <GridPedidos 
          pedidosVisibles={pedidosVisibles} filtroTab={filtroTab} ahora={ahora}
-         hayPedidoEnPreparacion={hayPedidoEnPreparacion} isSubmitting={isSubmitting}
-         setModalAlerta={setModalAlerta} limpiarAlerta={limpiarAlerta}
+         isSubmitting={isSubmitting} setModalAlerta={setModalAlerta} limpiarAlerta={limpiarAlerta}
          actualizarEstadoPedido={actualizarEstadoPedido} getCarrito={getCarrito}
-         setPedidoParaAyudante={setPedidoParaAyudante} ayudantesActivos={ayudantesActivos}
+         trabajadorActivoId={trabajadorActivoId} obtenerOrdenActivaDeTrabajador={obtenerOrdenActivaDeTrabajador}
+         obtenerNombreTrabajadorActivo={obtenerNombreTrabajadorActivo}
       />
-
-      {/* 👈 NUEVO: Modal de Asignación Rápida de Ayudantes */}
-      {pedidoParaAyudante && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-slate-800 p-8 rounded-[40px] shadow-2xl w-full max-w-lg border border-slate-700 text-center">
-            <h3 className="text-3xl font-black text-white mb-2 flex items-center justify-center gap-3"><Users className="text-blue-500" size={32}/> ¿Quién tomará esta orden?</h3>
-            <p className="text-slate-400 font-bold mb-8">Orden #{pedidoParaAyudante.numero_pedido} - Selecciona tu nombre para comenzar a prepararla.</p>
-            
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              {/* Opción de usar el usuario principal logeado en la tablet */}
-              <button 
-                  onClick={() => actualizarEstadoPedido(pedidoParaAyudante, 'Preparando', user.id)}
-                  className="bg-slate-700 hover:bg-slate-600 text-white font-black py-6 rounded-2xl transition shadow-sm border border-slate-600 active:scale-95"
-              >
-                 {user.nombre} <span className="block text-[10px] text-slate-400 mt-1 uppercase tracking-widest">(Cuenta Principal)</span>
-              </button>
-
-              {ayudantesActivos.map(a => (
-                 <button 
-                    key={a.id} 
-                    onClick={() => actualizarEstadoPedido(pedidoParaAyudante, 'Preparando', a.id)}
-                    className="bg-blue-600 hover:bg-blue-500 text-white font-black py-6 rounded-2xl transition shadow-lg shadow-blue-500/20 active:scale-95"
-                 >
-                    {a.nombre}
-                 </button>
-              ))}
-            </div>
-
-            <button onClick={() => setPedidoParaAyudante(null)} className="text-slate-400 hover:text-white font-bold transition underline">Cancelar y Volver</button>
-          </div>
-        </div>
-      )}
 
       {modalAlerta && (
          <ModalProblema 

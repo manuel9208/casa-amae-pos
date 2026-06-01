@@ -6,8 +6,8 @@ import VistaConfirmar from './vistas/confirmar/VistaConfirmar';
 import VistaCobrar from './vistas/cobrar/VistaCobrar';         
 import VistaMesasPagadas from './vistas/mesas_pagadas/VistaMesasPagadas';
 import VistaEntregas from './vistas/entregas/VistaEntregas'; 
-import VistaHistorial from './vistas/historial/VistaHistorial'; // 👇 NUEVO IMPORT
-import VistaCorte from './vistas/corte/VistaCorte';             // 👇 NUEVO IMPORT
+import VistaHistorial from './vistas/historial/VistaHistorial'; 
+import VistaCorte from './vistas/corte/VistaCorte';             
 import { PlusCircle, Eye } from 'lucide-react';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -133,6 +133,9 @@ const VistasCaja = ({
 
   const totalGastos = (gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
 
+  // =========================================================================
+  // 🛡️ LÓGICA DE AUDITORÍA FINANCIERA CORREGIDA Y AUDITADA
+  // =========================================================================
   const pedidosValidos = pedidos.filter(p => p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado');
   let totalPlatillos = 0;
   let totalExtras = 0;
@@ -144,20 +147,26 @@ const VistasCaja = ({
     const items = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
     items.forEach(item => {
         const qty = Number(item.cantidad || 1);
-        let extrasDelItem = 0;
+        let extrasMonetariosReales = 0;
         
         if (item.extras && Array.isArray(item.extras)) {
             item.extras.forEach(ext => {
-                extrasDelItem += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
+                // Separamos sabores/modificadores base de los verdaderos extras transaccionales cobrados
+                if (ext.tipo === 'extra' || ext.es_extra === true || String(ext.nombre).toLowerCase().includes('extra')) {
+                    extrasMonetariosReales += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
+                }
             });
         }
-        totalExtras += (extrasDelItem * qty);
+        // Acumulado financiero de ingresos extras reales
+        totalExtras += (extrasMonetariosReales * qty);
         
+        // El valor neto del platillo se calcula deduciendo sus extras externos cobrados
         const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
-        const precioBase = precioTotalItem - extrasDelItem;
-        totalPlatillos += (precioBase * qty);
+        const precioBasePlatillo = precioTotalItem - extrasMonetariosReales;
+        totalPlatillos += (precioBasePlatillo * qty);
     });
   });
+  // =========================================================================
 
   const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
@@ -283,7 +292,6 @@ const VistasCaja = ({
            />
         )}
 
-        {/* 👇 VISTA ACTUALIZADA: HISTORIAL */}
         {vistaActiva === 'historial' && (
            <VistaHistorial
               pedidos={pedidos} subVistaHistorial={subVistaHistorial} setSubVistaHistorial={setSubVistaHistorial}
@@ -292,7 +300,6 @@ const VistasCaja = ({
            />
         )}
 
-        {/* 👇 VISTA ACTUALIZADA: CORTE DE CAJA */}
         {vistaActiva === 'corte' && (
            <VistaCorte
               totalPlatillos={totalPlatillos} totalExtras={totalExtras} totalEnvio={totalEnvio} fondoCaja={fondoCaja}

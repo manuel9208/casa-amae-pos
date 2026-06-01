@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS configuracion (
     -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
     mensaje_cierre TEXT,
+    hora_apertura INTEGER DEFAULT 17, -- 🆕 Horario comercial de marca blanca
+    hora_cierre INTEGER DEFAULT 23,     -- 🆕 Horario comercial de marca blanca
 
     -- Configuración de Ticket de Venta
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
@@ -76,6 +78,11 @@ CREATE TABLE IF NOT EXISTS configuracion (
     wa_phone_id TEXT
 );
 
+-- 🛡️ BLINDAJE: Sincronización preventiva para bases de datos ya existentes en Neon
+ALTER TABLE configuracion 
+ADD COLUMN IF NOT EXISTS hora_apertura INTEGER DEFAULT 17,
+ADD COLUMN IF NOT EXISTS hora_cierre INTEGER DEFAULT 23;
+
 -- -------------------------------------------------------------------------
 -- 3. TABLAS DE USUARIOS, ASISTENCIAS, CLIENTES Y NOTIFICACIONES
 -- -------------------------------------------------------------------------
@@ -84,13 +91,19 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre VARCHAR(100) NOT NULL,
     usuario VARCHAR(50) UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv')),
+    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor')), -- 🆕 Tipos de roles expandidos
     permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 🛡️ BLINDAJE: Reconfiguración robusta de la restricción CHECK para base de datos activa
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+ALTER TABLE usuarios 
+ADD CONSTRAINT usuarios_rol_check 
+CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor'));
 
 -- Tabla Reloj Checador: Registro de Entradas y Salidas
 CREATE TABLE IF NOT EXISTS registro_asistencias (
@@ -113,7 +126,7 @@ CREATE TABLE IF NOT EXISTS clientes (
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 👇 NUEVA TABLA: Notificaciones Push (Integrada con relación a usuarios y clientes)
+-- 👇 Notificaciones Push (Integrada con relación a usuarios y clientes)
 CREATE TABLE IF NOT EXISTS suscripciones_push (
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NULL, -- Si es un empleado (Caja/Cocina)
@@ -173,7 +186,7 @@ CREATE TABLE IF NOT EXISTS insumos (
     stock_actual DECIMAL(10,2) DEFAULT 0,
     es_empaque BOOLEAN DEFAULT false,
     
-    -- 👇 NUEVAS COLUMNAS: Sistema de Rendimiento y Merma
+    -- Sistema de Rendimiento y Merma
     tipo_rendimiento VARCHAR(20) DEFAULT 'Directo',
     peso_prueba_crudo DECIMAL(10,2) DEFAULT NULL,
     peso_prueba_limpio DECIMAL(10,2) DEFAULT NULL,
@@ -240,6 +253,28 @@ CREATE TABLE IF NOT EXISTS detalle_pedidos (
     precio DECIMAL(10,2),
     extras JSONB
 );
+
+-- 🆕 TABLA: HISTÓRICO DE CORTES (BLINDAJE DE AUDITORÍA Y CIERRES DE TURNO)
+CREATE TABLE IF NOT EXISTS historico_cortes (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    fecha_corte DATE DEFAULT CURRENT_DATE,
+    hora_corte TIME DEFAULT CURRENT_TIME,
+    fondo_inicial DECIMAL(10,2) NOT NULL,
+    venta_platillos DECIMAL(10,2) NOT NULL,
+    ingresos_extras DECIMAL(10,2) NOT NULL,
+    cargos_envio DECIMAL(10,2) NOT NULL,
+    total_efectivo DECIMAL(10,2) NOT NULL,
+    total_tarjeta DECIMAL(10,2) NOT NULL,
+    total_transferencia DECIMAL(10,2) NOT NULL,
+    total_gastos DECIMAL(10,2) NOT NULL,
+    efectivo_cajon DECIMAL(10,2) NOT NULL,
+    pedidos_incluidos JSONB NOT NULL, -- Matriz indexada de IDs de pedidos auditados
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índice relacional para acelerar reportes por Día, Mes o Año
+CREATE INDEX IF NOT EXISTS idx_cortes_fecha ON historico_cortes(fecha_corte);
 
 -- -------------------------------------------------------------------------
 -- 7. GESTIÓN DE MESAS Y MAPEO VISUAL

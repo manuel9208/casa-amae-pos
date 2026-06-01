@@ -172,7 +172,6 @@ exports.actualizarEstado = async (req, res) => {
     if (costo_envio !== undefined) { query += `, costo_envio = $${pIdx}`; params.push(costo_envio); pIdx++; }
     if (pagos_mixtos !== undefined) { query += `, pagos_mixtos = $${pIdx}`; params.push(pagos_mixtos); pIdx++; }
 
-    // BLINDAJE DE RENDIMIENTO: Congelamos el tiempo exacto
     if (estado_preparacion === 'Preparando') {
         query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
     }
@@ -180,9 +179,8 @@ exports.actualizarEstado = async (req, res) => {
         query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`;
     }
     
-    // Asignación de Chef/Ayudante: Evitamos sobreescribir si alguien más ya lo tomó
     if (chef_id) { 
-        query += `, chef_id = COALESCE(chef_id, $${pIdx})`; 
+        query += `, chef_id = $${pIdx}`; 
         params.push(chef_id); 
         pIdx++; 
     }
@@ -285,9 +283,6 @@ exports.actualizarEstado = async (req, res) => {
       } catch (errWA) { console.error("Fallo en WhatsApp:", errWA.message); }
     }
 
-    // =========================================================
-    // BLOQUE FINAL DE NOTIFICACIONES PUSH (AQUÍ ESTÁ EL CAMBIO)
-    // =========================================================
     if (estado_preparacion === 'Pagado' || estado_preparacion === 'Por Confirmar') {
         notificarStaff(['chef', 'cocinero', 'cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
     } else if (estado_preparacion === 'Preparando') {
@@ -297,7 +292,6 @@ exports.actualizarEstado = async (req, res) => {
         notificarCliente(pedidoActual.cliente_id, '¡Tu comida está lista! 🍔', `Tu orden #${pedidoActual.numero_pedido} está lista para entregar.`);
         notificarStaff(['cajero', 'admin'], 'Orden Lista ✅', `Cocina terminó la orden #${pedidoActual.numero_pedido}.`);
     } else if (estado_preparacion === 'En Camino') {
-        // 👇 ESTA ES LA LÍNEA NUEVA AÑADIDA 👇
         notificarCliente(pedidoActual.cliente_id, '¡Orden en Camino! 🛵', 'El repartidor ya va hacia tu domicilio con tu pedido.');
     }
 
@@ -327,4 +321,37 @@ exports.obtenerPedidosCliente = async (req, res) => {
     console.error("Error al obtener pedidos de cliente:", error);
     res.status(500).json({ error: 'Error' }); 
   } 
+};
+
+// =========================================================================
+// 🆕 NUEVO ENDPOINT: OBTENER HISTORIAL DE AUDITORÍA CON FILTROS DE TIEMPO
+// =========================================================================
+exports.obtenerHistorialAuditoria = async (req, res) => {
+  const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
+  
+  let query = `
+    SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono
+    FROM pedidos p
+    LEFT JOIN clientes c ON p.cliente_id = c.id
+    WHERE p.estado_preparacion != 'Pendiente' AND p.estado_preparacion != 'Cancelado'
+  `;
+  let params = [fecha];
+  
+  if (periodo === 'dia') {
+    query += ' AND DATE(p.fecha_creacion) = $1::DATE';
+  } else if (periodo === 'mes') {
+    query += " AND DATE_TRUNC('month', p.fecha_creacion) = DATE_TRUNC('month', $1::TIMESTAMP)";
+  } else if (periodo === 'anio') {
+    query += " AND DATE_TRUNC('year', p.fecha_creacion) = DATE_TRUNC('year', $1::TIMESTAMP)";
+  }
+  
+  query += ' ORDER BY p.fecha_creacion DESC';
+  
+  try {
+    const result = await db.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error en obtenerHistorialAuditoria:", error);
+    res.status(500).json({ error: 'Error interno en el servidor al obtener historial' });
+  }
 };

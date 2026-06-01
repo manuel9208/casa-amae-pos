@@ -9,7 +9,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('cajero');
   
-  // Nuevo estado para los horarios de los ayudantes
+  // Estados para los horarios de los ayudantes
   const [horarioEntrada, setHorarioEntrada] = useState('08:00');
   const [horarioSalida, setHorarioSalida] = useState('16:00');
   
@@ -27,7 +27,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setURol(u.rol);
     setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
     
-    // Si es ayudante, cargamos sus horarios desde los permisos (aprovechando el JSONB)
     if (u.rol === 'ayudante_cocina') {
         setHorarioEntrada(u.permisos?.horario_entrada || '08:00');
         setHorarioSalida(u.permisos?.horario_salida || '16:00');
@@ -56,12 +55,15 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
       setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true, clientes: true, finanzas: true });
     } else if (nuevoRol === 'ayudante_cocina') {
-      // Los ayudantes no necesitan contraseña ni teléfono real (se autogenera el user)
       const uniqueId = Math.floor(100 + Math.random() * 900); 
       setUUser(`ayudante_${uniqueId}`); 
-      setUPass('0000'); // Dummy pass
-      setUTelefono('');
+      setUPass('0000'); 
+      setUTelefono(''); 
       setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, horario_entrada: '08:00', horario_salida: '16:00' });
+    } else if (nuevoRol === 'repartidor') {
+      // Los repartidores entran a su app/vista, necesitan limpiar campos para capturar credenciales reales
+      setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
+      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, repartos: true });
     } else { 
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
       setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
@@ -70,9 +72,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
 
   const guardarUsuario = async (e) => { 
     e.preventDefault(); 
-    if(uRol !== 'tv' && uRol !== 'ayudante_cocina' && uTelefono && uTelefono.length !== 10) return showAlert("Atención", "El teléfono debe tener exactamente 10 dígitos.", "info"); 
     
-    // Si es ayudante, inyectamos los horarios en el objeto JSON de permisos
+    if (uRol !== 'tv' && (!uTelefono || uTelefono.length !== 10)) {
+      return showAlert("Atención", "El número celular es obligatorio y debe contener exactamente 10 dígitos numéricos.", "info"); 
+    }
+    
     let permisosFinales = uPermisos;
     if (uRol === 'ayudante_cocina') {
         permisosFinales = { ...uPermisos, horario_entrada: horarioEntrada, horario_salida: horarioSalida };
@@ -95,7 +99,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
           refrescarDatos(); 
       } else {
           const dataErr = await res.json();
-          showAlert("Atención", dataErr.error || "El usuario o teléfono ya existe. Intenta con datos diferentes.", "warning");
+          showAlert("Atención", dataErr.error || "El nombre de usuario o número telefónico ya se encuentra registrado por otro empleado.", "warning");
       }
     } catch (error) { 
       showAlert("Error", "Error de conexión al guardar el usuario.", "error"); 
@@ -125,25 +129,43 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         <h3 className="text-xl font-bold mb-4 text-slate-700">{editandoUsuarioId ? 'Actualizar Información' : 'Nuevo Empleado'}</h3>
         
         <form onSubmit={guardarUsuario} className="space-y-4">
-          <input required placeholder="Nombre (Ej. Juan Pérez)" value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+          <div>
+            <label className="text-xs font-bold text-slate-400 block mb-1">Nombre Completo</label>
+            <input required placeholder="Ej. Carlos Mendoza" value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+          </div>
           
           {uRol !== 'ayudante_cocina' && (
               <>
-                <input required placeholder="Usuario para acceder" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
-                <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Nueva contraseña (Opcional)" : "Contraseña"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" title={editandoUsuarioId ? "Déjalo en blanco si no quieres cambiar la contraseña actual" : ""} />
-                <input type="tel" maxLength="10" placeholder="Número Celular (Opcional)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">Usuario para Acceso</label>
+                  <input required placeholder="Ej. carlos.reparto" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">{editandoUsuarioId ? "Nueva Contraseña (Opcional)" : "Contraseña"}</label>
+                  <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Dejar en blanco para conservar" : "Contraseña de inicio"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+                </div>
               </>
           )}
 
-          <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer shadow-sm">
-            <option value="cajero">Cajero (Caja)</option>
-            <option value="cocina">Chef Principal (Inicio de Sesión KDS)</option>
-            <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
-            <option value="admin">Administrador</option>
-            <option value="tv">📺 Pantalla TV (KDS Cliente)</option>
-          </select>
+          {uRol !== 'tv' && (
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-1">Número Celular / Identificador único</label>
+              <input required type="text" maxLength="10" placeholder="Ej. 6721190600" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-bold text-slate-400 block mb-1">Puesto o Rol asignado</label>
+            <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer shadow-sm">
+              <option value="cajero">Cajero (Caja)</option>
+              <option value="cocina">Chef Principal (Inicio de Sesión KDS)</option>
+              <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
+              <option value="repartidor">🛵 Repartidor (Entregas Domicilio)</option>
+              <option value="admin">Administrador</option>
+              <option value="tv">📺 Pantalla TV (KDS Cliente)</option>
+            </select>
+          </div>
           
-          {/* HORARIOS PARA EL AYUDANTE DE COCINA */}
           {uRol === 'ayudante_cocina' && (
               <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
                   <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Turno del Ayudante</p>
@@ -157,14 +179,12 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                           <input type="time" value={horarioSalida} onChange={e => setHorarioSalida(e.target.value)} className="w-full p-2 mt-1 rounded-lg border outline-none font-bold text-slate-700" required />
                       </div>
                   </div>
-                  <p className="text-[10px] text-orange-800 font-medium">El nombre de este ayudante solo aparecerá en la pantalla de cocina durante su turno.</p>
               </div>
           )}
 
           {uRol === 'admin' && (
             <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
               <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
-              
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.finanzas === true} onChange={e => setUPermisos({...uPermisos, finanzas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Finanzas y Reportes
               </label>
@@ -180,9 +200,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.clientes === true} onChange={e => setUPermisos({...uPermisos, clientes: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Clientes (CRM)
               </label>
-              
               <div className="border-t border-orange-200 my-2"></div>
-              
               <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.usuarios === true} onChange={e => setUPermisos({...uPermisos, usuarios: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Usuarios
               </label>
@@ -196,7 +214,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             {editandoUsuarioId && (
               <button type="button" onClick={cancelarEdicionUsuario} className="w-full md:w-1/3 bg-slate-200 hover:bg-slate-300 text-slate-700 p-4 rounded-xl font-bold transition">Cancelar</button>
             )}
-            <button type="submit" className={`flex-1 text-white p-4 rounded-xl font-black shadow-lg transition active:scale-95 ${editandoUsuarioId ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'}`}>
+            <button type="submit" className={`flex-1 text-white p-4 rounded-xl font-black shadow-lg transition active:scale-95 ${editandoUsuarioId ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
               {editandoUsuarioId ? 'Actualizar Usuario' : 'Crear Empleado'}
             </button>
           </div>
@@ -212,23 +230,32 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                 <div>
                   <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
                     {u.nombre} 
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='ayudante_cocina' ? 'bg-amber-100 text-amber-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>
-                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol}
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
+                      u.rol==='admin' ? 'bg-purple-100 text-purple-700' : 
+                      u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : 
+                      u.rol==='ayudante_cocina' ? 'bg-amber-100 text-amber-700' : 
+                      u.rol==='repartidor' ? 'bg-teal-100 text-teal-700' :
+                      u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol}
                     </span>
                     {u.usuario === 'admin' && <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded-md uppercase font-black tracking-widest">Admin Global</span>}
                   </p>
                   
-                  {u.rol === 'ayudante_cocina' ? (
-                      <p className="text-xs text-amber-600 font-bold mt-1">🕒 Turno: {u.permisos?.horario_entrada || '00:00'} - {u.permisos?.horario_salida || '00:00'}</p>
-                  ) : (
-                      <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono || 'N/A'}</span></p>
-                  )}
+                  <div className="mt-1 space-y-0.5">
+                    <p className="text-sm text-slate-600 font-bold">Identificador / Tel: <span className="text-blue-600 font-black">{u.telefono || 'Sin asignar'}</span></p>
+                    {u.rol === 'ayudante_cocina' ? (
+                        <p className="text-xs text-amber-600 font-bold">🕒 Turno: {u.permisos?.horario_entrada || '00:00'} - {u.permisos?.horario_salida || '00:00'}</p>
+                    ) : (
+                        <p className="text-xs text-slate-500 font-medium">Usuario de Acceso: <span className="font-bold text-slate-700">{u.usuario}</span></p>
+                    )}
+                  </div>
                 </div>
                 
                 {u.usuario !== 'admin' && (
                   <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                    <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition shadow-sm bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
-                    <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition shadow-sm bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
+                    <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
+                    <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
                   </div>
                 )}
               </div>

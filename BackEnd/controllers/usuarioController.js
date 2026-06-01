@@ -10,7 +10,7 @@ exports.obtenerUsuarios = async (req, res) => {
 };
 
 // ==========================================
-// NUEVO: OBTENER SOLO AYUDANTES DE COCINA
+// OBTENER SOLO AYUDANTES DE COCINA
 // ==========================================
 exports.obtenerAyudantesCocina = async (req, res) => {
   try {
@@ -24,14 +24,22 @@ exports.obtenerAyudantesCocina = async (req, res) => {
 
 exports.crearUsuario = async (req, res) => {
   const { nombre, usuario, password, rol, permisos, telefono } = req.body;
+  
+  // 🛡️ BLINDAJE: Si viene vacío o con espacios, guardamos NULL para evitar el error syntax de BIGINT
+  const telefonoFinal = telefono && String(telefono).trim() !== '' ? telefono : null;
+
   try {
     const result = await db.query(
       'INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefono]
+      [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal]
     );
     res.json(result.rows[0]);
   } catch (error) {
     console.error(error);
+    // Código 23505: Violación de restricción única (Unique Constraint)
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'El número de teléfono o nombre de usuario ya está registrado.' });
+    }
     res.status(500).json({ error: 'Error al crear usuario' });
   }
 };
@@ -41,17 +49,20 @@ exports.actualizarUsuario = async (req, res) => {
   const { id } = req.params;
   const { nombre, usuario, password, rol, permisos, telefono } = req.body;
   
+  // 🛡️ BLINDAJE: Sanitización del teléfono
+  const telefonoFinal = telefono && String(telefono).trim() !== '' ? telefono : null;
+  
   try {
     let result;
     if (password && password.trim() !== '') {
       result = await db.query(
         'UPDATE usuarios SET nombre = $1, usuario = $2, password = $3, rol = $4, permisos = $5, telefono = $6 WHERE id = $7 RETURNING *',
-        [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefono, id]
+        [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal, id]
       );
     } else {
       result = await db.query(
         'UPDATE usuarios SET nombre = $1, usuario = $2, rol = $3, permisos = $4, telefono = $5 WHERE id = $6 RETURNING *',
-        [nombre, usuario, rol, JSON.stringify(permisos || {}), telefono, id]
+        [nombre, usuario, rol, JSON.stringify(permisos || {}), telefonoFinal, id]
       );
     }
 
@@ -61,6 +72,9 @@ exports.actualizarUsuario = async (req, res) => {
     res.json(result.rows[0]);
   } catch (error) {
     console.error(error);
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'El número de teléfono o nombre de usuario ya está en uso.' });
+    }
     res.status(500).json({ error: 'Error al actualizar usuario' });
   }
 };
@@ -128,7 +142,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.fecha DESC, a.hora_entrada DESC
     `, params);
 
-    // Nota: Este query nativamente abrazará a los ayudantes porque usa el chef_id
     const rendimientoRes = await db.query(`
       SELECT 
         u.nombre AS chef, 

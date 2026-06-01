@@ -18,7 +18,7 @@ const recetaCtrl = require('../controllers/recetaController');
 const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController'); 
-const notificacionCtrl = require('../controllers/notificacionController'); // 👈 NUEVO CONTROLADOR
+const notificacionCtrl = require('../controllers/notificacionController');
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -63,7 +63,7 @@ router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
 router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
 
 // ==========================================
-// NOTIFICACIONES PUSH (NUEVO)
+// NOTIFICACIONES PUSH
 // ==========================================
 router.post('/suscripciones', notificacionCtrl.guardarSuscripcion);
 
@@ -83,7 +83,7 @@ router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
 // USUARIOS (EMPLEADOS)
 // ==========================================
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
-router.get('/usuarios/ayudantes', usuarioCtrl.obtenerAyudantesCocina); // 👈 NUEVA RUTA PARA KDS HÍBRIDO
+router.get('/usuarios/ayudantes', usuarioCtrl.obtenerAyudantesCocina);
 router.get('/usuarios/rendimiento', usuarioCtrl.obtenerReporteRendimiento); 
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
@@ -115,6 +115,7 @@ router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto);
 // ==========================================
 // PEDIDOS Y FLUJO
 // ==========================================
+router.get('/pedidos/historial', pedidoCtrl.obtenerHistorialAuditoria); // 🆕 RUTA DINÁMICA DE AUDITORÍA HISTÓRICA
 router.get('/pedidos/hoy', pedidoCtrl.obtenerPedidosHoy);
 router.post('/pedidos', pedidoCtrl.crearPedido);
 router.put('/pedidos/:id', pedidoCtrl.actualizarPedido); 
