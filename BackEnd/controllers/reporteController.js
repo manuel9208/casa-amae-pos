@@ -5,29 +5,32 @@ exports.obtenerReporteVentas = async (req, res) => {
   
   try {
     // ==========================================================
-    // 1. OBTENER COSTOS DE RECETAS (CON CTE RECURSIVO PARA SUB-RECETAS)
+    // 1. OBTENER COSTOS DE RECETAS (CON CTE RECURSIVO Y PROTECCIÓN)
     // ==========================================================
     const costosRes = await db.query(`
       WITH RECURSIVE DesgloseReceta AS (
-          -- Caso base: Traer todas las filas (ingredientes directos y sub-recetas)
+          -- Caso base
           SELECT 
               r.producto_id as producto_raiz,
               r.insumo_id,
               r.sub_producto_id,
-              r.cantidad_usada
+              r.cantidad_usada::NUMERIC, -- Forzamos a NUMERIC para evitar error de tipos
+              1 as depth -- Nivel de profundidad
           FROM recetas r
 
           UNION ALL
 
-          -- Caso recursivo: Desglosar sub-recetas multiplicando proporciones
+          -- Caso recursivo
           SELECT 
               dr.producto_raiz,
               r2.insumo_id,
               r2.sub_producto_id,
-              (dr.cantidad_usada * r2.cantidad_usada) as cantidad_usada
+              (dr.cantidad_usada * r2.cantidad_usada)::NUMERIC,
+              dr.depth + 1
           FROM DesgloseReceta dr
           JOIN recetas r2 ON dr.sub_producto_id = r2.producto_id
-          WHERE dr.sub_producto_id IS NOT NULL
+          -- Protegemos contra ciclos infinitos limitando a 10 niveles de sub-recetas
+          WHERE dr.sub_producto_id IS NOT NULL AND dr.depth < 10
       )
       SELECT 
           dr.producto_raiz as producto_id, 
@@ -201,7 +204,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     };
 
     // ==========================================================
-    // 6. GENERAR INSIGHTS INTELIGENTES (CON ZONA HORARIA FIX)
+    // 6. GENERAR INSIGHTS INTELIGENTES
     // ==========================================================
     let insights = { 
       productoMasVendido: null, productoMenosVendido: null, 
@@ -274,7 +277,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     // ==========================================================
-    // 7. COMPARATIVAS HISTÓRICAS (CON FIX DE HORAS MUERTAS)
+    // 7. COMPARATIVAS HISTÓRICAS
     // ==========================================================
     let comparativas = [];
     try {
@@ -299,7 +302,6 @@ exports.obtenerReporteVentas = async (req, res) => {
             let totalPlatillos = 0;
             let horas = Array(24).fill(0);
             
-            // Rango de horas forzado para asegurar evaluación (De 5 PM a 11 PM mínimo)
             let minHoraDelRango = 17; 
             let maxHoraDelRango = 23;
 
@@ -332,7 +334,6 @@ exports.obtenerReporteVentas = async (req, res) => {
                 huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
                 
-                // Lógica corregida: Acumular horas que empatan en ventas bajas/cero
                 if(horas[i] < minItems) { 
                     minItems = horas[i]; 
                     horasMuertasArray = [i]; 
@@ -353,15 +354,12 @@ exports.obtenerReporteVentas = async (req, res) => {
             const textoHorasMuertas = horasMuertasArray.map(h => `${formatHora(h)} a ${formatHora(h + 1)}`).join(', ');
 
             return {
-                label,
-                subtitulo: subtituloFechas,
-                totalPlatillos,
+                label, subtitulo: subtituloFechas, totalPlatillos,
                 mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
                 peorHora: horasMuertasArray.length > 0 ? `${textoHorasMuertas} (${minItems} platillos)` : 'Sin ventas'
             };
         };
 
-        // Arreglo de promesas para Paralelizar (Aumenta la velocidad del reporte x3)
         let promesas = [];
 
         if (tipo === 'dia' || tipo === 'historico') {
@@ -383,7 +381,6 @@ exports.obtenerReporteVentas = async (req, res) => {
             promesas.push(processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false));
         }
         
-        // Ejecución en Paralelo
         const resultadosPromesas = await Promise.all(promesas);
         comparativas = resultadosPromesas.filter(c => c !== null);
 
@@ -392,7 +389,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     // ==========================================================
-    // 8. METAS Y PROYECCIONES INTELIGENTES (ZONA HORARIA FIX)
+    // 8. METAS Y PROYECCIONES INTELIGENTES 
     // ==========================================================
     let proyecciones = null;
     try {
@@ -401,9 +398,7 @@ exports.obtenerReporteVentas = async (req, res) => {
             const metaPlatillos = Math.ceil(baseInmediata.totalPlatillos * 1.05);
             const actuales = totales.productos_vendidos;
 
-            let estadoMeta = 'neutral';
-            let mensajeMeta = '';
-            let accionRecomendada = '';
+            let estadoMeta = 'neutral'; let mensajeMeta = ''; let accionRecomendada = '';
             let progreso = metaPlatillos > 0 ? Math.min(100, Math.round((actuales / metaPlatillos) * 100)) : (actuales > 0 ? 100 : 0);
 
             if (actuales > 0 && actuales >= metaPlatillos) {
@@ -443,14 +438,8 @@ exports.obtenerReporteVentas = async (req, res) => {
             }
 
             proyecciones = {
-                meta_platillos: metaPlatillos,
-                actual_platillos: actuales,
-                base_historica: baseInmediata.totalPlatillos,
-                progreso: progreso,
-                estado: estadoMeta,
-                mensaje: mensajeMeta,
-                accion: accionRecomendada,
-                meta_futura: metaFuturaMensaje
+                meta_platillos: metaPlatillos, actual_platillos: actuales, base_historica: baseInmediata.totalPlatillos,
+                progreso, estado: estadoMeta, mensaje: mensajeMeta, accion: accionRecomendada, meta_futura: metaFuturaMensaje
             };
         }
     } catch(errProy) { console.error("Error en proyecciones:", errProy); }
