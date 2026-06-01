@@ -9,6 +9,10 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('cajero');
   
+  // Nuevo estado para los horarios de los ayudantes
+  const [horarioEntrada, setHorarioEntrada] = useState('08:00');
+  const [horarioSalida, setHorarioSalida] = useState('16:00');
+  
   const [uPermisos, setUPermisos] = useState({ 
     menu: true, inventario: true, catalogos: true, 
     usuarios: false, configuracion: false, clientes: false, finanzas: false
@@ -22,17 +26,25 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setUTelefono(u.telefono || ''); 
     setURol(u.rol);
     setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
+    
+    // Si es ayudante, cargamos sus horarios desde los permisos (aprovechando el JSONB)
+    if (u.rol === 'ayudante_cocina') {
+        setHorarioEntrada(u.permisos?.horario_entrada || '08:00');
+        setHorarioSalida(u.permisos?.horario_salida || '16:00');
+    }
   };
 
   const cancelarEdicionUsuario = () => {
     setEditandoUsuarioId(null); 
     setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setURol('cajero');
+    setHorarioEntrada('08:00'); setHorarioSalida('16:00');
     setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
   };
 
   const handleRolChange = (e) => { 
     const nuevoRol = e.target.value; 
     setURol(nuevoRol); 
+    
     if (nuevoRol === 'tv') { 
       const uniqueId = Math.floor(1000 + Math.random() * 9000); 
       setUNombre(`Pantalla TV ${uniqueId}`); 
@@ -43,6 +55,13 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     } else if (nuevoRol === 'admin') {
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
       setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true, clientes: true, finanzas: true });
+    } else if (nuevoRol === 'ayudante_cocina') {
+      // Los ayudantes no necesitan contraseña ni teléfono real (se autogenera el user)
+      const uniqueId = Math.floor(100 + Math.random() * 900); 
+      setUUser(`ayudante_${uniqueId}`); 
+      setUPass('0000'); // Dummy pass
+      setUTelefono('');
+      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, horario_entrada: '08:00', horario_salida: '16:00' });
     } else { 
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
       setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
@@ -51,9 +70,15 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
 
   const guardarUsuario = async (e) => { 
     e.preventDefault(); 
-    if(uTelefono && uTelefono.length !== 10) return showAlert("Atención", "El teléfono debe tener exactamente 10 dígitos.", "info"); 
+    if(uRol !== 'tv' && uRol !== 'ayudante_cocina' && uTelefono && uTelefono.length !== 10) return showAlert("Atención", "El teléfono debe tener exactamente 10 dígitos.", "info"); 
     
-    const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: uPermisos, telefono: uTelefono };
+    // Si es ayudante, inyectamos los horarios en el objeto JSON de permisos
+    let permisosFinales = uPermisos;
+    if (uRol === 'ayudante_cocina') {
+        permisosFinales = { ...uPermisos, horario_entrada: horarioEntrada, horario_salida: horarioSalida };
+    }
+
+    const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: permisosFinales, telefono: uTelefono };
     if (uPass) payload.password = uPass; 
     
     try { 
@@ -101,17 +126,41 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         
         <form onSubmit={guardarUsuario} className="space-y-4">
           <input required placeholder="Nombre (Ej. Juan Pérez)" value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
-          <input required placeholder="Usuario para acceder" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
-          <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Nueva contraseña (Opcional)" : "Contraseña"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" title={editandoUsuarioId ? "Déjalo en blanco si no quieres cambiar la contraseña actual" : ""} />
-          <input type="tel" maxLength="10" placeholder="Número Celular (Opcional)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
           
+          {uRol !== 'ayudante_cocina' && (
+              <>
+                <input required placeholder="Usuario para acceder" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+                <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Nueva contraseña (Opcional)" : "Contraseña"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" title={editandoUsuarioId ? "Déjalo en blanco si no quieres cambiar la contraseña actual" : ""} />
+                <input type="tel" maxLength="10" placeholder="Número Celular (Opcional)" value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
+              </>
+          )}
+
           <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer shadow-sm">
             <option value="cajero">Cajero (Caja)</option>
-            <option value="cocina">Chef (Cocina/Barra)</option>
+            <option value="cocina">Chef Principal (Inicio de Sesión KDS)</option>
+            <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
             <option value="admin">Administrador</option>
             <option value="tv">📺 Pantalla TV (KDS Cliente)</option>
           </select>
           
+          {/* HORARIOS PARA EL AYUDANTE DE COCINA */}
+          {uRol === 'ayudante_cocina' && (
+              <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
+                  <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Turno del Ayudante</p>
+                  <div className="flex gap-4">
+                      <div className="flex-1">
+                          <label className="text-xs font-bold text-slate-500">Entrada</label>
+                          <input type="time" value={horarioEntrada} onChange={e => setHorarioEntrada(e.target.value)} className="w-full p-2 mt-1 rounded-lg border outline-none font-bold text-slate-700" required />
+                      </div>
+                      <div className="flex-1">
+                          <label className="text-xs font-bold text-slate-500">Salida</label>
+                          <input type="time" value={horarioSalida} onChange={e => setHorarioSalida(e.target.value)} className="w-full p-2 mt-1 rounded-lg border outline-none font-bold text-slate-700" required />
+                      </div>
+                  </div>
+                  <p className="text-[10px] text-orange-800 font-medium">El nombre de este ayudante solo aparecerá en la pantalla de cocina durante su turno.</p>
+              </div>
+          )}
+
           {uRol === 'admin' && (
             <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
               <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
@@ -163,12 +212,17 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                 <div>
                   <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
                     {u.nombre} 
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>
-                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol}
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${u.rol==='admin' ? 'bg-purple-100 text-purple-700' : u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : u.rol==='ayudante_cocina' ? 'bg-amber-100 text-amber-700' : u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}`}>
+                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol}
                     </span>
                     {u.usuario === 'admin' && <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded-md uppercase font-black tracking-widest">Admin Global</span>}
                   </p>
-                  <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono || 'N/A'}</span></p>
+                  
+                  {u.rol === 'ayudante_cocina' ? (
+                      <p className="text-xs text-amber-600 font-bold mt-1">🕒 Turno: {u.permisos?.horario_entrada || '00:00'} - {u.permisos?.horario_salida || '00:00'}</p>
+                  ) : (
+                      <p className="text-sm text-slate-500 font-medium mt-1">Usuario: <span className="font-bold text-slate-700">{u.usuario}</span> • Tel: <span className="font-bold text-slate-700">{u.telefono || 'N/A'}</span></p>
+                  )}
                 </div>
                 
                 {u.usuario !== 'admin' && (

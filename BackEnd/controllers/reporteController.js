@@ -5,6 +5,13 @@ exports.obtenerReporteVentas = async (req, res) => {
   
   try {
     // ==========================================================
+    // 0. OBTENER CONFIGURACIÓN DE HORARIOS (MARCA BLANCA)
+    // ==========================================================
+    const configRes = await db.query('SELECT hora_apertura, hora_cierre FROM configuracion WHERE id = 1');
+    const horaAperturaDB = Number(configRes.rows[0]?.hora_apertura !== undefined ? configRes.rows[0].hora_apertura : 17);
+    const horaCierreDB = Number(configRes.rows[0]?.hora_cierre !== undefined ? configRes.rows[0].hora_cierre : 23);
+
+    // ==========================================================
     // 1. OBTENER COSTOS DE RECETAS (EXPLOSIÓN EXACTA A RECETACONTROLLER)
     // ==========================================================
     const costosRes = await db.query(`
@@ -309,7 +316,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     // ==========================================================
-    // 7. COMPARATIVAS HISTÓRICAS
+    // 7. COMPARATIVAS HISTÓRICAS (HORARIOS DINÁMICOS)
     // ==========================================================
     let comparativas = [];
     try {
@@ -334,8 +341,9 @@ exports.obtenerReporteVentas = async (req, res) => {
             let totalPlatillos = 0;
             let horas = Array(24).fill(0);
             
-            let minHoraDelRango = 17; 
-            let maxHoraDelRango = 23;
+            // Usamos las horas leídas desde la base de datos
+            let minHoraDelRango = horaAperturaDB; 
+            let maxHoraDelRango = horaCierreDB;
 
             res.rows.forEach(p => {
                 const hora = Number(p.hora_local);

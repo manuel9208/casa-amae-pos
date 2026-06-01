@@ -3,7 +3,8 @@ import { AlertTriangle, CheckCircle2, ChefHat } from 'lucide-react';
 
 const GridPedidos = ({ 
   pedidosVisibles, filtroTab, ahora, hayPedidoEnPreparacion, isSubmitting, 
-  setModalAlerta, limpiarAlerta, actualizarEstadoPedido, getCarrito 
+  setModalAlerta, limpiarAlerta, actualizarEstadoPedido, getCarrito,
+  setPedidoParaAyudante, ayudantesActivos // 👈 NUEVAS PROPS
 }) => {
 
   if (pedidosVisibles.length === 0) {
@@ -15,6 +16,16 @@ const GridPedidos = ({
       </div>
     );
   }
+
+  const manejarInicioPreparacion = (p) => {
+    // Si existen ayudantes en su turno activo, lanzamos el modal para que elijan quién es
+    if (ayudantesActivos && ayudantesActivos.length > 0) {
+        setPedidoParaAyudante(p);
+    } else {
+        // Comportamiento normal si no hay ayudantes
+        actualizarEstadoPedido(p, 'Preparando');
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -109,7 +120,7 @@ const GridPedidos = ({
             <div className="pt-6 mt-4 border-t border-slate-700">
               {areaEstado === 'Pagado' || !areaEstado ? (
                 <button 
-                  onClick={() => actualizarEstadoPedido(p, 'Preparando')} 
+                  onClick={() => manejarInicioPreparacion(p)} // 👈 AHORA EVALÚA SI DEBE LANZAR EL MODAL
                   disabled={hayPedidoEnPreparacion || isSubmitting}
                   className={`w-full py-4 rounded-2xl font-black text-lg transition duration-200 flex items-center justify-center gap-2 ${hayPedidoEnPreparacion ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]'}`}
                 >
@@ -117,6 +128,7 @@ const GridPedidos = ({
                   {hayPedidoEnPreparacion ? 'Finaliza tu comanda actual' : 'Preparar mi parte'}
                 </button>
               ) : areaEstado === 'Preparando' ? (
+                // Al terminar, no necesita preguntar quién es, ya el ID del ayudante quedó grabado al inicio
                 <button disabled={!!p.alerta_cocina || isSubmitting} onClick={() => actualizarEstadoPedido(p, 'Listo')} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white py-4 rounded-2xl font-black text-lg transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
                   <CheckCircle2 size={20}/> Terminar mi parte
                 </button>

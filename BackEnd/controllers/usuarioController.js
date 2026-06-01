@@ -9,6 +9,19 @@ exports.obtenerUsuarios = async (req, res) => {
   }
 };
 
+// ==========================================
+// NUEVO: OBTENER SOLO AYUDANTES DE COCINA
+// ==========================================
+exports.obtenerAyudantesCocina = async (req, res) => {
+  try {
+    const result = await db.query("SELECT id, nombre, permisos FROM usuarios WHERE rol = 'ayudante_cocina' ORDER BY nombre ASC");
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error al obtener ayudantes:", error);
+    res.status(500).json({ error: 'Error al obtener ayudantes de cocina' });
+  }
+};
+
 exports.crearUsuario = async (req, res) => {
   const { nombre, usuario, password, rol, permisos, telefono } = req.body;
   try {
@@ -30,14 +43,12 @@ exports.actualizarUsuario = async (req, res) => {
   
   try {
     let result;
-    // Si el frontend envió una nueva contraseña, actualizamos TODO incluyendo la contraseña
     if (password && password.trim() !== '') {
       result = await db.query(
         'UPDATE usuarios SET nombre = $1, usuario = $2, password = $3, rol = $4, permisos = $5, telefono = $6 WHERE id = $7 RETURNING *',
         [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefono, id]
       );
     } else {
-      // Si no enviaron contraseña, actualizamos todo lo demás y dejamos la contraseña intacta
       result = await db.query(
         'UPDATE usuarios SET nombre = $1, usuario = $2, rol = $3, permisos = $4, telefono = $5 WHERE id = $6 RETURNING *',
         [nombre, usuario, rol, JSON.stringify(permisos || {}), telefono, id]
@@ -68,7 +79,6 @@ exports.eliminarUsuario = async (req, res) => {
 // REPORTES DE RENDIMIENTO Y ASISTENCIA
 // ==========================================
 exports.obtenerReporteRendimiento = async (req, res) => {
-  // Recibimos los filtros desde el Frontend (por defecto será el día de hoy)
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0], usuario_id = 'Todos' } = req.query;
 
   let queryFiltroFechaAsistencia = '';
@@ -79,7 +89,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
   let params = [fecha];
   let paramIndex = 2;
 
-  // Configuración de los rangos de fecha en SQL
   if (periodo === 'dia') {
     queryFiltroFechaAsistencia = 'a.fecha::DATE = $1::DATE';
     queryFiltroFechaPedido = 'p.fecha_creacion::DATE = $1::DATE';
@@ -94,7 +103,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
     queryFiltroFechaPedido = "DATE_TRUNC('year', p.fecha_creacion::TIMESTAMP) = DATE_TRUNC('year', $1::TIMESTAMP)";
   }
 
-  // 👇 NUEVO: Filtro por empleado específico
   if (usuario_id && usuario_id !== 'Todos') {
     queryUsuarioAsistencia = ` AND a.usuario_id = $${paramIndex}`;
     queryUsuarioPedido = ` AND p.chef_id = $${paramIndex}`;
@@ -103,7 +111,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
   }
 
   try {
-    // 1. Asistencias HOY (Este siempre será fijo para el cuadro superior de activos, pero respeta el filtro de usuario)
     const asistenciasHoyRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha
       FROM registro_asistencias a
@@ -112,7 +119,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.hora_entrada DESC
     `);
 
-    // 2. Historial COMPLETO de Asistencias (Filtrado por fecha y usuario)
     const historialRes = await db.query(`
       SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
              ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2) AS horas_trabajadas
@@ -122,7 +128,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.fecha DESC, a.hora_entrada DESC
     `, params);
 
-    // 3. Rendimiento en Cocina (Filtrado por fecha y usuario)
+    // Nota: Este query nativamente abrazará a los ayudantes porque usa el chef_id
     const rendimientoRes = await db.query(`
       SELECT 
         u.nombre AS chef, 

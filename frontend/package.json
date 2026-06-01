@@ -17,6 +17,10 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
+    "start:casaamae": "node set-cliente.js casaamae && react-scripts start",
+    "start:coffeebook": "node set-cliente.js coffeebook && react-scripts start",
+    "build:casaamae": "node set-cliente.js casaamae && react-scripts build",
+    "build:coffeebook": "node set-cliente.js coffeebook && react-scripts build",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",

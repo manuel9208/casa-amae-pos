@@ -83,6 +83,7 @@ router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
 // USUARIOS (EMPLEADOS)
 // ==========================================
 router.get('/usuarios', usuarioCtrl.obtenerUsuarios);
+router.get('/usuarios/ayudantes', usuarioCtrl.obtenerAyudantesCocina); // 👈 NUEVA RUTA PARA KDS HÍBRIDO
 router.get('/usuarios/rendimiento', usuarioCtrl.obtenerReporteRendimiento); 
 router.post('/usuarios', usuarioCtrl.crearUsuario);
 router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
