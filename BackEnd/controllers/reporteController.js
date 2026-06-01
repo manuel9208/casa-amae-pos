@@ -5,53 +5,77 @@ exports.obtenerReporteVentas = async (req, res) => {
   
   try {
     // ==========================================================
-    // 1. OBTENER COSTOS DE RECETAS (HOMOLOGADO CON MERMAS Y RENDIMIENTO)
+    // 1. OBTENER COSTOS DE RECETAS (EXPLOSIÓN EXACTA A RECETACONTROLLER)
     // ==========================================================
     const costosRes = await db.query(`
-      WITH RECURSIVE DesgloseReceta AS (
-          -- Caso base: Ingredientes directos y sub-recetas
+      WITH RECURSIVE EmpaquesCosto AS (
+          -- Extrae el costo de empaques ocultos en el JSON de opciones
+          SELECT p.id as producto_id,
+                 COALESCE(SUM(
+                     ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * (emp->>'cantidad')::numeric
+                 ), 0) as costo_empaques_batch
+          FROM productos p
+          LEFT JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(p.opciones) = 'array' THEN p.opciones ELSE '[]'::jsonb END
+          ) AS opt ON opt->>'categoria' = 'EmpaquesUnicos'
+          LEFT JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(opt->'empaques') = 'array' THEN opt->'empaques' ELSE '[]'::jsonb END
+          ) AS emp ON true
+          LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int
+          GROUP BY p.id
+      ),
+      Explosion AS (
+          -- Caso base: Ingredientes de la receta raíz
           SELECT 
-              r.producto_id as producto_raiz,
+              r.producto_id AS root_producto_id,
               r.insumo_id,
               r.sub_producto_id,
-              r.cantidad_usada::NUMERIC as cantidad_usada,
+              r.cantidad_usada::numeric AS qty_factor,
               1 as depth
           FROM recetas r
-
+          
           UNION ALL
-
-          -- Caso recursivo: Sub-recetas
+          
+          -- Caso recursivo: Navegación profunda en sub-recetas
           SELECT 
-              dr.producto_raiz,
-              r2.insumo_id,
-              r2.sub_producto_id,
-              -- Dividir entre el rendimiento (p.rendimiento) de la sub-receta
-              ((dr.cantidad_usada / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r2.cantidad_usada::numeric)::NUMERIC,
-              dr.depth + 1
-          FROM DesgloseReceta dr
-          JOIN productos p ON dr.sub_producto_id = p.id
-          JOIN recetas r2 ON dr.sub_producto_id = r2.producto_id
-          WHERE dr.sub_producto_id IS NOT NULL AND dr.depth < 10
+              e.root_producto_id,
+              r.insumo_id,
+              r.sub_producto_id,
+              ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric,
+              e.depth + 1
+          FROM Explosion e
+          JOIN productos p ON e.sub_producto_id = p.id
+          JOIN recetas r ON r.producto_id = p.id
+          WHERE e.sub_producto_id IS NOT NULL AND e.depth < 10
       )
       SELECT 
-          dr.producto_raiz as producto_id, 
-          -- Aplicar factor_rendimiento (Merma) del insumo
-          SUM(
-            COALESCE(
-              ((i.costo_presentacion::numeric / NULLIF(i.cantidad_presentacion::numeric, 0)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * dr.cantidad_usada, 
-              0
-            )
-          ) AS costo_base_crudo
-      FROM DesgloseReceta dr
-      JOIN insumos i ON dr.insumo_id = i.id
-      WHERE dr.insumo_id IS NOT NULL
-      GROUP BY dr.producto_raiz;
+          e.root_producto_id as producto_id,
+          (
+              -- 1. Costo de Insumos Puros (Con mermas)
+              COALESCE(SUM(CASE WHEN e.insumo_id IS NOT NULL THEN 
+                  ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * e.qty_factor
+              ELSE 0 END), 0)
+              +
+              -- 2. Costo de Empaques anidados en las sub-recetas
+              COALESCE(SUM(CASE WHEN e.sub_producto_id IS NOT NULL THEN 
+                  (ec_sub.costo_empaques_batch / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) * e.qty_factor
+              ELSE 0 END), 0)
+              +
+              -- 3. Costo de Empaques directos de la receta raíz
+              COALESCE(MAX(ec_root.costo_empaques_batch), 0)
+          ) as costo_base_crudo
+      FROM Explosion e
+      LEFT JOIN insumos i ON e.insumo_id = i.id
+      LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id
+      LEFT JOIN EmpaquesCosto ec_sub ON e.sub_producto_id = ec_sub.producto_id
+      LEFT JOIN EmpaquesCosto ec_root ON e.root_producto_id = ec_root.producto_id
+      GROUP BY e.root_producto_id;
     `);
     
     const costoMap = new Map();
     costosRes.rows.forEach(r => {
         const costoBase = Number(r.costo_base_crudo) || 0;
-        // Agregar el 15% de Luz/Agua para igualar el "Costo Real"
+        // Se aplica el multiplicador de 15% Luz/Agua para obtener el "Costo Real"
         const costoRealFinal = costoBase * 1.15; 
         
         costoMap.set(Number(r.producto_id), Number(costoRealFinal));
