@@ -1,9 +1,40 @@
 const db = require('../config/db');
+const cloudinary = require('cloudinary').v2; // 👈 NUEVO: Importamos Cloudinary para poder destruir fotos
 
+// ==========================================================
+// 🧹 HELPERS DE LIMPIEZA (GARBAGE COLLECTION)
+// ==========================================================
+// Extrae el ID interno de Cloudinary desde la URL para poder borrarlo
+const extraerPublicId = (url) => {
+  if (!url || !url.includes('cloudinary.com')) return null;
+  try {
+    const parts = url.split('/upload/');
+    if (parts.length < 2) return null;
+    const pathSinVersion = parts[1].replace(/^v\d+\//, '');
+    const publicId = pathSinVersion.substring(0, pathSinVersion.lastIndexOf('.'));
+    return publicId || pathSinVersion;
+  } catch (e) {
+    return null;
+  }
+};
+
+// Dispara la orden de destrucción a los servidores de Cloudinary en segundo plano
+const borrarDeCloudinary = (urlVieja) => {
+  const publicId = extraerPublicId(urlVieja);
+  if (publicId) {
+    cloudinary.uploader.destroy(publicId).catch(err => {
+      console.error(`⚠️ Error al reciclar imagen huérfana en Cloudinary [${publicId}]:`, err);
+    });
+  }
+};
+
+// ==========================================================
+// INICIALIZACIÓN DE TABLAS
+// ==========================================================
 // Función autoejecutable para asegurar que existan las nuevas columnas y tablas
 const asegurarEstructuraBaseDatos = async () => {
   try {
-    // Aseguramos que existan las columnas de Puntos en configuración (NUEVO: Switches de encendido/apagado)
+    // Aseguramos que existan las columnas de Puntos en configuración
     await db.query(`
       ALTER TABLE configuracion 
       ADD COLUMN IF NOT EXISTS puntos_porcentaje INTEGER DEFAULT 10,
@@ -63,6 +94,15 @@ exports.actualizarConfiguracion = async (req, res) => {
     puntos_activos, puntos_canje_activo
   } = req.body;
   
+  // 👇 NUEVO: Rescatamos la configuración vieja de la base de datos antes de sobreescribirla
+  let configActual = {};
+  try {
+    const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    if (resActual.rows.length > 0) configActual = resActual.rows[0];
+  } catch(e) {
+    console.error("No se pudo leer la configuración previa para limpieza de imágenes");
+  }
+
   // Variables para las rutas de los medios
   let logo_url = null;
   let tv_imagen_1 = null;
@@ -70,13 +110,29 @@ exports.actualizarConfiguracion = async (req, res) => {
   let tv_imagen_3 = null;
   let tv_video = null;
 
+  // 👇 NUEVO: Destruimos la imagen anterior en Cloudinary si el cliente subió una nueva
   if (req.files && req.files.length > 0) {
     req.files.forEach(file => {
-      if (file.fieldname === 'logo') logo_url = file.path;
-      if (file.fieldname === 'tv_imagen_1') tv_imagen_1 = file.path;
-      if (file.fieldname === 'tv_imagen_2') tv_imagen_2 = file.path;
-      if (file.fieldname === 'tv_imagen_3') tv_imagen_3 = file.path;
-      if (file.fieldname === 'tv_video') tv_video = file.path;
+      if (file.fieldname === 'logo') {
+        logo_url = file.path;
+        if (configActual.logo_url) borrarDeCloudinary(configActual.logo_url);
+      }
+      if (file.fieldname === 'tv_imagen_1') {
+        tv_imagen_1 = file.path;
+        if (configActual.tv_imagen_1) borrarDeCloudinary(configActual.tv_imagen_1);
+      }
+      if (file.fieldname === 'tv_imagen_2') {
+        tv_imagen_2 = file.path;
+        if (configActual.tv_imagen_2) borrarDeCloudinary(configActual.tv_imagen_2);
+      }
+      if (file.fieldname === 'tv_imagen_3') {
+        tv_imagen_3 = file.path;
+        if (configActual.tv_imagen_3) borrarDeCloudinary(configActual.tv_imagen_3);
+      }
+      if (file.fieldname === 'tv_video') {
+        tv_video = file.path;
+        if (configActual.tv_video) borrarDeCloudinary(configActual.tv_video);
+      }
     });
   }
 
@@ -90,7 +146,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   const porcentajeSeguro = puntos_porcentaje !== undefined ? Number(puntos_porcentaje) : 10;
   const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
   
-  // 👇 Parseo de los nuevos switches booleanos
+  // Parseo de los nuevos switches booleanos
   const isPuntosActivos = puntos_activos === undefined ? true : (puntos_activos === 'true' || puntos_activos === true);
   const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
 

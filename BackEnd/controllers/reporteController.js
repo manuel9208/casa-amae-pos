@@ -4,13 +4,23 @@ exports.obtenerReporteVentas = async (req, res) => {
   const { tipo, fecha, clasificacion, tipo_consumo } = req.query; 
   
   try {
-    // 1. OBTENER COSTOS DE RECETAS PARA CALCULAR INVERSIÓN
+    // 1. OBTENER COSTOS DE RECETAS PARA CALCULAR INVERSIÓN (CORREGIDO)
+    // Se agregan protecciones NULLIF para evitar divisiones por cero
+    // y COALESCE para asegurar que los nulos sean tratados como 0.
     const costosRes = await db.query(`
-      SELECT r.producto_id, SUM((i.costo_presentacion / i.cantidad_presentacion) * r.cantidad_usada) AS costo_unitario
+      SELECT 
+        r.producto_id, 
+        SUM(
+          COALESCE(
+            (i.costo_presentacion / NULLIF(i.cantidad_presentacion, 0)) * r.cantidad_usada, 
+            0
+          )
+        ) AS costo_unitario
       FROM recetas r
       JOIN insumos i ON r.insumo_id = i.id
       GROUP BY r.producto_id
     `);
+    
     const costoMap = new Map();
     costosRes.rows.forEach(r => costoMap.set(Number(r.producto_id), Number(r.costo_unitario)));
 
@@ -153,7 +163,7 @@ exports.obtenerReporteVentas = async (req, res) => {
       }
     });
 
-    // 5. ENSAMBLAR Y CALCULAR FINANZAS
+    // 5. ENSAMBLAR Y CALCULAR FINANZAS (Asegurando numéricos puros)
     let detalles = Object.values(ventasObj).map(v => {
         let c_unitario = 0;
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
@@ -161,10 +171,10 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
         return {
             ...v,
-            costo_unitario: c_unitario,
-            subtotal_ventas: v.cantidad_vendida * v.precio_venta,
-            subtotal_inversion: v.cantidad_vendida * c_unitario,
-            ganancia_neta: (v.cantidad_vendida * v.precio_venta) - (v.cantidad_vendida * c_unitario)
+            costo_unitario: Number(c_unitario),
+            subtotal_ventas: Number(v.cantidad_vendida) * Number(v.precio_venta),
+            subtotal_inversion: Number(v.cantidad_vendida) * Number(c_unitario),
+            ganancia_neta: (Number(v.cantidad_vendida) * Number(v.precio_venta)) - (Number(v.cantidad_vendida) * Number(c_unitario))
         };
     });
 
@@ -260,10 +270,6 @@ exports.obtenerReporteVentas = async (req, res) => {
     // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO, VOLUMEN Y FECHAS EXACTAS)
     let comparativas = [];
     try {
-        // 👇 AUTO-DESCUBRIMIENTO DIARIO INTELIGENTE
-        // En lugar de tomar las horas mínimas y máximas de "toda la historia",
-        // calcularemos la hora mínima y máxima de cada día en específico.
-        
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
             const boundsRes = await db.query(`
                 SELECT 
@@ -289,7 +295,6 @@ exports.obtenerReporteVentas = async (req, res) => {
             res.rows.forEach(p => {
                 const hora = new Date(p.fecha_creacion).getHours();
                 
-                // 👇 Actualizamos la ventana operativa real (solo de los pedidos de ese periodo)
                 if (hora < minHoraDelRango) minHoraDelRango = hora;
                 if (hora > maxHoraDelRango) maxHoraDelRango = hora;
 
@@ -311,8 +316,6 @@ exports.obtenerReporteVentas = async (req, res) => {
             let peorHora = -1; let minItems = Infinity;
             let huboVentasEnElRango = false;
 
-            // 👇 SOLO EVALUAMOS HORAS MUERTAS EN LA VENTANA DE TIEMPO DESCUBIERTA
-            // Si no abriste en todo el día (minHoraDelRango = 24), este for no se ejecuta.
             for(let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
                 huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
