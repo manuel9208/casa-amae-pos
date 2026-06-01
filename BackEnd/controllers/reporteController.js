@@ -4,27 +4,51 @@ exports.obtenerReporteVentas = async (req, res) => {
   const { tipo, fecha, clasificacion, tipo_consumo } = req.query; 
   
   try {
-    // 1. OBTENER COSTOS DE RECETAS PARA CALCULAR INVERSIÓN (CORREGIDO)
-    // Se agregan protecciones NULLIF para evitar divisiones por cero
-    // y COALESCE para asegurar que los nulos sean tratados como 0.
+    // ==========================================================
+    // 1. OBTENER COSTOS DE RECETAS (CON CTE RECURSIVO PARA SUB-RECETAS)
+    // ==========================================================
     const costosRes = await db.query(`
+      WITH RECURSIVE DesgloseReceta AS (
+          -- Caso base: Traer todas las filas (ingredientes directos y sub-recetas)
+          SELECT 
+              r.producto_id as producto_raiz,
+              r.insumo_id,
+              r.sub_producto_id,
+              r.cantidad_usada
+          FROM recetas r
+
+          UNION ALL
+
+          -- Caso recursivo: Desglosar sub-recetas multiplicando proporciones
+          SELECT 
+              dr.producto_raiz,
+              r2.insumo_id,
+              r2.sub_producto_id,
+              (dr.cantidad_usada * r2.cantidad_usada) as cantidad_usada
+          FROM DesgloseReceta dr
+          JOIN recetas r2 ON dr.sub_producto_id = r2.producto_id
+          WHERE dr.sub_producto_id IS NOT NULL
+      )
       SELECT 
-        r.producto_id, 
-        SUM(
-          COALESCE(
-            (i.costo_presentacion / NULLIF(i.cantidad_presentacion, 0)) * r.cantidad_usada, 
-            0
-          )
-        ) AS costo_unitario
-      FROM recetas r
-      JOIN insumos i ON r.insumo_id = i.id
-      GROUP BY r.producto_id
+          dr.producto_raiz as producto_id, 
+          SUM(
+            COALESCE(
+              (i.costo_presentacion / NULLIF(i.cantidad_presentacion, 0)) * dr.cantidad_usada, 
+              0
+            )
+          ) AS costo_unitario
+      FROM DesgloseReceta dr
+      JOIN insumos i ON dr.insumo_id = i.id
+      WHERE dr.insumo_id IS NOT NULL
+      GROUP BY dr.producto_raiz;
     `);
     
     const costoMap = new Map();
     costosRes.rows.forEach(r => costoMap.set(Number(r.producto_id), Number(r.costo_unitario)));
 
+    // ==========================================================
     // 2. CONSTRUIR FILTROS DE FECHA Y CONSUMO
+    // ==========================================================
     let queryTimeConsumo = '';
     let params = [];
     let paramIndex = 1;
@@ -51,7 +75,9 @@ exports.obtenerReporteVentas = async (req, res) => {
       params.push(tipo_consumo); paramIndex++;
     }
 
+    // ==========================================================
     // 3. CONSULTAR TODOS LOS PEDIDOS VÁLIDOS
+    // ==========================================================
     const sqlPedidos = `
       SELECT id, numero_pedido, carrito, costo_envio, total, fecha_creacion
       FROM pedidos p
@@ -59,15 +85,14 @@ exports.obtenerReporteVentas = async (req, res) => {
     `;
     const pedidosRes = await db.query(sqlPedidos, params);
 
-    // 4. PROCESAMIENTO INTELIGENTE DEL CARRITO (JavaScript)
-    const ventasObj = {}; // Almacenará los productos agrupados
+    // ==========================================================
+    // 4. PROCESAMIENTO INTELIGENTE DEL CARRITO
+    // ==========================================================
+    const ventasObj = {}; 
 
     pedidosRes.rows.forEach(p => {
       let carrito = [];
-      try { 
-        carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito; 
-      } catch(e) {}
-      
+      try { carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito; } catch(e) {}
       if (!Array.isArray(carrito)) carrito = [];
 
       carrito.forEach(item => {
@@ -78,65 +103,47 @@ exports.obtenerReporteVentas = async (req, res) => {
          
          let extraRows = [];
 
-         // Analizamos los extras/modificadores
          if (Array.isArray(item.extras)) {
              item.extras.forEach(extra => {
                  const eName = (extra.nombre || '').trim();
                  const ePrice = Number(extra.precioExtra || extra.precio_extra || extra.precio || 0);
                  const eNameLower = eName.toLowerCase();
 
-                 // A) IGNORAR: Notas, ingredientes removidos ("Sin ...", "❌", "📝")
                  if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
                      return; 
                  }
-                 
-                 // B) FUSIONAR: Sabores y Tamaños ("🔸 Sabor: BBQ")
                  else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || extra.tipo === 'variacion') {
                      const cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
                      baseName += ` (${cleanVariationName})`;
                      finalBasePrice += ePrice; 
                  }
-                 
-                 // C) EXTRA REAL: Se muestra por separado (si tiene precio o es válido)
                  else {
                      const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
-                     extraRows.push({
-                         nombre: cleanExtraName,
-                         precio: ePrice,
-                         id: extra.id || 0
-                     });
+                     extraRows.push({ nombre: cleanExtraName, precio: ePrice, id: extra.id || 0 });
                  }
              });
          }
 
-         // Guardar Platillo Base en el reporte
          const itemCat = item.categoria || item.clasificacion || 'Sin Categoría';
          if (!clasificacion || clasificacion === 'Todas' || clasificacion === itemCat) {
              const itemKey = `BAS_${baseName}_${finalBasePrice}`;
              if (!ventasObj[itemKey]) {
                  ventasObj[itemKey] = {
-                     producto_nombre: baseName,
-                     producto_id: item.id || 0,
-                     precio_venta: finalBasePrice,
-                     categoria: itemCat,
-                     cantidad_vendida: 0
+                     producto_nombre: baseName, producto_id: item.id || 0,
+                     precio_venta: finalBasePrice, categoria: itemCat, cantidad_vendida: 0
                  };
              }
              ventasObj[itemKey].cantidad_vendida += qty;
          }
 
-         // Guardar Extras Reales en el reporte
          if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Extras') {
              extraRows.forEach(ext => {
                  if(ext.precio > 0) { 
                      const extKey = `EXT_${ext.nombre}_${ext.precio}`;
                      if (!ventasObj[extKey]) {
                          ventasObj[extKey] = {
-                             producto_nombre: ext.nombre,
-                             producto_id: ext.id,
-                             precio_venta: ext.precio,
-                             categoria: 'Extras',
-                             cantidad_vendida: 0
+                             producto_nombre: ext.nombre, producto_id: ext.id,
+                             precio_venta: ext.precio, categoria: 'Extras', cantidad_vendida: 0
                          };
                      }
                      ventasObj[extKey].cantidad_vendida += qty;
@@ -145,17 +152,13 @@ exports.obtenerReporteVentas = async (req, res) => {
          }
       });
 
-      // Guardar Costos de Envío
       if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Envíos') {
           if (Number(p.costo_envio) > 0) {
               const envKey = `ENV_${p.costo_envio}`;
               if (!ventasObj[envKey]) {
                   ventasObj[envKey] = {
-                      producto_nombre: 'Envío a Domicilio',
-                      producto_id: 0,
-                      precio_venta: Number(p.costo_envio),
-                      categoria: 'Envíos',
-                      cantidad_vendida: 0
+                      producto_nombre: 'Envío a Domicilio', producto_id: 0,
+                      precio_venta: Number(p.costo_envio), categoria: 'Envíos', cantidad_vendida: 0
                   };
               }
               ventasObj[envKey].cantidad_vendida += 1; 
@@ -163,7 +166,9 @@ exports.obtenerReporteVentas = async (req, res) => {
       }
     });
 
-    // 5. ENSAMBLAR Y CALCULAR FINANZAS (Asegurando numéricos puros)
+    // ==========================================================
+    // 5. ENSAMBLAR Y CALCULAR FINANZAS
+    // ==========================================================
     let detalles = Object.values(ventasObj).map(v => {
         let c_unitario = 0;
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
@@ -195,7 +200,9 @@ exports.obtenerReporteVentas = async (req, res) => {
       }, 0)
     };
 
-    // 6. GENERAR INSIGHTS INTELIGENTES
+    // ==========================================================
+    // 6. GENERAR INSIGHTS INTELIGENTES (CON ZONA HORARIA FIX)
+    // ==========================================================
     let insights = { 
       productoMasVendido: null, productoMenosVendido: null, 
       productosCeroVentasHoy: [], productosCeroVentasAyer: [],
@@ -214,13 +221,12 @@ exports.obtenerReporteVentas = async (req, res) => {
     const todosProds = await db.query(sqlTodos);
     insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
 
-    // Consulta específica de lo que NO se vendió ayer
     try {
         const ayerRes = await db.query(`
             SELECT carrito FROM pedidos 
             WHERE estado_preparacion != 'Cancelado' 
-            AND fecha_creacion >= CURRENT_DATE - INTERVAL '1 day' 
-            AND fecha_creacion < CURRENT_DATE
+            AND fecha_creacion >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE - INTERVAL '1 day' 
+            AND fecha_creacion < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE
         `);
         let idsVendidosAyer = new Set();
         ayerRes.rows.forEach(p => {
@@ -236,10 +242,10 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     if (['semana', 'mes', 'anio'].includes(tipo)) {
         const sqlDias = `
-          SELECT TO_CHAR(p.fecha_creacion, 'YYYY-MM-DD') as fecha_str, SUM(p.total) as total_dia 
+          SELECT TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') as fecha_str, SUM(p.total) as total_dia 
           FROM pedidos p 
           WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} 
-          GROUP BY TO_CHAR(p.fecha_creacion, 'YYYY-MM-DD') 
+          GROUP BY TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') 
           ORDER BY total_dia DESC
         `;
         const resDias = await db.query(sqlDias, params);
@@ -253,10 +259,10 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     if (tipo === 'anio') {
         const sqlMeses = `
-          SELECT TO_CHAR(p.fecha_creacion, 'MM') as mes, SUM(p.total) as total_mes 
+          SELECT TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'MM') as mes, SUM(p.total) as total_mes 
           FROM pedidos p 
           WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} 
-          GROUP BY TO_CHAR(p.fecha_creacion, 'MM') 
+          GROUP BY TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'MM') 
           ORDER BY total_mes DESC
         `;
         const resMeses = await db.query(sqlMeses, params);
@@ -267,7 +273,9 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     }
 
-    // 7. COMPARATIVAS HISTÓRICAS (HORAS PICO, VOLUMEN Y FECHAS EXACTAS)
+    // ==========================================================
+    // 7. COMPARATIVAS HISTÓRICAS (CON FIX DE HORAS MUERTAS)
+    // ==========================================================
     let comparativas = [];
     try {
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
@@ -280,7 +288,8 @@ exports.obtenerReporteVentas = async (req, res) => {
             const subtituloFechas = esUnSoloDia ? boundsRes.rows[0].fecha_inicio : `${boundsRes.rows[0].fecha_inicio} al ${boundsRes.rows[0].fecha_fin}`;
 
             const res = await db.query(`
-                SELECT p.fecha_creacion, p.carrito
+                SELECT p.fecha_creacion, p.carrito,
+                EXTRACT(HOUR FROM p.fecha_creacion AT TIME ZONE 'America/Mazatlan') as hora_local
                 FROM pedidos p
                 WHERE p.estado_preparacion != 'Cancelado'
                   AND p.fecha_creacion >= (${inicioSql})
@@ -289,11 +298,13 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             let totalPlatillos = 0;
             let horas = Array(24).fill(0);
-            let minHoraDelRango = 24; 
-            let maxHoraDelRango = -1;
+            
+            // Rango de horas forzado para asegurar evaluación (De 5 PM a 11 PM mínimo)
+            let minHoraDelRango = 17; 
+            let maxHoraDelRango = 23;
 
             res.rows.forEach(p => {
-                const hora = new Date(p.fecha_creacion).getHours();
+                const hora = Number(p.hora_local);
                 
                 if (hora < minHoraDelRango) minHoraDelRango = hora;
                 if (hora > maxHoraDelRango) maxHoraDelRango = hora;
@@ -313,16 +324,24 @@ exports.obtenerReporteVentas = async (req, res) => {
             });
 
             let mejorHora = -1; let maxItems = -1;
-            let peorHora = -1; let minItems = Infinity;
+            let minItems = Infinity;
+            let horasMuertasArray = [];
             let huboVentasEnElRango = false;
 
             for(let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
                 huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
-                if(horas[i] < minItems) { minItems = horas[i]; peorHora = i; }
+                
+                // Lógica corregida: Acumular horas que empatan en ventas bajas/cero
+                if(horas[i] < minItems) { 
+                    minItems = horas[i]; 
+                    horasMuertasArray = [i]; 
+                } else if (horas[i] === minItems) {
+                    horasMuertasArray.push(i); 
+                }
             }
 
-            if (!huboVentasEnElRango) { mejorHora = -1; peorHora = -1; }
+            if (!huboVentasEnElRango) { mejorHora = -1; horasMuertasArray = []; }
 
             const formatHora = (h) => {
                  if(h === -1) return 'N/A';
@@ -331,41 +350,49 @@ exports.obtenerReporteVentas = async (req, res) => {
                  return `${hr}:00 ${ampm}`;
             };
 
+            const textoHorasMuertas = horasMuertasArray.map(h => `${formatHora(h)} a ${formatHora(h + 1)}`).join(', ');
+
             return {
                 label,
                 subtitulo: subtituloFechas,
                 totalPlatillos,
                 mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
-                peorHora: peorHora !== -1 ? `${formatHora(peorHora)} a ${formatHora(peorHora + 1)} (${minItems} platillos)` : 'Sin ventas'
+                peorHora: horasMuertasArray.length > 0 ? `${textoHorasMuertas} (${minItems} platillos)` : 'Sin ventas'
             };
         };
 
+        // Arreglo de promesas para Paralelizar (Aumenta la velocidad del reporte x3)
+        let promesas = [];
+
         if (tipo === 'dia' || tipo === 'historico') {
             const fRef = `$1::DATE`;
-            comparativas.push(await processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true));
-            comparativas.push(await processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`, true));
-            comparativas.push(await processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`, true));
+            promesas.push(processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true));
+            promesas.push(processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`, true));
+            promesas.push(processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`, true));
         } else if (tipo === 'semana') {
             const fRef = `DATE_TRUNC('week', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`, false));
-            comparativas.push(await processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`, false));
-            comparativas.push(await processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`, false));
+            promesas.push(processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`, false));
+            promesas.push(processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`, false));
+            promesas.push(processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`, false));
         } else if (tipo === 'mes') {
             const fRef = `DATE_TRUNC('month', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`, false));
-            comparativas.push(await processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`, false));
+            promesas.push(processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`, false));
+            promesas.push(processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`, false));
         } else if (tipo === 'anio') {
             const fRef = `DATE_TRUNC('year', $1::TIMESTAMP)`;
-            comparativas.push(await processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false));
+            promesas.push(processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false));
         }
         
-        comparativas = comparativas.filter(c => c !== null);
+        // Ejecución en Paralelo
+        const resultadosPromesas = await Promise.all(promesas);
+        comparativas = resultadosPromesas.filter(c => c !== null);
+
     } catch (errComparativa) {
         console.error("Error procesando comparativas:", errComparativa);
     }
 
     // ==========================================================
-    // 8. METAS Y PROYECCIONES INTELIGENTES (5% CRECIMIENTO)
+    // 8. METAS Y PROYECCIONES INTELIGENTES (ZONA HORARIA FIX)
     // ==========================================================
     let proyecciones = null;
     try {
