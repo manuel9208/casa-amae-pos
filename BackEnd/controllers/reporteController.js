@@ -5,41 +5,43 @@ exports.obtenerReporteVentas = async (req, res) => {
   
   try {
     // ==========================================================
-    // 1. OBTENER COSTOS DE RECETAS (CON CTE RECURSIVO Y PROTECCIÓN)
+    // 1. OBTENER COSTOS DE RECETAS (HOMOLOGADO CON MERMAS Y RENDIMIENTO)
     // ==========================================================
     const costosRes = await db.query(`
       WITH RECURSIVE DesgloseReceta AS (
-          -- Caso base
+          -- Caso base: Ingredientes directos y sub-recetas
           SELECT 
               r.producto_id as producto_raiz,
               r.insumo_id,
               r.sub_producto_id,
-              r.cantidad_usada::NUMERIC, -- Forzamos a NUMERIC para evitar error de tipos
-              1 as depth -- Nivel de profundidad
+              r.cantidad_usada::NUMERIC as cantidad_usada,
+              1 as depth
           FROM recetas r
 
           UNION ALL
 
-          -- Caso recursivo
+          -- Caso recursivo: Sub-recetas
           SELECT 
               dr.producto_raiz,
               r2.insumo_id,
               r2.sub_producto_id,
-              (dr.cantidad_usada * r2.cantidad_usada)::NUMERIC,
+              -- Dividir entre el rendimiento (p.rendimiento) de la sub-receta
+              ((dr.cantidad_usada / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r2.cantidad_usada::numeric)::NUMERIC,
               dr.depth + 1
           FROM DesgloseReceta dr
+          JOIN productos p ON dr.sub_producto_id = p.id
           JOIN recetas r2 ON dr.sub_producto_id = r2.producto_id
-          -- Protegemos contra ciclos infinitos limitando a 10 niveles de sub-recetas
           WHERE dr.sub_producto_id IS NOT NULL AND dr.depth < 10
       )
       SELECT 
           dr.producto_raiz as producto_id, 
+          -- Aplicar factor_rendimiento (Merma) del insumo
           SUM(
             COALESCE(
-              (i.costo_presentacion / NULLIF(i.cantidad_presentacion, 0)) * dr.cantidad_usada, 
+              ((i.costo_presentacion::numeric / NULLIF(i.cantidad_presentacion::numeric, 0)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * dr.cantidad_usada, 
               0
             )
-          ) AS costo_unitario
+          ) AS costo_base_crudo
       FROM DesgloseReceta dr
       JOIN insumos i ON dr.insumo_id = i.id
       WHERE dr.insumo_id IS NOT NULL
@@ -47,7 +49,13 @@ exports.obtenerReporteVentas = async (req, res) => {
     `);
     
     const costoMap = new Map();
-    costosRes.rows.forEach(r => costoMap.set(Number(r.producto_id), Number(r.costo_unitario)));
+    costosRes.rows.forEach(r => {
+        const costoBase = Number(r.costo_base_crudo) || 0;
+        // Agregar el 15% de Luz/Agua para igualar el "Costo Real"
+        const costoRealFinal = costoBase * 1.15; 
+        
+        costoMap.set(Number(r.producto_id), Number(costoRealFinal));
+    });
 
     // ==========================================================
     // 2. CONSTRUIR FILTROS DE FECHA Y CONSUMO
