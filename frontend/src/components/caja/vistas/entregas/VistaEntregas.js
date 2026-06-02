@@ -48,9 +48,9 @@ const VistaEntregas = ({
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <p className="font-black text-slate-800 text-2xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                   {tel && (
-                      <span className="text-sm font-black text-slate-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded-lg flex items-center gap-1">
+                      <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-sm font-black text-slate-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer">
                           <Phone size={14}/> {tel}
-                      </span>
+                      </a>
                   )}
                   {p.mesa && (
                       <span className="text-sm font-black text-white bg-indigo-500 px-2 py-1 rounded-lg flex items-center gap-1">

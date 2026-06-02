@@ -45,9 +45,9 @@ const VistaMesasPagadas = ({
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                   {tel && (
-                      <span className="text-xs font-black text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                      <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-xs font-black text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer">
                           <Phone size={12}/> {tel}
-                      </span>
+                      </a>
                   )}
                   {p.mesa && (
                       <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">
@@ -82,13 +82,9 @@ const VistaMesasPagadas = ({
                    onClick={async () => {
                        setLimpiandoMesas(true);
                        try {
-                           // 1. Mapeamos el carrito interno cambiando el estado de cada plato a 'Finalizado'
-                           // Esto limpia de inmediato la pantalla de la TV (KDS)
                            const carritoActual = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
                            const nuevoCarrito = carritoActual.map(item => ({ ...item, estado: 'Finalizado' }));
 
-                           // 2. Mandamos la actualización del pedido a 'Finalizado' PRIMERO, desvinculando la mesa.
-                           // Al enviar mesa: null, el trigger del servidor no volverá a bloquear la mesa.
                            await fetch(`${apiUrl}/pedidos/${p.id}/estado`, { 
                                method: 'PUT', 
                                headers: { 'Content-Type': 'application/json' }, 
@@ -99,8 +95,6 @@ const VistaMesasPagadas = ({
                                }) 
                            });
 
-                           // 3. AL FINAL, ejecutamos la liberación de la mesa por el método de cancelación fantasma
-                           // Como la orden ya se guardó y no está amarrada a la mesa, quedará en estado 'Libre' permanentemente
                            if (p.mesa) {
                                await liberarMesaMagicamente(p.mesa);
                            }

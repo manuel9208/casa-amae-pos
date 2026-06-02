@@ -53,9 +53,9 @@ const VistaCobrar = ({
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                   {tel && (
-                      <span className="text-xs font-black text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                      <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-xs font-black text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer">
                           <Phone size={12}/> {tel}
-                      </span>
+                      </a>
                   )}
                   {p.mesa && (
                       <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">

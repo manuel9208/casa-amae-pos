@@ -59,9 +59,9 @@ const VistaHistorial = ({
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                       <p className="font-bold text-slate-600">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
                       {tel && (
-                          <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1">
+                          <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-green-50 hover:text-green-700 transition-colors cursor-pointer">
                               <Phone size={10}/> {tel}
-                          </span>
+                          </a>
                       )}
                       {p.mesa && (
                           <span className="text-[10px] font-black text-white bg-indigo-500 px-2 py-0.5 rounded flex items-center gap-1">
