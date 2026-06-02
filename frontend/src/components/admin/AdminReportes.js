@@ -6,14 +6,15 @@ import TendenciasVentas from './reportes/TendenciasVentas';
 import ResumenFinanciero from './reportes/ResumenFinanciero';
 import TablaDesgloseVentas from './reportes/TablaDesgloseVentas';
 import VistaCortesHistorico from './reportes/VistaCortesHistorico';
-import { BarChart3, History } from 'lucide-react';
+import ReporteCombustible from './reportes/ReporteCombustible'; // 🆕 NUEVO IMPORT
+import { BarChart3, History, Fuel } from 'lucide-react'; // 🆕 ICONO DE COMBUSTIBLE
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
   const [cargando, setCargando] = useState(true);
   
-  // Control de sub-módulos principal
-  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas' o 'cortes'
+  // 🆕 Control de sub-módulos principal (Se agrega 'combustible')
+  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas', 'cortes', 'combustible'
 
   const [filtroActivo, setFiltroActivo] = useState('dia');
   const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);
@@ -55,8 +56,6 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cantidad || 0);
   };
 
-  const handleImprimir = () => window.print();
-
   const parseFechaSegura = (dateStr) => {
     if (!dateStr) return '';
     try {
@@ -68,31 +67,40 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     }
   };
 
+  const handleImprimir = () => window.print();
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
       
       {/* 🆕 SELECTOR DE FLUJO DE TRABAJO (Estilo Apple Táctil) */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden">
+      <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden gap-4">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
           📊 Inteligencia del Negocio
         </h2>
-        <div className="flex bg-slate-100 p-1 rounded-2xl">
+        <div className="flex flex-wrap justify-center bg-slate-100 p-1 rounded-2xl w-full xl:w-auto">
           <button 
             onClick={() => setVistaModulo('ventas')} 
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <BarChart3 size={16}/> Reporte Ventas
           </button>
           <button 
             onClick={() => setVistaModulo('cortes')} 
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${vistaModulo === 'cortes' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'cortes' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <History size={16}/> Histórico de Cortes
+          </button>
+          <button 
+            onClick={() => setVistaModulo('combustible')} 
+            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'combustible' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Fuel size={16}/> Reporte Combustible
           </button>
         </div>
       </div>
 
-      {vistaModulo === 'ventas' ? (
+      {/* RENDERIZADO CONDICIONAL DE VISTAS */}
+      {vistaModulo === 'ventas' && (
         <>
           <FiltrosVentas 
             filtroActivo={filtroActivo} setFiltroActivo={setFiltroActivo}
@@ -118,8 +126,15 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
             </div>
           ) : null}
         </>
-      ) : (
+      )}
+
+      {vistaModulo === 'cortes' && (
         <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
+      )}
+
+      {/* 🆕 NUEVO MÓDULO */}
+      {vistaModulo === 'combustible' && (
+        <ReporteCombustible apiUrl={apiUrl} formaterMoneda={formaterMoneda} />
       )}
     </div>
   );

@@ -19,6 +19,7 @@ const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController'); 
 const notificacionCtrl = require('../controllers/notificacionController');
+const repartidorCtrl = require('../controllers/repartidorController'); 
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -115,13 +116,26 @@ router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto);
 // ==========================================
 // PEDIDOS Y FLUJO
 // ==========================================
-router.get('/pedidos/historial', pedidoCtrl.obtenerHistorialAuditoria); // 🆕 RUTA DINÁMICA DE AUDITORÍA HISTÓRICA
+router.get('/pedidos/historial', pedidoCtrl.obtenerHistorialAuditoria); 
 router.get('/pedidos/hoy', pedidoCtrl.obtenerPedidosHoy);
 router.post('/pedidos', pedidoCtrl.crearPedido);
 router.put('/pedidos/:id', pedidoCtrl.actualizarPedido); 
 router.put('/pedidos/:id/estado', pedidoCtrl.actualizarEstado);
 router.put('/pedidos/:id/alerta', pedidoCtrl.actualizarAlerta);
 router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);
+
+// ==========================================
+// 🛵 MÓDULO DE REPARTO Y LOGÍSTICA
+// ==========================================
+router.get('/reparto/disponibles', repartidorCtrl.obtenerPedidosDisponiblesParaReparto);
+router.put('/reparto/tomar/:id', repartidorCtrl.tomarPedidoRepartidor);
+router.put('/reparto/entregar/:id', repartidorCtrl.entregarPedidoRepartidor);
+router.get('/reparto/mis-viajes/:repartidor_id', repartidorCtrl.obtenerMisViajesActivos);
+
+// RUTAS DE AUDITORÍA Y LIQUIDACIÓN EN CAJA
+router.get('/reparto/auditoria/repartidores', repartidorCtrl.obtenerRepartidoresAuditoria);
+router.get('/reparto/auditoria/pedidos/:repartidor_id', repartidorCtrl.obtenerPedidosAuditoria);
+router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);
 
 // ==========================================
 // INSUMOS Y RECETAS (Inventario)
@@ -142,6 +156,7 @@ router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);
 // REPORTES Y ESTADÍSTICAS
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
+router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible); // 🆕 NUEVA RUTA DE COMBUSTIBLE
 
 // ==========================================
 // GESTIÓN DE MESAS (MAPEO Y QR)

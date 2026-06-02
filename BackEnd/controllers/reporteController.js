@@ -491,3 +491,50 @@ exports.obtenerReporteVentas = async (req, res) => {
     res.status(500).json({ error: 'Error al procesar los datos de ventas.' });
   }
 };
+
+// ==========================================================
+// MÓDULO FASE D: REPORTE ADMINISTRATIVO DE COMBUSTIBLE
+// ==========================================================
+exports.obtenerReporteCombustible = async (req, res) => {
+  const { fecha } = req.query;
+
+  try {
+    // Si no viene fecha, usamos la del día actual en la zona horaria correcta
+    let filtroFecha = "TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') = TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD')";
+    let params = [];
+
+    if (fecha) {
+      filtroFecha = "p.fecha_creacion::DATE = $1::DATE";
+      params.push(fecha);
+    }
+
+    // Consulta SQL a Postgres: Agrupación de viajes a domicilio por conductor en la fecha especificada
+    const query = `
+      SELECT 
+        u.id AS repartidor_id,
+        u.nombre AS repartidor_nombre,
+        COUNT(p.id) AS total_viajes
+      FROM pedidos p
+      INNER JOIN usuarios u ON p.repartidor_id = u.id
+      WHERE 
+        p.tipo_consumo = 'Domicilio' 
+        AND p.repartidor_id IS NOT NULL 
+        AND (p.estado_preparacion = 'Entregado' OR p.estado_preparacion = 'Liquidado')
+        AND ${filtroFecha}
+      GROUP BY u.id, u.nombre
+      ORDER BY total_viajes DESC
+    `;
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      fecha_analizada: fecha || 'Hoy',
+      repartidores: result.rows
+    });
+
+  } catch (error) {
+    console.error("ERROR AL GENERAR REPORTE DE COMBUSTIBLE:", error);
+    res.status(500).json({ error: 'Error al procesar el reporte de rendimiento y combustible.' });
+  }
+};

@@ -8,6 +8,7 @@ import VistaMesasPagadas from './vistas/mesas_pagadas/VistaMesasPagadas';
 import VistaEntregas from './vistas/entregas/VistaEntregas'; 
 import VistaHistorial from './vistas/historial/VistaHistorial'; 
 import VistaCorte from './vistas/corte/VistaCorte';             
+import VistaLiquidacionRep from './vistas/reparto/VistaLiquidacionRep'; // 👈 IMPORTACIÓN MODULAR INTEGRADA EN TU DOMINIO
 import { PlusCircle, Eye } from 'lucide-react';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -151,16 +152,13 @@ const VistasCaja = ({
         
         if (item.extras && Array.isArray(item.extras)) {
             item.extras.forEach(ext => {
-                // Separamos sabores/modificadores base de los verdaderos extras transaccionales cobrados
                 if (ext.tipo === 'extra' || ext.es_extra === true || String(ext.nombre).toLowerCase().includes('extra')) {
                     extrasMonetariosReales += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
                 }
             });
         }
-        // Acumulado financiero de ingresos extras reales
         totalExtras += (extrasMonetariosReales * qty);
         
-        // El valor neto del platillo se calcula deduciendo sus extras externos cobrados
         const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
         const precioBasePlatillo = precioTotalItem - extrasMonetariosReales;
         totalPlatillos += (precioBasePlatillo * qty);
@@ -306,6 +304,11 @@ const VistasCaja = ({
               totalEfectivoVentas={totalEfectivoVentas} totalGastos={totalGastos} totalTarjetaVentas={totalTarjetaVentas}
               totalTransferenciaVentas={totalTransferenciaVentas} gastosDia={gastosDia}
            />
+        )}
+
+        {/* 👇 VISTA LOGÍSTICA ACTIVADA CONDICIONALMENTE DESDE EL SIDEBAR */}
+        {vistaActiva === 'liquidacion_reparto' && (
+           <VistaLiquidacionRep />
         )}
       </div>
 

@@ -4,6 +4,7 @@ import Caja from './components/Caja';
 import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV'; 
+import Repartidor from './components/Repartidor'; // 🆕 NUEVO IMPORT: Pantalla Raíz del Conductor
 import { suscribirANotificaciones } from './pushManager'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -233,6 +234,11 @@ const App = () => {
     }
 
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
+
+    // 🆕 NUEVO CANAL CONDICIONAL: Interfaz Táctil de Repartidor
+    if (usuarioActivo.rol === 'repartidor') {
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
+    }
   }
 
   if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;
@@ -245,7 +251,6 @@ const App = () => {
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
             
-            {/* 👇 AQUÍ APLICAMOS EL ZOOM AL LOGO RESPETANDO TODO TU DISEÑO PRODUCTIVO */}
             {configGlobal.logo_url ? (    
               <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
                 <img 
