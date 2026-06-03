@@ -1,6 +1,5 @@
 import React from 'react';
 import { DollarSign, CheckCircle2, XCircle, BellRing } from 'lucide-react';
-
 import ModalPago from './modales/ModalPago';
 import ModalEditarPedido from './modales/ModalEditarPedido';
 import ModalIdentificar from './modales/ModalIdentificar';
@@ -10,26 +9,23 @@ import ModalAgregarExtra from './modales/ModalAgregarExtra';
 import ModalZonaEnvio from './modales/ModalZonaEnvio';
 import ModalVerDetalle from './modales/ModalVerDetalle';
 import ModalAperturaCaja from './modales/ModalAperturaCaja';
+import ModalPuntoVenta from './modales/ModalPuntoVenta';
 
 const ModalesCaja = ({
-  fondoCaja, iniciarTurno, inputFondo, setInputFondo,
-  modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx, accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo, enviarRespuestaCocina, catalogoIngredientes,
-  modalPago, setModalPago, montoRecibido, setMontoRecibido, procesarPago,
-  configGlobal, modalZonaEnvio, setModalZonaEnvio, confirmarPedidoDomicilio,
-  modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
-  paquetesComprados, setPaquetesComprados, registrarCompraRapida,
-  alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, confirmarAgregarExtra,
-  alertaCobroExtra, setAlertaCobroExtra,
-  modalEditarPedido, setModalEditarPedido, guardarEdicionPedido,
-  isSubmitting, modalVerDetalle, setModalVerDetalle,
-  modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
-  telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
-  buscarClienteParaPedido, registrarClienteParaPedido, onGoToKiosco
+  user, cargarDataDinamica, modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones, 
+  fondoCaja, iniciarTurno, inputFondo, setInputFondo, modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx, 
+  accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo, enviarRespuestaCocina, catalogoIngredientes,
+  modalPago, setModalPago, montoRecibido, setMontoRecibido, procesarPago, configGlobal, modalZonaEnvio, setModalZonaEnvio, 
+  confirmarPedidoDomicilio, modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
+  paquetesComprados, setPaquetesComprados, registrarCompraRapida, alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, 
+  confirmarAgregarExtra, alertaCobroExtra, setAlertaCobroExtra, apiUrl, lanzarImpresion, modalEditarPedido, setModalEditarPedido, 
+  guardarEdicionPedido, isSubmitting, modalVerDetalle, setModalVerDetalle, modalIdentificar, setModalIdentificar, pasoIdentificar, 
+  setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente, buscarClienteParaPedido, 
+  registrarClienteParaPedido, onGoToKiosco,
+  empleadosPOS, mesas // 👈 Recibidos de Caja.js
 }) => {
-
   return (
     <>
-      {/* ALERTAS GLOBALES (TOASTS) */}
       {alertaCaja && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[999] animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${
@@ -40,18 +36,15 @@ const ModalesCaja = ({
             {alertaCaja.tipo === 'success' && <CheckCircle2 className="text-emerald-500" size={24} />}
             {alertaCaja.tipo === 'error' && <XCircle className="text-red-500" size={24} />}
             {alertaCaja.tipo !== 'success' && alertaCaja.tipo !== 'error' && <BellRing className="text-blue-500" size={24} />}
-            
             <div>
               <p className="font-black text-sm uppercase tracking-widest">{alertaCaja.titulo}</p>
               <p className="font-bold text-sm opacity-80">{alertaCaja.mensaje}</p>
             </div>
-            
             <button onClick={() => setAlertaCaja(null)} className="ml-4 opacity-50 hover:opacity-100 transition"><XCircle size={20}/></button>
           </div>
         </div>
       )}
 
-      {/* ALERTA DE COBRO EXTRA OBLIGATORIO */}
       {alertaCobroExtra && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[999] p-4">
           <div className="bg-white p-10 rounded-[40px] shadow-2xl w-full max-w-lg text-center animate-in zoom-in duration-300 border-4 border-orange-500">
@@ -84,48 +77,30 @@ const ModalesCaja = ({
         </div>
       )}
 
-      {/* COMPONENTES MODALES MODULARIZADOS */}
       <ModalAperturaCaja fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo} />
       
+      <ModalPuntoVenta 
+         modalPuntoVenta={modalPuntoVenta} setModalPuntoVenta={setModalPuntoVenta} ordenEditandoRapida={ordenEditandoRapida}
+         user={user} configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones}
+         catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} lanzarImpresion={lanzarImpresion}
+         setModalPago={setModalPago} refrescarDatosCaja={cargarDataDinamica} onClose={() => setModalPuntoVenta(false)}
+         empleadosPOS={empleadosPOS} // 👈 Pasado al Modal
+         mesas={mesas}               // 👈 Pasado al Modal
+      />
+
       <ModalIdentificar 
          modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} 
          telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} 
          buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} 
       />
 
-      <ModalCompraRapida 
-         modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} 
-         setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting}
-      />
-
-      <ModalAgregarExtra 
-         modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} 
-         catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting}
-      />
-
-      <ModalZonaEnvio 
-         modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} 
-         configGlobal={configGlobal} isSubmitting={isSubmitting}
-      />
-
-      <ModalResolver 
-         modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} 
-         accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} 
-         enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting}
-      />
-
-      <ModalPago 
-         modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting}
-      />
-
-      <ModalEditarPedido 
-         modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} 
-         onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting}
-      />
-
-      <ModalVerDetalle 
-         modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle}
-      />
+      <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting} />
+      <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
+      <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />
+      <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
+      <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} />
+      <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />
+      <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />
     </>
   );
 };

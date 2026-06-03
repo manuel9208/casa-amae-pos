@@ -62,13 +62,16 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 exports.crearPedido = async (req, res) => {
-  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos, mesa } = req.body;
+  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos, mesa, estado_preparacion } = req.body;
   
   try {
     await db.query('BEGIN');
 
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     
+    // ACEPTAMOS EL ESTADO DEL FRONTEND (Para saltarse la caja si es empleado) O USAMOS PENDIENTE
+    const estadoReal = estado_preparacion || 'Pendiente';
+
     const insertQuery = `
       INSERT INTO pedidos (
         cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, 
@@ -77,7 +80,7 @@ exports.crearPedido = async (req, res) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *
     `;
     
-    const values = [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, 'Pendiente', direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null, mesa || null];
+    const values = [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, estadoReal, direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null, mesa || null];
 
     const result = await db.query(insertQuery, values);
     const pedidoInsertado = result.rows[0];
@@ -125,8 +128,13 @@ exports.crearPedido = async (req, res) => {
 
     await db.query('COMMIT');
     
-    notificarStaff(['cajero', 'admin'], '¡Nuevo Pedido!', `La orden #${pedidoInsertado.numero_pedido} acaba de llegar.`);
-    if (cliente_id) notificarCliente(cliente_id, 'Orden Recibida 🕒', `Tu orden #${pedidoInsertado.numero_pedido} está en espera de confirmación.`);
+    // NOTIFICAMOS DIRECTO A COCINA SI EL PEDIDO YA ENTRÓ PAGADO (EMPLEADOS)
+    if (estadoReal === 'Pagado') {
+        notificarStaff(['chef', 'cocinero', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda (Comedor)', `La orden #${pedidoInsertado.numero_pedido} entró directo a cocina.`);
+    } else {
+        notificarStaff(['cajero', 'admin'], '¡Nuevo Pedido!', `La orden #${pedidoInsertado.numero_pedido} acaba de llegar.`);
+        if (cliente_id) notificarCliente(cliente_id, 'Orden Recibida 🕒', `Tu orden #${pedidoInsertado.numero_pedido} está en espera de confirmación.`);
+    }
 
     res.status(201).json(pedidoInsertado);
 
@@ -191,10 +199,12 @@ exports.actualizarEstado = async (req, res) => {
     const result = await db.query(query, params); 
     const pedidoActual = result.rows[0];
 
+    // 👇 CORRECCIÓN CRÍTICA: Liberar mesas al Finalizar o Cancelar
     if (pedidoPrevio.mesa) {
         const isPagadoDinero = (pedidoActual.metodo_pago === 'Efectivo' || pedidoActual.metodo_pago === 'Tarjeta' || pedidoActual.metodo_pago === 'Transferencia' || pedidoActual.metodo_pago === 'Mixto');
 
-        if (estado_preparacion === 'Cancelado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
+        // Aquí agregamos "Finalizado" a las condiciones para que suelte la mesa
+        if (estado_preparacion === 'Cancelado' || estado_preparacion === 'Finalizado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
              await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         } else if (estado_preparacion === 'Entregado' && !isPagadoDinero) {
              await db.query("UPDATE mesas SET estado = 'Por Pagar' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
@@ -284,7 +294,7 @@ exports.actualizarEstado = async (req, res) => {
     }
 
     if (estado_preparacion === 'Pagado' || estado_preparacion === 'Por Confirmar') {
-        notificarStaff(['chef', 'cocinero', 'cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
+        notificarStaff(['chef', 'cocinero', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
     } else if (estado_preparacion === 'Preparando') {
         notificarCliente(pedidoActual.cliente_id, '¡En el fuego! 🔥', `El chef ya está preparando tu orden #${pedidoActual.numero_pedido}.`);
         notificarStaff(['cajero', 'admin'], 'Preparando Orden', `Cocina comenzó a preparar la orden #${pedidoActual.numero_pedido}.`);
@@ -323,9 +333,6 @@ exports.obtenerPedidosCliente = async (req, res) => {
   } 
 };
 
-// =========================================================================
-// 🆕 NUEVO ENDPOINT: OBTENER HISTORIAL DE AUDITORÍA CON FILTROS DE TIEMPO
-// =========================================================================
 exports.obtenerHistorialAuditoria = async (req, res) => {
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
   

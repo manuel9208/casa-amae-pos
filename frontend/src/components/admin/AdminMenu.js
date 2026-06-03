@@ -10,7 +10,7 @@ const AdminMenu = ({
   const [productoEditando, setProductoEditando] = useState(null);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12">
+    <div className="max-w-[1400px] mx-auto space-y-8 pb-12 px-4">
       
       <FormularioProducto 
         productos={productos}

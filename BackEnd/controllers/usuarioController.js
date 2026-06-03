@@ -9,34 +9,36 @@ exports.obtenerUsuarios = async (req, res) => {
   }
 };
 
-// ==========================================
-// OBTENER SOLO AYUDANTES DE COCINA
-// ==========================================
 exports.obtenerAyudantesCocina = async (req, res) => {
   try {
     const result = await db.query("SELECT id, nombre, permisos FROM usuarios WHERE rol = 'ayudante_cocina' ORDER BY nombre ASC");
     res.json(result.rows);
   } catch (error) {
-    console.error("Error al obtener ayudantes:", error);
     res.status(500).json({ error: 'Error al obtener ayudantes de cocina' });
   }
 };
 
 exports.crearUsuario = async (req, res) => {
-  const { nombre, usuario, password, rol, permisos, telefono } = req.body;
+  const { nombre, usuario, password, rol, permisos, telefono, pin } = req.body;
   
-  // 🛡️ BLINDAJE: Si viene vacío o con espacios, guardamos NULL para evitar el error syntax de BIGINT
   const telefonoFinal = telefono && String(telefono).trim() !== '' ? telefono : null;
+  const pinFinal = pin && String(pin).trim() !== '' ? pin : null;
 
   try {
+    // 👇 BLINDAJE 1: EVITAR PINES DUPLICADOS EN NUEVOS EMPLEADOS
+    if (pinFinal) {
+      const pinExistente = await db.query('SELECT id FROM usuarios WHERE pin = $1', [pinFinal]);
+      if (pinExistente.rows.length > 0) {
+        return res.status(400).json({ error: 'Ese PIN de seguridad ya está en uso por otro empleado. Elige uno distinto.' });
+      }
+    }
+
     const result = await db.query(
-      'INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal]
+      'INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono, pin) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal, pinFinal]
     );
     res.json(result.rows[0]);
   } catch (error) {
-    console.error(error);
-    // Código 23505: Violación de restricción única (Unique Constraint)
     if (error.code === '23505') {
       return res.status(400).json({ error: 'El número de teléfono o nombre de usuario ya está registrado.' });
     }
@@ -44,34 +46,38 @@ exports.crearUsuario = async (req, res) => {
   }
 };
 
-// Actualizar Usuario
 exports.actualizarUsuario = async (req, res) => {
   const { id } = req.params;
-  const { nombre, usuario, password, rol, permisos, telefono } = req.body;
+  const { nombre, usuario, password, rol, permisos, telefono, pin } = req.body;
   
-  // 🛡️ BLINDAJE: Sanitización del teléfono
   const telefonoFinal = telefono && String(telefono).trim() !== '' ? telefono : null;
+  const pinFinal = pin && String(pin).trim() !== '' ? pin : null;
   
   try {
+    // 👇 BLINDAJE 2: EVITAR PINES DUPLICADOS AL EDITAR EMPLEADOS
+    if (pinFinal) {
+      const pinExistente = await db.query('SELECT id FROM usuarios WHERE pin = $1 AND id != $2', [pinFinal, id]);
+      if (pinExistente.rows.length > 0) {
+        return res.status(400).json({ error: 'Ese PIN de seguridad ya está en uso por otro empleado. Elige uno distinto.' });
+      }
+    }
+
     let result;
     if (password && password.trim() !== '') {
       result = await db.query(
-        'UPDATE usuarios SET nombre = $1, usuario = $2, password = $3, rol = $4, permisos = $5, telefono = $6 WHERE id = $7 RETURNING *',
-        [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal, id]
+        'UPDATE usuarios SET nombre = $1, usuario = $2, password = $3, rol = $4, permisos = $5, telefono = $6, pin = $7 WHERE id = $8 RETURNING *',
+        [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal, pinFinal, id]
       );
     } else {
       result = await db.query(
-        'UPDATE usuarios SET nombre = $1, usuario = $2, rol = $3, permisos = $4, telefono = $5 WHERE id = $6 RETURNING *',
-        [nombre, usuario, rol, JSON.stringify(permisos || {}), telefonoFinal, id]
+        'UPDATE usuarios SET nombre = $1, usuario = $2, rol = $3, permisos = $4, telefono = $5, pin = $6 WHERE id = $7 RETURNING *',
+        [nombre, usuario, rol, JSON.stringify(permisos || {}), telefonoFinal, pinFinal, id]
       );
     }
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json(result.rows[0]);
   } catch (error) {
-    console.error(error);
     if (error.code === '23505') {
       return res.status(400).json({ error: 'El número de teléfono o nombre de usuario ya está en uso.' });
     }
@@ -84,14 +90,9 @@ exports.eliminarUsuario = async (req, res) => {
   try {
     await db.query('DELETE FROM usuarios WHERE id = $1', [id]);
     res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al eliminar usuario' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Error al eliminar usuario' }); }
 };
 
-// ==========================================
-// REPORTES DE RENDIMIENTO Y ASISTENCIA
-// ==========================================
 exports.obtenerReporteRendimiento = async (req, res) => {
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0], usuario_id = 'Todos' } = req.query;
 
@@ -158,13 +159,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY pedidos_completados DESC
     `, params);
 
-    res.json({
-      asistenciasHoy: asistenciasHoyRes.rows,         
-      historialAsistencias: historialRes.rows,        
-      rendimientoCocina: rendimientoRes.rows          
-    });
-  } catch (error) {
-    console.error("Error al obtener reportes de rendimiento:", error);
-    res.status(500).json({ error: 'Error al obtener reportes' });
-  }
+    res.json({ asistenciasHoy: asistenciasHoyRes.rows, historialAsistencias: historialRes.rows, rendimientoCocina: rendimientoRes.rows });
+  } catch (error) { res.status(500).json({ error: 'Error al obtener reportes' }); }
 };

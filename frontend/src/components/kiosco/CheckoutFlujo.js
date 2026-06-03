@@ -90,7 +90,14 @@ const CheckoutFlujo = ({
 
   const continuarDesdeNombre = () => {
     if (tipoConsumo === 'Local') {
-        if (esPersonalInterno && !mesaQR) setPantallaActual('asignar_mesa');
+        if (esPersonalInterno && !mesaQR) {
+            // 👇 LÓGICA DE MESAS DINÁMICAS (Libre elección automática si no hay mesas)
+            if (mesasDisponibles.length > 0) {
+                setPantallaActual('asignar_mesa');
+            } else {
+                seleccionarPago('Por Cobrar', null, 'Local');
+            }
+        }
         else if (esPersonalInterno && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
         else seleccionarPago('Pendiente', null, 'Local');
     } else if (tipoConsumo === 'Para llevar') {
@@ -145,7 +152,6 @@ const CheckoutFlujo = ({
         }
     });
 
-    // 👇 CORREGIDO: Si es una modificación, conservamos estrictamente el estado original (como 'Pendiente')
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
     if (!ordenExterna && tipoReal === 'Recoger') estadoInicial = 'Por Confirmar';
 

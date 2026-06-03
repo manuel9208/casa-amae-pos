@@ -17,7 +17,6 @@ const GridPedidos = ({
     );
   }
 
-  // Verificar si el trabajador seleccionado en la barra superior tiene trabajo pendiente
   const ordenPendienteDelActivo = obtenerOrdenActivaDeTrabajador(trabajadorActivoId);
   const trabajadorEstaOcupado = !!ordenPendienteDelActivo;
   const nombreDelActivo = obtenerNombreTrabajadorActivo();
@@ -27,7 +26,9 @@ const GridPedidos = ({
       {pedidosVisibles.map(p => {
         const carritoArray = getCarrito(p);
         const itemsDeEstaArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
-        const areaEstado = itemsDeEstaArea.every(i => i.estado === 'Listo') ? 'Listo' : itemsDeEstaArea.some(i => i.estado === 'Preparando' || i.estado === 'Listo') ? 'Preparando' : 'Pagado';
+        
+        // El estado ahora lo dicta el pedido global
+        const areaEstado = p.estado_preparacion;
 
         const itemsAgrupados = [];
         carritoArray.forEach((item, idx) => {
@@ -65,7 +66,6 @@ const GridPedidos = ({
         const fechaHora = new Date(p.fecha_creacion).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         const mensajeVisible = p.alerta_cocina ? p.alerta_cocina.replace(/\[IDX:\d+\]\s*/g, '') : '';
 
-        // Determinar si esta comanda específica pertenece al trabajador seleccionado
         const esMiComanda = p.chef_id === trabajadorActivoId && areaEstado === 'Preparando';
 
         return (
@@ -116,7 +116,7 @@ const GridPedidos = ({
             </div>
 
             <div className="pt-6 mt-4 border-t border-slate-700">
-              {areaEstado === 'Pagado' || !areaEstado ? (
+              {areaEstado === 'Pagado' || !areaEstado || areaEstado === 'Por Confirmar' ? (
                 <button 
                   onClick={() => actualizarEstadoPedido(p, 'Preparando', trabajadorActivoId)}
                   disabled={trabajadorEstaOcupado || isSubmitting}
@@ -128,7 +128,7 @@ const GridPedidos = ({
                 >
                   <div className="flex items-center gap-2 text-base">
                     {trabajadorEstaOcupado ? <Lock size={16}/> : <ChefHat size={18}/>}
-                    <span>{trabajadorEstaOcupado ? 'Empleado Ocupado' : 'Preparar mi parte'}</span>
+                    <span>{trabajadorEstaOcupado ? 'Empleado Ocupado' : 'Preparar orden'}</span>
                   </div>
                   {trabajadorEstaOcupado && (
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -147,7 +147,7 @@ const GridPedidos = ({
                   }`}
                 >
                   <CheckCircle2 size={20}/> 
-                  <span>{esMiComanda ? 'Terminar mi parte' : 'Asignado a otro ayudante'}</span>
+                  <span>{esMiComanda ? '¡Terminar Pedido!' : 'Asignado a otro ayudante'}</span>
                 </button>
               ) : null}
             </div>

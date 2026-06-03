@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+// 👇 RUTAS CORREGIDAS HACIA LA SUBCARPETA
 import HeaderKDS from './cocina/HeaderKDS';
 import GridPedidos from './cocina/GridPedidos';
 import ModalProblema from './cocina/ModalProblema';
@@ -13,7 +14,6 @@ const Cocina = ({ user, onLogout }) => {
   const [filtroTab, setFiltroTab] = useState('Todo'); 
   const [ahora, setAhora] = useState(Date.now());
   
-  // 🆕 Identificador del trabajador seleccionado actualmente en la pantalla táctil
   const [trabajadorActivoId, setTrabajadorActivoId] = useState(user.id);
 
   const [modalAlerta, setModalAlerta] = useState(null); 
@@ -62,28 +62,16 @@ const Cocina = ({ user, onLogout }) => {
     if (isSubmitting) return; 
     setIsSubmitting(true); 
 
-    const area = filtroTab;
-    const carritoArray = getCarrito(p);
-    
-    const nuevoCarrito = carritoArray.map(item => {
-      if (area === 'Todo' || item.destino === area) return { ...item, estado: nuevoEstadoLocal };
-      return item;
-    });
-
-    const todosListos = nuevoCarrito.every(item => item.estado === 'Listo');
-    const algunPreparando = nuevoCarrito.some(item => item.estado === 'Preparando' || item.estado === 'Listo');
-
-    let estadoGlobal = p.estado_preparacion;
-    if (todosListos) estadoGlobal = 'Listo';
-    else if (algunPreparando) estadoGlobal = 'Preparando';
-
-    // Se asigna automáticamente el trabajador seleccionado de la barra global
+    let estadoGlobal = nuevoEstadoLocal; 
     const chefResponsable = idAyudanteAsignado || trabajadorActivoId;
 
     try {
       const res = await fetch(`${apiUrl}/pedidos/${p.id}/estado`, { 
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ estado_preparacion: estadoGlobal, chef_id: chefResponsable, carrito: nuevoCarrito }) 
+        body: JSON.stringify({ 
+          estado_preparacion: estadoGlobal, 
+          chef_id: chefResponsable
+        }) 
       });
       if (res.ok) { 
         await fetch(`${apiUrl}/pedidos/hoy`).then(r=>r.json()).then(data => setPedidos(Array.isArray(data)?data:[]));
@@ -123,16 +111,17 @@ const Cocina = ({ user, onLogout }) => {
   };
 
   const pedidosVisibles = pedidos.filter(p => {
-    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente' || p.estado_preparacion === 'Finalizado') return false;
-    const carritoArray = getCarrito(p);
-    const itemsDeEstaArea = carritoArray.filter(i => filtroTab === 'Todo' || i.destino === filtroTab);
-    if (itemsDeEstaArea.length === 0) return false;
-    const estaAreaLista = itemsDeEstaArea.every(i => i.estado === 'Listo');
-    if (estaAreaLista) return false;
+    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente' || p.estado_preparacion === 'Finalizado' || p.estado_preparacion === 'Listo') return false;
+    
+    if (filtroTab !== 'Todo') {
+      const carritoArray = getCarrito(p);
+      const itemsDeEstaArea = carritoArray.filter(i => i.destino === filtroTab);
+      if (itemsDeEstaArea.length === 0) return false;
+    }
+    
     return true;
   });
 
-  // Filtrar ayudantes por su turno activo
   const ayudantesActivos = ayudantes.filter(a => {
     if (!a.permisos || !a.permisos.horario_entrada || !a.permisos.horario_salida) return true;
     const date = new Date();
@@ -147,12 +136,10 @@ const Cocina = ({ user, onLogout }) => {
     return currentMins >= minsEnt || currentMins <= minsSal; 
   });
 
-  // Helper para saber qué trabajador tiene actualmente una comanda en preparación
   const obtenerOrdenActivaDeTrabajador = (id) => {
     return pedidos.find(p => p.chef_id === id && p.estado_preparacion === 'Preparando');
   };
 
-  // Obtener el nombre del usuario seleccionado para mostrarlo en la interfaz
   const obtenerNombreTrabajadorActivo = () => {
     if (trabajadorActivoId === user.id) return user.nombre;
     const ayudante = ayudantes.find(a => a.id === trabajadorActivoId);
@@ -166,7 +153,6 @@ const Cocina = ({ user, onLogout }) => {
          setModalInsumo={setModalInsumo} setModalMerma={setModalMerma}
       />
 
-      {/* 🆕 BARRA DE SELECCIÓN DE PERSONAL EN TURNO (Estilo Apple Táctil) */}
       <div className="bg-slate-800 border border-slate-700/60 p-4 rounded-3xl mb-8 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-2 text-slate-300">
           <Users size={18} className="text-blue-400"/>
@@ -177,7 +163,6 @@ const Cocina = ({ user, onLogout }) => {
         </div>
         
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
-          {/* Botón del Chef Principal: Se muestra siempre como respaldo operativo o si no hay ayudantes */}
           <button
             onClick={() => setTrabajadorActivoId(user.id)}
             className={`flex-1 md:flex-none px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 border flex flex-col items-center justify-center min-w-[120px] ${
@@ -192,7 +177,6 @@ const Cocina = ({ user, onLogout }) => {
             )}
           </button>
 
-          {/* Botones Dinámicos de los Ayudantes en su Horario Activo */}
           {ayudantesActivos.map(a => {
             const ordenActiva = obtenerOrdenActivaDeTrabajador(a.id);
             const estaSeleccionado = trabajadorActivoId === a.id;

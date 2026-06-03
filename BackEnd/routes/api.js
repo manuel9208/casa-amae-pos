@@ -19,7 +19,8 @@ const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController'); 
 const notificacionCtrl = require('../controllers/notificacionController');
-const repartidorCtrl = require('../controllers/repartidorController'); 
+const repartidorCtrl = require('../controllers/repartidorController');
+const corteCtrl = require('../controllers/corteController'); 
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -166,5 +167,11 @@ router.post('/mesas', mesaCtrl.crearMesa);
 router.put('/mesas/posiciones', mesaCtrl.guardarPosiciones); 
 router.put('/mesas/:id/estado', mesaCtrl.actualizarEstadoMesa);
 router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
+
+// ==========================================
+// 💰 CORTES DE CAJA (HISTÓRICO)
+// ==========================================
+router.post('/cortes', corteCtrl.guardarCorte);              // 👈 PARA EL AUTO-GUARDADO
+router.get('/cortes/historial', corteCtrl.obtenerHistorial);
 
 module.exports = router;

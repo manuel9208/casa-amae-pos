@@ -5,7 +5,7 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
   if (!resumen) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-4 print:gap-2 animate-in fade-in">
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center print:border-slate-300 print:shadow-none print:p-4">
         <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-3 print:hidden">
           <DollarSign size={24}/>

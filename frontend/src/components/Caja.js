@@ -1,42 +1,57 @@
 import React from 'react';
-import SidebarCaja from './caja/SidebarCaja';
+import TopNavCaja from './caja/TopNavCaja';
 import VistasCaja from './caja/VistasCaja';
 import ModalesCaja from './caja/ModalesCaja';
 import TicketImpresion from './caja/TicketImpresion';
+import PantallaBloqueo from './caja/PantallaBloqueo'; 
 import { useCajaCentral } from './caja/useCajaCentral';
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
-  // Conectamos el cerebro (Toda la lógica, estados y funciones viven aquí adentro)
   const c = useCajaCentral(user, onLogout, onGoToKiosco);
 
   return (
     <>
-      <div className="flex h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden">
+      <PantallaBloqueo 
+         isCajaBloqueada={c.isCajaBloqueada} 
+         setIsCajaBloqueada={c.setIsCajaBloqueada}
+         empleadosPOS={c.empleadosPOS}
+         setOperadorActual={c.setOperadorActual}
+         configGlobal={c.configGlobal}
+         onLogout={onLogout}
+      />
+
+      <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden overflow-hidden">
         
-        {/* BARRA LATERAL IZQUIERDA */}
-        <SidebarCaja 
-          user={user} onLogout={c.cerrarCajaYSalir} configGlobal={c.configGlobal} toggleEstadoNegocio={c.toggleEstadoNegocio}
+        <TopNavCaja 
+          user={c.operadorActual} onLogout={c.cerrarCajaYSalir} configGlobal={c.configGlobal} toggleEstadoNegocio={c.toggleEstadoNegocio}
           vistaActiva={c.vistaActiva} setVistaActiva={c.setVistaActiva} pedidosPorConfirmar={c.pedidosPorConfirmar}
           pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas} 
           setModalCompraRapida={c.setModalCompraRapida} abrirIdentificador={c.abrirIdentificador} 
-          menuAbiertoCaja={c.menuAbiertoCaja} setMenuAbiertoCaja={c.setMenuAbiertoCaja}
         />
 
-        {/* VISTA PRINCIPAL DINÁMICA (Mapa, Historial, Confirmar, etc.) */}
-        <VistasCaja 
-          vistaActiva={c.vistaActiva} subVistaHistorial={c.subVistaHistorial} setSubVistaHistorial={c.setSubVistaHistorial}
-          pedidos={c.pedidos} mesas={c.mesas} pedidosConAlerta={c.pedidosConAlerta} pedidosPorConfirmar={c.pedidosPorConfirmar}
-          pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas} 
-          fondoCaja={c.fondoCaja} configGlobal={c.configGlobal} gastosDia={c.gastosDia} abrirModalResolver={c.abrirModalResolver}
-          limpiarAlerta={c.limpiarAlerta} setModalPago={c.setModalPago} setMontoRecibido={c.setMontoRecibido}
-          actualizarEstadoPedido={c.actualizarEstadoPedido} confirmarPedidoRecoger={c.confirmarPedidoRecoger}
-          lanzarImpresion={c.lanzarImpresion} setModalZonaEnvio={c.setModalZonaEnvio} setModalAgregarExtra={c.setModalAgregarExtra} 
-          setModalEditarPedido={c.setModalEditarPedido} isSubmitting={c.isSubmitting} setModalVerDetalle={c.setModalVerDetalle} 
-          setMenuAbiertoCaja={c.setMenuAbiertoCaja} 
-        />
+        <main className="flex-1 overflow-y-auto">
+          <VistasCaja 
+            user={c.operadorActual} 
+            empleadosPOS={c.empleadosPOS} 
+            vistaActiva={c.vistaActiva} subVistaHistorial={c.subVistaHistorial} setSubVistaHistorial={c.setSubVistaHistorial}
+            pedidos={c.pedidos} mesas={c.mesas} pedidosConAlerta={c.pedidosConAlerta} pedidosPorConfirmar={c.pedidosPorConfirmar}
+            pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas} 
+            fondoCaja={c.fondoCaja} configGlobal={c.configGlobal} gastosDia={c.gastosDia} abrirModalResolver={c.abrirModalResolver}
+            limpiarAlerta={c.limpiarAlerta} setModalPago={c.setModalPago} setMontoRecibido={c.setMontoRecibido}
+            actualizarEstadoPedido={c.actualizarEstadoPedido} confirmarPedidoRecoger={c.confirmarPedidoRecoger}
+            lanzarImpresion={c.lanzarImpresion} setModalZonaEnvio={c.setModalZonaEnvio} setModalAgregarExtra={c.setModalAgregarExtra} 
+            setModalEditarPedido={c.setModalEditarPedido} isSubmitting={c.isSubmitting} setModalVerDetalle={c.setModalVerDetalle} 
+          />
+        </main>
         
-        {/* GESTOR DE MODALES FLOTANTES */}
         <ModalesCaja 
+          user={c.operadorActual} cargarDataDinamica={c.cargarDataDinamica} modalPuntoVenta={c.modalPuntoVenta} setModalPuntoVenta={c.setModalPuntoVenta}
+          ordenEditandoRapida={c.ordenEditandoRapida} productos={c.productos} clasificaciones={c.clasificaciones}
+          apiUrl={c.apiUrl} lanzarImpresion={c.lanzarImpresion}
+          
+          empleadosPOS={c.empleadosPOS} // 👈 Conectado para el PIN de comida
+          mesas={c.mesas}               // 👈 Conectado para seleccionar Mesa en caja
+          
           fondoCaja={c.fondoCaja} iniciarTurno={c.iniciarTurno} inputFondo={c.inputFondo} setInputFondo={c.setInputFondo}
           modalResolver={c.modalResolver} setModalResolver={c.setModalResolver} itemAfectadoIdx={c.itemAfectadoIdx} 
           setItemAfectadoIdx={c.setItemAfectadoIdx} accionAlerta={c.accionAlerta} setAccionAlerta={c.setAccionAlerta}

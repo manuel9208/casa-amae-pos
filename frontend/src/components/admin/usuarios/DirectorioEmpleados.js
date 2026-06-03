@@ -7,15 +7,15 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
   const [uUser, setUUser] = useState('');
   const [uPass, setUPass] = useState('');
   const [uTelefono, setUTelefono] = useState('');
-  const [uRol, setURol] = useState('cajero');
+  const [uRol, setURol] = useState('admin');
+  const [uPin, setUPin] = useState(''); 
   
-  // Estados para los horarios de los ayudantes
   const [horarioEntrada, setHorarioEntrada] = useState('08:00');
   const [horarioSalida, setHorarioSalida] = useState('16:00');
   
   const [uPermisos, setUPermisos] = useState({ 
-    menu: true, inventario: true, catalogos: true, 
-    usuarios: false, configuracion: false, clientes: false, finanzas: false
+    menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false,
+    corte_caja: false, cancelar_pedidos: false, compras_rapidas: false
   });
 
   const prepararEdicionUsuario = (u) => {
@@ -24,10 +24,14 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setUUser(u.usuario); 
     setUPass(''); 
     setUTelefono(u.telefono || ''); 
+    setUPin(u.pin || '');
     setURol(u.rol);
-    setUPermisos(u.permisos || { menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
+    setUPermisos(u.permisos || { 
+        menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, 
+        corte_caja: false, cancelar_pedidos: false, compras_rapidas: false 
+    });
     
-    if (u.rol === 'ayudante_cocina') {
+    if (['ayudante_cocina', 'repartidor', 'jefe'].includes(u.rol)) {
         setHorarioEntrada(u.permisos?.horario_entrada || '08:00');
         setHorarioSalida(u.permisos?.horario_salida || '16:00');
     }
@@ -35,39 +39,46 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
 
   const cancelarEdicionUsuario = () => {
     setEditandoUsuarioId(null); 
-    setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setURol('cajero');
+    setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setUPin(''); setURol('admin');
     setHorarioEntrada('08:00'); setHorarioSalida('16:00');
-    setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
+    setUPermisos({ 
+        menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false, 
+        corte_caja: false, cancelar_pedidos: false, compras_rapidas: false 
+    });
   };
 
   const handleRolChange = (e) => { 
     const nuevoRol = e.target.value; 
     setURol(nuevoRol); 
     
+    // Base limpia de permisos
+    let perms = { 
+        menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, 
+        corte_caja: false, cancelar_pedidos: false, compras_rapidas: false 
+    };
+
     if (nuevoRol === 'tv') { 
       const uniqueId = Math.floor(1000 + Math.random() * 9000); 
       setUNombre(`Pantalla TV ${uniqueId}`); 
       setUUser(`tv_${uniqueId}`); 
       setUPass('1234'); 
       setUTelefono(`999${uniqueId}000`); 
-      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false });
-    } else if (nuevoRol === 'admin') {
-      setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
-      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: true, configuracion: true, clientes: true, finanzas: true });
+      setUPin('');
     } else if (nuevoRol === 'ayudante_cocina') {
       const uniqueId = Math.floor(100 + Math.random() * 900); 
-      setUUser(`ayudante_${uniqueId}`); 
-      setUPass('0000'); 
-      setUTelefono(''); 
-      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, horario_entrada: '08:00', horario_salida: '16:00' });
-    } else if (nuevoRol === 'repartidor') {
-      // Los repartidores entran a su app/vista, necesitan limpiar campos para capturar credenciales reales
-      setUNombre(''); setUUser(''); setUPass(''); setUTelefono('');
-      setUPermisos({ menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false, repartos: true });
+      setUNombre(''); setUUser(`ayudante_${uniqueId}`); setUPass('0000'); setUTelefono(''); setUPin('');
     } else { 
-      setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); 
-      setUPermisos({ menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false });
+      setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setUPin('');
     } 
+
+    // Preasignar permisos lógicos según el rol seleccionado
+    if (nuevoRol === 'admin') {
+      perms.menu = true; perms.inventario = true; perms.catalogos = true;
+    } else if (nuevoRol === 'gerente' || nuevoRol === 'jefe') {
+      perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true;
+    }
+    
+    setUPermisos(perms);
   };
 
   const guardarUsuario = async (e) => { 
@@ -76,13 +87,17 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     if (uRol !== 'tv' && (!uTelefono || uTelefono.length !== 10)) {
       return showAlert("Atención", "El número celular es obligatorio y debe contener exactamente 10 dígitos numéricos.", "info"); 
     }
+
+    if (uRol !== 'tv' && (!uPin || uPin.length !== 4)) {
+      return showAlert("Atención", "El PIN de seguridad debe contener exactamente 4 dígitos.", "info"); 
+    }
     
-    let permisosFinales = uPermisos;
-    if (uRol === 'ayudante_cocina') {
-        permisosFinales = { ...uPermisos, horario_entrada: horarioEntrada, horario_salida: horarioSalida };
+    let permisosFinales = { ...uPermisos };
+    if (['ayudante_cocina', 'repartidor', 'jefe'].includes(uRol)) {
+        permisosFinales = { ...permisosFinales, horario_entrada: horarioEntrada, horario_salida: horarioSalida };
     }
 
-    const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: permisosFinales, telefono: uTelefono };
+    const payload = { nombre: uNombre, usuario: uUser, rol: uRol, permisos: permisosFinales, telefono: uTelefono, pin: uPin };
     if (uPass) payload.password = uPass; 
     
     try { 
@@ -99,7 +114,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
           refrescarDatos(); 
       } else {
           const dataErr = await res.json();
-          showAlert("Atención", dataErr.error || "El nombre de usuario o número telefónico ya se encuentra registrado por otro empleado.", "warning");
+          showAlert("Atención", dataErr.error || "El nombre de usuario o número telefónico ya se encuentra en uso.", "warning");
       }
     } catch (error) { 
       showAlert("Error", "Error de conexión al guardar el usuario.", "error"); 
@@ -120,6 +135,9 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     }); 
   };
 
+  // 👇 FILTRAMOS PARA QUE EL ADMINISTRADOR GLOBAL NO APAREZCA EN LA LISTA
+  const plantillaVisible = usuariosDB.filter(u => u.usuario !== 'admin');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4">
       <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 lg:col-span-1 h-fit">
@@ -137,11 +155,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
           {uRol !== 'ayudante_cocina' && (
               <>
                 <div>
-                  <label className="text-xs font-bold text-slate-400 block mb-1">Usuario para Acceso</label>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">Usuario para Acceso Web</label>
                   <input required placeholder="Ej. carlos.reparto" value={uUser} onChange={e => setUUser(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-400 block mb-1">{editandoUsuarioId ? "Nueva Contraseña (Opcional)" : "Contraseña"}</label>
+                  <label className="text-xs font-bold text-slate-400 block mb-1">{editandoUsuarioId ? "Nueva Contraseña (Opcional)" : "Contraseña (Login Web)"}</label>
                   <input required={!editandoUsuarioId} type="text" placeholder={editandoUsuarioId ? "Dejar en blanco para conservar" : "Contraseña de inicio"} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 ring-blue-500 font-bold text-slate-700" />
                 </div>
               </>
@@ -154,21 +172,31 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             </div>
           )}
 
+          {uRol !== 'tv' && (
+            <div>
+              <label className="text-xs font-black text-blue-500 block mb-1">PIN de Seguridad POS (4 Dígitos)</label>
+              <input required type="text" maxLength="4" placeholder="Ej. 1234" value={uPin} onChange={e => setUPin(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none focus:ring-2 ring-blue-500 font-black text-blue-900 tracking-[0.5em] text-center" />
+              <p className="text-[10px] text-slate-400 mt-1 font-bold">Autoriza acciones como Comida Personal, Cortes o Cancelaciones.</p>
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-bold text-slate-400 block mb-1">Puesto o Rol asignado</label>
-            <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl outline-none font-black text-blue-900 cursor-pointer shadow-sm">
-              <option value="cajero">Cajero (Caja)</option>
-              <option value="cocina">Chef Principal (Inicio de Sesión KDS)</option>
-              <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
+            <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-slate-100 border border-slate-300 rounded-xl outline-none font-black text-slate-800 cursor-pointer shadow-sm">
+              <option value="admin">Administrador (Acceso Web Personalizable)</option>
+              <option value="gerente">👔 Gerente de Sucursal</option>
+              <option value="jefe">⭐ Jefe de Turno</option>
+              <option value="cocina">👨‍🍳 Chef Principal (Inicio de Sesión KDS)</option>
+              <option value="cajero">💵 Cajero (Caja Principal)</option>
               <option value="repartidor">🛵 Repartidor (Entregas Domicilio)</option>
-              <option value="admin">Administrador</option>
+              <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
               <option value="tv">📺 Pantalla TV (KDS Cliente)</option>
             </select>
           </div>
           
-          {uRol === 'ayudante_cocina' && (
+          {['ayudante_cocina', 'repartidor', 'jefe'].includes(uRol) && (
               <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
-                  <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Turno del Ayudante</p>
+                  <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Horario Laboral Asignado</p>
                   <div className="flex gap-4">
                       <div className="flex-1">
                           <label className="text-xs font-bold text-slate-500">Entrada</label>
@@ -182,9 +210,32 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
               </div>
           )}
 
+          {/* PERMISOS ESPECIALES DE POS (CAJA) */}
+          {['gerente', 'jefe', 'cajero', 'cocina'].includes(uRol) && (
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <p className="text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Permisos de Autorización (POS)</p>
+              
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.corte_caja === true} onChange={e => setUPermisos({...uPermisos, corte_caja: e.target.checked})} className="accent-blue-500 w-5 h-5" /> 
+                Puede realizar el Corte de Caja
+              </label>
+              
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.cancelar_pedidos === true} onChange={e => setUPermisos({...uPermisos, cancelar_pedidos: e.target.checked})} className="accent-red-500 w-5 h-5" /> 
+                Puede Cancelar / Rechazar Pedidos
+              </label>
+              
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.compras_rapidas === true} onChange={e => setUPermisos({...uPermisos, compras_rapidas: e.target.checked})} className="accent-emerald-500 w-5 h-5" /> 
+                Puede registrar Compras Rápidas
+              </label>
+            </div>
+          )}
+
+          {/* PERMISOS DE ACCESO WEB (MÓDULOS DEL ADMIN) */}
           {uRol === 'admin' && (
             <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
-              <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Acceso (Admin)</p>
+              <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Módulos (Acceso Web)</p>
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.finanzas === true} onChange={e => setUPermisos({...uPermisos, finanzas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Finanzas y Reportes
               </label>
@@ -225,41 +276,44 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200">
           <h3 className="text-xl font-bold mb-4 text-slate-700">Plantilla Registrada</h3>
           <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2">
-            {usuariosDB.map(u => (
+            {plantillaVisible.map(u => (
               <div key={u.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-2xl border transition gap-4 ${editandoUsuarioId === u.id ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
                 <div>
                   <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
                     {u.nombre} 
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
                       u.rol==='admin' ? 'bg-purple-100 text-purple-700' : 
+                      u.rol==='gerente' ? 'bg-indigo-100 text-indigo-700' : 
+                      u.rol==='jefe' ? 'bg-amber-100 text-amber-700' : 
                       u.rol==='cocina' ? 'bg-orange-100 text-orange-700' : 
-                      u.rol==='ayudante_cocina' ? 'bg-amber-100 text-amber-700' : 
+                      u.rol==='ayudante_cocina' ? 'bg-orange-50 text-orange-500' : 
                       u.rol==='repartidor' ? 'bg-teal-100 text-teal-700' :
                       u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'
                     }`}>
-                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol}
+                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol === 'jefe' ? '⭐ Jefe de Turno' : u.rol === 'gerente' ? '👔 Gerente' : u.rol}
                     </span>
-                    {u.usuario === 'admin' && <span className="text-[10px] bg-slate-800 text-white px-2 py-0.5 rounded-md uppercase font-black tracking-widest">Admin Global</span>}
                   </p>
                   
-                  <div className="mt-1 space-y-0.5">
-                    <p className="text-sm text-slate-600 font-bold">Identificador / Tel: <span className="text-blue-600 font-black">{u.telefono || 'Sin asignar'}</span></p>
-                    {u.rol === 'ayudante_cocina' ? (
-                        <p className="text-xs text-amber-600 font-bold">🕒 Turno: {u.permisos?.horario_entrada || '00:00'} - {u.permisos?.horario_salida || '00:00'}</p>
-                    ) : (
-                        <p className="text-xs text-slate-500 font-medium">Usuario de Acceso: <span className="font-bold text-slate-700">{u.usuario}</span></p>
+                  <div className="mt-1 space-y-0.5 flex items-center gap-4 flex-wrap">
+                    <p className="text-sm text-slate-600 font-bold">Tel: <span className="text-blue-600 font-black">{u.telefono || '--'}</span></p>
+                    {u.pin && <p className="text-sm text-slate-600 font-bold">PIN: <span className="text-emerald-600 font-black">••••</span></p>}
+                    
+                    {['ayudante_cocina', 'repartidor', 'jefe'].includes(u.rol) && (
+                        <p className="text-xs text-amber-600 font-bold">🕒 Turno: {u.permisos?.horario_entrada || '--:--'} a {u.permisos?.horario_salida || '--:--'}</p>
                     )}
                   </div>
                 </div>
                 
-                {u.usuario !== 'admin' && (
-                  <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                    <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
-                    <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
-                  </div>
-                )}
+                <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
+                  <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
+                  <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
+                </div>
               </div>
             ))}
+            
+            {plantillaVisible.length === 0 && (
+                <p className="text-center text-slate-400 font-bold mt-10">No hay empleados registrados en tu plantilla.</p>
+            )}
           </div>
         </div>
       </div>

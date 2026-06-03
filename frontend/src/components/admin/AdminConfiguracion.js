@@ -8,6 +8,8 @@ import CostosEnvio from './configuracion/CostosEnvio';
 import NotificacionesWA from './configuracion/NotificacionesWA';
 import ProgramaLealtad from './configuracion/ProgramaLealtad';
 import GestorCupones from './configuracion/GestorCupones';
+import GestorSeguridad from './configuracion/GestorSeguridad';
+import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
 
 const AdminConfiguracion = ({
   configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
@@ -42,18 +44,54 @@ const AdminConfiguracion = ({
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
+  const parseArraySeguro = (val) => {
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') {
+        try { return JSON.parse(val || '[]'); } catch(e) { return []; }
+    }
+    return [];
+  };
+
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
     if(isSubmitting) return;
     setIsSubmitting(true);
 
     const formData = new FormData();
+    
+    // Filtramos las llaves manuales para no duplicarlas (Incluimos cocina_en_caja_activa)
+    const llavesManuales = [
+      'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos', 
+      'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
+      'cocina_en_caja_activa'
+    ];
+
     Object.keys(configGlobal).forEach(key => {
-      if (key !== 'tarifas_envio') formData.append(key, configGlobal[key]);
+      if (!llavesManuales.includes(key)) {
+         formData.append(key, configGlobal[key]);
+      }
     });
     
+    // 👇 INYECCIÓN MANUAL ESTRICTA
     formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
     
+    // Booleanos como String Puro
+    const isBloqueoActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
+    const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';
+    
+    formData.append('bloqueo_caja_activo', isBloqueoActivo ? 'true' : 'false');
+    formData.append('bloqueo_caja_segundos', configGlobal.bloqueo_caja_segundos || 30);
+    formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');
+    
+    // Comedor
+    formData.append('comedor_limite', configGlobal.comedor_limite || 'ambos');
+    formData.append('comedor_clasif_bebidas', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_bebidas)));
+    formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));
+    
+    // Matriz Limpieza (Para que no se borre al guardar aquí)
+    const matrizL = configGlobal.matriz_limpieza || '{}';
+    formData.append('matriz_limpieza', typeof matrizL === 'string' ? matrizL : JSON.stringify(matrizL));
+
     if (logoBlob) formData.append('logo', logoBlob);
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
     if (tvBlob2) formData.append('tv_imagen_2', tvBlob2);
@@ -65,10 +103,6 @@ const AdminConfiguracion = ({
       if (res.ok) { 
         showAlert("¡Éxito!", "Configuración actualizada correctamente.", "success"); 
         setLogoBlob(null); setTvBlob1(null); setTvBlob2(null); setTvBlob3(null); setTvVideoBlob(null);
-        ['logo-upload', 'tv1-upload', 'tv2-upload', 'tv3-upload', 'tv-video-upload'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) el.value = '';
-        });
         refrescarDatos(); 
       } else {
         showAlert("Error", "No se pudo guardar la configuración.", "error");
@@ -89,11 +123,14 @@ const AdminConfiguracion = ({
         kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b', 
         tv_msg_cola: 'EN COLA', tv_msg_progreso: 'PREPARANDO', tv_msg_listo: '¡LISTOS!', 
         tv_carrusel_activo: false, tv_carrusel_segundos: 10,
-        mensaje_cierre: 'El negocio se encuentra cerrado temporalmente. Horario de atención: 8:00 AM - 10:00 PM.',
+        mensaje_cierre: 'El negocio se encuentra cerrado temporalmente.',
         ticket_impresion_activa: false, ticket_modo_impresion: 'pdf', ticket_domicilio: '',
         ticket_mensaje_final: '¡Gracias por su preferencia!', ticket_firma_sistema: 'Powered by MiSistemaPOS',
-        mensaje_envio: 'El costo de envío se calculará según tu zona y se sumará al total de tu pedido.',
-        puntos_porcentaje: 10, puntos_valor_peso: 1.00, puntos_activos: true, puntos_canje_activo: true 
+        mensaje_envio: 'El costo de envío se calculará según tu zona.',
+        puntos_porcentaje: 10, puntos_valor_peso: 1.00, puntos_activos: true, puntos_canje_activo: true,
+        bloqueo_caja_activo: false, bloqueo_caja_segundos: 30,
+        cocina_en_caja_activa: false,
+        comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]'
       });
       setTarifasEnvio([]);
       setTvVideoBlob(null);
@@ -102,11 +139,15 @@ const AdminConfiguracion = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-12 animate-in fade-in">
+    <div className="max-w-[1200px] mx-auto space-y-8 pb-12 animate-in fade-in px-4">
       <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
       
       <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
         <MarcaIdentidad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} logoBlob={logoBlob} setLogoBlob={setLogoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} />
+        
+        <GestorSeguridad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
+        <GestorComedorPersonal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
+
         <PagosContacto configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <BrandingGlobal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />

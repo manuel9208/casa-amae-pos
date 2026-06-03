@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, AlertTriangle, CheckCircle2, Menu } from 'lucide-react';
-import Sidebar from './admin/sidebar/Sidebar'; // 👇 Ruta corregida a la nueva carpeta
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import TopNavAdmin from './admin/TopNavAdmin'; // 👈 Ruta actualizada y correcta
 import AdminConfiguracion from './admin/AdminConfiguracion'; 
 import AdminUsuarios from './admin/AdminUsuarios'; 
 import AdminCatalogos from './admin/AdminCatalogos'; 
@@ -24,7 +24,6 @@ const EMOJIS_POR_GIRO = {
 
 const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [seccion, setSeccion] = useState('menu'); 
-  const [menuAbierto, setMenuAbierto] = useState(false);
   
   // === 1. DATOS CENTRALES ===
   const [productos, setProductos] = useState([]);
@@ -113,16 +112,15 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
+    // Estructura de Flex Vertical (Columna) para acomodar la barra arriba
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       
-      <Sidebar 
+      <TopNavAdmin 
         user={user} 
         onLogout={onLogout} 
         onGoToKiosco={onGoToKiosco} 
         seccion={seccion} 
         setSeccion={setSeccion}
-        menuAbierto={menuAbierto} 
-        setMenuAbierto={setMenuAbierto} 
         canViewMenu={canViewMenu}
         canViewInventario={canViewInventario} 
         canViewCatalogos={canViewCatalogos} 
@@ -134,92 +132,79 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewMesas={canViewMesas} 
       />
 
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Encabezado Móvil */}
-        <div className="lg:hidden flex items-center justify-between bg-slate-900 text-white p-4 shadow-md z-30">
-          <div className="flex items-center gap-2">
-            <ShoppingCart size={20} className="text-blue-500" />
-            <h1 className="text-lg font-black tracking-tighter">POS ADMIN</h1>
-          </div>
-          <button onClick={() => setMenuAbierto(true)} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition">
-            <Menu size={24} />
-          </button>
-        </div>
-
-        <div className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+      
+        {seccion === 'menu' && canViewMenu && (
+          <AdminMenu 
+            {...commonProps}
+            productos={productos} 
+            clasificaciones={clasificaciones} 
+            catalogoIngredientes={catalogoIngredientes} 
+            EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
+          />
+        )}
         
-          {seccion === 'menu' && canViewMenu && (
-            <AdminMenu 
-              {...commonProps}
-              productos={productos} 
-              clasificaciones={clasificaciones} 
-              catalogoIngredientes={catalogoIngredientes} 
-              EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
-            />
-          )}
-          
-          {seccion === 'inventario' && canViewInventario && ( 
-            <AdminInventario 
-              {...commonProps}
-              insumosDB={insumosDB} 
-              productos={productos} 
-              clasificaciones={clasificaciones}
-            />
-          )}
-          
-          {seccion === 'catalogos' && canViewCatalogos && ( 
-            <AdminCatalogos 
-              {...commonProps}
-              clasificaciones={clasificaciones} 
-              catalogoIngredientes={catalogoIngredientes} 
-              EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
-            />
-          )}
-          
-          {seccion === 'configuracion' && canViewConfig && ( 
-            <AdminConfiguracion 
-              {...commonProps}
-              configGlobal={configGlobal} 
-              setConfigGlobal={setConfigGlobal}
-            />
-          )}
-          
-          {seccion === 'usuarios' && canViewUsuarios && ( 
-            <AdminUsuarios 
-              {...commonProps}
-              usuariosDB={usuariosDB}
-            />
-          )}
+        {seccion === 'inventario' && canViewInventario && ( 
+          <AdminInventario 
+            {...commonProps}
+            insumosDB={insumosDB} 
+            productos={productos} 
+            clasificaciones={clasificaciones}
+          />
+        )}
+        
+        {seccion === 'catalogos' && canViewCatalogos && ( 
+          <AdminCatalogos 
+            {...commonProps}
+            clasificaciones={clasificaciones} 
+            catalogoIngredientes={catalogoIngredientes} 
+            EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
+          />
+        )}
+        
+        {seccion === 'configuracion' && canViewConfig && ( 
+          <AdminConfiguracion 
+            {...commonProps}
+            configGlobal={configGlobal} 
+            setConfigGlobal={setConfigGlobal}
+          />
+        )}
+        
+        {seccion === 'usuarios' && canViewUsuarios && ( 
+          <AdminUsuarios 
+            {...commonProps}
+            usuariosDB={usuariosDB}
+          />
+        )}
 
-          {seccion === 'clientes' && canViewClientes && ( 
-            <AdminClientes 
-              apiUrl={apiUrl} 
-              showAlert={showAlert} 
-            />
-          )}
+        {seccion === 'clientes' && canViewClientes && ( 
+          <AdminClientes 
+            apiUrl={apiUrl} 
+            showAlert={showAlert} 
+          />
+        )}
 
-          {seccion === 'reportes' && canViewReportes && ( 
-            <AdminReportes 
-              apiUrl={apiUrl} 
-              showAlert={showAlert} 
-            />
-          )}
+        {seccion === 'reportes' && canViewReportes && ( 
+          <AdminReportes 
+            apiUrl={apiUrl} 
+            showAlert={showAlert} 
+          />
+        )}
 
-          {seccion === 'promociones' && canViewPromociones && ( 
-            <AdminPromociones 
-              {...commonProps} 
-              productos={productos} 
-            />
-          )}
+        {seccion === 'promociones' && canViewPromociones && ( 
+          <AdminPromociones 
+            {...commonProps} 
+            productos={productos} 
+          />
+        )}
 
-          {seccion === 'mesas' && canViewMesas && ( 
-            <AdminMesas 
-              apiUrl={apiUrl} 
-            />
-          )}
+        {seccion === 'mesas' && canViewMesas && ( 
+          <AdminMesas 
+            apiUrl={apiUrl} 
+          />
+        )}
 
-        </div>
-      </div>
+      </main>
 
       {/* === MODAL GLOBAL REUTILIZABLE === */}
       {modalUI.isOpen && (

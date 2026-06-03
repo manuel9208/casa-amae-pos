@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.0)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.1)
 -- =========================================================================
 
 -- CONFIGURACIÓN DE ENTORNO
@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS configuracion (
     -- Apertura y Cierre del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
     mensaje_cierre TEXT,
-    hora_apertura INTEGER DEFAULT 17, -- 🆕 Horario comercial de marca blanca
-    hora_cierre INTEGER DEFAULT 23,     -- 🆕 Horario comercial de marca blanca
+    hora_apertura INTEGER DEFAULT 17, 
+    hora_cierre INTEGER DEFAULT 23,     
 
     -- Configuración de Ticket de Venta
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
@@ -75,13 +75,29 @@ CREATE TABLE IF NOT EXISTS configuracion (
     -- Notificaciones WhatsApp API Oficial
     wa_api_activa BOOLEAN DEFAULT FALSE,
     wa_api_token TEXT,
-    wa_phone_id TEXT
+    wa_phone_id TEXT,
+
+    -- NUEVO: Seguridad, Limpieza y Comedor
+    matriz_limpieza JSONB DEFAULT '{}'::jsonb,
+    bloqueo_caja_activo BOOLEAN DEFAULT false,
+    bloqueo_caja_segundos INTEGER DEFAULT 30,
+    comedor_limite VARCHAR(20) DEFAULT 'ambos',
+    comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
+    comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
+    cocina_en_caja_activa BOOLEAN DEFAULT false
 );
 
--- 🛡️ BLINDAJE: Sincronización preventiva para bases de datos ya existentes en Neon
+-- 🛡️ BLINDAJE: Sincronización preventiva para bases de datos ya existentes
 ALTER TABLE configuracion 
 ADD COLUMN IF NOT EXISTS hora_apertura INTEGER DEFAULT 17,
-ADD COLUMN IF NOT EXISTS hora_cierre INTEGER DEFAULT 23;
+ADD COLUMN IF NOT EXISTS hora_cierre INTEGER DEFAULT 23,
+ADD COLUMN IF NOT EXISTS matriz_limpieza JSONB DEFAULT '{}'::jsonb,
+ADD COLUMN IF NOT EXISTS bloqueo_caja_activo BOOLEAN DEFAULT false,
+ADD COLUMN IF NOT EXISTS bloqueo_caja_segundos INTEGER DEFAULT 30,
+ADD COLUMN IF NOT EXISTS comedor_limite VARCHAR(20) DEFAULT 'ambos',
+ADD COLUMN IF NOT EXISTS comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
+ADD COLUMN IF NOT EXISTS comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
+ADD COLUMN IF NOT EXISTS cocina_en_caja_activa BOOLEAN DEFAULT false;
 
 -- -------------------------------------------------------------------------
 -- 3. TABLAS DE USUARIOS, ASISTENCIAS, CLIENTES Y NOTIFICACIONES
@@ -91,19 +107,21 @@ CREATE TABLE IF NOT EXISTS usuarios (
     nombre VARCHAR(100) NOT NULL,
     usuario VARCHAR(50) UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor')), -- 🆕 Tipos de roles expandidos
+    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor')),
     permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
+    pin VARCHAR(4) DEFAULT NULL,
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 🛡️ BLINDAJE: Reconfiguración robusta de la restricción CHECK para base de datos activa
+-- 🛡️ BLINDAJE: Reconfiguración robusta de roles y PIN
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pin VARCHAR(4) DEFAULT NULL;
 ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
 ALTER TABLE usuarios 
 ADD CONSTRAINT usuarios_rol_check 
-CHECK (rol IN ('admin', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor'));
+CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor'));
 
 -- Tabla Reloj Checador: Registro de Entradas y Salidas
 CREATE TABLE IF NOT EXISTS registro_asistencias (
@@ -126,11 +144,11 @@ CREATE TABLE IF NOT EXISTS clientes (
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 👇 Notificaciones Push (Integrada con relación a usuarios y clientes)
+-- Notificaciones Push (Integrada con relación a usuarios y clientes)
 CREATE TABLE IF NOT EXISTS suscripciones_push (
     id SERIAL PRIMARY KEY,
-    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NULL, -- Si es un empleado (Caja/Cocina)
-    cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE NULL, -- Si es un cliente
+    usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NULL,
+    cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE NULL,
     suscripcion JSONB NOT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -205,7 +223,7 @@ CREATE TABLE IF NOT EXISTS compras_insumos (
 CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
-    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE NULL, -- Acepta nulos para usar sub-recetas
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE NULL,
     sub_producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE NULL,
     cantidad_usada DECIMAL(10,2) NOT NULL 
 );
@@ -218,6 +236,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     numero_pedido INT NOT NULL,
     cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
     chef_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL, 
+    repartidor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
     origen VARCHAR(20) DEFAULT 'Web',
     tipo_consumo VARCHAR(20), 
     direccion_entrega TEXT,
@@ -236,12 +255,20 @@ CREATE TABLE IF NOT EXISTS pedidos (
     estado_preparacion VARCHAR(50) DEFAULT 'Pendiente', 
     tiempo_inicio_preparacion TIMESTAMP, 
     tiempo_listo TIMESTAMP, 
+    tiempo_salida_reparto TIMESTAMP,
+    tiempo_entregado TIMESTAMP,
     alerta_cocina TEXT DEFAULT NULL,
     
     mesa VARCHAR(50) DEFAULT NULL,
     
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 🛡️ BLINDAJE: Repartidores y tiempos en pedidos
+ALTER TABLE pedidos 
+ADD COLUMN IF NOT EXISTS repartidor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+ADD COLUMN IF NOT EXISTS tiempo_salida_reparto TIMESTAMP,
+ADD COLUMN IF NOT EXISTS tiempo_entregado TIMESTAMP;
 
 -- ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
 CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
@@ -254,7 +281,7 @@ CREATE TABLE IF NOT EXISTS detalle_pedidos (
     extras JSONB
 );
 
--- 🆕 TABLA: HISTÓRICO DE CORTES (BLINDAJE DE AUDITORÍA Y CIERRES DE TURNO)
+-- TABLA: HISTÓRICO DE CORTES (BLINDAJE DE AUDITORÍA Y CIERRES DE TURNO)
 CREATE TABLE IF NOT EXISTS historico_cortes (
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -269,7 +296,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     total_transferencia DECIMAL(10,2) NOT NULL,
     total_gastos DECIMAL(10,2) NOT NULL,
     efectivo_cajon DECIMAL(10,2) NOT NULL,
-    pedidos_incluidos JSONB NOT NULL, -- Matriz indexada de IDs de pedidos auditados
+    pedidos_incluidos JSONB NOT NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

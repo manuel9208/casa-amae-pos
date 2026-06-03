@@ -32,7 +32,7 @@ const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos }
   }, [cargarDatos]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in pb-12">
+    <div className="max-w-[1400px] mx-auto space-y-8 animate-in fade-in pb-12 px-4">
       <div className="flex items-center gap-3 mb-2">
         <div className="bg-orange-100 text-orange-600 p-3 rounded-2xl"><Gift size={28}/></div>
         <div>

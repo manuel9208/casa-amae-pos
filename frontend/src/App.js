@@ -4,7 +4,7 @@ import Caja from './components/Caja';
 import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV'; 
-import Repartidor from './components/Repartidor'; // 🆕 NUEVO IMPORT: Pantalla Raíz del Conductor
+import Repartidor from './components/Repartidor'; 
 import { suscribirANotificaciones } from './pushManager'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -16,10 +16,6 @@ const App = () => {
   const [modoInvitado, setModoInvitado] = useState(false);
   const [vistaAdmin, setVistaAdmin] = useState('panel'); 
   const [vistaTV, setVistaTV] = useState(false); 
-  
-  const [vistaCaja, setVistaCaja] = useState('caja'); 
-  const [clienteCajero, setClienteCajero] = useState(null); 
-  const [ordenCajero, setOrdenCajero] = useState(null); 
 
   const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
@@ -36,90 +32,55 @@ const App = () => {
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b' 
   });
 
-  const getImageUrl = (url) => {
+  const getImageUrl = (url) => { /* ... Intacto ... */
     if (!url) return '';
     const strUrl = String(url).trim();
-
     if (strUrl.includes('cloudinary.com')) {
       const match = strUrl.match(/res\.cloudinary\.com\/(.+)/);
-      if (match && match[1]) {
-        return `https://res.cloudinary.com/${match[1]}`;
-      }
+      if (match && match[1]) return `https://res.cloudinary.com/${match[1]}`;
     }
-
     const lastHttp = strUrl.lastIndexOf('http');
     if (lastHttp > 0) return strUrl.substring(lastHttp);
-    
     if (strUrl.startsWith('http')) return strUrl;
-    
     return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
-  const iniciarSesionPersistente = (tipo, data) => {
+  const iniciarSesionPersistente = (tipo, data) => { /* ... Intacto ... */
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
-    
-    if (tipo === 'empleado') {
-        setUsuarioActivo(data);
-        suscribirANotificaciones(data.id, null); 
-    }
-    if (tipo === 'cliente') {
-        setClienteActivo(data);
-        suscribirANotificaciones(null, data.id); 
-    }
+    if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
+    if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
   };
 
-  useEffect(() => {
+  useEffect(() => { /* ... Intacto ... */
     if (!localStorage.getItem('pos_device_id')) localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
     const sesionGuardada = localStorage.getItem('pos_sesion');
-    
     if (sesionGuardada) {
       try {
         const { tipo, data, expiracion } = JSON.parse(sesionGuardada);
         if (new Date().getTime() < expiracion) {
-          if (tipo === 'empleado') {
-              setUsuarioActivo(data);
-              suscribirANotificaciones(data.id, null); 
-          }
-          if (tipo === 'cliente') {
-              setClienteActivo(data);
-              suscribirANotificaciones(null, data.id); 
-          }
-        } else { 
-            localStorage.removeItem('pos_sesion'); 
-        }
+          if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
+          if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
+        } else { localStorage.removeItem('pos_sesion'); }
       } catch(e) {}
     }
-    
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { 
       if(data) {
         setConfigGlobal(data); 
-        
         if (data.logo_url) {
             const iconUrl = getImageUrl(data.logo_url);
-            
             let linkFavicon = document.querySelector("link[rel~='icon']");
-            if (!linkFavicon) {
-                linkFavicon = document.createElement('link');
-                linkFavicon.rel = 'icon';
-                document.head.appendChild(linkFavicon);
-            }
+            if (!linkFavicon) { linkFavicon = document.createElement('link'); linkFavicon.rel = 'icon'; document.head.appendChild(linkFavicon); }
             linkFavicon.href = iconUrl;
-
             let linkApple = document.querySelector("link[rel='apple-touch-icon']");
-            if (!linkApple) {
-                linkApple = document.createElement('link');
-                linkApple.rel = 'apple-touch-icon';
-                document.head.appendChild(linkApple);
-            }
+            if (!linkApple) { linkApple = document.createElement('link'); linkApple.rel = 'apple-touch-icon'; document.head.appendChild(linkApple); }
             linkApple.href = iconUrl;
         }
       }
     }).catch(console.error);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleIdentificar = async (e) => {
+  const handleIdentificar = async (e) => { /* ... Intacto ... */
     e.preventDefault(); setError('');
     if (telefono.length !== 10) return setError('El número debe tener exactamente 10 dígitos.');
     try {
@@ -134,7 +95,7 @@ const App = () => {
     } catch (err) { setError('Error de conexión'); }
   };
 
-  const handleLoginEmpleado = async (e) => {
+  const handleLoginEmpleado = async (e) => { /* ... Intacto ... */
     e.preventDefault(); setError('');
     const dispositivo_id = localStorage.getItem('pos_device_id');
     try {
@@ -144,7 +105,7 @@ const App = () => {
     } catch (err) { setError('Error de conexión'); }
   };
 
-  const handleRegistro = async (e) => {
+  const handleRegistro = async (e) => { /* ... Intacto ... */
     e.preventDefault();
     if(!nombreNuevo.trim() || !apellidoNuevo.trim() || nipNuevo.length !== 4) return setError("Nombre, Apellido y NIP (4) son obligatorios.");
     try {
@@ -154,15 +115,14 @@ const App = () => {
     } catch (err) { setError('Error de conexión'); }
   };
 
-  const cerrarSesion = async () => {
+  const cerrarSesion = async () => { /* ... Intacto ... */
     if (usuarioActivo) { try { await fetch(`${apiUrl}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario_id: usuarioActivo.id }) }); } catch (error) {} }
     localStorage.removeItem('pos_sesion'); 
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); 
-    setVistaCaja('caja'); setClienteCajero(null); setOrdenCajero(null); 
     setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
   };
 
-  const inyectarEstilos = () => {
+  const inyectarEstilos = () => { /* ... Intacto ... */
     const cPrimario = configGlobal.color_primario || '#2563eb';
     const cSecundario = configGlobal.color_secundario || '#10b981';
     const cFondo = configGlobal.color_fondo || '#f1f5f9';
@@ -175,35 +135,20 @@ const App = () => {
 
     return `
       @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Montserrat:wght@400;500;700;900&family=Playfair+Display:wght@700;900&family=Poppins:wght@400;700;900&display=swap');
-      
-      :root {
-        --c-primario: ${cPrimario};
-        --c-secundario: ${cSecundario};
-        --c-fondo: ${cFondo};
-        --c-tarjetas: ${cTarjetas};
-        --c-texto-prin: ${cTextoPrin};
-        --c-texto-sec: ${cTextoSec};
-        --c-texto-kiosco: ${cTextoKiosco};
-        --f-titulos: ${fTitulos};
-        --f-textos: ${fTextos};
-      }
-
+      :root { --c-primario: ${cPrimario}; --c-secundario: ${cSecundario}; --c-fondo: ${cFondo}; --c-tarjetas: ${cTarjetas}; --c-texto-prin: ${cTextoPrin}; --c-texto-sec: ${cTextoSec}; --c-texto-kiosco: ${cTextoKiosco}; --f-titulos: ${fTitulos}; --f-textos: ${fTextos}; }
       body, .font-sans, p, span, input, button, select, textarea { font-family: var(--f-textos) !important; }
       h1, h2, h3, h4, h5, h6, .font-black { font-family: var(--f-titulos) !important; }
-
       .bg-blue-600 { background-color: var(--c-primario) !important; }
       .text-blue-600 { color: var(--c-primario) !important; }
       .border-blue-600, .border-blue-500 { border-color: var(--c-primario) !important; }
       .hover\\:bg-blue-700:hover { background-color: color-mix(in srgb, var(--c-primario) 80%, black) !important; }
       .bg-blue-50 { background-color: color-mix(in srgb, var(--c-primario) 8%, white) !important; border-color: color-mix(in srgb, var(--c-primario) 20%, white) !important;}
       .focus\\:border-blue-500:focus, .focus\\:ring-blue-500:focus { border-color: var(--c-primario) !important; --tw-ring-color: var(--tw-ring-color) !important; }
-
       .bg-emerald-500, .bg-emerald-600 { background-color: var(--c-secundario) !important; }
       .text-emerald-500, .text-emerald-600 { color: var(--c-secundario) !important; }
       .border-emerald-500 { border-color: var(--c-secundario) !important; }
       .hover\\:bg-emerald-600:hover { background-color: color-mix(in srgb, var(--c-secundario) 80%, black) !important; }
       .bg-emerald-50, .bg-emerald-100 { background-color: color-mix(in srgb, var(--c-secundario) 8%, white) !important; border-color: color-mix(in srgb, var(--c-secundario) 20%, white) !important;}
-
       .tema-cliente { background-color: var(--c-fondo) !important; min-height: 100vh; }
       .tema-cliente .bg-slate-100, .tema-cliente .bg-gray-50 { background-color: var(--c-fondo) !important; }
       .tema-cliente .bg-white { background-color: var(--c-tarjetas) !important; border-color: color-mix(in srgb, var(--c-texto-prin) 10%, transparent) !important; }
@@ -226,19 +171,13 @@ const App = () => {
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
     }
     
+    // 👇 ADIÓS COMPLEJIDAD DEL KIOSCO EN LA CAJA. LA CAJA AHORA VIVE SOLA CON SU MODAL.
     if (usuarioActivo.rol === 'cajero') {
-      if (vistaCaja === 'kiosco') {
-         return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={clienteCajero} ordenExterna={ordenCajero} onVolverAdmin={() => { setVistaCaja('caja'); setClienteCajero(null); setOrdenCajero(null); }} onLogout={cerrarSesion} /></div></>;
-      }
-      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={(cliente, orden) => { setClienteCajero(cliente || null); setOrdenCajero(orden || null); setVistaCaja('kiosco'); }} /></>;
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} /></>;
     }
 
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
-
-    // 🆕 NUEVO CANAL CONDICIONAL: Interfaz Táctil de Repartidor
-    if (usuarioActivo.rol === 'repartidor') {
-      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
-    }
+    if (usuarioActivo.rol === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
   }
 
   if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;
@@ -250,19 +189,13 @@ const App = () => {
         <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-lg w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
-            
             {configGlobal.logo_url ? (    
               <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
-                <img 
-                   src={getImageUrl(configGlobal.logo_url)} 
-                   alt="Logo" 
-                   className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" 
-                />
+                <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" />
               </div>
             ) : (    
               <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30">🍔</div>
             )}
-            
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
             <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
 

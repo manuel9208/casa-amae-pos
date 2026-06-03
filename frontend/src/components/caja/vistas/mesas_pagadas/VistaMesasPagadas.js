@@ -10,16 +10,15 @@ const VistaMesasPagadas = ({
   renderBotonVerDetalle,
   renderBotonEditar,
   renderBotonAgregarExtra,
-  liberarMesaMagicamente,
   apiUrl
 }) => {
   return (
     <>
-      <h2 className="text-4xl font-black mb-10 text-slate-800">Mesas Pagadas (Listas para Limpiar)</h2>
+      <h2 className="text-4xl font-black mb-10 text-slate-800">Cuentas Pagadas (Locales)</h2>
       {mesasPagadas.length === 0 ? (
         <div className="text-center text-slate-400 mt-20">
           <CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/>
-          <p className="text-2xl font-bold">No hay mesas pendientes por limpiar.</p>
+          <p className="text-2xl font-bold">No hay clientes comiendo en local actualmente.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
@@ -49,9 +48,13 @@ const VistaMesasPagadas = ({
                           <Phone size={12}/> {tel}
                       </a>
                   )}
-                  {p.mesa && (
+                  {p.mesa ? (
                       <span className="text-xs font-black text-indigo-600 bg-indigo-100 border border-indigo-200 px-2 py-1 rounded-md flex items-center gap-1">
                           📍 MESA {p.mesa}
+                      </span>
+                  ) : (
+                      <span className="text-xs font-black text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
+                          📍 LOCAL / BARRA
                       </span>
                   )}
               </div>
@@ -63,7 +66,7 @@ const VistaMesasPagadas = ({
               </div>
               
               <div className="mb-4 bg-orange-50 text-orange-700 text-xs font-black p-2.5 rounded-lg border border-orange-200 flex items-center gap-2 shadow-inner">
-                 <Utensils size={16}/> Comiendo en Mesa
+                 <Utensils size={16}/> Comiendo en Local
               </div>
 
               <div className="mb-4 flex flex-col gap-3">
@@ -91,13 +94,15 @@ const VistaMesasPagadas = ({
                                body: JSON.stringify({ 
                                    estado_preparacion: 'Finalizado',
                                    carrito: nuevoCarrito,
-                                   mesa: null 
+                                   mesa: p.mesa || null
                                }) 
                            });
+                           
+                           // 👇 Fuerza el refresco visual para que la tarjeta desaparezca instantáneamente
+                           setTimeout(() => {
+                               window.location.reload();
+                           }, 300);
 
-                           if (p.mesa) {
-                               await liberarMesaMagicamente(p.mesa);
-                           }
                        } catch(e) {
                            console.error("Error en flujo de liberación:", e);
                        }
@@ -105,7 +110,9 @@ const VistaMesasPagadas = ({
                    }} 
                    className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50"
                 >
-                    {limpiandoMesas ? 'Liberando...' : <><CheckCircle2 size={24}/> Limpiar y Liberar Mesa</>}
+                    {limpiandoMesas ? 'Procesando...' : (
+                        <><CheckCircle2 size={24}/> {p.mesa ? 'Limpiar y Liberar Mesa' : 'Finalizar Servicio Local'}</>
+                    )}
                 </button>
               </div>
             </div>
