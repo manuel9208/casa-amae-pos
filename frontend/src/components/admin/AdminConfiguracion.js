@@ -59,7 +59,6 @@ const AdminConfiguracion = ({
 
     const formData = new FormData();
     
-    // Filtramos las llaves manuales para no duplicarlas (Incluimos cocina_en_caja_activa)
     const llavesManuales = [
       'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos', 
       'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
@@ -68,14 +67,15 @@ const AdminConfiguracion = ({
 
     Object.keys(configGlobal).forEach(key => {
       if (!llavesManuales.includes(key)) {
-         formData.append(key, configGlobal[key]);
+         // 👇 BLINDAJE 4: Nunca enviar "null" o "undefined" como texto literal
+         let val = configGlobal[key];
+         if (val === null || val === undefined) val = '';
+         formData.append(key, val);
       }
     });
     
-    // 👇 INYECCIÓN MANUAL ESTRICTA
     formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
     
-    // Booleanos como String Puro
     const isBloqueoActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
     const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';
     
@@ -83,13 +83,12 @@ const AdminConfiguracion = ({
     formData.append('bloqueo_caja_segundos', configGlobal.bloqueo_caja_segundos || 30);
     formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');
     
-    // Comedor
     formData.append('comedor_limite', configGlobal.comedor_limite || 'ambos');
     formData.append('comedor_clasif_bebidas', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_bebidas)));
     formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));
     
-    // Matriz Limpieza (Para que no se borre al guardar aquí)
-    const matrizL = configGlobal.matriz_limpieza || '{}';
+    let matrizL = configGlobal.matriz_limpieza || '{}';
+    if (matrizL === '') matrizL = '{}';
     formData.append('matriz_limpieza', typeof matrizL === 'string' ? matrizL : JSON.stringify(matrizL));
 
     if (logoBlob) formData.append('logo', logoBlob);
@@ -130,7 +129,8 @@ const AdminConfiguracion = ({
         puntos_porcentaje: 10, puntos_valor_peso: 1.00, puntos_activos: true, puntos_canje_activo: true,
         bloqueo_caja_activo: false, bloqueo_caja_segundos: 30,
         cocina_en_caja_activa: false,
-        comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]'
+        comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]',
+        matriz_limpieza: '{}'
       });
       setTarifasEnvio([]);
       setTvVideoBlob(null);

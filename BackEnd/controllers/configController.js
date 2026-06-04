@@ -17,46 +17,28 @@ const borrarDeCloudinary = (urlVieja) => {
   if (publicId) { cloudinary.uploader.destroy(publicId).catch(err => {}); }
 };
 
-const asegurarEstructuraBaseDatos = async () => {
-  try {
-    await db.query(`
-      ALTER TABLE configuracion 
-      ADD COLUMN IF NOT EXISTS puntos_porcentaje INTEGER DEFAULT 10,
-      ADD COLUMN IF NOT EXISTS puntos_valor_peso DECIMAL(10,2) DEFAULT 1.00,
-      ADD COLUMN IF NOT EXISTS puntos_activos BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS puntos_canje_activo BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS bloqueo_caja_activo BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS bloqueo_caja_segundos INTEGER DEFAULT 30,
-      ADD COLUMN IF NOT EXISTS comedor_limite VARCHAR(20) DEFAULT 'ambos',
-      ADD COLUMN IF NOT EXISTS comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
-      ADD COLUMN IF NOT EXISTS comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
-      ADD COLUMN IF NOT EXISTS matriz_limpieza JSONB DEFAULT '{}'::jsonb,
-      ADD COLUMN IF NOT EXISTS cocina_en_caja_activa BOOLEAN DEFAULT false;
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS cupones (
-        id SERIAL PRIMARY KEY,
-        codigo VARCHAR(20) UNIQUE NOT NULL,
-        tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('porcentaje', 'fijo')),
-        valor DECIMAL(10,2) NOT NULL,
-        limite_usos INTEGER DEFAULT NULL,
-        usos_actuales INTEGER DEFAULT 0,
-        fecha_vencimiento TIMESTAMP DEFAULT NULL,
-        activo BOOLEAN DEFAULT true,
-        fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-  } catch (error) {}
-};
-asegurarEstructuraBaseDatos();
-
-
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM configuracion WHERE id = 1');
-    res.json(result.rows[0] || {});
+    let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    
+    // BLINDAJE 1: Si no hay fila de configuración, la creamos por defecto
+    if (result.rows.length === 0) {
+        await db.query("INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING");
+        result = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    }
+
+    let config = result.rows[0] || {};
+
+    // BLINDAJE 2: Convertimos los NULLs en textos vacíos para que el Frontend (React) no colapse
+    for (let key in config) {
+        if (config[key] === null) {
+            config[key] = '';
+        }
+    }
+
+    res.json(config);
   } catch (error) {
+    console.error("Error al obtener config:", error);
     res.status(500).json({ error: 'Error al obtener configuración' });
   }
 };
@@ -78,7 +60,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     
     bloqueo_caja_activo, bloqueo_caja_segundos,
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
-    cocina_en_caja_activa // 👈 NUEVA VARIABLE
+    cocina_en_caja_activa 
   } = req.body;
   
   let configActual = {};
@@ -107,18 +89,19 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
   
   const isBloqueoCajaActivo = bloqueo_caja_activo === 'true' || bloqueo_caja_activo === true;
-  const isCocinaCajaActiva = cocina_en_caja_activa === 'true' || cocina_en_caja_activa === true; // 👈 PARSEO BOOLEANO
+  const isCocinaCajaActiva = cocina_en_caja_activa === 'true' || cocina_en_caja_activa === true; 
 
   const segundosSeguros = bloqueo_caja_segundos !== undefined ? Number(bloqueo_caja_segundos) : 30;
   const limiteComedorSeguro = comedor_limite || 'ambos';
   const porcentajeSeguro = puntos_porcentaje !== undefined ? Number(puntos_porcentaje) : 10;
   const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
 
+  // BLINDAJE 3: Evitar que textos vacíos se intenten guardar como JSON inválido
   let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}';
-  try { tarifasParsed = typeof tarifas_envio === 'string' ? tarifas_envio : JSON.stringify(tarifas_envio || []); } catch (e) {}
-  try { bebidasParsed = typeof comedor_clasif_bebidas === 'string' ? comedor_clasif_bebidas : JSON.stringify(comedor_clasif_bebidas || []); } catch (e) {}
-  try { platillosParsed = typeof comedor_clasif_platillos === 'string' ? comedor_clasif_platillos : JSON.stringify(comedor_clasif_platillos || []); } catch (e) {}
-  try { matrizParsed = typeof matriz_limpieza === 'string' ? matriz_limpieza : JSON.stringify(matriz_limpieza || {}); } catch (e) {}
+  try { tarifasParsed = (tarifas_envio && tarifas_envio !== '') ? (typeof tarifas_envio === 'string' ? tarifas_envio : JSON.stringify(tarifas_envio)) : '[]'; } catch (e) {}
+  try { bebidasParsed = (comedor_clasif_bebidas && comedor_clasif_bebidas !== '') ? (typeof comedor_clasif_bebidas === 'string' ? comedor_clasif_bebidas : JSON.stringify(comedor_clasif_bebidas)) : '[]'; } catch (e) {}
+  try { platillosParsed = (comedor_clasif_platillos && comedor_clasif_platillos !== '') ? (typeof comedor_clasif_platillos === 'string' ? comedor_clasif_platillos : JSON.stringify(comedor_clasif_platillos)) : '[]'; } catch (e) {}
+  try { matrizParsed = (matriz_limpieza && matriz_limpieza !== '') ? (typeof matriz_limpieza === 'string' ? matriz_limpieza : JSON.stringify(matriz_limpieza)) : '{}'; } catch (e) {}
 
   try {
     await db.query(`

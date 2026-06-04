@@ -24,7 +24,7 @@ const CostosEnvio = ({ configGlobal, setConfigGlobal, tarifasEnvio, setTarifasEn
             {tarifasEnvio.length === 0 && <p className="text-sm font-bold text-slate-400">No hay zonas configuradas. El envío a domicilio no tendrá costo extra.</p>}
             
             {tarifasEnvio.map((tarifa, index) => (
-              <div key={index} className="flex flex-col md:flex-row gap-2 items-center bg-white p-3 rounded-xl border border-purple-100">
+              <div key={index} className="flex flex-col md:flex-row gap-2 items-center bg-white p-3 rounded-xl border border-purple-100 animate-in fade-in">
                 <input 
                   disabled={isSubmitting}
                   type="text" 
@@ -42,10 +42,12 @@ const CostosEnvio = ({ configGlobal, setConfigGlobal, tarifasEnvio, setTarifasEn
                   <span className="absolute left-3 top-3 text-slate-400 font-bold">$</span>
                   <input 
                     disabled={isSubmitting}
-                    type="number" min="0" placeholder="Costo" value={tarifa.costo} 
+                    type="number" min="0" placeholder="Costo" 
+                    value={tarifa.costo} 
                     onChange={(e) => {
                       const nuevas = [...tarifasEnvio];
-                      nuevas[index].costo = Number(e.target.value);
+                      // 👇 CORRECCIÓN: Si está vacío, lo dejamos vacío para que puedas borrar a gusto
+                      nuevas[index].costo = e.target.value === '' ? '' : Number(e.target.value);
                       setTarifasEnvio(nuevas);
                     }} 
                     className="w-full p-3 pl-8 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" 
@@ -63,7 +65,9 @@ const CostosEnvio = ({ configGlobal, setConfigGlobal, tarifasEnvio, setTarifasEn
           </div>
 
           <button 
-            disabled={isSubmitting} type="button" onClick={() => setTarifasEnvio([...tarifasEnvio, { zona: '', costo: 0 }])} 
+            disabled={isSubmitting} type="button" 
+            // 👇 CORRECCIÓN: Nace con texto vacío en lugar de 0 para mostrar el placeholder
+            onClick={() => setTarifasEnvio([...tarifasEnvio, { zona: '', costo: '' }])} 
             className="bg-purple-100 text-purple-700 font-bold px-4 py-3 rounded-xl text-sm hover:bg-purple-200 transition flex items-center gap-2 disabled:opacity-50"
           >
             ➕ Agregar Nueva Zona
