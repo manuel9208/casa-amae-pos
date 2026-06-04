@@ -27,6 +27,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           vistaActiva={c.vistaActiva} setVistaActiva={c.setVistaActiva} pedidosPorConfirmar={c.pedidosPorConfirmar}
           pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas} 
           setModalCompraRapida={c.setModalCompraRapida} abrirIdentificador={c.abrirIdentificador} 
+          pedidosEnReparto={c.pedidosEnReparto}
         />
 
         <main className="flex-1 overflow-y-auto">
@@ -36,6 +37,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             vistaActiva={c.vistaActiva} subVistaHistorial={c.subVistaHistorial} setSubVistaHistorial={c.setSubVistaHistorial}
             pedidos={c.pedidos} mesas={c.mesas} pedidosConAlerta={c.pedidosConAlerta} pedidosPorConfirmar={c.pedidosPorConfirmar}
             pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas} 
+            pedidosEnReparto={c.pedidosEnReparto}
             fondoCaja={c.fondoCaja} configGlobal={c.configGlobal} gastosDia={c.gastosDia} abrirModalResolver={c.abrirModalResolver}
             limpiarAlerta={c.limpiarAlerta} setModalPago={c.setModalPago} setMontoRecibido={c.setMontoRecibido}
             actualizarEstadoPedido={c.actualizarEstadoPedido} confirmarPedidoRecoger={c.confirmarPedidoRecoger}

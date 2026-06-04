@@ -1,10 +1,10 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle, Map, ChefHat } from 'lucide-react'; 
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle, Map, ChefHat, Bike } from 'lucide-react'; 
 
 const TopNavCaja = ({ 
   user, onLogout, configGlobal, toggleEstadoNegocio, 
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
-  mesasPagadas, setModalCompraRapida, abrirIdentificador
+  mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto
 }) => {
   
   // 👇 EVALUACIÓN DE PERMISOS DEL OPERADOR ACTUAL
@@ -96,6 +96,11 @@ const TopNavCaja = ({
 
             <button onClick={() => setVistaActiva('entregas')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${vistaActiva === 'entregas' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                <Monitor size={18}/> Entregas {listosParaEntregar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md">{listosParaEntregar.length}</span>}
+            </button>
+
+            {/* 👇 NUEVA PESTAÑA DE REPARTOS AQUÍ */}
+            <button onClick={() => setVistaActiva('liquidacion_reparto')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${vistaActiva === 'liquidacion_reparto' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-pink-600 border border-pink-200 hover:bg-pink-50'}`}>
+               <Bike size={18}/> Por Liquidar 🛵 {pedidosEnReparto && pedidosEnReparto.length > 0 && <span className="bg-pink-500 text-white px-1.5 rounded-md shadow-sm">{pedidosEnReparto.length}</span>}
             </button>
 
             {/* PESTAÑA: KDS MINI */}

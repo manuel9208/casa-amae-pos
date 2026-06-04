@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CheckCircle2, Phone, Utensils } from 'lucide-react';
 
 const VistaMesasPagadas = ({
@@ -12,17 +12,23 @@ const VistaMesasPagadas = ({
   renderBotonAgregarExtra,
   apiUrl
 }) => {
+  // 👇 NUEVO: Estado local para ocultar la mesa al instante sin recargar la página
+  const [mesasOcultas, setMesasOcultas] = useState([]);
+
+  const mesasVisibles = mesasPagadas.filter(p => !mesasOcultas.includes(p.id));
+
   return (
-    <>
+    <div className="animate-in fade-in">
       <h2 className="text-4xl font-black mb-10 text-slate-800">Cuentas Pagadas (Locales)</h2>
-      {mesasPagadas.length === 0 ? (
-        <div className="text-center text-slate-400 mt-20">
+      
+      {mesasVisibles.length === 0 ? (
+        <div className="text-center text-slate-400 mt-20 animate-in zoom-in-95">
           <CheckCircle2 size={64} className="mx-auto mb-4 opacity-30"/>
           <p className="text-2xl font-bold">No hay clientes comiendo en local actualmente.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-          {mesasPagadas.map(p => {
+          {mesasVisibles.map(p => {
             let direccionPura = '';
             const tel = getTelefonoExtraido(p);
             const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
@@ -98,10 +104,8 @@ const VistaMesasPagadas = ({
                                }) 
                            });
                            
-                           // 👇 Fuerza el refresco visual para que la tarjeta desaparezca instantáneamente
-                           setTimeout(() => {
-                               window.location.reload();
-                           }, 300);
+                           // 👇 Oculta la tarjeta suavemente al instante sin recargar la página entera
+                           setMesasOcultas(prev => [...prev, p.id]);
 
                        } catch(e) {
                            console.error("Error en flujo de liberación:", e);
@@ -119,7 +123,7 @@ const VistaMesasPagadas = ({
           )})}
         </div>
       )}
-    </>
+    </div>
   );
 };
 

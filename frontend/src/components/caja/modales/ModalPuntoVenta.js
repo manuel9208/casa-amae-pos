@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, ShoppingBag, ChefHat, Delete } from 'lucide-react';
+import { XCircle, ShoppingBag, ChefHat, Delete, Tag } from 'lucide-react';
 import CategoriasGrid from '../../kiosco/menu/CategoriasGrid';
 import ProductosGrid from '../../kiosco/menu/ProductosGrid';
 import ModalPersonalizar from '../../kiosco/ModalPersonalizar';
@@ -19,6 +19,11 @@ const ModalPuntoVenta = ({
   const [tipoConsumo, setTipoConsumo] = useState('Local');
   const [notaOpcional, setNotaOpcional] = useState(''); 
   const [mesaSeleccionada, setMesaSeleccionada] = useState(''); 
+  const [zonaEnvioCosto, setZonaEnvioCosto] = useState(''); 
+
+  const [cuponInput, setCuponInput] = useState('');
+  const [cuponActivo, setCuponActivo] = useState(null);
+  const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
 
   const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
 
@@ -31,6 +36,10 @@ const ModalPuntoVenta = ({
   const [pinEmpleado, setPinEmpleado] = useState('');
   const [errorComedor, setErrorComedor] = useState('');
 
+  const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string' 
+      ? JSON.parse(configGlobal.tarifas_envio || '[]') 
+      : (configGlobal?.tarifas_envio || []);
+
   useEffect(() => {
     if (modalPuntoVenta) {
       if (ordenEditandoRapida) {
@@ -39,6 +48,11 @@ const ModalPuntoVenta = ({
          setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
          setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
          setMesaSeleccionada(ordenEditandoRapida.mesa || '');
+         setZonaEnvioCosto(ordenEditandoRapida.costo_envio || ''); 
+         setCuponInput(ordenEditandoRapida.cupon_codigo || '');
+         setCuponActivo(null);
+         setMsgCupon({texto: '', tipo: ''});
+
          let dirPura = ordenEditandoRapida.direccion_entrega || '';
          if (ordenEditandoRapida.tipo_consumo === 'Domicilio' && dirPura.includes('|')) dirPura = dirPura.split('|')[0].trim();
          setNotaOpcional(dirPura);
@@ -47,7 +61,8 @@ const ModalPuntoVenta = ({
       } else {
          setPaso('identificar'); setCarrito([]); setTelefonoCliente(''); setClienteAsignado(null);
          setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional(''); setErrorMsg('');
-         setMesaSeleccionada(''); setModoComedor(false); setPinEmpleado(''); setErrorComedor('');
+         setMesaSeleccionada(''); setZonaEnvioCosto(''); setModoComedor(false); setPinEmpleado(''); setErrorComedor('');
+         setCuponInput(''); setCuponActivo(null); setMsgCupon({texto: '', tipo: ''});
          setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
       }
     }
@@ -55,7 +70,18 @@ const ModalPuntoVenta = ({
 
   if (!modalPuntoVenta) return null;
 
-  const calcularTotal = () => carrito.reduce((t, i) => t + ((i.precioFinal || 0) * (i.cantidad || 1)), 0);
+  const calcularSubtotal = () => carrito.reduce((t, i) => t + ((i.precioFinal || 0) * (i.cantidad || 1)), 0);
+  const subtotal = calcularSubtotal();
+  
+  let descuento = 0;
+  if (cuponActivo) {
+      if (cuponActivo.tipo === 'porcentaje') descuento = subtotal * (Number(cuponActivo.valor) / 100);
+      else if (cuponActivo.tipo === 'dinero') descuento = Number(cuponActivo.valor);
+  }
+  if (descuento > subtotal) descuento = subtotal; 
+
+  const totalConEnvio = (subtotal - descuento) + (zonaEnvioCosto ? Number(zonaEnvioCosto) : 0); 
+
   const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
   const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
 
@@ -95,6 +121,30 @@ const ModalPuntoVenta = ({
     setIsSubmitting(false);
   };
 
+  const aplicarCupon = async (e) => {
+    e.preventDefault();
+    if(!cuponInput.trim()) return;
+    setMsgCupon({ texto: 'Verificando...', tipo: 'info' });
+    try {
+        const res = await fetch(`${apiUrl}/cupones`);
+        const data = await res.json();
+        if(Array.isArray(data)) {
+            const cup = data.find(c => c.codigo.toUpperCase() === cuponInput.trim().toUpperCase());
+            if(!cup) return setMsgCupon({ texto: 'Cupón no encontrado.', tipo: 'error' });
+            if(!cup.activo) return setMsgCupon({ texto: 'El cupón está inactivo.', tipo: 'error' });
+            if(cup.fecha_expiracion && new Date(cup.fecha_expiracion) < new Date()) return setMsgCupon({ texto: 'El cupón ha expirado.', tipo: 'error' });
+            if(cup.limite_usos && cup.usos_actuales >= cup.limite_usos) return setMsgCupon({ texto: 'Límite de usos alcanzado.', tipo: 'error' });
+            
+            setCuponActivo(cup);
+            setMsgCupon({ texto: `¡Aplicado! -${cup.tipo === 'porcentaje' ? cup.valor + '%' : '$' + cup.valor}`, tipo: 'success' });
+        } else {
+            setMsgCupon({ texto: 'Error al cargar cupones.', tipo: 'error' });
+        }
+    } catch (err) {
+        setMsgCupon({ texto: 'Error de red.', tipo: 'error' });
+    }
+  };
+
   const generarPedidoBD = async (metodoAcelerado, empleadoComedor = null) => {
     if (carrito.length === 0 || isSubmitting) return;
     if (!empleadoComedor && !nombreOrden.trim()) return alert("El nombre del cliente es obligatorio."); 
@@ -106,11 +156,11 @@ const ModalPuntoVenta = ({
     let stringDireccion = notaOpcional;
     let tipoFinal = tipoConsumo;
     let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-    let totalFinal = calcularTotal();
+    
+    const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
 
-    // 👇 SOLUCIÓN: El empleado tomará automáticamente la etiqueta "A NOMBRE DE:" para que se vea su nombre
     if (empleadoComedor) {
-        tipoFinal = 'Local'; pagoFinal = 'Comida Personal'; totalFinal = 0;
+        tipoFinal = 'Local'; pagoFinal = 'Comida Personal';
         stringDireccion = `A NOMBRE DE: ${empleadoComedor.nombre} | COMEDOR (${empleadoComedor.rol})`;
     } else {
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
@@ -118,14 +168,24 @@ const ModalPuntoVenta = ({
     }
 
     let estadoInicial = ordenEditandoRapida ? ordenEditandoRapida.estado_preparacion : 'Pendiente';
-    if (metodoAcelerado === 'Cobrar Ahora' || empleadoComedor) estadoInicial = 'Pendiente'; 
-    if (empleadoComedor) estadoInicial = 'Pagado'; 
+    
+    if (empleadoComedor) {
+        estadoInicial = 'Pagado'; 
+    } else if (metodoAcelerado === 'Mandar a Cocina') {
+        estadoInicial = 'Pagado'; 
+    } else if (metodoAcelerado === 'Cobrar Ahora') {
+        estadoInicial = 'Pendiente'; 
+    }
 
     const paquete = { 
       cliente_id: empleadoComedor ? null : (clienteAsignado?.id || null), 
-      tipo_consumo: tipoFinal, metodo_pago: pagoFinal, total: totalFinal, carrito: carritoExpandido, 
+      tipo_consumo: tipoFinal, metodo_pago: pagoFinal, 
+      total: empleadoComedor ? 0 : totalConEnvio, 
+      costo_envio: costoEnvioFinal, 
+      carrito: carritoExpandido, 
       origen: 'Caja', direccion_entrega: stringDireccion, estado_preparacion: estadoInicial,
-      mesa: tipoFinal === 'Local' ? (mesaSeleccionada || null) : null 
+      mesa: tipoFinal === 'Local' ? (mesaSeleccionada || null) : null,
+      cupon_codigo: cuponActivo ? cuponActivo.codigo : null 
     };
 
     const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
@@ -173,6 +233,9 @@ const ModalPuntoVenta = ({
     
     generarPedidoBD('Mandar a Cocina', empleadoActivo);
   };
+
+  const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() || 
+                           (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === ''));
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
@@ -231,18 +294,64 @@ const ModalPuntoVenta = ({
                   <h3 className="text-2xl font-black text-slate-800 mb-4 flex items-center gap-2"><ShoppingBag className="text-blue-500"/> Orden en Curso</h3>
                   <div className="space-y-3">
                      <div className="grid grid-cols-2 gap-2">
-                        {['Local', 'Para llevar', 'Domicilio', 'Recoger'].map(t => <button key={t} onClick={() => setTipoConsumo(t)} className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider ${tipoConsumo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{t}</button>)}
+                        {['Local', 'Para llevar', 'Domicilio', 'Recoger'].map(t => <button key={t} onClick={() => { setTipoConsumo(t); setZonaEnvioCosto(''); }} className={`py-2 rounded-xl text-xs font-black uppercase tracking-wider ${tipoConsumo === t ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{t}</button>)}
                      </div>
                      <input type="text" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} placeholder="Nombre del Cliente (Obligatorio) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none ${!nombreOrden.trim() ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
                      
+                     {/* 👇 LÓGICA CORREGIDA PARA FILTRAR MESAS OCUPADAS */}
                      {tipoConsumo === 'Local' && mesas && mesas.length > 0 && (
-                        <select value={mesaSeleccionada} onChange={e => setMesaSeleccionada(e.target.value)} className="w-full bg-blue-50 text-blue-800 border border-blue-200 rounded-xl p-3 text-sm font-bold outline-none cursor-pointer">
+                        <select 
+                           value={mesaSeleccionada} 
+                           onChange={e => setMesaSeleccionada(e.target.value)} 
+                           className="w-full bg-blue-50 text-blue-800 border border-blue-200 rounded-xl p-3 text-sm font-bold outline-none cursor-pointer"
+                        >
                            <option value="">-- Asignación Libre / Barra --</option>
-                           {mesas.map(m => <option key={m.id} value={m.numero_mesa}>Mesa {m.numero_mesa}</option>)}
+                           {mesas
+                             .filter(m => m.estado === 'Libre' || (ordenEditandoRapida && m.numero_mesa === ordenEditandoRapida.mesa))
+                             .map(m => (
+                               <option key={m.id} value={m.numero_mesa}>
+                                  {String(m.numero_mesa).toLowerCase().startsWith('mesa') ? m.numero_mesa : `Mesa ${m.numero_mesa}`}
+                               </option>
+                             ))
+                           }
                         </select>
                      )}
 
-                     {['Domicilio', 'Recoger'].includes(tipoConsumo) && <textarea value={notaOpcional} onChange={e => setNotaOpcional(e.target.value)} placeholder={tipoConsumo === 'Domicilio' ? 'Dirección obligatoria...' : 'Placas, notas...'} className="w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none h-12 resize-none" />}
+                     {['Domicilio', 'Recoger'].includes(tipoConsumo) && (
+                        <textarea value={notaOpcional} onChange={e => setNotaOpcional(e.target.value)} placeholder={tipoConsumo === 'Domicilio' ? 'Dirección completa o enlaces *' : 'Placas, notas...'} className="w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none h-12 resize-none border-slate-200 focus:border-blue-500" />
+                     )}
+
+                     {tipoConsumo === 'Domicilio' && (
+                        <select value={zonaEnvioCosto} onChange={e => setZonaEnvioCosto(e.target.value)} className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none cursor-pointer ${zonaEnvioCosto === '' ? 'border-red-200 text-red-500 focus:border-red-400' : 'border-emerald-200 text-emerald-700'}`}>
+                           <option value="">-- Selecciona la Zona de Envío * --</option>
+                           {tarifasEnvio.map((t, i) => (
+                              <option key={i} value={t.costo}>{t.zona} (+${t.costo})</option>
+                           ))}
+                        </select>
+                     )}
+
+                     <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                           <Tag size={16} className="absolute left-3 top-3.5 text-slate-400" />
+                           <input 
+                             type="text" 
+                             placeholder="Cupón de Descuento" 
+                             value={cuponInput} 
+                             onChange={(e) => { setCuponInput(e.target.value.toUpperCase()); setMsgCupon({texto:'', tipo:''}); }}
+                             className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-9 pr-3 text-sm font-bold outline-none uppercase focus:border-blue-500"
+                             disabled={cuponActivo !== null || isSubmitting}
+                           />
+                        </div>
+                        {!cuponActivo ? (
+                          <button disabled={!cuponInput.trim() || isSubmitting} onClick={aplicarCupon} className="bg-slate-800 text-white px-5 py-3 rounded-xl font-bold text-xs uppercase hover:bg-slate-700 transition disabled:opacity-50">Aplicar</button>
+                        ) : (
+                          <button onClick={() => { setCuponActivo(null); setCuponInput(''); setMsgCupon({texto:'', tipo:''}); }} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl font-bold text-xs uppercase hover:bg-red-200 transition">Quitar</button>
+                        )}
+                     </div>
+                     {msgCupon.texto && (
+                        <p className={`text-[10px] font-bold px-1 ${msgCupon.tipo === 'error' ? 'text-red-500' : msgCupon.tipo === 'success' ? 'text-emerald-600' : 'text-slate-500'}`}>{msgCupon.texto}</p>
+                     )}
+
                   </div>
                </div>
 
@@ -261,11 +370,32 @@ const ModalPuntoVenta = ({
                </div>
 
                <div className="p-6 bg-white border-t border-slate-100 shrink-0 space-y-3">
-                  <div className="flex justify-between items-center mb-2"><span className="text-slate-400 font-black uppercase text-sm">Total:</span><span className="text-4xl font-black">${calcularTotal().toFixed(2)}</span></div>
+                  <div className="flex justify-between items-center mb-1">
+                     <span className="text-slate-400 font-bold uppercase text-xs">Subtotal:</span>
+                     <span className="text-lg font-black text-slate-600">${subtotal.toFixed(2)}</span>
+                  </div>
+                  {descuento > 0 && (
+                     <div className="flex justify-between items-center mb-1">
+                        <span className="text-emerald-500 font-bold uppercase text-xs">Descuento ({cuponActivo?.codigo}):</span>
+                        <span className="text-lg font-black text-emerald-600">-${descuento.toFixed(2)}</span>
+                     </div>
+                  )}
+                  {zonaEnvioCosto && (
+                     <div className="flex justify-between items-center mb-1">
+                        <span className="text-purple-500 font-bold uppercase text-xs">Costo de Envío:</span>
+                        <span className="text-lg font-black text-purple-600">+${Number(zonaEnvioCosto).toFixed(2)}</span>
+                     </div>
+                  )}
+                  
+                  <div className="flex justify-between items-center mb-3 pt-2 border-t border-slate-100">
+                     <span className="text-slate-800 font-black uppercase text-sm">Total a Pagar:</span>
+                     <span className="text-4xl font-black text-slate-800">${totalConEnvio.toFixed(2)}</span>
+                  </div>
+
                   {carrito.length > 0 && !ordenEditandoRapida && <button onClick={() => setModoComedor(true)} className="w-full bg-slate-100 text-slate-500 py-3 rounded-xl font-black text-xs uppercase flex items-center justify-center gap-2"><ChefHat size={16}/> Cobrar a Empleado ($0)</button>}
                   <div className="flex gap-3">
-                     <button disabled={carrito.length === 0 || isSubmitting || !nombreOrden.trim() || (tipoConsumo === 'Domicilio' && !notaOpcional.trim())} onClick={() => generarPedidoBD('Mandar a Cocina')} className="flex-1 bg-orange-100 text-orange-700 py-4 rounded-2xl font-black text-xs md:text-sm uppercase disabled:opacity-50">Cuenta Abierta</button>
-                     <button disabled={carrito.length === 0 || isSubmitting || !nombreOrden.trim() || (tipoConsumo === 'Domicilio' && !notaOpcional.trim())} onClick={() => generarPedidoBD('Cobrar Ahora')} className="flex-1 bg-emerald-500 text-white py-4 rounded-2xl font-black text-xs md:text-sm uppercase disabled:opacity-50">Cobrar Ahora</button>
+                     <button disabled={isFormIncompleto} onClick={() => generarPedidoBD('Mandar a Cocina')} className="flex-1 bg-orange-100 text-orange-700 py-4 rounded-2xl font-black text-xs md:text-sm uppercase disabled:opacity-50">Cuenta Abierta</button>
+                     <button disabled={isFormIncompleto} onClick={() => generarPedidoBD('Cobrar Ahora')} className="flex-1 bg-emerald-500 text-white py-4 rounded-2xl font-black text-xs md:text-sm uppercase disabled:opacity-50">Cobrar Ahora</button>
                   </div>
                </div>
             </div>

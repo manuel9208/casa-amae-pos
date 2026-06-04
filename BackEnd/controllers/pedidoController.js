@@ -61,26 +61,44 @@ exports.obtenerPedidosHoy = async (req, res) => {
   } 
 };
 
+const limpiarNulos = (obj) => {
+  const newObj = { ...obj };
+  for (let key in newObj) { if (newObj[key] === undefined) { delete newObj[key]; } }
+  return newObj;
+};
+
 exports.crearPedido = async (req, res) => {
-  const { cliente_id, tipo_consumo, metodo_pago, total, carrito, origen, direccion_entrega, descuento_puntos, costo_envio, pagos_mixtos, mesa, estado_preparacion } = req.body;
-  
+  const datosPuros = limpiarNulos(req.body);
+  const { cliente_id, chef_id, origen, tipo_consumo, direccion_entrega, metodo_pago, total, carrito, estado_preparacion, mesa, cupon_codigo, descuento_puntos, costo_envio, pagos_mixtos } = datosPuros;
+
   try {
     await db.query('BEGIN');
 
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
-    
-    // ACEPTAMOS EL ESTADO DEL FRONTEND (Para saltarse la caja si es empleado) O USAMOS PENDIENTE
+    const sigNumero = nroRes.rows[0].num;
+
     const estadoReal = estado_preparacion || 'Pendiente';
+    const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
+    
+    // 👇 PARCHE ANTI-ERRORES PARA LA CREACIÓN
+    let costoEnvioFinal = 0;
+    if (costo_envio !== undefined) {
+        if (typeof costo_envio === 'object' && costo_envio !== null && costo_envio.costo !== undefined) {
+            costoEnvioFinal = Number(costo_envio.costo);
+        } else {
+            costoEnvioFinal = Number(String(costo_envio).replace(/[^0-9.-]+/g,"")) || 0;
+        }
+    }
 
     const insertQuery = `
       INSERT INTO pedidos (
-        cliente_id, numero_pedido, tipo_consumo, metodo_pago, total, carrito, 
+        cliente_id, numero_pedido, chef_id, tipo_consumo, metodo_pago, total, carrito, 
         origen, estado_preparacion, direccion_entrega, descuento_puntos, 
-        costo_envio, pagos_mixtos, mesa
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *
+        costo_envio, pagos_mixtos, mesa, cupon_codigo
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *
     `;
     
-    const values = [cliente_id, nroRes.rows[0].num, tipo_consumo, metodo_pago, total, JSON.stringify(carrito), origen, estadoReal, direccion_entrega, descuento_puntos, costo_envio || 0, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null, mesa || null];
+    const values = [cliente_id, sigNumero, chef_id, tipo_consumo, metodo_pago, total, carritoStr, origen || 'Kiosco', estadoReal, direccion_entrega, descuento_puntos || 0, costoEnvioFinal, pagos_mixtos ? JSON.stringify(pagos_mixtos) : null, mesa || null, cupon_codigo || null];
 
     const result = await db.query(insertQuery, values);
     const pedidoInsertado = result.rows[0];
@@ -128,7 +146,6 @@ exports.crearPedido = async (req, res) => {
 
     await db.query('COMMIT');
     
-    // NOTIFICAMOS DIRECTO A COCINA SI EL PEDIDO YA ENTRÓ PAGADO (EMPLEADOS)
     if (estadoReal === 'Pagado') {
         notificarStaff(['chef', 'cocinero', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda (Comedor)', `La orden #${pedidoInsertado.numero_pedido} entró directo a cocina.`);
     } else {
@@ -145,20 +162,47 @@ exports.crearPedido = async (req, res) => {
   }
 };
 
-exports.actualizarPedido = async (req, res) => { 
-  try { 
-    const result = await db.query(
-      `UPDATE pedidos SET tipo_consumo = $1, metodo_pago = $2, total = $3, carrito = $4, estado_preparacion = $5, direccion_entrega = $6, costo_envio = $7 WHERE id = $8 RETURNING *`, 
-      [req.body.tipo_consumo, req.body.metodo_pago, req.body.total, JSON.stringify(req.body.carrito), 'Pendiente', req.body.direccion_entrega, req.body.costo_envio || 0, req.params.id]
-    ); 
-    res.json(result.rows[0]); 
-  } catch (error) { 
-    console.error("Error al editar pedido:", error);
-    res.status(500).json({ error: 'Error interno' }); 
-  } 
+exports.actualizarPedido = async (req, res) => {
+  const { id } = req.params;
+  const datosPuros = limpiarNulos(req.body);
+  const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio } = datosPuros;
+
+  try {
+    const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
+    
+    // 👇 PARCHE ANTI-ERRORES PARA LA ACTUALIZACIÓN EN FRÍO
+    let costoEnvioFinal = 0;
+    if (costo_envio !== undefined) {
+        if (typeof costo_envio === 'object' && costo_envio !== null && costo_envio.costo !== undefined) {
+            costoEnvioFinal = Number(costo_envio.costo);
+        } else {
+            costoEnvioFinal = Number(String(costo_envio).replace(/[^0-9.-]+/g,"")) || 0;
+        }
+    }
+
+    let updateFields = []; let params = []; let paramIndex = 1;
+
+    if (cliente_id !== undefined) { updateFields.push(`cliente_id = $${paramIndex++}`); params.push(cliente_id); }
+    if (tipo_consumo !== undefined) { updateFields.push(`tipo_consumo = $${paramIndex++}`); params.push(tipo_consumo); }
+    if (metodo_pago !== undefined) { updateFields.push(`metodo_pago = $${paramIndex++}`); params.push(metodo_pago); }
+    if (direccion_entrega !== undefined) { updateFields.push(`direccion_entrega = $${paramIndex++}`); params.push(direccion_entrega); }
+    if (total !== undefined) { updateFields.push(`total = $${paramIndex++}`); params.push(total); }
+    if (carrito !== undefined) { updateFields.push(`carrito = $${paramIndex++}`); params.push(carritoStr); }
+    if (estado_preparacion !== undefined) { updateFields.push(`estado_preparacion = $${paramIndex++}`); params.push(estado_preparacion); }
+    if (mesa !== undefined) { updateFields.push(`mesa = $${paramIndex++}`); params.push(mesa); }
+    if (costo_envio !== undefined) { updateFields.push(`costo_envio = $${paramIndex++}`); params.push(costoEnvioFinal); }
+
+    if (updateFields.length === 0) return res.json({ success: true, message: 'No hay cambios' });
+
+    params.push(id);
+    const query = `UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
+    const result = await db.query(query, params);
+    
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
+    res.json(result.rows[0]);
+  } catch (error) { res.status(500).json({ error: 'Error al actualizar pedido completo' }); }
 };
 
-// ================= ACTUALIZAR ESTADO =================
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params; 
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;
@@ -175,23 +219,24 @@ exports.actualizarEstado = async (req, res) => {
     let pIdx = 2;
 
     if (metodo_pago) { query += `, metodo_pago = $${pIdx}`; params.push(metodo_pago); pIdx++; }
-    if (carrito) { query += `, carrito = $${pIdx}`; params.push(JSON.stringify(carrito)); pIdx++; }
+    if (carrito) { query += `, carrito = $${pIdx}`; params.push(typeof carrito === 'string' ? carrito : JSON.stringify(carrito)); pIdx++; }
     if (total !== undefined) { query += `, total = $${pIdx}`; params.push(total); pIdx++; }
-    if (costo_envio !== undefined) { query += `, costo_envio = $${pIdx}`; params.push(costo_envio); pIdx++; }
-    if (pagos_mixtos !== undefined) { query += `, pagos_mixtos = $${pIdx}`; params.push(pagos_mixtos); pIdx++; }
-
-    if (estado_preparacion === 'Preparando') {
-        query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`;
-    }
-    if (estado_preparacion === 'Listo') {
-        query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`;
-    }
+    if (pagos_mixtos !== undefined) { query += `, pagos_mixtos = $${pIdx}`; params.push(typeof pagos_mixtos === 'string' ? pagos_mixtos : JSON.stringify(pagos_mixtos)); pIdx++; }
     
-    if (chef_id) { 
-        query += `, chef_id = $${pIdx}`; 
-        params.push(chef_id); 
-        pIdx++; 
+    // 👇 PARCHE ANTI-ERRORES PARA LA ACTUALIZACIÓN RÁPIDA DE ESTADOS
+    if (costo_envio !== undefined) { 
+        let costoFinal = 0;
+        if (typeof costo_envio === 'object' && costo_envio !== null && costo_envio.costo !== undefined) {
+            costoFinal = Number(costo_envio.costo);
+        } else {
+            costoFinal = Number(String(costo_envio).replace(/[^0-9.-]+/g,"")) || 0;
+        }
+        query += `, costo_envio = $${pIdx}`; params.push(costoFinal); pIdx++; 
     }
+
+    if (estado_preparacion === 'Preparando') { query += `, tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`; }
+    if (estado_preparacion === 'Listo') { query += `, tiempo_listo = COALESCE(tiempo_listo, CURRENT_TIMESTAMP)`; }
+    if (chef_id) { query += `, chef_id = $${pIdx}`; params.push(chef_id); pIdx++; }
 
     query += ` WHERE id = $${pIdx} RETURNING *`;
     params.push(id);
@@ -199,11 +244,9 @@ exports.actualizarEstado = async (req, res) => {
     const result = await db.query(query, params); 
     const pedidoActual = result.rows[0];
 
-    // 👇 CORRECCIÓN CRÍTICA: Liberar mesas al Finalizar o Cancelar
     if (pedidoPrevio.mesa) {
         const isPagadoDinero = (pedidoActual.metodo_pago === 'Efectivo' || pedidoActual.metodo_pago === 'Tarjeta' || pedidoActual.metodo_pago === 'Transferencia' || pedidoActual.metodo_pago === 'Mixto');
 
-        // Aquí agregamos "Finalizado" a las condiciones para que suelte la mesa
         if (estado_preparacion === 'Cancelado' || estado_preparacion === 'Finalizado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
              await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
         } else if (estado_preparacion === 'Entregado' && !isPagadoDinero) {

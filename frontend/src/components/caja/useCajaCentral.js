@@ -52,15 +52,38 @@ export const useCajaCentral = (user, onLogout) => {
   });
   const [inputFondo, setInputFondo] = useState('');
 
+  // 👇 NUEVO ESTADO PARA EL FONDO DEL REPARTIDOR
+  const [fondoRepartidor, setFondoRepartidor] = useState(() => {
+    const guardado = localStorage.getItem(`fondo_rep_${user?.id}_${hoyStr}`);
+    return guardado !== null ? Number(guardado) : '';
+  });
+
+  const actualizarFondoRepartidor = (val) => {
+    setFondoRepartidor(val);
+    localStorage.setItem(`fondo_rep_${user?.id}_${hoyStr}`, val);
+  };
+
   const cargarDataDinamica = useCallback(async () => {
     try { 
-      const resPed = await fetch(`${apiUrl}/pedidos/hoy?t=${new Date().getTime()}`); 
+      const [resPed, resMesas, resInsumos, resGastos] = await Promise.all([
+          fetch(`${apiUrl}/pedidos/hoy?t=${new Date().getTime()}`),
+          fetch(`${apiUrl}/mesas?t=${new Date().getTime()}`),
+          fetch(`${apiUrl}/insumos?t=${new Date().getTime()}`),
+          fetch(`${apiUrl}/insumos/compras/hoy?t=${new Date().getTime()}`)
+      ]);
+      
       const dataPed = await resPed.json(); 
       setPedidos(Array.isArray(dataPed) ? dataPed : []); 
       
-      const resMesas = await fetch(`${apiUrl}/mesas?t=${new Date().getTime()}`);
       const dataMesas = await resMesas.json();
       setMesas(Array.isArray(dataMesas) ? dataMesas : []);
+
+      const dataInsumos = await resInsumos.json();
+      setInsumosDB(Array.isArray(dataInsumos) ? dataInsumos : []);
+
+      const dataGastos = await resGastos.json();
+      setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
+
     } catch (error) {}
   }, [apiUrl]);
 
@@ -68,8 +91,6 @@ export const useCajaCentral = (user, onLogout) => {
     fetch(`${apiUrl}/productos`).then(r=>r.json()).then(data => setProductos(Array.isArray(data) ? data.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0) : []));
     fetch(`${apiUrl}/clasificaciones`).then(r=>r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : []));
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
-    fetch(`${apiUrl}/insumos`).then(r=>r.json()).then(data => setInsumosDB(Array.isArray(data) ? data : []));
-    fetch(`${apiUrl}/insumos/compras/hoy`).then(r=>r.json()).then(data => setGastosDia(Array.isArray(data) ? data : []));
     fetch(`${apiUrl}/usuarios`).then(r=>r.json()).then(data => setEmpleadosPOS(Array.isArray(data) ? data : []));
 
     const cargarConfig = async () => {
@@ -162,17 +183,11 @@ export const useCajaCentral = (user, onLogout) => {
     setIsSubmitting(false); 
   };
 
-  // 👇 CORRECCIÓN CRÍTICA: Extraemos el ID correctamente para evitar el error [object Object] en la URL
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado) => {
     if(isSubmitting) return; setIsSubmitting(true);
-    
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
-    
     try {
-        await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { 
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ estado_preparacion: nuevoEstado }) 
-        });
+        await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: nuevoEstado }) });
         await cargarDataDinamica();
     } catch(e) { console.error(e); }
     setIsSubmitting(false);
@@ -183,15 +198,12 @@ export const useCajaCentral = (user, onLogout) => {
     actualizarEstadoPedido(idReal, 'Pagado'); 
   };
 
-  const confirmarPedidoDomicilio = async (pedido, tarifa) => {
+  const confirmarPedidoDomicilio = async (pedidoOId, tarifa) => {
     if(isSubmitting) return; setIsSubmitting(true);
+    const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
     try {
-        await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, { 
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ estado_preparacion: 'Pagado', costo_envio: tarifa }) 
-        });
-        setModalZonaEnvio(null);
-        await cargarDataDinamica();
+        await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: 'Pagado', costo_envio: tarifa }) });
+        setModalZonaEnvio(null); await cargarDataDinamica();
     } catch(e) { console.error(e); }
     setIsSubmitting(false);
   };
@@ -229,10 +241,15 @@ export const useCajaCentral = (user, onLogout) => {
 
   const registrarCompraRapida = async (e) => {
     e.preventDefault();
-    if(isSubmitting) return; setIsSubmitting(true);
+    if(isSubmitting || !insumoComprar || !paquetesComprados) return; 
+    setIsSubmitting(true);
     try {
-        await fetch(`${apiUrl}/insumos/${insumoComprar.id}/comprar`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paquetes_comprados: paquetesComprados }) });
+        await fetch(`${apiUrl}/insumos/${insumoComprar.id}/comprar`, { 
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ paquetes_comprados: paquetesComprados, costo_unitario: insumoComprar.costo_presentacion }) 
+        });
         setModalCompraRapida(false); setInsumoComprar(null); setPaquetesComprados('');
+        await cargarDataDinamica(); 
     } catch(err) { console.error(err); }
     setIsSubmitting(false);
   };
@@ -291,18 +308,47 @@ export const useCajaCentral = (user, onLogout) => {
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
     empleadosPOS, isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
     isSubmitting, fondoCaja, inputFondo, setInputFondo, apiUrl, cargarDataDinamica,
-    pedidosPorConfirmar: pedidos.filter(p => p.estado_preparacion === 'Pendiente' && (p.tipo_consumo === 'Recoger en Local' || p.tipo_consumo === 'Domicilio')),
+    
+    // 👇 LOS DOS NUEVOS ESTADOS DE FONDO AQUÍ
+    fondoRepartidor, actualizarFondoRepartidor,
+
+    pedidosPorConfirmar: pedidos.filter(p => {
+        if (p.estado_preparacion !== 'Pendiente') return false;
+        if (p.origen === 'Caja') return false; 
+        return true; 
+    }),
+    
     pendientesDePago: pedidos.filter(p => {
         if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
+        
         const tipo = p.tipo_consumo || '';
-        if (p.estado_preparacion === 'Pendiente' && (tipo === 'Local' || tipo === 'Para llevar')) return true;
-        if (tipo === 'Domicilio' && p.estado_preparacion === 'En Camino') return true;
-        if (tipo === 'Local' && p.estado_preparacion === 'Entregado' && ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago)) return true;
+        const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
+        
+        if (!noPagado) return false;
+        if (p.estado_preparacion === 'Pendiente' && p.origen === 'Caja') return true;
+        if (tipo === 'Local') return true; 
+        if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && p.estado_preparacion === 'Listo') return true;
+        
+        if (tipo === 'Domicilio' && p.estado_preparacion === 'Entregado') return true; 
+
         return false;
     }),
+
+    listosParaEntregar: pedidos.filter(p => {
+        if (p.estado_preparacion !== 'Listo') return false;
+        const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
+        const tipo = p.tipo_consumo || '';
+        if (tipo === 'Domicilio') return true;
+        if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && noPagado) return false;
+        return true;
+    }),
+
+    // 👇 LA NUEVA PESTAÑA: Muestra los domicilios adeudados que están en la calle
+    pedidosEnReparto: pedidos.filter(p => p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino'),
+
     mesasPagadas: pedidos.filter(p => p.tipo_consumo === 'Local' && p.estado_preparacion === 'Entregado' && p.metodo_pago !== 'Por Cobrar' && p.metodo_pago !== 'Pendiente' && p.estado_preparacion !== 'Cancelado' && p.estado_preparacion !== 'Finalizado'),
-    listosParaEntregar: pedidos.filter(p => p.estado_preparacion === 'Listo'),
     pedidosConAlerta: pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion)),
+    
     toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno, lanzarImpresion, procesarPago, confirmarPedidoRecoger,
     confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido, limpiarAlerta, abrirModalResolver,
     enviarRespuestaCocina, registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador, onGoToKiosco: onGoToKioscoLocal 

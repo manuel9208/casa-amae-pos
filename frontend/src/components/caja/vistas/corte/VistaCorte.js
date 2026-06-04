@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { ChefHat, PlusCircle, MapPin, TrendingDown, Calendar, Search, History } from 'lucide-react';
+import { ChefHat, PlusCircle, MapPin, TrendingDown, Calendar, Search, History, Bike, CreditCard, Banknote, Smartphone } from 'lucide-react';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
-const VistaCorte = ({
-  totalPlatillos, totalExtras, totalEnvio, fondoCaja, totalEfectivoVentas,
-  totalGastos, totalTarjetaVentas, totalTransferenciaVentas, gastosDia
-}) => {
+const VistaCorte = (props) => {
+  const {
+    totalGastos, fondoCaja, gastosDia, fondoRepartidor
+  } = props;
 
   const hoyStr = new Date().toLocaleDateString('en-CA'); 
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [cargando, setCargando] = useState(false);
   const [datosHistoricos, setDatosHistoricos] = useState(null);
-  const [mathHoy, setMathHoy] = useState({ platillos: 0, extras: 0, envio: 0, efectivo: 0, tarjeta: 0, transf: 0, comedor: 0 });
+  
+  // Agregamos un objeto "envios" para separar matemáticamente todo
+  const [mathHoy, setMathHoy] = useState({ 
+      platillos: 0, extras: 0, envio: 0, efectivo: 0, tarjeta: 0, transf: 0, comedor: 0,
+      envios: { platillos: 0, extras: 0, envio: 0, efectivo: 0, tarjeta: 0, transf: 0 }
+  });
 
   const esHoy = fechaFiltro === hoyStr;
 
@@ -27,24 +32,33 @@ const VistaCorte = ({
           if(!Array.isArray(data)) return;
           
           let pPlat=0, pExt=0, pEnv=0, pEfe=0, pTar=0, pTra=0, pCom=0;
+          let dPlat=0, dExt=0, dEnv=0, dEfe=0, dTar=0, dTra=0; // Variables exclusivas de Domicilio
           
           data.forEach(p => {
              if(p.estado_preparacion === 'Cancelado') return;
              const isComedor = p.metodo_pago === 'Comida Personal';
+             const isDomicilio = p.tipo_consumo === 'Domicilio';
              
-             pEnv += parseMoney(p.costo_envio);
-             if(p.metodo_pago === 'Efectivo') pEfe += parseMoney(p.total);
-             if(p.metodo_pago === 'Tarjeta') pTar += parseMoney(p.total);
-             if(p.metodo_pago === 'Transferencia') pTra += parseMoney(p.total);
+             const costoEnvio = parseMoney(p.costo_envio);
+             pEnv += costoEnvio;
+             if (isDomicilio) dEnv += costoEnvio;
+
+             let efe=0, tar=0, tra=0;
+
+             if(p.metodo_pago === 'Efectivo') efe += parseMoney(p.total);
+             if(p.metodo_pago === 'Tarjeta') tar += parseMoney(p.total);
+             if(p.metodo_pago === 'Transferencia') tra += parseMoney(p.total);
              if(p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
                  try { JSON.parse(p.pagos_mixtos).forEach(x=>{
-                     if(x.metodo==='Efectivo') pEfe+=parseMoney(x.monto);
-                     if(x.metodo==='Tarjeta') pTar+=parseMoney(x.monto);
-                     if(x.metodo==='Transferencia') pTra+=parseMoney(x.monto);
+                     if(x.metodo==='Efectivo') efe+=parseMoney(x.monto);
+                     if(x.metodo==='Tarjeta') tar+=parseMoney(x.monto);
+                     if(x.metodo==='Transferencia') tra+=parseMoney(x.monto);
                  })}catch(e){}
              }
 
-             // 👇 CORRECCIÓN: LECTURA SEGURA DEL CARRITO PARA EVITAR EL 0.00
+             pEfe += efe; pTar += tar; pTra += tra;
+             if (isDomicilio) { dEfe += efe; dTar += tar; dTra += tra; }
+
              let car = []; 
              if (Array.isArray(p.carrito)) {
                  car = p.carrito;
@@ -65,15 +79,26 @@ const VistaCorte = ({
                      if(isComedor) {
                          pCom += (rawPrice * qty);
                      } else {
-                         pExt += (exP * qty);
+                         const extTotal = exP * qty;
                          let cBase = rawPrice - exP;
                          if(cBase < 0) cBase = 0;
-                         pPlat += (cBase * qty);
+                         const platTotal = cBase * qty;
+
+                         pExt += extTotal;
+                         pPlat += platTotal;
+
+                         if (isDomicilio) {
+                             dExt += extTotal;
+                             dPlat += platTotal;
+                         }
                      }
                  });
              }
           });
-          setMathHoy({ platillos: pPlat, extras: pExt, envio: pEnv, efectivo: pEfe, tarjeta: pTar, transf: pTra, comedor: pCom });
+          setMathHoy({ 
+              platillos: pPlat, extras: pExt, envio: pEnv, efectivo: pEfe, tarjeta: pTar, transf: pTra, comedor: pCom,
+              envios: { platillos: dPlat, extras: dExt, envio: dEnv, efectivo: dEfe, tarjeta: dTar, transf: dTra }
+          });
        }catch(e){}
     };
     calcMath();
@@ -97,7 +122,8 @@ const VistaCorte = ({
               total_tarjeta: mathHoy.tarjeta,
               total_transferencia: mathHoy.transf,
               total_gastos: totalGastos,
-              desglose_gastos: gastosDia || []
+              desglose_gastos: gastosDia || [],
+              detalles_envio: mathHoy.envios // 👈 Guardamos el desglose al backend
             })
           });
         } catch (error) {}
@@ -120,6 +146,7 @@ const VistaCorte = ({
     cargarHistorial();
   }, [fechaFiltro, esHoy]);
 
+  // Variables globales
   const pTotalPlatillos = esHoy ? mathHoy.platillos : Number(datosHistoricos?.total_platillos || 0);
   const pTotalExtras = esHoy ? mathHoy.extras : Number(datosHistoricos?.total_extras || 0);
   const pTotalEnvio = esHoy ? mathHoy.envio : Number(datosHistoricos?.total_envio || 0);
@@ -129,8 +156,16 @@ const VistaCorte = ({
   const pTotalTarjeta = esHoy ? mathHoy.tarjeta : Number(datosHistoricos?.total_tarjeta || 0);
   const pTotalTransf = esHoy ? mathHoy.transf : Number(datosHistoricos?.total_transferencia || 0);
   const pTotalComedor = esHoy ? mathHoy.comedor : 0; 
+  const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : 0;
   
-  const totalCajon = (pFondoCaja + pTotalEfectivo) - pTotalGastos;
+  // Parseo seguro del JSON de envíos históricos
+  let histEnvios = { platillos:0, extras:0, envio:0, efectivo:0, tarjeta:0, transf:0 };
+  if (!esHoy && datosHistoricos?.detalles_envio) {
+      histEnvios = typeof datosHistoricos.detalles_envio === 'string' ? JSON.parse(datosHistoricos.detalles_envio) : datosHistoricos.detalles_envio;
+  }
+  const pEnvios = esHoy ? mathHoy.envios : histEnvios;
+
+  const totalCajon = (pFondoCaja + pFondoRepartidor + pTotalEfectivo) - pTotalGastos;
 
   return (
     <div className="animate-in fade-in pb-20">
@@ -143,7 +178,7 @@ const VistaCorte = ({
          </div>
       </div>
 
-      <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 relative overflow-hidden">
+      <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 relative overflow-hidden mb-8">
          {!esHoy && <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-1.5 rounded-bl-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-md z-10"><History size={14}/> Viendo Historial</div>}
          
          {cargando ? (
@@ -152,6 +187,8 @@ const VistaCorte = ({
            <div className="py-20 text-center flex flex-col items-center justify-center"><History size={64} className="text-slate-300 mb-4" /><p className="font-black text-2xl text-slate-800 mb-2">No hay corte registrado</p><p className="text-slate-500 font-medium">No se encontró información para el {fechaFiltro}.</p></div>
          ) : (
            <div className="animate-in slide-in-from-bottom-4">
+             <div className="mb-4"><h3 className="text-sm font-black text-slate-400 uppercase tracking-widest px-2 mb-3">Resumen General (Incluye Todo)</h3></div>
+             
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center hover:shadow-md transition">
                  <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Venta Platillos</p><p className="text-2xl font-black text-slate-700">${pTotalPlatillos.toFixed(2)}</p></div>
@@ -189,13 +226,45 @@ const VistaCorte = ({
              <div className={`p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white transition-colors duration-500 ${!esHoy ? 'bg-slate-800' : 'bg-emerald-600'}`}>
                 <div>
                    <p className={`${!esHoy ? 'text-slate-400' : 'text-emerald-200'} font-black uppercase tracking-widest mb-1 text-sm`}>Efectivo Físico en Cajón</p>
-                   <p className={`text-[11px] font-bold ${!esHoy ? 'text-slate-500' : 'text-emerald-100 opacity-80'} uppercase tracking-wider`}>(Fondo + Ventas) - Gastos</p>
+                   <p className={`text-[11px] font-bold ${!esHoy ? 'text-slate-500' : 'text-emerald-100 opacity-80'} uppercase tracking-wider`}>(Fondo Caja + Fondo Reparto + Ventas Efec) - Gastos</p>
                 </div>
                 <p className="text-6xl font-black mt-4 md:mt-0">${totalCajon.toFixed(2)}</p>
              </div>
            </div>
          )}
       </div>
+
+      {/* 👇 NUEVA SECCIÓN: DESGLOSE EXCLUSIVO DE MOTOS / REPARTO */}
+      {(!cargando && (esHoy || datosHistoricos)) && (
+      <div className="bg-indigo-50 p-6 md:p-10 rounded-[40px] shadow-sm border border-indigo-100 animate-in slide-in-from-bottom-6">
+         <div className="flex items-center gap-3 mb-6">
+            <div className="bg-indigo-600 text-white p-3 rounded-2xl shadow-sm"><Bike size={24}/></div>
+            <div>
+               <h3 className="text-2xl font-black text-indigo-900 tracking-tight">Corte de Logística (Motos)</h3>
+               <p className="text-xs font-bold text-indigo-400/80 uppercase tracking-widest mt-0.5">ESTAS CANTIDADES YA ESTÁN CONTEMPLADAS EN EL RESUMEN GENERAL</p>
+            </div>
+         </div>
+
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm">
+               <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Venta Comida</p><p className="text-xl font-black text-indigo-900">${(pEnvios.platillos + pEnvios.extras).toFixed(2)}</p></div>
+               <ChefHat size={28} className="text-indigo-100"/>
+            </div>
+            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm">
+               <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Tarifas Cobradas</p><p className="text-xl font-black text-indigo-900">${pEnvios.envio.toFixed(2)}</p></div>
+               <MapPin size={28} className="text-indigo-100"/>
+            </div>
+            <div className="bg-indigo-600 p-5 rounded-3xl border border-indigo-500 flex justify-between items-center shadow-md">
+               <div><p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1">Ingreso Efectivo</p><p className="text-2xl font-black text-white">${pEnvios.efectivo.toFixed(2)}</p></div>
+               <Banknote size={32} className="text-indigo-400"/>
+            </div>
+            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm">
+               <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Pago Digital</p><p className="text-xl font-black text-indigo-900">${(pEnvios.tarjeta + pEnvios.transf).toFixed(2)}</p></div>
+               <div className="flex -space-x-2"><CreditCard size={24} className="text-indigo-200"/><Smartphone size={24} className="text-indigo-300"/></div>
+            </div>
+         </div>
+      </div>
+      )}
     </div>
   );
 };

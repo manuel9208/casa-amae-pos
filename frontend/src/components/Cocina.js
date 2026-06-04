@@ -110,8 +110,9 @@ const Cocina = ({ user, onLogout }) => {
     } catch (error) {}
   };
 
+  // 👇 AQUÍ ESTÁ LA MAGIA. AGREGUÉ 'En Camino' PARA QUE COCINA NO VEA LOS PEDIDOS EN RUTA.
   const pedidosVisibles = pedidos.filter(p => {
-    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente' || p.estado_preparacion === 'Finalizado' || p.estado_preparacion === 'Listo') return false;
+    if (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Cancelado' || p.estado_preparacion === 'Pendiente' || p.estado_preparacion === 'Finalizado' || p.estado_preparacion === 'Listo' || p.estado_preparacion === 'En Camino') return false;
     
     if (filtroTab !== 'Todo') {
       const carritoArray = getCarrito(p);
