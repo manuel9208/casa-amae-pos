@@ -91,7 +91,6 @@ const CheckoutFlujo = ({
   const continuarDesdeNombre = () => {
     if (tipoConsumo === 'Local') {
         if (esPersonalInterno && !mesaQR) {
-            // 👇 LÓGICA DE MESAS DINÁMICAS (Libre elección automática si no hay mesas)
             if (mesasDisponibles.length > 0) {
                 setPantallaActual('asignar_mesa');
             } else {
@@ -152,8 +151,10 @@ const CheckoutFlujo = ({
         }
     });
 
+    // 👇 LA CORRECCIÓN MAESTRA:
+    // Hacemos que CUALQUIER pedido nuevo que nazca del kiosco inicie en 'Pendiente'
+    // Esto asegura que la Caja lo atrape y la Cocina no lo vea hasta que la Caja lo apruebe.
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
-    if (!ordenExterna && tipoReal === 'Recoger') estadoInicial = 'Por Confirmar';
 
     const mesaFinal = mesaQR || mesaBypass || mesaSeleccionadaInterna || (ordenExterna ? ordenExterna.mesa : null);
 
