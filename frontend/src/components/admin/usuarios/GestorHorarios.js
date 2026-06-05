@@ -132,7 +132,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">  
       {/* SECCIÓN 1: ASIGNACIÓN DE HORARIOS */}
-      {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full */}
       <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 w-full max-w-full">
         <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
           <CalendarClock className="text-purple-500"/> Asignación de Turnos por Empleado
@@ -149,8 +148,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>  
 
         {empleadoActivoId ? (
-          {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
           <div className="w-full max-w-full overflow-x-auto rounded-2xl border border-slate-200 mb-6">
+            {/* 👇 Comentario movido correctamente para evitar error de compilación JSX */}
             <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
                 <tr className="bg-slate-50 text-[10px] uppercase font-black text-slate-500 border-b border-slate-200">
@@ -211,7 +210,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       </div>  
 
       {/* SECCIÓN 2: VISTA GENERAL SEMANAL */}
-      {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full */}
       <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 w-full max-w-full">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
@@ -222,7 +220,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           </button>
         </div>  
 
-        {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
         <div className="w-full max-w-full overflow-x-auto rounded-3xl border border-slate-200">
           <table className="w-full text-left border-collapse min-w-[1000px]">
             <thead>

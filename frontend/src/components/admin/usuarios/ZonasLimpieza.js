@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, RefreshCw, Image as ImageIcon, CheckCircle } from 'lucide-react';  
+// 👇 IMPORTACIONES LIMPIAS (Sin warnings)
+import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, RefreshCw } from 'lucide-react';  
 
 const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [areas, setAreas] = useState([]);
@@ -142,7 +143,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const puedeLimpiar = hayAsignaciones && todoEvaluado;  
 
   return (
-    // 👇 AJUSTE RESPONSIVO: Se agregó w-full max-w-full y se ajustó el padding (p-4 md:p-8)
     <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
         <div>
@@ -169,7 +169,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         </form>
       </div>  
 
-      {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
       <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8">
         {areas.length === 0 ? (
           <div className="p-16 text-center text-slate-400">
