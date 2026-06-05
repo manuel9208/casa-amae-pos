@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, RefreshCw } from 'lucide-react';  
+import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, RefreshCw, Image as ImageIcon, CheckCircle } from 'lucide-react';  
 
 const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [areas, setAreas] = useState([]);
   const [asignaciones, setAsignaciones] = useState({});
   const [evidencias, setEvidencias] = useState({});
-  const [evaluaciones, setEvaluaciones] = useState({}); 
+  const [evaluaciones, setEvaluaciones] = useState({});
   const [nuevaArea, setNuevaArea] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);  
 
@@ -38,18 +38,18 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     e.preventDefault();
     const areaTrim = nuevaArea.trim();
     if (!areaTrim) return;
-    if (areas.includes(areaTrim)) return showAlert('Aviso', 'Esta área de limpieza ya existe.', 'info');  
+    if (areas.includes(areaTrim)) return showAlert('Aviso', 'Esta área de limpieza ya existe.', 'info');
     setAreas([...areas, areaTrim]);
     setNuevaArea('');
   };  
 
   const eliminarArea = (areaTarget) => {
     showConfirm("Eliminar Área", `¿Estás seguro que deseas eliminar el área: ${areaTarget}? Se borrarán también sus asignaciones y evidencias.`, () => {
-      const nuevasAreas = areas.filter(a => a !== areaTarget);  
+      const nuevasAreas = areas.filter(a => a !== areaTarget);
       const nuevasAsignaciones = { ...asignaciones };
-      delete nuevasAsignaciones[areaTarget];  
+      delete nuevasAsignaciones[areaTarget];
       const nuevasEvidencias = { ...evidencias };
-      delete nuevasEvidencias[areaTarget];  
+      delete nuevasEvidencias[areaTarget];
       const nuevasEvaluaciones = { ...evaluaciones };
       delete nuevasEvaluaciones[areaTarget];  
 
@@ -86,7 +86,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       ...prev,
       [area]: {
         ...(prev[area] || {}),
-        [dia]: status 
+        [dia]: status
       }
     }));
   };  
@@ -126,25 +126,24 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     setIsSubmitting(false);
   };  
 
-  // 👇 NUEVA VALIDACIÓN: Verifica que todas las asignaciones tengan una evaluación (SÍ o NO)
   let hayAsignaciones = false;
   let todoEvaluado = true;
   Object.keys(asignaciones).forEach(area => {
     Object.keys(asignaciones[area]).forEach(dia => {
-      if (asignaciones[area][dia]) { 
+      if (asignaciones[area][dia]) {
         hayAsignaciones = true;
         if (!evaluaciones[area] || !evaluaciones[area][dia]) {
           todoEvaluado = false;
         }
       }
     });
-  });
+  });  
 
-  // Solo se puede limpiar la semana si hay empleados asignados y TODOS ya fueron evaluados
-  const puedeLimpiar = hayAsignaciones && todoEvaluado;
+  const puedeLimpiar = hayAsignaciones && todoEvaluado;  
 
   return (
-    <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
+    // 👇 AJUSTE RESPONSIVO: Se agregó w-full max-w-full y se ajustó el padding (p-4 md:p-8)
+    <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
         <div>
           <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
@@ -152,7 +151,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           </h3>
           <p className="text-slate-500 font-medium mt-1">Asigna, supervisa evidencias y evalúa la limpieza por áreas.</p>
         </div>  
-
         <form onSubmit={agregarArea} className="flex w-full md:w-auto gap-2">
           <input
             type="text"
@@ -171,7 +169,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         </form>
       </div>  
 
-      <div className="overflow-x-auto border border-slate-200 rounded-3xl mb-8">
+      {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
+      <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8">
         {areas.length === 0 ? (
           <div className="p-16 text-center text-slate-400">
             <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
@@ -201,7 +200,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal) : (emp.horario_semanal || {});
                         return hor[dia] && hor[dia].activo === true;
                       } catch(e) { return false; }
-                    });
+                    });  
 
                     return (
                       <td key={`${area}-${dia}`} className="p-2 border-r border-slate-100 align-top">
@@ -220,7 +219,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                           </select>  
 
                           {asignaciones[area]?.[dia] && (
-                            <div className="mt-1 border-t border-slate-200 pt-2 space-y-2 animate-in fade-in">  
+                            <div className="mt-1 border-t border-slate-200 pt-2 space-y-2 animate-in fade-in">
                               {evidencias[area]?.[dia] ? (
                                 <a href={evidencias[area][dia]} target="_blank" rel="noreferrer" className="block w-full h-16 rounded-lg overflow-hidden border border-slate-200 hover:border-blue-400 transition-colors relative group shadow-sm">
                                   <img src={evidencias[area][dia]} alt="Evidencia" className="w-full h-full object-cover" />
@@ -248,7 +247,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                 </div>
                               )}
                             </div>
-                          )}  
+                          )}
                         </div>
                       </td>
                     );
@@ -276,12 +275,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           </div>  
 
           {areas.length > 0 && (
-            <button 
-              onClick={reiniciarSemana} 
-              disabled={isSubmitting || !puedeLimpiar} 
+            <button
+              onClick={reiniciarSemana}
+              disabled={isSubmitting || !puedeLimpiar}
               className={`text-sm font-bold flex items-center gap-2 px-4 py-2 rounded-xl transition ${
-                puedeLimpiar 
-                  ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100 cursor-pointer' 
+                puedeLimpiar
+                  ? 'text-slate-500 hover:text-slate-800 hover:bg-slate-100 cursor-pointer'
                   : 'text-slate-300 cursor-not-allowed'
               }`}
               title={!puedeLimpiar ? "Debes evaluar todas las asignaciones pendientes de la semana para poder limpiarla." : "Borrar evaluaciones y fotos de la semana"}

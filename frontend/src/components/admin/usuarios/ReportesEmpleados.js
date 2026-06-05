@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Clock, ChefHat, Calendar, Printer, FileText, Sparkles } from 'lucide-react';
+import { Clock, ChefHat, Calendar, Printer, FileText, Sparkles } from 'lucide-react';  
 
 const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [reportes, setReportes] = useState({ asistenciasHoy: [], historialAsistencias: [], rendimientoCocina: [], cortesNomina: [] });
@@ -23,15 +23,13 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     cargarReportes();
   }, [cargarReportes]);  
 
-  // 👇 1. Ocultar Admin y Ordenar alfabéticamente
   const empleadosVisibles = usuariosDB
     .filter(u => u.usuario !== 'admin')
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
-  // 👇 2. Convertir la palabra del periodo a una Fecha real legible
   const getTituloFormateado = () => {
     if (!fechaFiltro) return periodo;
-    const f = new Date(fechaFiltro + 'T12:00:00'); // Evita desfase de zona horaria
+    const f = new Date(fechaFiltro + 'T12:00:00');
     if (periodo === 'dia') return f.toLocaleDateString('es-MX');
     if (periodo === 'semana') return `Semana del ${f.toLocaleDateString('es-MX')}`;
     if (periodo === 'mes') {
@@ -40,11 +38,10 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     }
     if (periodo === 'anio') return `Año ${f.getFullYear()}`;
     return periodo;
-  };
+  };  
 
-  const tituloPeriodo = getTituloFormateado();
+  const tituloPeriodo = getTituloFormateado();  
 
-  // 👇 3. Filtro Anti-Duplicados: Muestra solo el corte más reciente de cada día
   const cortesUnicos = [];
   const fechasCortesVistas = new Set();
   (reportes.cortesNomina || []).forEach(corte => {
@@ -53,7 +50,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       fechasCortesVistas.add(fechaDia);
       cortesUnicos.push(corte);
     }
-  });
+  });  
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4">
@@ -66,29 +63,29 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           </div>
         </div>  
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* 👇 Menú desplegable usando los empleados filtrados y ordenados */}
-          <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="w-full md:w-auto bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
             <option value="Todos">Todos los empleados</option>
             {empleadosVisibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
-          </select>  
-          <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
+          </select>
+          <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="w-full md:w-auto bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500">
             <option value="dia">Por Día</option>
             <option value="semana">Por Semana</option>
             <option value="mes">Por Mes</option>
             <option value="anio">Por Año</option>
-          </select>  
-          <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500" style={{ colorScheme: 'dark' }} />  
-          <button onClick={() => window.print()} className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-6 py-3 rounded-xl font-black flex items-center gap-2 transition active:scale-95">
+          </select>
+          <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="w-full md:w-auto bg-slate-800 text-white border border-slate-700 p-3 rounded-xl font-bold outline-none focus:ring-2 ring-emerald-500" style={{ colorScheme: 'dark' }} />
+          <button onClick={() => window.print()} className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-6 py-3 rounded-xl font-black flex items-center justify-center gap-2 transition active:scale-95">
             <Printer size={20}/> Imprimir
           </button>
         </div>
       </div>  
 
-      <div id="seccion-a-imprimir" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div id="seccion-a-imprimir" className="grid grid-cols-1 lg:grid-cols-2 gap-6">  
         
         {/* WIDGET 1 */}
-        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
+        {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full */}
+        <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
           <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><Clock className="text-blue-500"/> Personal Activo (Hoy)</h3>
           <div className="space-y-3">
             {reportes.asistenciasHoy?.length === 0 && <p className="text-slate-400 font-bold">Nadie ha iniciado sesión hoy.</p>}
@@ -112,8 +109,8 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>  
 
         {/* WIDGET 2 */}
-        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-200">
-          {/* 👇 Título Dinámico */}
+        {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full */}
+        <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
           <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2"><ChefHat className="text-orange-500"/> Rendimiento en Cocina ({tituloPeriodo})</h3>
           <div className="space-y-3">
             {reportes.rendimientoCocina?.length === 0 && <p className="text-slate-400 font-bold">Sin datos para este periodo.</p>}
@@ -123,7 +120,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                   <div className="bg-orange-100 text-orange-600 w-10 h-10 rounded-full flex items-center justify-center font-black text-lg">{i+1}</div>
                   <div>
                     <p className="font-bold text-slate-800">{r.chef}</p>
-                    <p className="text-xs font-bold text-slate-500">Tardó {r.tiempo_promedio_minutos} min por platillo en promedio</p>
+                    <p className="text-xs font-bold text-slate-500">Tardó {r.tiempo_promedio_minutos} min por platillo</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -136,14 +133,16 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>  
 
         {/* WIDGET 3: BITÁCORA */}
-        <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2">
+        {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full lg:col-span-2 */}
+        <div className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
           <div className="flex items-center gap-3 mb-6">
             <FileText className="text-emerald-500" size={24}/>
-            {/* 👇 Título Dinámico */}
-            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Bitácora Detallada de Asistencia ({tituloPeriodo})</h3>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Bitácora Detallada ({tituloPeriodo})</h3>
           </div>  
-          <div className="overflow-x-auto rounded-3xl border border-slate-100">
-            <table className="w-full text-left border-collapse">
+          {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
+          <div className="w-full max-w-full overflow-x-auto rounded-3xl border border-slate-100">
+            {/* 👇 Se añadió min-w-[800px] a la tabla */}
+            <table className="w-full text-left border-collapse min-w-[800px]">
               <thead>
                 <tr className="bg-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-200">
                   <th className="p-4 border-r border-slate-200">Empleado</th>
@@ -169,13 +168,13 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>
 
         {/* WIDGET 4: HISTÓRICO DE LIMPIEZA Y NÓMINA */}
-        <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2">
+        {/* 👇 AJUSTE RESPONSIVO: p-4 md:p-8 y w-full max-w-full lg:col-span-2 */}
+        <div className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
           <div className="flex items-center gap-3 mb-6">
             <Sparkles className="text-teal-500" size={24}/>
-            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Cumplimiento de Limpieza y Turnos (Cortes Históricos)</h3>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tighter">Limpieza y Turnos (Cortes Históricos)</h3>
           </div>
           
-          {/* 👇 Renderiza la lista sin duplicados (cortesUnicos) */}
           {cortesUnicos.length === 0 ? (
             <p className="text-center text-slate-400 font-bold py-8 bg-slate-50 rounded-3xl border border-slate-100 border-dashed">No hay cortes de limpieza/nómina guardados en este periodo.</p>
           ) : (
@@ -196,8 +195,10 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         Emitido: {new Date(corte.fecha_creacion).toLocaleString()}
                       </p>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
+                    {/* 👇 AJUSTE RESPONSIVO: w-full max-w-full overflow-x-auto */}
+                    <div className="w-full max-w-full overflow-x-auto">
+                      {/* 👇 Se añadió min-w-[1000px] a la tabla */}
+                      <table className="w-full text-left border-collapse min-w-[1000px]">
                         <thead>
                           <tr className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                             <th className="p-4 border-r border-slate-100 w-64">Empleado</th>
