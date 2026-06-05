@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import TopNavAdmin from './admin/TopNavAdmin'; // 👈 Ruta actualizada y correcta
-import AdminConfiguracion from './admin/AdminConfiguracion'; 
-import AdminUsuarios from './admin/AdminUsuarios'; 
-import AdminCatalogos from './admin/AdminCatalogos'; 
-import AdminInventario from './admin/AdminInventario'; 
-import AdminMenu from './admin/AdminMenu'; 
-import AdminClientes from './admin/AdminClientes'; 
-import AdminReportes from './admin/AdminReportes'; 
-import AdminPromociones from './admin/AdminPromociones'; 
-import AdminMesas from './admin/AdminMesas'; 
+import TopNavAdmin from './admin/TopNavAdmin'; 
+import AdminConfiguracion from './admin/AdminConfiguracion';
+import AdminUsuarios from './admin/AdminUsuarios';
+import AdminCatalogos from './admin/AdminCatalogos';
+import AdminInventario from './admin/AdminInventario';
+import AdminMenu from './admin/AdminMenu';
+import AdminClientes from './admin/AdminClientes';
+import AdminReportes from './admin/AdminReportes';
+import AdminPromociones from './admin/AdminPromociones';
+import AdminMesas from './admin/AdminMesas';  
 
 // Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
@@ -20,22 +20,22 @@ const EMOJIS_POR_GIRO = {
   "🍣 Asiática & Mariscos": ["🍣", "🍱", "🍚", "🍙", "🍜", "🍲", "🦐", "🍤", "🦀", "🦑", "🥡", "🥢"],
   "🥗 Saludable & Verde": ["🥗", "🥣", "🥑", "🥦", "🥬", "🥒", "🥕", "🌽", "🍅"],
   "🍽️ Restaurante General": ["🍽️", "🍴", "🥄", "🔥", "⭐", "🌶️", "🧀", "🧅", "🍄", "🥩"]
-};
+};  
 
 const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
-  const [seccion, setSeccion] = useState('menu'); 
-  
+  const [seccion, setSeccion] = useState('menu');  
+
   // === 1. DATOS CENTRALES ===
   const [productos, setProductos] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
   const [usuariosDB, setUsuariosDB] = useState([]);
   const [insumosDB, setInsumosDB] = useState([]);
-  const [configGlobal, setConfigGlobal] = useState({});
+  const [configGlobal, setConfigGlobal] = useState({});  
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const baseUrl = apiUrl.replace('/api', '');
-  
+  const baseUrl = apiUrl.replace('/api', '');  
+
   // === 2. PERMISOS (Calculados centralmente) ===
   const isGlobalAdmin = user?.usuario === 'admin';
   const canViewMenu = isGlobalAdmin || user?.permisos?.menu !== false;
@@ -44,24 +44,24 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewUsuarios = isGlobalAdmin || user?.permisos?.usuarios === true;
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
-  const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true; 
-  const canViewPromociones = isGlobalAdmin; 
-  const canViewMesas = isGlobalAdmin; 
-  
+  const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true;
+  const canViewPromociones = isGlobalAdmin;
+  const canViewMesas = isGlobalAdmin;  
+
   // === 3. MODAL GLOBAL REUTILIZABLE ===
-  const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });
-  
+  const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
+
   const showAlert = useCallback((titulo, mensaje, tipo = 'info') => {
     setModalUI({ isOpen: true, tipo, titulo, mensaje, onConfirm: null });
-  }, []);
+  }, []);  
 
   const showConfirm = useCallback((titulo, mensaje, onConfirmCallback) => {
     setModalUI({ isOpen: true, tipo: 'confirm', titulo, mensaje, onConfirm: onConfirmCallback });
-  }, []);
+  }, []);  
 
   const closeModalUI = useCallback(() => {
     setModalUI(prev => ({ ...prev, isOpen: false }));
-  }, []);
+  }, []);  
 
   // === 4. CARGA DE DATOS CENTRALIZADA ===
   const cargarDatos = useCallback(async () => {
@@ -73,13 +73,13 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           setter(Array.isArray(data) ? data : []);
         }
       } catch (e) { console.error(`Error al cargar ${ruta}:`, e); }
-    };
+    };  
 
     if (canViewMenu || canViewPromociones) fetchSeguro('productos', setProductos);
     if (canViewCatalogos || canViewMenu) fetchSeguro('clasificaciones', setClasificaciones);
     if (canViewCatalogos || canViewMenu) fetchSeguro('ingredientes', setCatalogoIngredientes);
     if (canViewInventario) fetchSeguro('insumos', setInsumosDB);
-    if (canViewUsuarios) fetchSeguro('usuarios', setUsuariosDB);
+    if (canViewUsuarios) fetchSeguro('usuarios', setUsuariosDB);  
 
     if (canViewConfig || canViewMenu) {
       try {
@@ -90,9 +90,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         }
       } catch (e) {}
     }
-  }, [apiUrl, canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios, canViewConfig, canViewPromociones]);
+  }, [apiUrl, canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios, canViewConfig, canViewPromociones]);  
 
-  useEffect(() => { cargarDatos(); }, [cargarDatos]);
+  useEffect(() => { cargarDatos(); }, [cargarDatos]);  
 
   // Auto-refresh silencioso solo para el inventario de insumos
   useEffect(() => {
@@ -106,105 +106,105 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       }, 5000);
     }
     return () => clearInterval(intervalo);
-  }, [seccion, apiUrl, canViewInventario]);
+  }, [seccion, apiUrl, canViewInventario]);  
 
   // Props comunes inyectadas a todos los componentes hijos
-  const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };
+  const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };  
 
   return (
     // Estructura de Flex Vertical (Columna) para acomodar la barra arriba
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
-      
-      <TopNavAdmin 
-        user={user} 
-        onLogout={onLogout} 
-        onGoToKiosco={onGoToKiosco} 
-        seccion={seccion} 
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">  
+      <TopNavAdmin
+        user={user}
+        onLogout={onLogout}
+        onGoToKiosco={onGoToKiosco}
+        seccion={seccion}
         setSeccion={setSeccion}
         canViewMenu={canViewMenu}
-        canViewInventario={canViewInventario} 
-        canViewCatalogos={canViewCatalogos} 
-        canViewUsuarios={canViewUsuarios} 
+        canViewInventario={canViewInventario}
+        canViewCatalogos={canViewCatalogos}
+        canViewUsuarios={canViewUsuarios}
         canViewConfig={canViewConfig}
-        canViewClientes={canViewClientes} 
+        canViewClientes={canViewClientes}
         canViewReportes={canViewReportes}
         canViewPromociones={canViewPromociones}
-        canViewMesas={canViewMesas} 
-      />
+        canViewMesas={canViewMesas}
+      />  
 
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-      
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto">  
         {seccion === 'menu' && canViewMenu && (
-          <AdminMenu 
+          <AdminMenu
             {...commonProps}
-            productos={productos} 
-            clasificaciones={clasificaciones} 
-            catalogoIngredientes={catalogoIngredientes} 
+            productos={productos}
+            clasificaciones={clasificaciones}
+            catalogoIngredientes={catalogoIngredientes}
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
           />
-        )}
-        
-        {seccion === 'inventario' && canViewInventario && ( 
-          <AdminInventario 
+        )}  
+
+        {seccion === 'inventario' && canViewInventario && (
+          <AdminInventario
             {...commonProps}
-            insumosDB={insumosDB} 
-            productos={productos} 
+            insumosDB={insumosDB}
+            productos={productos}
             clasificaciones={clasificaciones}
           />
-        )}
-        
-        {seccion === 'catalogos' && canViewCatalogos && ( 
-          <AdminCatalogos 
+        )}  
+
+        {seccion === 'catalogos' && canViewCatalogos && (
+          <AdminCatalogos
             {...commonProps}
-            clasificaciones={clasificaciones} 
-            catalogoIngredientes={catalogoIngredientes} 
+            clasificaciones={clasificaciones}
+            catalogoIngredientes={catalogoIngredientes}
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
           />
-        )}
-        
-        {seccion === 'configuracion' && canViewConfig && ( 
-          <AdminConfiguracion 
+        )}  
+
+        {seccion === 'configuracion' && canViewConfig && (
+          <AdminConfiguracion
             {...commonProps}
-            configGlobal={configGlobal} 
+            configGlobal={configGlobal}
             setConfigGlobal={setConfigGlobal}
           />
-        )}
-        
-        {seccion === 'usuarios' && canViewUsuarios && ( 
-          <AdminUsuarios 
+        )}  
+
+        {seccion === 'usuarios' && canViewUsuarios && (
+          <AdminUsuarios
             {...commonProps}
             usuariosDB={usuariosDB}
           />
-        )}
+        )}  
 
-        {seccion === 'clientes' && canViewClientes && ( 
-          <AdminClientes 
-            apiUrl={apiUrl} 
-            showAlert={showAlert} 
+        {seccion === 'clientes' && canViewClientes && (
+          <AdminClientes
+            apiUrl={apiUrl}
+            showAlert={showAlert}
           />
-        )}
+        )}  
 
-        {seccion === 'reportes' && canViewReportes && ( 
-          <AdminReportes 
-            apiUrl={apiUrl} 
-            showAlert={showAlert} 
+        {seccion === 'reportes' && canViewReportes && (
+          <AdminReportes
+            apiUrl={apiUrl}
+            showAlert={showAlert}
           />
-        )}
+        )}  
 
-        {seccion === 'promociones' && canViewPromociones && ( 
-          <AdminPromociones 
-            {...commonProps} 
-            productos={productos} 
+        {/* 👇 AQUÍ SE APLICÓ LA CORRECCIÓN: Pasamos configGlobal y setConfigGlobal */}
+        {seccion === 'promociones' && canViewPromociones && (
+          <AdminPromociones
+            {...commonProps}
+            productos={productos}
+            configGlobal={configGlobal}
+            setConfigGlobal={setConfigGlobal}
           />
-        )}
+        )}  
 
-        {seccion === 'mesas' && canViewMesas && ( 
-          <AdminMesas 
-            apiUrl={apiUrl} 
+        {seccion === 'mesas' && canViewMesas && (
+          <AdminMesas
+            apiUrl={apiUrl}
           />
-        )}
-
-      </main>
+        )}  
+      </main>  
 
       {/* === MODAL GLOBAL REUTILIZABLE === */}
       {modalUI.isOpen && (
@@ -213,11 +213,11 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             {modalUI.tipo === 'error' && <AlertTriangle className="text-red-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'confirm' && <AlertTriangle className="text-orange-500 w-16 h-16 mb-4" />}
-            {modalUI.tipo === 'info' && <AlertTriangle className="text-blue-500 w-16 h-16 mb-4" />}
-            
+            {modalUI.tipo === 'info' && <AlertTriangle className="text-blue-500 w-16 h-16 mb-4" />}  
+
             <h3 className="text-2xl font-black text-slate-800 mb-2">{modalUI.titulo}</h3>
-            <p className="text-slate-500 font-medium mb-8 whitespace-pre-line">{modalUI.mensaje}</p>
-            
+            <p className="text-slate-500 font-medium mb-8 whitespace-pre-line">{modalUI.mensaje}</p>  
+
             <div className="flex flex-col sm:flex-row gap-4 w-full">
               {modalUI.tipo === 'confirm' ? (
                 <>
@@ -233,6 +233,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       )}
     </div>
   );
-};
+};  
 
 export default AdminPanel;
