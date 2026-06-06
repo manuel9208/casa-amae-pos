@@ -1,9 +1,34 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 const PantallaDomicilio = ({
   pantallaActual, setPantallaActual, configGlobal, direccionEntrega, setDireccionEntrega,
-  direccionesGuardadas, continuarAPagoDesdeDireccion
+  direccionesGuardadas, continuarAPagoDesdeDireccion, clienteActivo
 }) => {
+
+  // 🛡️ MAGIA DE AUTO-COMPLETADO: Buscar dirección en la nube o en caché local
+  useEffect(() => {
+    if (pantallaActual === 'direccion' && (!direccionEntrega || direccionEntrega.trim() === '')) {
+      let dirNube = clienteActivo?.direccion;
+      
+      // Si no viene por prop, la aseguramos extrayéndola de la sesión del navegador
+      if (!dirNube) {
+        try {
+          const sesion = JSON.parse(localStorage.getItem('pos_sesion'));
+          if (sesion && sesion.tipo === 'cliente' && sesion.data?.direccion) {
+            dirNube = sesion.data.direccion;
+          }
+        } catch (e) {}
+      }
+
+      if (dirNube) {
+        setDireccionEntrega(dirNube);
+      } else if (direccionesGuardadas && direccionesGuardadas.length > 0) {
+        setDireccionEntrega(direccionesGuardadas[0]);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pantallaActual]);
+
   if (pantallaActual === 'aviso_domicilio') {
     return (
       <div className="max-w-lg mx-auto mt-20 text-center animate-in zoom-in">
@@ -33,6 +58,31 @@ const PantallaDomicilio = ({
   }
 
   if (pantallaActual === 'direccion') {
+    // Organizar los botones rápidos de direcciones para UI
+    let dirNubeLocal = clienteActivo?.direccion;
+    if (!dirNubeLocal) {
+        try {
+            const sesion = JSON.parse(localStorage.getItem('pos_sesion'));
+            if (sesion?.tipo === 'cliente' && sesion?.data?.direccion) {
+                dirNubeLocal = sesion.data.direccion;
+            }
+        } catch (e) {}
+    }
+
+    const direccionesRapidas = [];
+    if (dirNubeLocal) {
+        direccionesRapidas.push({ tipo: '📍 Dirección Principal', valor: dirNubeLocal });
+    }
+    
+    (direccionesGuardadas || []).forEach((dir, idx) => {
+        if (dir !== dirNubeLocal) {
+            direccionesRapidas.push({ 
+                tipo: idx === 0 && !dirNubeLocal ? '🏠 Casa (Reciente)' : '🏢 Otra (Reciente)', 
+                valor: dir 
+            });
+        }
+    });
+
     return (
       <div className="max-w-xl mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
         <div className="flex justify-start mb-6">
@@ -47,15 +97,15 @@ const PantallaDomicilio = ({
         <span className="text-6xl block mb-6">🛵</span>
         <h2 className="text-3xl font-black mb-2 texto-destacado">¿A dónde te lo enviamos?</h2>
         
-        {direccionesGuardadas.length > 0 && (
-           <div className="mb-6 flex gap-3 justify-center mt-6">
-              {direccionesGuardadas.map((dir, idx) => (
+        {direccionesRapidas.length > 0 && (
+           <div className="mb-6 flex flex-wrap gap-3 justify-center mt-6">
+              {direccionesRapidas.map((item, idx) => (
                  <button 
                      key={idx} 
-                     onClick={() => setDireccionEntrega(dir)} 
-                     className={`px-6 py-3 rounded-xl font-bold border-2 transition-all ${direccionEntrega === dir ? 'bg-blue-100 border-blue-500 text-blue-700 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300'}`}
+                     onClick={() => setDireccionEntrega(item.valor)} 
+                     className={`px-6 py-3 rounded-xl font-bold border-2 transition-all ${direccionEntrega === item.valor ? 'bg-blue-100 border-blue-500 text-blue-700 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:border-blue-300'}`}
                  >
-                    {idx === 0 ? '🏠 Casa' : '🏢 Trabajo/Otro'}
+                    {item.tipo}
                  </button>
               ))}
            </div>

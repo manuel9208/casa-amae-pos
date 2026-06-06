@@ -1,11 +1,11 @@
 const db = require('../config/db');
 
 exports.registrar = async (req, res) => {
-  const { telefono, nombre, apellido, correo, fecha_nacimiento, nip } = req.body;
+  const { telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion } = req.body;
   try {
     const result = await db.query(
-      'INSERT INTO clientes (telefono, nombre, apellido, correo, fecha_nacimiento, nip) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [ telefono, nombre, apellido || '', correo || null, fecha_nacimiento || null, nip || '0000' ]
+      'INSERT INTO clientes (telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [ telefono, nombre, apellido || '', correo || null, fecha_nacimiento || null, nip || '0000', direccion || null ]
     );
     res.json({ cliente: result.rows[0] });
   } catch (error) {
@@ -30,7 +30,7 @@ exports.verificarNip = async (req, res) => {
 };
 
 // ==========================================
-// NUEVAS FUNCIONES PARA EL ADMIN CRM
+// FUNCIONES PARA EL ADMIN CRM
 // ==========================================
 
 exports.obtenerClientes = async (req, res) => {
@@ -44,15 +44,31 @@ exports.obtenerClientes = async (req, res) => {
 
 exports.actualizarCliente = async (req, res) => {
   const { id } = req.params;
-  // Excluimos fecha_nacimiento y fecha_registro intencionalmente
-  const { nombre, apellido, telefono, correo, puntos, nip } = req.body;
+  const { nombre, apellido, telefono, correo, puntos, nip, direccion } = req.body;
+  
   try {
+    // 🛡️ ACTUALIZACIÓN PARCIAL: Extraemos los datos actuales para no borrarlos
+    const curr = await db.query('SELECT * FROM clientes WHERE id = $1', [id]);
+    if (curr.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+    
+    const c = curr.rows[0];
+
+    // Si el valor llega por req.body lo usamos, sino mantenemos el que ya estaba en la DB
+    const nNombre = nombre !== undefined ? nombre : c.nombre;
+    const nApellido = apellido !== undefined ? apellido : c.apellido;
+    const nTelefono = telefono !== undefined ? telefono : c.telefono;
+    const nCorreo = correo !== undefined ? correo : c.correo;
+    const nPuntos = puntos !== undefined ? puntos : c.puntos;
+    const nNip = nip !== undefined ? nip : c.nip;
+    const nDireccion = direccion !== undefined ? direccion : c.direccion;
+
     const result = await db.query(
-      'UPDATE clientes SET nombre=$1, apellido=$2, telefono=$3, correo=$4, puntos=$5, nip=$6 WHERE id=$7 RETURNING *',
-      [nombre, apellido, telefono, correo, puntos, nip, id]
+      'UPDATE clientes SET nombre=$1, apellido=$2, telefono=$3, correo=$4, puntos=$5, nip=$6, direccion=$7 WHERE id=$8 RETURNING *',
+      [nNombre, nApellido, nTelefono, nCorreo, nPuntos, nNip, nDireccion, id]
     );
     res.json(result.rows[0]);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Error al actualizar cliente' });
   }
 };

@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.2)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.3)
 -- =========================================================================
 
 -- CONFIGURACIÓN DE ENTORNO
@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS clientes (
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
     correo VARCHAR(100),
     fecha_nacimiento DATE,
+    direccion TEXT, 
     puntos INTEGER DEFAULT 0,
     nip VARCHAR(4) DEFAULT '0000', 
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -276,7 +277,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     fecha_corte DATE DEFAULT CURRENT_DATE,
     hora_corte TIME DEFAULT CURRENT_TIME,
     fondo_inicial DECIMAL(10,2) NOT NULL,
-    fondo_repartidor DECIMAL(10,2) DEFAULT 0, -- Agregado para el módulo logístico
+    fondo_repartidor DECIMAL(10,2) DEFAULT 0,
     venta_platillos DECIMAL(10,2) NOT NULL,
     ingresos_extras DECIMAL(10,2) NOT NULL,
     cargos_envio DECIMAL(10,2) NOT NULL,
@@ -286,7 +287,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     total_gastos DECIMAL(10,2) NOT NULL,
     efectivo_cajon DECIMAL(10,2) NOT NULL,
     pedidos_incluidos JSONB NOT NULL,
-    detalles_envio JSONB DEFAULT '{}'::jsonb, -- Agregado para auditoría de motos
+    detalles_envio JSONB DEFAULT '{}'::jsonb,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

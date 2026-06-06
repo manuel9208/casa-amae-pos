@@ -6,6 +6,7 @@ exports.identificar = async (req, res) => {
     const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1', [telefono]);
     if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: empleado.rows[0] });
 
+    // 🛡️ Al usar SELECT *, la nueva columna "direccion" de PostgreSQL viaja automáticamente al Frontend
     const cliente = await db.query('SELECT * FROM clientes WHERE telefono = $1', [telefono]);
     if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: cliente.rows[0] });
 

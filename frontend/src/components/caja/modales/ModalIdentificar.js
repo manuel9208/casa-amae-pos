@@ -47,6 +47,8 @@ const ModalIdentificar = ({
                     </div>
                     <input type="email" disabled={isSubmitting} value={datosNuevoCliente.correo} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, correo: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Correo (Opcional)" />
                     
+                    <textarea disabled={isSubmitting} value={datosNuevoCliente.direccion || ''} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, direccion: e.target.value})} placeholder="Dirección Completa (Opcional)" className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500 resize-none h-16"></textarea>
+
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nacimiento</label>

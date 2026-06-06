@@ -37,13 +37,12 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [modalIdentificar, setModalIdentificar] = useState(false);
   const [pasoIdentificar, setPasoIdentificar] = useState(1);
   const [telClienteNuevo, setTelClienteNuevo] = useState('');
-  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
+  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
   
   const [modalPuntoVenta, setModalPuntoVenta] = useState(false);
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 👇 NUEVO ESTADO: Checador de asistencia ('Entrada' o 'Salida')
   const [modalAsistencia, setModalAsistencia] = useState(null); 
   
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -287,7 +286,28 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         };
       }
       const res = await fetch(`${apiUrl}/pedidos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paqueteCompleto) });
-      if (res.ok) { setModalEditarPedido(null); await cargarDataDinamica(); }
+      if (res.ok) { 
+          // 🛡️ SINCRONIZACIÓN INTELIGENTE EN CAJA: Guarda la dirección en el perfil si el cajero la edita
+          if (pedidoRef && pedidoRef.cliente_id && nuevosDatos.direccion_entrega) {
+              const dirLimpia = nuevosDatos.direccion_entrega.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
+              try {
+                  const resCli = await fetch(`${apiUrl}/clientes/${pedidoRef.cliente_id}`);
+                  if (resCli.ok) {
+                      const cliData = await resCli.json();
+                      if (!cliData.direccion || cliData.direccion !== dirLimpia) {
+                          await fetch(`${apiUrl}/clientes/${pedidoRef.cliente_id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ...cliData, direccion: dirLimpia })
+                          });
+                      }
+                  }
+              } catch(e) {}
+          }
+
+          setModalEditarPedido(null); 
+          await cargarDataDinamica(); 
+      }
     } catch (error) {}
     setIsSubmitting(false);
   };  
@@ -309,7 +329,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     empleadosPOS, isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
     isSubmitting, fondoCaja, inputFondo, setInputFondo, apiUrl, cargarDataDinamica,  
     fondoRepartidor, actualizarFondoRepartidor,  
-    modalAsistencia, setModalAsistencia, // 👈 NUEVO: Retornamos el estado del Checador
+    modalAsistencia, setModalAsistencia,
 
     pedidosPorConfirmar: pedidos.filter(p => {
       if (p.estado_preparacion !== 'Pendiente') return false;

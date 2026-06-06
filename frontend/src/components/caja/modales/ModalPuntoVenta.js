@@ -25,7 +25,8 @@ const ModalPuntoVenta = ({
   const [cuponActivo, setCuponActivo] = useState(null);
   const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
 
-  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
+  // Estado del nuevo cliente
+  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
 
   const [carrito, setCarrito] = useState([]);
   const [productoEnEspera, setProductoEnEspera] = useState(null);
@@ -63,7 +64,7 @@ const ModalPuntoVenta = ({
          setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional(''); setErrorMsg('');
          setMesaSeleccionada(''); setZonaEnvioCosto(''); setModoComedor(false); setPinEmpleado(''); setErrorComedor('');
          setCuponInput(''); setCuponActivo(null); setMsgCupon({texto: '', tipo: ''});
-         setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '' });
+         setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
       }
     }
   }, [modalPuntoVenta, ordenEditandoRapida]);
@@ -195,6 +196,19 @@ const ModalPuntoVenta = ({
       const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
       if (res.ok) {
         const data = await res.json();
+        
+        // 🛡️ ACTUALIZACIÓN SILENCIOSA DE DIRECCIÓN DESDE LA CAJA
+        if (!empleadoComedor && clienteAsignado?.id && tipoFinal === 'Domicilio' && stringDireccion) {
+            const dirLimpia = stringDireccion.split(' | TEL:')[0].split(' | (Llevar')[0].replace(`A NOMBRE DE: ${nombreOrden} | `, '').trim();
+            if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
+                fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direccion: dirLimpia })
+                }).catch(() => {});
+            }
+        }
+
         refrescarDatosCaja(); 
         if (metodoAcelerado === 'Mandar a Cocina' || empleadoComedor) {
            if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
@@ -260,12 +274,29 @@ const ModalPuntoVenta = ({
           <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in slide-in-from-right">
             <form onSubmit={registrarClienteRapido} className="bg-white p-10 rounded-[40px] shadow-xl w-full max-w-md text-center border border-slate-100">
                <span className="text-6xl mb-4 block">✨</span><h2 className="text-2xl font-black text-slate-800 mb-1">¡Nuevo Cliente!</h2>
+               
+               {/* 🛡️ CORRECCIÓN: Agregado Fecha Nacimiento. Dirección eliminada para aprovechar la sincronización silenciosa. */}
                <div className="grid grid-cols-2 gap-4 mt-6 mb-4">
-                  <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.nombre} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nombre: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none" placeholder="Nombre *" />
-                  <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.apellido} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, apellido: e.target.value})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-bold outline-none" placeholder="Apellido *" />
+                  <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.nombre} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Nombre *" />
+                  <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.apellido} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, apellido: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Apellido *" />
                </div>
-               <input type="text" maxLength="4" required disabled={isSubmitting} value={datosNuevoCliente.nip} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nip: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl p-3 font-black text-center tracking-[0.5em] mb-6" placeholder="NIP (1234) *" />
-               <div className="flex gap-4"><button type="button" onClick={() => setPaso('identificar')} className="flex-1 py-4 bg-slate-100 font-black rounded-2xl">Atrás</button><button type="submit" className="flex-[2] py-4 bg-emerald-500 text-white font-black rounded-2xl">Registrar</button></div>
+               
+               <input type="email" disabled={isSubmitting} value={datosNuevoCliente.correo} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, correo: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 font-bold outline-none focus:border-blue-500" placeholder="Correo (Opcional)" />
+               
+               <div className="grid grid-cols-2 gap-4 mb-6 text-left">
+                  <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">Nacimiento (Opcional)</label>
+                      <input type="date" disabled={isSubmitting} value={datosNuevoCliente.fecha_nacimiento} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, fecha_nacimiento: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500 text-slate-600" />
+                  </div>
+                  <div>
+                      <label className="text-[10px] font-black text-slate-400 uppercase mb-1 block">NIP (4 dígitos) *</label>
+                      <input type="text" maxLength="4" required disabled={isSubmitting} value={datosNuevoCliente.nip} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nip: e.target.value.replace(/\D/g, '')})} className="w-full bg-blue-50 text-blue-800 border-2 border-blue-200 rounded-xl p-3 font-black text-center tracking-[0.5em] focus:border-blue-500 outline-none" placeholder="1234" />
+                  </div>
+               </div>
+               
+               {errorMsg && <p className="text-red-500 font-bold text-sm bg-red-50 p-2 rounded-lg mb-4">{errorMsg}</p>}
+
+               <div className="flex gap-4"><button type="button" onClick={() => setPaso('identificar')} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Atrás</button><button type="submit" className="flex-[2] py-4 bg-emerald-500 text-white font-black rounded-2xl disabled:opacity-50 hover:bg-emerald-600 transition">Registrar</button></div>
             </form>
           </div>
         ) : (
@@ -298,7 +329,6 @@ const ModalPuntoVenta = ({
                      </div>
                      <input type="text" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} placeholder="Nombre del Cliente (Obligatorio) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none ${!nombreOrden.trim() ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
                      
-                     {/* 👇 LÓGICA CORREGIDA PARA FILTRAR MESAS OCUPADAS */}
                      {tipoConsumo === 'Local' && mesas && mesas.length > 0 && (
                         <select 
                            value={mesaSeleccionada} 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+// 🛡️ CORRECCIÓN: Rutas exactas según tu estructura de carpetas
 import PantallaConsumo from './checkout/PantallaConsumo';
 import PantallaRegistro from './checkout/PantallaRegistro';
 import PantallaMesa from './checkout/PantallaMesa';
@@ -13,7 +14,6 @@ const CheckoutFlujo = ({
   pedidoEditandoId, apiUrl, configGlobal, setErrorTransaccion, setMetodoPagoFinal,
   numeroPedidoReal, setNumeroPedidoReal, contador, setContador, reiniciarKiosco,
   metodoPagoFinal, mesaQR, isOffline,
-  
   promocionVigente, setPromocionVigente 
 }) => {
 
@@ -123,12 +123,14 @@ const CheckoutFlujo = ({
     setPantallaActual('pago');
   };
 
-  const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega, tipoBypass = null, mesaBypass = null) => {
+  // 🛡️ CORRECCIÓN: Aceptamos "nuevoClienteIdBypass" para amarrar la orden al cliente recién registrado
+  const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
     setErrorTransaccion(''); 
     setMetodoPagoFinal(metodoSeleccionado);
     
     const tipoReal = tipoBypass || tipoConsumo;
-    const idClienteAGuardar = ordenExterna ? ordenExterna.cliente_id : (clienteActivo?.id || null);
+    // Asignamos el ID correcto si es cliente viejo, si es externo, o si se acaba de registrar
+    const idClienteAGuardar = nuevoClienteIdBypass || (ordenExterna ? ordenExterna.cliente_id : (clienteActivo?.id || null));
     
     let origenCalculado = 'Web'; 
     if (user?.rol === 'cajero') origenCalculado = 'Caja'; 
@@ -151,11 +153,7 @@ const CheckoutFlujo = ({
         }
     });
 
-    // 👇 LA CORRECCIÓN MAESTRA:
-    // Hacemos que CUALQUIER pedido nuevo que nazca del kiosco inicie en 'Pendiente'
-    // Esto asegura que la Caja lo atrape y la Cocina no lo vea hasta que la Caja lo apruebe.
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
-
     const mesaFinal = mesaQR || mesaBypass || mesaSeleccionadaInterna || (ordenExterna ? ordenExterna.mesa : null);
 
     const paquete = { 
@@ -206,6 +204,18 @@ const CheckoutFlujo = ({
         if (cuponActivo && cuponActivo.id) {
            try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }
+
+        // 🛡️ SINCRONIZACIÓN INTELIGENTE DIRECTA (FIRE AND FORGET)
+        // Ya no requerimos GET previo, enviamos el PUT con la dirección directamente
+        if (idClienteAGuardar && tipoReal === 'Domicilio' && direccionFinalConAviso) {
+            const dirLimpia = direccionFinalConAviso.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
+            fetch(`${apiUrl}/clientes/${idClienteAGuardar}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ direccion: dirLimpia })
+            }).catch(() => {}); // Si falla silenciosamente, no interrumpe el flujo
+        }
+
         setNumeroPedidoReal(data.numero_pedido); 
         return true; 
       } else { 
@@ -219,7 +229,7 @@ const CheckoutFlujo = ({
     }
   };
 
-  const seleccionarPago = async (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null) => { 
+  const seleccionarPago = async (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => { 
     if (isSubmitting) return; 
     setIsSubmitting(true);
 
@@ -230,7 +240,7 @@ const CheckoutFlujo = ({
         dirModificada = `${direccionEntrega} | (Llevar cambio para: ${montoEfectivo})`;
     }
     
-    const ok = await guardarPedidoEnBD(metodo, dirModificada, tipoReal, mesaBypass); 
+    const ok = await guardarPedidoEnBD(metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass); 
     
     if (ok) { 
       setPasoTelefono(false); 
@@ -264,6 +274,7 @@ const CheckoutFlujo = ({
         setPantallaActual={setPantallaActual} seleccionarPago={seleccionarPago}
         nombreOrden={nombreOrden} setNombreOrden={setNombreOrden}
         continuarDesdeNombre={continuarDesdeNombre}
+        direccionEntrega={direccionEntrega} 
       />
     );
   }
@@ -295,6 +306,7 @@ const CheckoutFlujo = ({
         configGlobal={configGlobal} direccionEntrega={direccionEntrega}
         setDireccionEntrega={setDireccionEntrega} direccionesGuardadas={direccionesGuardadas}
         continuarAPagoDesdeDireccion={continuarAPagoDesdeDireccion}
+        clienteActivo={clienteActivo}
       />
     );
   }
