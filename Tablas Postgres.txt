@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.1)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.2)
 -- =========================================================================
 
 -- CONFIGURACIÓN DE ENTORNO
@@ -7,7 +7,7 @@
 ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
 
 -- -------------------------------------------------------------------------
--- 2. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Envíos)
+-- 1. TABLA DE CONFIGURACIÓN GLOBAL (Marca Blanca, Branding, TV y Envíos)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS configuracion (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -49,11 +49,22 @@ CREATE TABLE IF NOT EXISTS configuracion (
     tv_imagen_3 VARCHAR(255),
     tv_video VARCHAR(255), -- Ruta del video de 10s
 
-    -- Apertura y Cierre del Negocio
+    -- Apertura, Cierre y Limpieza del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
     mensaje_cierre TEXT,
     hora_apertura INTEGER DEFAULT 17, 
     hora_cierre INTEGER DEFAULT 23,     
+    matriz_limpieza JSONB DEFAULT '{}'::jsonb,
+
+    -- Seguridad en Caja
+    bloqueo_caja_activo BOOLEAN DEFAULT false,
+    bloqueo_caja_segundos INTEGER DEFAULT 30,
+
+    -- Configuración de Comedor de Empleados
+    comedor_limite VARCHAR(20) DEFAULT 'ambos',
+    comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
+    comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
+    cocina_en_caja_activa BOOLEAN DEFAULT false,
 
     -- Configuración de Ticket de Venta
     ticket_impresion_activa BOOLEAN DEFAULT FALSE,
@@ -75,32 +86,11 @@ CREATE TABLE IF NOT EXISTS configuracion (
     -- Notificaciones WhatsApp API Oficial
     wa_api_activa BOOLEAN DEFAULT FALSE,
     wa_api_token TEXT,
-    wa_phone_id TEXT,
-
-    -- NUEVO: Seguridad, Limpieza y Comedor
-    matriz_limpieza JSONB DEFAULT '{}'::jsonb,
-    bloqueo_caja_activo BOOLEAN DEFAULT false,
-    bloqueo_caja_segundos INTEGER DEFAULT 30,
-    comedor_limite VARCHAR(20) DEFAULT 'ambos',
-    comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
-    comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
-    cocina_en_caja_activa BOOLEAN DEFAULT false
+    wa_phone_id TEXT
 );
 
--- 🛡️ BLINDAJE: Sincronización preventiva para bases de datos ya existentes
-ALTER TABLE configuracion 
-ADD COLUMN IF NOT EXISTS hora_apertura INTEGER DEFAULT 17,
-ADD COLUMN IF NOT EXISTS hora_cierre INTEGER DEFAULT 23,
-ADD COLUMN IF NOT EXISTS matriz_limpieza JSONB DEFAULT '{}'::jsonb,
-ADD COLUMN IF NOT EXISTS bloqueo_caja_activo BOOLEAN DEFAULT false,
-ADD COLUMN IF NOT EXISTS bloqueo_caja_segundos INTEGER DEFAULT 30,
-ADD COLUMN IF NOT EXISTS comedor_limite VARCHAR(20) DEFAULT 'ambos',
-ADD COLUMN IF NOT EXISTS comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS cocina_en_caja_activa BOOLEAN DEFAULT false;
-
 -- -------------------------------------------------------------------------
--- 3. TABLAS DE USUARIOS, ASISTENCIAS, CLIENTES Y NOTIFICACIONES
+-- 2. TABLAS DE USUARIOS, NÓMINAS, ASISTENCIAS, CLIENTES Y NOTIFICACIONES
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
@@ -111,17 +101,20 @@ CREATE TABLE IF NOT EXISTS usuarios (
     permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
     pin VARCHAR(4) DEFAULT NULL,
+    horario_semanal JSONB DEFAULT '{}'::jsonb,
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 🛡️ BLINDAJE: Reconfiguración robusta de roles y PIN
-ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pin VARCHAR(4) DEFAULT NULL;
-ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
-ALTER TABLE usuarios 
-ADD CONSTRAINT usuarios_rol_check 
-CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor'));
+-- Tabla Histórica de Cortes de Nómina
+CREATE TABLE IF NOT EXISTS historico_nominas (
+    id SERIAL PRIMARY KEY,
+    fecha_corte DATE DEFAULT CURRENT_DATE,
+    usuario_admin_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+    datos_corte JSONB NOT NULL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Tabla Reloj Checador: Registro de Entradas y Salidas
 CREATE TABLE IF NOT EXISTS registro_asistencias (
@@ -132,6 +125,7 @@ CREATE TABLE IF NOT EXISTS registro_asistencias (
     fecha DATE DEFAULT CURRENT_DATE
 );
 
+-- Catálogo de Clientes
 CREATE TABLE IF NOT EXISTS clientes (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
@@ -154,7 +148,7 @@ CREATE TABLE IF NOT EXISTS suscripciones_push (
 );
 
 -- -------------------------------------------------------------------------
--- 4. CATÁLOGOS DEL MENÚ
+-- 3. CATÁLOGOS DEL MENÚ
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS clasificaciones (
     id SERIAL PRIMARY KEY,
@@ -193,7 +187,7 @@ CREATE TABLE IF NOT EXISTS catalogo_ingredientes (
 );
 
 -- -------------------------------------------------------------------------
--- 5. MÓDULO DE INVENTARIO Y RECETAS (MATERIA PRIMA)
+-- 4. MÓDULO DE INVENTARIO Y RECETAS (MATERIA PRIMA)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
@@ -229,7 +223,7 @@ CREATE TABLE IF NOT EXISTS recetas (
 );
 
 -- -------------------------------------------------------------------------
--- 6. TABLAS TRANSACCIONALES (PEDIDOS Y VENTAS)
+-- 5. TABLAS TRANSACCIONALES (PEDIDOS Y VENTAS)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS pedidos (
     id SERIAL PRIMARY KEY,
@@ -264,12 +258,6 @@ CREATE TABLE IF NOT EXISTS pedidos (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 🛡️ BLINDAJE: Repartidores y tiempos en pedidos
-ALTER TABLE pedidos 
-ADD COLUMN IF NOT EXISTS repartidor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
-ADD COLUMN IF NOT EXISTS tiempo_salida_reparto TIMESTAMP,
-ADD COLUMN IF NOT EXISTS tiempo_entregado TIMESTAMP;
-
 -- ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
 CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
 
@@ -288,6 +276,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     fecha_corte DATE DEFAULT CURRENT_DATE,
     hora_corte TIME DEFAULT CURRENT_TIME,
     fondo_inicial DECIMAL(10,2) NOT NULL,
+    fondo_repartidor DECIMAL(10,2) DEFAULT 0, -- Agregado para el módulo logístico
     venta_platillos DECIMAL(10,2) NOT NULL,
     ingresos_extras DECIMAL(10,2) NOT NULL,
     cargos_envio DECIMAL(10,2) NOT NULL,
@@ -297,6 +286,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     total_gastos DECIMAL(10,2) NOT NULL,
     efectivo_cajon DECIMAL(10,2) NOT NULL,
     pedidos_incluidos JSONB NOT NULL,
+    detalles_envio JSONB DEFAULT '{}'::jsonb, -- Agregado para auditoría de motos
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -304,7 +294,7 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
 CREATE INDEX IF NOT EXISTS idx_cortes_fecha ON historico_cortes(fecha_corte);
 
 -- -------------------------------------------------------------------------
--- 7. GESTIÓN DE MESAS Y MAPEO VISUAL
+-- 6. GESTIÓN DE MESAS Y MAPEO VISUAL
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS mesas (
     id SERIAL PRIMARY KEY,
@@ -318,7 +308,7 @@ CREATE TABLE IF NOT EXISTS mesas (
 );
 
 -- -------------------------------------------------------------------------
--- 8. MARKETING, PROMOCIONES Y CUPONES
+-- 7. MARKETING, PROMOCIONES Y CUPONES
 -- -------------------------------------------------------------------------
 
 -- Tabla de Cupones de Descuento

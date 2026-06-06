@@ -22,7 +22,14 @@ const FormularioAgregado = ({
           {tipoIngresoReceta === 'insumo' ? (
             <select required value={nuevoItemReceta.insumo_id} onChange={e => {
               const id = e.target.value; setNuevoItemReceta({...nuevoItemReceta, insumo_id: id});
-              const ins = insumosDB.find(i => String(i.id) === String(id)); if (ins) setUnidadConversionActiva(ins.unidad_medida);
+              const ins = insumosDB.find(i => String(i.id) === String(id));
+              if (ins) {
+                // 🛡️ CORRECCIÓN: Si el insumo está en Kilos o Litros, inicializamos el state en Gramos o Mililitros
+                // para que coincida con las opciones del <select> visual y aplique la división correctamente.
+                if (ins.unidad_medida === 'KL') setUnidadConversionActiva('GR');
+                else if (ins.unidad_medida === 'LT') setUnidadConversionActiva('ML');
+                else setUnidadConversionActiva(ins.unidad_medida);
+              }
             }} className="w-full h-full p-4 border border-slate-200 rounded-xl outline-none font-medium text-slate-700">
               <option value="">Buscar Insumo...</option>
               {(insumosDB || []).filter(i => i.es_empaque !== true && i.es_empaque !== 'true').map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidad_medida})</option>)}
@@ -38,11 +45,13 @@ const FormularioAgregado = ({
                   const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
                   if (opt) u = opt.nombre;
                 }
-                setUnidadConversionActiva(u);
+                // 🛡️ CORRECCIÓN APLICADA TAMBIÉN PARA LAS SUB-RECETAS
+                if (u === 'KL') setUnidadConversionActiva('GR');
+                else if (u === 'LT') setUnidadConversionActiva('ML');
+                else setUnidadConversionActiva(u);
               }
             }} className="w-full h-full p-4 border border-purple-200 bg-purple-50 rounded-xl outline-none font-bold text-purple-800">
               <option value="">Buscar Sub-Receta (Platillo preparado)...</option>
-              {/* 👇 Subrecetas disponibles ORDENADAS DE LA A A LA Z */}
               {(subRecetasDisponibles || [])
                 .slice()
                 .sort((a, b) => a.nombre.localeCompare(b.nombre))
