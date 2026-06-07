@@ -44,6 +44,16 @@ exports.obtenerConfiguracion = async (req, res) => {
 };
 
 exports.actualizarConfiguracion = async (req, res) => {
+  let configActual = {};
+  try {
+    const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    if (resActual.rows.length > 0) configActual = resActual.rows[0];
+  } catch(e) {}
+
+  // 🛡️ BLINDAJE 4 (LA SOLUCIÓN): Fusionar los datos actuales con los nuevos.
+  // Evita que las peticiones parciales (como Apagar Negocio desde Caja) borren tus colores y diseños.
+  const mergedBody = { ...configActual, ...req.body };
+
   const { 
     nombre_negocio, whatsapp, banco, cuenta, titular, 
     color_primario, color_secundario, color_fondo, 
@@ -57,19 +67,16 @@ exports.actualizarConfiguracion = async (req, res) => {
     mensaje_envio, tarifas_envio,
     wa_api_activa, wa_api_token, wa_phone_id,
     puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
-    
     bloqueo_caja_activo, bloqueo_caja_segundos,
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
     cocina_en_caja_activa 
-  } = req.body;
-  
-  let configActual = {};
-  try {
-    const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
-    if (resActual.rows.length > 0) configActual = resActual.rows[0];
-  } catch(e) {}
+  } = mergedBody;
 
-  let logo_url = null, tv_imagen_1 = null, tv_imagen_2 = null, tv_imagen_3 = null, tv_video = null;
+  let logo_url = configActual.logo_url || null;
+  let tv_imagen_1 = configActual.tv_imagen_1 || null;
+  let tv_imagen_2 = configActual.tv_imagen_2 || null;
+  let tv_imagen_3 = configActual.tv_imagen_3 || null;
+  let tv_video = configActual.tv_video || null;
 
   if (req.files && req.files.length > 0) {
     req.files.forEach(file => {
@@ -159,7 +166,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         tarifas_envio = EXCLUDED.tarifas_envio::jsonb,
         wa_api_activa = EXCLUDED.wa_api_activa,
         wa_api_token = EXCLUDED.wa_api_token,
-        wa_phone_id = EXCLUDED.wa_phone_id,
+        wa_phone_id = EXCLUDED.wa_api_token,
         puntos_porcentaje = EXCLUDED.puntos_porcentaje,
         puntos_valor_peso = EXCLUDED.puntos_valor_peso,
         puntos_activos = EXCLUDED.puntos_activos,

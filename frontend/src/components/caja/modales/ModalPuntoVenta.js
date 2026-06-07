@@ -25,7 +25,6 @@ const ModalPuntoVenta = ({
   const [cuponActivo, setCuponActivo] = useState(null);
   const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
 
-  // Estado del nuevo cliente
   const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
 
   const [carrito, setCarrito] = useState([]);
@@ -47,15 +46,23 @@ const ModalPuntoVenta = ({
          setPaso('menu');
          setClienteAsignado(ordenEditandoRapida.cliente_id ? { id: ordenEditandoRapida.cliente_id, nombre: ordenEditandoRapida.cliente_nombre } : null);
          setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
+         
+         // 🛡️ CORRECCIÓN: Si estamos editando y no hay cliente, extraemos el teléfono de la dirección
+         let telExtraido = '';
+         let dirPura = ordenEditandoRapida.direccion_entrega || '';
+         if (dirPura.includes('| TEL:')) {
+            const partes = dirPura.split('| TEL:');
+            dirPura = partes[0].trim();
+            telExtraido = partes[1].replace('|', '').trim();
+         }
+
+         setTelefonoCliente(telExtraido);
          setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
          setMesaSeleccionada(ordenEditandoRapida.mesa || '');
          setZonaEnvioCosto(ordenEditandoRapida.costo_envio || ''); 
          setCuponInput(ordenEditandoRapida.cupon_codigo || '');
          setCuponActivo(null);
          setMsgCupon({texto: '', tipo: ''});
-
-         let dirPura = ordenEditandoRapida.direccion_entrega || '';
-         if (ordenEditandoRapida.tipo_consumo === 'Domicilio' && dirPura.includes('|')) dirPura = dirPura.split('|')[0].trim();
          setNotaOpcional(dirPura);
          const car = typeof ordenEditandoRapida.carrito === 'string' ? JSON.parse(ordenEditandoRapida.carrito) : (ordenEditandoRapida.carrito || []);
          setCarrito(car);
@@ -166,6 +173,11 @@ const ModalPuntoVenta = ({
     } else {
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
         else if (nombreOrden) stringDireccion = `A NOMBRE DE: ${nombreOrden} | ${notaOpcional}`;
+        
+        // 🛡️ CORRECCIÓN: Si pide a domicilio y NO está registrado, incrustamos el teléfono que capturamos
+        if (tipoConsumo === 'Domicilio' && !clienteAsignado && telefonoCliente) {
+            stringDireccion += ` | TEL: ${telefonoCliente}`;
+        }
     }
 
     let estadoInicial = ordenEditandoRapida ? ordenEditandoRapida.estado_preparacion : 'Pendiente';
@@ -197,7 +209,6 @@ const ModalPuntoVenta = ({
       if (res.ok) {
         const data = await res.json();
         
-        // 🛡️ ACTUALIZACIÓN SILENCIOSA DE DIRECCIÓN DESDE LA CAJA
         if (!empleadoComedor && clienteAsignado?.id && tipoFinal === 'Domicilio' && stringDireccion) {
             const dirLimpia = stringDireccion.split(' | TEL:')[0].split(' | (Llevar')[0].replace(`A NOMBRE DE: ${nombreOrden} | `, '').trim();
             if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
@@ -249,7 +260,7 @@ const ModalPuntoVenta = ({
   };
 
   const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() || 
-                           (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === ''));
+                           (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && telefonoCliente.length !== 10)));
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
@@ -267,7 +278,7 @@ const ModalPuntoVenta = ({
                   {errorMsg && <p className="text-red-500 font-bold text-sm mt-3 bg-red-50 p-2 rounded-lg">{errorMsg}</p>}
                   <button type="submit" disabled={telefonoCliente.length !== 10 || isSubmitting} className="w-full mt-6 bg-blue-600 text-white py-5 rounded-2xl font-black text-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 disabled:opacity-50 transition active:scale-95">{isSubmitting ? 'Buscando...' : 'Siguiente'}</button>
                 </form>
-                <button onClick={() => setPaso('menu')} className="w-full bg-slate-100 text-slate-600 py-5 rounded-2xl font-black text-xl hover:bg-slate-200 transition active:scale-95 mt-4">Orden de Invitado</button>
+                <button onClick={() => { setTelefonoCliente(''); setPaso('menu'); }} className="w-full bg-slate-100 text-slate-600 py-5 rounded-2xl font-black text-xl hover:bg-slate-200 transition active:scale-95 mt-4">Orden de Invitado</button>
              </div>
           </div>
         ) : paso === 'registro' ? (
@@ -275,7 +286,6 @@ const ModalPuntoVenta = ({
             <form onSubmit={registrarClienteRapido} className="bg-white p-10 rounded-[40px] shadow-xl w-full max-w-md text-center border border-slate-100">
                <span className="text-6xl mb-4 block">✨</span><h2 className="text-2xl font-black text-slate-800 mb-1">¡Nuevo Cliente!</h2>
                
-               {/* 🛡️ CORRECCIÓN: Agregado Fecha Nacimiento. Dirección eliminada para aprovechar la sincronización silenciosa. */}
                <div className="grid grid-cols-2 gap-4 mt-6 mb-4">
                   <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.nombre} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Nombre *" />
                   <input type="text" required disabled={isSubmitting} value={datosNuevoCliente.apellido} onChange={e => setDatosNuevoCliente({...datosNuevoCliente, apellido: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold outline-none focus:border-blue-500" placeholder="Apellido *" />
@@ -329,6 +339,11 @@ const ModalPuntoVenta = ({
                      </div>
                      <input type="text" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} placeholder="Nombre del Cliente (Obligatorio) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none ${!nombreOrden.trim() ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
                      
+                     {/* 🛡️ CORRECCIÓN: Si piden a domicilio y es "Invitado", se exige el número celular */}
+                     {tipoConsumo === 'Domicilio' && !clienteAsignado && (
+                        <input type="tel" maxLength="10" value={telefonoCliente} onChange={e => setTelefonoCliente(e.target.value.replace(/\D/g, ''))} placeholder="Celular para Repartidor (10 dígitos) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none tracking-widest ${telefonoCliente.length !== 10 ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
+                     )}
+
                      {tipoConsumo === 'Local' && mesas && mesas.length > 0 && (
                         <select 
                            value={mesaSeleccionada} 
