@@ -56,15 +56,15 @@ const AdminConfiguracion = ({
 
     const formData = new FormData();  
 
+    // 👇 LA MATRIZ DE LIMPIEZA SE DEJA AQUÍ PARA QUE EL BUCLE LA IGNORE Y NO LA MANDE
     const llavesManuales = [
       'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos',
       'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
-      'cocina_en_caja_activa'
+      'cocina_en_caja_activa', 'horarios_semana' 
     ];  
 
     Object.keys(configGlobal).forEach(key => {
       if (!llavesManuales.includes(key)) {
-        // 👇 BLINDAJE 4: Nunca enviar "null" o "undefined" como texto literal
         let val = configGlobal[key];
         if (val === null || val === undefined) val = '';
         formData.append(key, val);
@@ -83,10 +83,10 @@ const AdminConfiguracion = ({
     formData.append('comedor_limite', configGlobal.comedor_limite || 'ambos');
     formData.append('comedor_clasif_bebidas', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_bebidas)));
     formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));  
-
-    let matrizL = configGlobal.matriz_limpieza || '{}';
-    if (matrizL === '') matrizL = '{}';
-    formData.append('matriz_limpieza', typeof matrizL === 'string' ? matrizL : JSON.stringify(matrizL));  
+    
+    let horSem = configGlobal.horarios_semana || '{}';
+    if (horSem === '') horSem = '{}';
+    formData.append('horarios_semana', typeof horSem === 'string' ? horSem : JSON.stringify(horSem));
 
     if (logoBlob) formData.append('logo', logoBlob);
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
@@ -125,8 +125,8 @@ const AdminConfiguracion = ({
         mensaje_envio: 'El costo de envío se calculará según tu zona.',
         bloqueo_caja_activo: false, bloqueo_caja_segundos: 30,
         cocina_en_caja_activa: false,
-        comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]',
-        matriz_limpieza: '{}'
+        comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]'
+        // 👇 NOTA: Se quitaron matriz_limpieza y horarios_semana de aquí para que un reset visual no te borre a los empleados
       });
       setTarifasEnvio([]);
       setTvVideoBlob(null);
