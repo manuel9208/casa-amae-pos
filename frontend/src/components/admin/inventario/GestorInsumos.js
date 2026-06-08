@@ -13,15 +13,11 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
       peso_prueba_limpio: '' 
   });
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
-  
-  // Estado para la unidad visual de la prueba (Gramos, Kilos, etc.)
   const [unidadPrueba, setUnidadPrueba] = useState('GR');
-
   const [modalCompra, setModalCompra] = useState(null);
   const [compraPaquetes, setCompraPaquetes] = useState('');
   const [compraCosto, setCompraCosto] = useState('');
 
-  // Sincroniza la unidad de prueba con la unidad principal
   useEffect(() => {
       if (nuevoInsumo.unidad_medida === 'KL') setUnidadPrueba('GR');
       else if (nuevoInsumo.unidad_medida === 'LT') setUnidadPrueba('ML');
@@ -55,12 +51,16 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
       try { 
           const url = editandoInsumoId ? `${apiUrl}/insumos/${editandoInsumoId}` : `${apiUrl}/insumos`;
           const res = await fetch(url, { method: editandoInsumoId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoInsumo) }); 
+          
+          const data = await res.json();
+
           if (res.ok) { 
             showAlert("¡Éxito!", editandoInsumoId ? "Insumo actualizado." : "Insumo registrado.", "success");
             cancelarEdicionInsumo(); 
             refrescarDatos(); 
           } else {
-            showAlert("Error", "No se pudo guardar el insumo.", "error");
+            // 👇 Mostramos el mensaje si el insumo está duplicado
+            showAlert("Aviso", data.error || "No se pudo guardar el insumo.", "error");
           }
       } catch(e) {
           showAlert("Error", "Error de conexión al servidor.", "error");
@@ -85,14 +85,17 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
           const res = await fetch(`${apiUrl}/insumos/${modalCompra.id}/comprar`, { 
             method: 'PUT', 
             headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ paquetes_comprados: compraPaquetes, nuevo_costo_paquete: compraCosto }) 
+            // 👇 AVISAMOS AL BACKEND QUE ESTA COMPRA LA ESTÁ HACIENDO EL DUEÑO PARA NO AFECTAR LA CAJA
+            body: JSON.stringify({ paquetes_comprados: compraPaquetes, nuevo_costo_paquete: compraCosto, origen: 'Admin' }) 
           }); 
+          
+          const data = await res.json();
           if (res.ok) { 
             showAlert("Stock Actualizado", `Se ha sumado el stock correctamente.`, "success");
             setModalCompra(null); setCompraPaquetes(''); setCompraCosto(''); 
             refrescarDatos(); 
           } else {
-            showAlert("Error", "No se pudo registrar la compra.", "error");
+            showAlert("Aviso", data.error || "No se pudo registrar la compra.", "error");
           }
       } catch(e) {
           showAlert("Error", "Problema de conexión al procesar la compra.", "error");
@@ -111,7 +114,6 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
     });
   };
 
-  // 👇 LÓGICA DE CONVERSIÓN VISUAL PARA LAS PRUEBAS
   const getDisplayValue = (val) => {
       if (val === '' || val === null || val === undefined) return '';
       let num = parseFloat(val);
@@ -127,7 +129,6 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
           return;
       }
       let num = parseFloat(displayValue);
-      // Auto convertir a la unidad base (KL o LT) antes de guardar en el estado
       if (nuevoInsumo.unidad_medida === 'KL' && unidadPrueba === 'GR') num = num / 1000;
       if (nuevoInsumo.unidad_medida === 'LT' && unidadPrueba === 'ML') num = num / 1000;
       setNuevoInsumo({...nuevoInsumo, [field]: num});
@@ -176,11 +177,11 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
             </div>
             <div>
               <label className="block text-xs font-black text-slate-400 uppercase mb-1">Cant. Paquete</label>
-              <input required type="number" placeholder="Ej. 1000" value={nuevoInsumo.cantidad_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, cantidad_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-center" />
+              <input required type="number" step="any" placeholder="Ej. 1000" value={nuevoInsumo.cantidad_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, cantidad_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-center" />
             </div>
             <div>
               <label className="block text-xs font-black text-slate-400 uppercase mb-1">Costo Paquete ($)</label>
-              <input required type="number" step="0.01" placeholder="Ej. 50.00" value={nuevoInsumo.costo_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, costo_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-slate-700 text-xl" />
+              <input required type="number" step="any" placeholder="Ej. 50.00" value={nuevoInsumo.costo_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, costo_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-slate-700 text-xl" />
             </div>
           </div>
           
@@ -192,7 +193,6 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
              <p className="text-xs text-indigo-600/80 font-bold ml-8 mt-1">Márcalo si es un domo, vaso, cuchara o servilleta. Así aparecerá en el simulador de Tamaños.</p>
           </div>
 
-          {/* 👇 BLOQUE ACTUALIZADO: CONTROL DE RENDIMIENTO CON SELECTOR INTELIGENTE */}
           {!nuevoInsumo.es_empaque && (
               <div className="mt-6 border-t border-slate-100 pt-6">
                 <h4 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -212,7 +212,6 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
                     {nuevoInsumo.tipo_rendimiento !== 'Directo' && (
                         <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-amber-50/30 p-4 rounded-2xl border border-amber-100">
                             
-                            {/* Selector de Unidad de la Prueba */}
                             <div className="md:col-span-2 flex justify-between items-center bg-white p-3 rounded-xl border border-amber-200 shadow-sm">
                                 <label className="text-xs font-black text-slate-600 uppercase tracking-widest">¿En qué unidad pesaste la prueba?</label>
                                 <select 
@@ -228,13 +227,13 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
 
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pesaje (Crudo/Sucio) en {unidadPrueba}</label>
-                                <input required type="number" step="0.001" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '400' : '0.4'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_crudo)} onChange={e => handleTestValueChange('peso_prueba_crudo', e.target.value)} className="w-full p-4 bg-white border border-amber-200 rounded-xl outline-none font-bold text-center focus:ring-2 focus:ring-amber-500" />
+                                <input required type="number" step="any" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '400' : '0.4'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_crudo)} onChange={e => handleTestValueChange('peso_prueba_crudo', e.target.value)} className="w-full p-4 bg-white border border-amber-200 rounded-xl outline-none font-bold text-center focus:ring-2 focus:ring-amber-500" />
                                 <p className="text-[10px] text-slate-400 mt-1 font-bold">Pesa 1 sola pieza tal cual se compró.</p>
                             </div>
                             
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Pesaje (Limpio/Cocido) en {unidadPrueba}</label>
-                                <input required type="number" step="0.001" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '200' : '0.2'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_limpio)} onChange={e => handleTestValueChange('peso_prueba_limpio', e.target.value)} className="w-full p-4 bg-white border border-amber-400 shadow-inner rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-amber-700 text-center text-xl" />
+                                <input required type="number" step="any" placeholder={`Ej. ${unidadPrueba === 'GR' || unidadPrueba === 'ML' ? '200' : '0.2'}`} value={getDisplayValue(nuevoInsumo.peso_prueba_limpio)} onChange={e => handleTestValueChange('peso_prueba_limpio', e.target.value)} className="w-full p-4 bg-white border border-amber-400 shadow-inner rounded-xl outline-none focus:ring-2 focus:ring-amber-500 font-black text-amber-700 text-center text-xl" />
                                 <p className="text-[10px] text-slate-400 mt-1 font-bold">Pésalo otra vez ya listo para cocinar.</p>
                             </div>
                         </div>
@@ -333,8 +332,8 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
             <h3 className="text-xl font-black text-slate-800 mb-2">Ingresar Stock</h3>
             <p className="text-slate-500 font-medium mb-6">Insumo: <span className="font-bold text-blue-600">{modalCompra.nombre}</span> ({modalCompra.cantidad_presentacion} {modalCompra.unidad_medida})</p>
             <div className="space-y-4">
-              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Paquetes / Cajas Compradas</label><input autoFocus required type="number" value={compraPaquetes} onChange={e => setCompraPaquetes(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center" placeholder="Ej. 2" /></div>
-              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Costo Nuevo del Paquete ($)</label><input required type="number" step="0.01" value={compraCosto} onChange={e => setCompraCosto(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center text-slate-700" /></div>
+              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Paquetes / Cajas Compradas</label><input autoFocus required type="number" step="any" value={compraPaquetes} onChange={e => setCompraPaquetes(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center" placeholder="Ej. 2" /></div>
+              <div><label className="block text-xs font-black text-slate-400 uppercase mb-1">Costo Nuevo del Paquete ($)</label><input required type="number" step="any" value={compraCosto} onChange={e => setCompraCosto(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-xl text-center text-slate-700" /></div>
             </div>
             <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl mt-4 text-right">
                 <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-1">Costo Total Compra</p>

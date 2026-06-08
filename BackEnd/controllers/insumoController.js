@@ -4,13 +4,12 @@ exports.obtenerInsumos = async (req, res) => {
     try { 
         const result = await db.query('SELECT * FROM insumos ORDER BY nombre ASC'); 
         
-        // 👇 ESCUDO ANTI-NaN + NUEVOS CAMPOS DE RENDIMIENTO
         const insumosLimpios = result.rows.map(ins => ({
             ...ins,
             stock_actual: isNaN(parseFloat(ins.stock_actual)) ? 0 : parseFloat(ins.stock_actual),
             costo_presentacion: isNaN(parseFloat(ins.costo_presentacion)) ? 0 : parseFloat(ins.costo_presentacion),
             cantidad_presentacion: isNaN(parseFloat(ins.cantidad_presentacion)) || parseFloat(ins.cantidad_presentacion) <= 0 ? 1 : parseFloat(ins.cantidad_presentacion),
-            factor_rendimiento: isNaN(parseFloat(ins.factor_rendimiento)) ? 1 : parseFloat(ins.factor_rendimiento), // Nuevo
+            factor_rendimiento: isNaN(parseFloat(ins.factor_rendimiento)) ? 1 : parseFloat(ins.factor_rendimiento),
             es_empaque: ins.es_empaque === true || ins.es_empaque === 'true'
         }));
         
@@ -23,28 +22,32 @@ exports.obtenerInsumos = async (req, res) => {
 exports.crearInsumo = async (req, res) => {
     const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio } = req.body;
     try {
-        // 👇 MAGIA DEL RENDIMIENTO: Calculamos el multiplicador secreto
+        // 🛡️ ESCUDO ANTI-DUPLICADOS (Ignora mayúsculas y espacios)
+        const nombreLimpio = String(nombre).trim();
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1)', [nombreLimpio]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ error: 'Ya existe un insumo o empaque con ese nombre exacto.' });
+        }
+
         let factor_rendimiento = 1.0000;
         const tipo = tipo_rendimiento || 'Directo';
         
         if (tipo === 'Merma' || tipo === 'Expansión') {
             const crudo = parseFloat(peso_prueba_crudo) || 0;
             const limpio = parseFloat(peso_prueba_limpio) || 0;
-            if (crudo > 0) {
-                factor_rendimiento = limpio / crudo; // Ej: 200g / 400g = 0.5 (Pepino) || 2500g / 1000g = 2.5 (Arroz)
-            }
+            if (crudo > 0) factor_rendimiento = limpio / crudo; 
         }
 
         const result = await db.query(
             `INSERT INTO insumos 
             (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento) 
             VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9) RETURNING *`, 
-            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion, Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento]
+            [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento]
         );
         res.status(201).json(result.rows[0]);
     } catch(e) { 
         console.error("Error al crear insumo:", e);
-        res.status(500).json({error: 'Error al crear insumo'}); 
+        res.status(500).json({error: 'Error al crear el insumo en el servidor.'}); 
     }
 };
 
@@ -52,7 +55,13 @@ exports.actualizarInsumo = async (req, res) => {
     const { id } = req.params;
     const { nombre, unidad_medida, cantidad_presentacion, costo_presentacion, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio } = req.body;
     try {
-        // 👇 MAGIA DEL RENDIMIENTO AL EDITAR
+        // 🛡️ ESCUDO ANTI-DUPLICADOS AL EDITAR
+        const nombreLimpio = String(nombre).trim();
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND id != $2', [nombreLimpio, id]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ error: 'Ya existe OTRO insumo con ese nombre.' });
+        }
+
         let factor_rendimiento = 1.0000;
         const tipo = tipo_rendimiento || 'Directo';
         
@@ -67,7 +76,7 @@ exports.actualizarInsumo = async (req, res) => {
             nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4, es_empaque=$5,
             tipo_rendimiento=$6, peso_prueba_crudo=$7, peso_prueba_limpio=$8, factor_rendimiento=$9 
             WHERE id=$10 RETURNING *`, 
-            [nombre, unidad_medida, cantidad_presentacion, costo_presentacion, Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, id]
+            [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, id]
         );
         res.json(result.rows[0]);
     } catch (error) { 
@@ -80,6 +89,9 @@ exports.comprarInsumo = async (req, res) => {
     const { id } = req.params;
     let paquetes_comprados = req.body.paquetes_comprados !== undefined ? req.body.paquetes_comprados : req.body.paquetes;
     let nuevo_costo_paquete = req.body.nuevo_costo_paquete !== undefined ? req.body.nuevo_costo_paquete : req.body.costo_unitario;
+    
+    // 👇 Recibimos si la compra la hizo la Caja o el Administrador
+    let origen = req.body.origen || 'Caja'; 
 
     try {
         await db.query('BEGIN'); 
@@ -89,8 +101,6 @@ exports.comprarInsumo = async (req, res) => {
         
         const cant_paquete = parseFloat(ins.rows[0].cantidad_presentacion) || 1;
         const paquetes = parseFloat(paquetes_comprados) || 0;
-        
-        // Obtenemos el factor (Ej: 0.5 para el pepino, 2.5 para el arroz)
         const factor = parseFloat(ins.rows[0].factor_rendimiento) || 1;
         
         let costo_uni = parseFloat(nuevo_costo_paquete);
@@ -98,8 +108,6 @@ exports.comprarInsumo = async (req, res) => {
             costo_uni = parseFloat(ins.rows[0].costo_presentacion) || 0;
         }
         
-        // 👇 AQUÍ SUCEDE LA MAGIA EN INVENTARIO: 
-        // Si compras 1 paquete de 1000g de pepino, cant_paquete(1000) * paquetes(1) * factor(0.5) = 500g REALES a tu stock.
         const stock_agregado = cant_paquete * paquetes * factor; 
         const costo_total = paquetes * costo_uni;
         
@@ -111,9 +119,10 @@ exports.comprarInsumo = async (req, res) => {
             [nuevo_stock_total, costo_uni, id]
         );
 
+        // 👇 Guardamos de dónde vino la compra
         await db.query(
-            'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total) VALUES ($1, $2, $3, $4)',
-            [id, paquetes, costo_uni, costo_total]
+            'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen) VALUES ($1, $2, $3, $4, $5)',
+            [id, paquetes, costo_uni, costo_total, origen]
         );
 
         await db.query('COMMIT'); 
@@ -121,21 +130,21 @@ exports.comprarInsumo = async (req, res) => {
     } catch(e) { 
         await db.query('ROLLBACK'); 
         console.error("Error al comprar insumo:", e);
-        res.status(500).json({error: 'Error al comprar insumo'}); 
+        res.status(500).json({error: 'Error al procesar la compra.'}); 
     }
 };
 
 exports.obtenerComprasHoy = async (req, res) => {
     try {
+        // 👇 ESTA ES LA CLAVE: El corte de caja SOLO descuenta las compras hechas por la "Caja"
         const result = await db.query(`
             SELECT ci.id, ci.costo_total, i.nombre 
             FROM compras_insumos ci 
             JOIN insumos i ON ci.insumo_id = i.id 
-            WHERE DATE(ci.fecha_compra) = CURRENT_DATE
+            WHERE DATE(ci.fecha_compra) = CURRENT_DATE AND ci.origen = 'Caja'
         `);
         res.json(result.rows);
     } catch (e) {
-        console.error("Error al obtener compras de hoy:", e);
         res.status(500).json({error: 'Error al obtener compras de hoy'});
     }
 };
@@ -143,13 +152,9 @@ exports.obtenerComprasHoy = async (req, res) => {
 exports.reiniciarStock = async (req, res) => {
     const { id } = req.params;
     try {
-        const result = await db.query(
-            'UPDATE insumos SET stock_actual = 0 WHERE id = $1 RETURNING *', 
-            [id]
-        );
+        const result = await db.query('UPDATE insumos SET stock_actual = 0 WHERE id = $1 RETURNING *', [id]);
         res.json(result.rows[0]);
     } catch(e) { 
-        console.error("Error al reiniciar stock:", e);
         res.status(500).json({error: 'Error al reiniciar stock'}); 
     }
 };

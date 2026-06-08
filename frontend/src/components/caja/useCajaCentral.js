@@ -175,11 +175,22 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };  
 
+  // 👇 CORRECCIÓN 3: Interceptar actualizaciones de estado y forzar cobro si es de Kiosco/QR
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado) => {
     if(isSubmitting) return; setIsSubmitting(true);
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
+    const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);
+
     try {
-      await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado_preparacion: nuevoEstado }) });
+      let payload = { estado_preparacion: nuevoEstado };
+      
+      // Si un pedido de Kiosco (que está en 'Por Cobrar') se marca como 'Entregado',
+      // se asume que se pagó en Efectivo automáticamente en el mostrador para sumarlo a caja.
+      if (nuevoEstado === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
+         payload.metodo_pago = 'Efectivo';
+      }
+
+      await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       await cargarDataDinamica();
     } catch(e) { console.error(e); }
     setIsSubmitting(false);
@@ -287,7 +298,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
       const res = await fetch(`${apiUrl}/pedidos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paqueteCompleto) });
       if (res.ok) { 
-          // 🛡️ SINCRONIZACIÓN INTELIGENTE EN CAJA: Guarda la dirección en el perfil si el cajero la edita
           if (pedidoRef && pedidoRef.cliente_id && nuevosDatos.direccion_entrega) {
               const dirLimpia = nuevosDatos.direccion_entrega.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
               try {

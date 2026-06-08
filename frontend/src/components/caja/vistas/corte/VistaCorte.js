@@ -1,111 +1,128 @@
 import React, { useState, useEffect } from 'react';
-import { ChefHat, PlusCircle, MapPin, TrendingDown, Calendar, Search, History, Bike, CreditCard, Banknote, Smartphone } from 'lucide-react';
+import { ChefHat, PlusCircle, MapPin, TrendingDown, Calendar, Search, History, Bike, CreditCard, Banknote, Smartphone, AlertTriangle } from 'lucide-react';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
 const VistaCorte = (props) => {
   const {
-    totalGastos, fondoCaja, gastosDia, fondoRepartidor
+    totalGastos, fondoCaja, fondoRepartidor, user
   } = props;
 
   const hoyStr = new Date().toLocaleDateString('en-CA'); 
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [cargando, setCargando] = useState(false);
+  const [pedidos, setPedidos] = useState([]);
   const [datosHistoricos, setDatosHistoricos] = useState(null);
   
-  // Agregamos un objeto "envios" para separar matemáticamente todo
   const [mathHoy, setMathHoy] = useState({ 
       platillos: 0, extras: 0, envio: 0, efectivo: 0, tarjeta: 0, transf: 0, comedor: 0,
       envios: { platillos: 0, extras: 0, envio: 0, efectivo: 0, tarjeta: 0, transf: 0 }
   });
 
   const esHoy = fechaFiltro === hoyStr;
-
   const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
 
+  // 1. OBTENER PEDIDOS Y CORTE (AHORA ES DINÁMICO PARA CUALQUIER DÍA)
   useEffect(() => {
-    if (!esHoy) return;
-    const calcMath = async () => {
-       try {
-          const res = await fetch(`${apiUrl}/pedidos/hoy`);
-          const data = await res.json();
-          if(!Array.isArray(data)) return;
-          
-          let pPlat=0, pExt=0, pEnv=0, pEfe=0, pTar=0, pTra=0, pCom=0;
-          let dPlat=0, dExt=0, dEnv=0, dEfe=0, dTar=0, dTra=0; // Variables exclusivas de Domicilio
-          
-          data.forEach(p => {
-             if(p.estado_preparacion === 'Cancelado') return;
-             const isComedor = p.metodo_pago === 'Comida Personal';
-             const isDomicilio = p.tipo_consumo === 'Domicilio';
+    const cargarDatos = async () => {
+      setCargando(true);
+      try {
+        const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=dia&fecha=${fechaFiltro}`);
+        if(resPed.ok) setPedidos(await resPed.json());
+        
+        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
+        if(resCorte.ok) setDatosHistoricos(await resCorte.json());
+        else setDatosHistoricos(null);
+      } catch(e) { setDatosHistoricos(null); }
+      setCargando(false);
+    };
+    cargarDatos();
+    
+    let int;
+    if(esHoy) int = setInterval(cargarDatos, 3000);
+    return () => clearInterval(int);
+  }, [fechaFiltro, esHoy]);
+
+  // 2. MATEMÁTICAS EXACTAS CLONADAS DEL REPORTE
+  useEffect(() => {
+      let tPlat=0, tExt=0, tEnv=0, tEfe=0, tTar=0, tTra=0, tCom=0;
+      let dPlat=0, dExt=0, dEnv=0, dEfe=0, dTar=0, dTra=0; 
+      
+      pedidos.forEach(p => {
+         if(p.estado_preparacion === 'Cancelado') return;
+
+         const isComedor = p.metodo_pago === 'Comida Personal';
+         const isDomicilio = p.tipo_consumo === 'Domicilio';
+         
+         const costoEnvio = parseMoney(p.costo_envio);
+         tEnv += costoEnvio;
+         if (isDomicilio) dEnv += costoEnvio;
+
+         let efe=0, tar=0, tra=0;
+
+         if (p.metodo_pago === 'Efectivo') efe += parseMoney(p.total);
+         if (p.metodo_pago === 'Tarjeta') tar += parseMoney(p.total);
+         if (p.metodo_pago === 'Transferencia') tra += parseMoney(p.total);
+         if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+             let pm = []; try{ pm=typeof p.pagos_mixtos==='string'?JSON.parse(p.pagos_mixtos):p.pagos_mixtos; }catch(e){}
+             pm.forEach(x => {
+                 if(x.metodo==='Efectivo') efe += parseMoney(x.monto);
+                 if(x.metodo==='Tarjeta') tar += parseMoney(x.monto);
+                 if(x.metodo==='Transferencia') tra += parseMoney(x.monto);
+             });
+         }
+         
+         tEfe += efe; tTar += tar; tTra += tra;
+         if (isDomicilio) { dEfe += efe; dTar += tar; dTra += tra; }
+
+         let car = []; 
+         if (Array.isArray(p.carrito)) {
+             car = p.carrito;
+         } else if (typeof p.carrito === 'string') {
+             try { car = JSON.parse(p.carrito); } catch(e) {}
+         }
+         
+         car.forEach(i => {
+             const qty = parseMoney(i.cantidad) || 1; 
+             let exP = 0;
              
-             const costoEnvio = parseMoney(p.costo_envio);
-             pEnv += costoEnvio;
-             if (isDomicilio) dEnv += costoEnvio;
-
-             let efe=0, tar=0, tra=0;
-
-             if(p.metodo_pago === 'Efectivo') efe += parseMoney(p.total);
-             if(p.metodo_pago === 'Tarjeta') tar += parseMoney(p.total);
-             if(p.metodo_pago === 'Transferencia') tra += parseMoney(p.total);
-             if(p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-                 try { JSON.parse(p.pagos_mixtos).forEach(x=>{
-                     if(x.metodo==='Efectivo') efe+=parseMoney(x.monto);
-                     if(x.metodo==='Tarjeta') tar+=parseMoney(x.monto);
-                     if(x.metodo==='Transferencia') tra+=parseMoney(x.monto);
-                 })}catch(e){}
-             }
-
-             pEfe += efe; pTar += tar; pTra += tra;
-             if (isDomicilio) { dEfe += efe; dTar += tar; dTra += tra; }
-
-             let car = []; 
-             if (Array.isArray(p.carrito)) {
-                 car = p.carrito;
-             } else if (typeof p.carrito === 'string') {
-                 try { car = JSON.parse(p.carrito); } catch(e) {}
-             }
-             
-             if(Array.isArray(car)){
-                 car.forEach(i => {
-                     const qty = parseMoney(i.cantidad) || 1;
-                     let exP = 0;
-                     if(Array.isArray(i.extras)) {
-                         i.extras.forEach(e => exP += parseMoney(e.precioExtra||e.precio_extra||e.precio));
-                     }
-                     
-                     let rawPrice = parseMoney(i.precioFinal || i.precio_base || i.precio);
-                     
-                     if(isComedor) {
-                         pCom += (rawPrice * qty);
-                     } else {
-                         const extTotal = exP * qty;
-                         let cBase = rawPrice - exP;
-                         if(cBase < 0) cBase = 0;
-                         const platTotal = cBase * qty;
-
-                         pExt += extTotal;
-                         pPlat += platTotal;
-
-                         if (isDomicilio) {
-                             dExt += extTotal;
-                             dPlat += platTotal;
-                         }
+             if(Array.isArray(i.extras)) {
+                 i.extras.forEach(e => { 
+                     // Igual que en el reporte: Ignoramos las notas y variaciones como extras cobrables
+                     const eNameLower = (e.nombre || '').trim().toLowerCase();
+                     if (!eNameLower.includes('nota:') && !eNameLower.includes('sabor:') && !eNameLower.includes('tamaño:')) {
+                         exP += parseMoney(e.precioExtra || e.precio_extra || e.precio); 
                      }
                  });
              }
-          });
-          setMathHoy({ 
-              platillos: pPlat, extras: pExt, envio: pEnv, efectivo: pEfe, tarjeta: pTar, transf: pTra, comedor: pCom,
-              envios: { platillos: dPlat, extras: dExt, envio: dEnv, efectivo: dEfe, tarjeta: dTar, transf: dTra }
-          });
-       }catch(e){}
-    };
-    calcMath();
-    const int = setInterval(calcMath, 3000);
-    return () => clearInterval(int);
-  }, [esHoy]);
+             
+             if (isComedor) {
+                 tCom += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
+             } else {
+                 const calcExtra = (exP * qty);
+                 let rawPrice = parseMoney(i.precioFinal || i.precio_base || i.precio);
+                 let calcBase = rawPrice - exP;
+                 if (calcBase < 0) calcBase = 0; 
+                 const calcPlat = (calcBase * qty);
 
+                 tExt += calcExtra; 
+                 tPlat += calcPlat;
+
+                 if (isDomicilio) {
+                     dExt += calcExtra;
+                     dPlat += calcPlat;
+                 }
+             }
+         });
+      });
+      
+      setMathHoy({ 
+          platillos: tPlat, extras: tExt, envio: tEnv, efectivo: tEfe, tarjeta: tTar, transf: tTra, comedor: tCom,
+          envios: { platillos: dPlat, extras: dExt, envio: dEnv, efectivo: dEfe, tarjeta: dTar, transf: dTra }
+      });
+  }, [pedidos]);
+
+  // 3. AUTO-GUARDADO SILENCIOSO (Solo si es el día en curso)
   useEffect(() => {
     if (esHoy) {
       const temporizadorSincronizacion = setTimeout(async () => {
@@ -114,57 +131,41 @@ const VistaCorte = (props) => {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               fecha: hoyStr,
-              fondo_caja: fondoCaja || 0,
-              total_platillos: mathHoy.platillos,
-              total_extras: mathHoy.extras,
-              total_envio: mathHoy.envio,
+              usuario_id: user?.id || null,
+              fondo_inicial: fondoCaja || 0,
+              fondo_repartidor: fondoRepartidor || 0,
+              venta_platillos: mathHoy.platillos,
+              ingresos_extras: mathHoy.extras,
+              cargos_envio: mathHoy.envio,
               total_efectivo: mathHoy.efectivo,
               total_tarjeta: mathHoy.tarjeta,
               total_transferencia: mathHoy.transf,
               total_gastos: totalGastos,
-              desglose_gastos: gastosDia || [],
-              detalles_envio: mathHoy.envios // 👈 Guardamos el desglose al backend
+              efectivo_cajon: ((Number(fondoCaja) || 0) + (Number(fondoRepartidor)||0) + mathHoy.efectivo) - (Number(totalGastos) || 0),
+              detalles_envio: mathHoy.envios 
             })
           });
         } catch (error) {}
       }, 3000);
       return () => clearTimeout(temporizadorSincronizacion);
     }
-  }, [esHoy, hoyStr, fondoCaja, mathHoy, totalGastos, gastosDia]);
+  }, [esHoy, hoyStr, fondoCaja, mathHoy, totalGastos, fondoRepartidor, user]);
 
-  useEffect(() => {
-    if (esHoy) { setDatosHistoricos(null); return; }
-    const cargarHistorial = async () => {
-      setCargando(true);
-      try {
-        const res = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
-        if (res.ok) setDatosHistoricos(await res.json());
-        else setDatosHistoricos(null);
-      } catch (error) { setDatosHistoricos(null); }
-      setCargando(false);
-    };
-    cargarHistorial();
-  }, [fechaFiltro, esHoy]);
+  // 4. ASIGNACIÓN DE VARIABLES DE VISTA (Siempre Dinámicas para que cuadren con el Reporte)
+  const pTotalPlatillos = mathHoy.platillos;
+  const pTotalExtras = mathHoy.extras;
+  const pTotalEnvio = mathHoy.envio;
+  const pTotalEfectivo = mathHoy.efectivo;
+  const pTotalTarjeta = mathHoy.tarjeta;
+  const pTotalTransf = mathHoy.transf;
+  const pTotalComedor = mathHoy.comedor; 
+  const pEnvios = mathHoy.envios;
 
-  // Variables globales
-  const pTotalPlatillos = esHoy ? mathHoy.platillos : Number(datosHistoricos?.total_platillos || 0);
-  const pTotalExtras = esHoy ? mathHoy.extras : Number(datosHistoricos?.total_extras || 0);
-  const pTotalEnvio = esHoy ? mathHoy.envio : Number(datosHistoricos?.total_envio || 0);
-  const pFondoCaja = esHoy ? (fondoCaja || 0) : Number(datosHistoricos?.fondo_caja || 0);
-  const pTotalEfectivo = esHoy ? mathHoy.efectivo : Number(datosHistoricos?.total_efectivo || 0);
-  const pTotalGastos = esHoy ? totalGastos : Number(datosHistoricos?.total_gastos || 0);
-  const pTotalTarjeta = esHoy ? mathHoy.tarjeta : Number(datosHistoricos?.total_tarjeta || 0);
-  const pTotalTransf = esHoy ? mathHoy.transf : Number(datosHistoricos?.total_transferencia || 0);
-  const pTotalComedor = esHoy ? mathHoy.comedor : 0; 
-  const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : 0;
+  // Los Gastos y Fondos SÍ dependen del histórico en fechas pasadas, porque son variables manuales.
+  const pFondoCaja = esHoy ? (Number(fondoCaja) || 0) : Number(datosHistoricos?.fondo_inicial || datosHistoricos?.fondo_caja || 0);
+  const pTotalGastos = esHoy ? (Number(totalGastos) || 0) : Number(datosHistoricos?.total_gastos || 0);
+  const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : Number(datosHistoricos?.fondo_repartidor || 0);
   
-  // Parseo seguro del JSON de envíos históricos
-  let histEnvios = { platillos:0, extras:0, envio:0, efectivo:0, tarjeta:0, transf:0 };
-  if (!esHoy && datosHistoricos?.detalles_envio) {
-      histEnvios = typeof datosHistoricos.detalles_envio === 'string' ? JSON.parse(datosHistoricos.detalles_envio) : datosHistoricos.detalles_envio;
-  }
-  const pEnvios = esHoy ? mathHoy.envios : histEnvios;
-
   const totalCajon = (pFondoCaja + pFondoRepartidor + pTotalEfectivo) - pTotalGastos;
 
   return (
@@ -182,12 +183,13 @@ const VistaCorte = (props) => {
          {!esHoy && <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-1.5 rounded-bl-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-md z-10"><History size={14}/> Viendo Historial</div>}
          
          {cargando ? (
-           <div className="py-20 text-center flex flex-col items-center justify-center opacity-50"><Search size={48} className="text-slate-400 mb-4 animate-pulse" /><p className="font-black text-xl text-slate-500">Buscando registros...</p></div>
-         ) : !esHoy && !datosHistoricos ? (
-           <div className="py-20 text-center flex flex-col items-center justify-center"><History size={64} className="text-slate-300 mb-4" /><p className="font-black text-2xl text-slate-800 mb-2">No hay corte registrado</p><p className="text-slate-500 font-medium">No se encontró información para el {fechaFiltro}.</p></div>
+           <div className="py-20 text-center flex flex-col items-center justify-center opacity-50"><Search size={48} className="text-slate-400 mb-4 animate-pulse" /><p className="font-black text-xl text-slate-500">Recalculando operaciones...</p></div>
          ) : (
            <div className="animate-in slide-in-from-bottom-4">
-             <div className="mb-4"><h3 className="text-sm font-black text-slate-400 uppercase tracking-widest px-2 mb-3">Resumen General (Incluye Todo)</h3></div>
+             <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest px-2 mb-3">Resumen General (Incluye Todo)</h3>
+                {!esHoy && !datosHistoricos && <span className="text-[10px] text-amber-600 bg-amber-50 font-bold px-3 py-1 rounded-lg flex items-center gap-1 border border-amber-200"><AlertTriangle size={14}/> Fondo Incompleto en BD</span>}
+             </div>
              
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center hover:shadow-md transition">
@@ -234,8 +236,7 @@ const VistaCorte = (props) => {
          )}
       </div>
 
-      {/* 👇 NUEVA SECCIÓN: DESGLOSE EXCLUSIVO DE MOTOS / REPARTO */}
-      {(!cargando && (esHoy || datosHistoricos)) && (
+      {!cargando && (
       <div className="bg-indigo-50 p-6 md:p-10 rounded-[40px] shadow-sm border border-indigo-100 animate-in slide-in-from-bottom-6">
          <div className="flex items-center gap-3 mb-6">
             <div className="bg-indigo-600 text-white p-3 rounded-2xl shadow-sm"><Bike size={24}/></div>

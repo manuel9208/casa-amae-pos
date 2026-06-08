@@ -47,7 +47,6 @@ const ModalPuntoVenta = ({
          setClienteAsignado(ordenEditandoRapida.cliente_id ? { id: ordenEditandoRapida.cliente_id, nombre: ordenEditandoRapida.cliente_nombre } : null);
          setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
          
-         // 🛡️ CORRECCIÓN: Si estamos editando y no hay cliente, extraemos el teléfono de la dirección
          let telExtraido = '';
          let dirPura = ordenEditandoRapida.direccion_entrega || '';
          if (dirPura.includes('| TEL:')) {
@@ -71,10 +70,18 @@ const ModalPuntoVenta = ({
          setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional(''); setErrorMsg('');
          setMesaSeleccionada(''); setZonaEnvioCosto(''); setModoComedor(false); setPinEmpleado(''); setErrorComedor('');
          setCuponInput(''); setCuponActivo(null); setMsgCupon({texto: '', tipo: ''});
+         // 👇 CORRECCIÓN: Reseteamos explícitamente la categoría
+         setCategoriaActiva(null); 
          setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
       }
     }
   }, [modalPuntoVenta, ordenEditandoRapida]);
+
+  // 👇 NUEVA FUNCIÓN para asegurar la limpieza antes de cerrar
+  const cerrarModalVenta = () => {
+    setCategoriaActiva(null);
+    setModalPuntoVenta(false);
+  };
 
   if (!modalPuntoVenta) return null;
 
@@ -174,7 +181,6 @@ const ModalPuntoVenta = ({
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
         else if (nombreOrden) stringDireccion = `A NOMBRE DE: ${nombreOrden} | ${notaOpcional}`;
         
-        // 🛡️ CORRECCIÓN: Si pide a domicilio y NO está registrado, incrustamos el teléfono que capturamos
         if (tipoConsumo === 'Domicilio' && !clienteAsignado && telefonoCliente) {
             stringDireccion += ` | TEL: ${telefonoCliente}`;
         }
@@ -223,9 +229,9 @@ const ModalPuntoVenta = ({
         refrescarDatosCaja(); 
         if (metodoAcelerado === 'Mandar a Cocina' || empleadoComedor) {
            if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
-           setModalPuntoVenta(false);
+           cerrarModalVenta();
         } else {
-           setModalPuntoVenta(false);
+           cerrarModalVenta();
            setTimeout(() => setModalPago(data), 100); 
         }
       } else alert('Error al guardar el pedido.');
@@ -265,7 +271,7 @@ const ModalPuntoVenta = ({
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
       <div className="bg-slate-50 w-full max-w-7xl h-[95vh] rounded-[36px] shadow-2xl overflow-hidden flex flex-col relative">
-        <button onClick={() => setModalPuntoVenta(false)} className="absolute top-4 right-4 z-50 bg-white shadow-md hover:bg-red-100 text-slate-400 hover:text-red-500 p-2 rounded-full transition"><XCircle size={28} /></button>
+        <button onClick={cerrarModalVenta} className="absolute top-4 right-4 z-50 bg-white shadow-md hover:bg-red-100 text-slate-400 hover:text-red-500 p-2 rounded-full transition"><XCircle size={28} /></button>
 
         {paso === 'identificar' ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8 animate-in zoom-in-95">
@@ -311,7 +317,7 @@ const ModalPuntoVenta = ({
           </div>
         ) : (
           <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden animate-in slide-in-from-bottom-8">
-            <div className="w-full md:w-3/5 lg:w-2/3 p-6 overflow-y-auto bg-slate-50">
+            <div className="w-full md:w-3/5 lg:w-2/3 p-6 overflow-y-auto bg-slate-50 custom-scrollbar">
                {!categoriaActiva ? <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={apiUrl.replace('/api', '')} /> : <ProductosGrid categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva} productosFiltrados={productosFiltrados} abrirModalProducto={abrirModalProducto} baseUrl={apiUrl.replace('/api', '')} />}
             </div>
 
@@ -339,7 +345,6 @@ const ModalPuntoVenta = ({
                      </div>
                      <input type="text" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} placeholder="Nombre del Cliente (Obligatorio) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none ${!nombreOrden.trim() ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
                      
-                     {/* 🛡️ CORRECCIÓN: Si piden a domicilio y es "Invitado", se exige el número celular */}
                      {tipoConsumo === 'Domicilio' && !clienteAsignado && (
                         <input type="tel" maxLength="10" value={telefonoCliente} onChange={e => setTelefonoCliente(e.target.value.replace(/\D/g, ''))} placeholder="Celular para Repartidor (10 dígitos) *" className={`w-full bg-slate-50 border rounded-xl p-3 text-sm font-bold outline-none tracking-widest ${telefonoCliente.length !== 10 ? 'border-red-200 focus:border-red-400' : 'border-slate-200 focus:border-blue-500'}`} />
                      )}
@@ -400,7 +405,7 @@ const ModalPuntoVenta = ({
                   </div>
                </div>
 
-               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+               <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50 custom-scrollbar">
                   {carrito.map(item => (
                       <div key={item.idTicket} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm relative">
                          <p className="font-black text-sm">{item.cantidad > 1 && <span className="text-blue-600 mr-1">{item.cantidad}x</span>}{item.nombre}</p>

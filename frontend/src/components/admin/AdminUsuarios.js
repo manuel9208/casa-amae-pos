@@ -1,73 +1,33 @@
 import React, { useState } from 'react';
-import { Users, TrendingUp, Sparkles, CalendarClock } from 'lucide-react';
 import DirectorioEmpleados from './usuarios/DirectorioEmpleados';
-import ReportesEmpleados from './usuarios/ReportesEmpleados';
+import GestorHorarios from './usuarios/GestorHorarios';
+import GestorPrestaciones from './usuarios/GestorPrestaciones'; 
 import ZonasLimpieza from './usuarios/ZonasLimpieza';
-import GestorHorarios from './usuarios/GestorHorarios'; // 👈 NUEVO IMPORT  
+import ReportesEmpleados from './usuarios/ReportesEmpleados';
+import { Users, Clock, Trash2, BarChart2, Gift } from 'lucide-react';
 
-const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
-  // 'directorio' | 'reportes' | 'limpieza' | 'horarios'
-  const [vista, setVista] = useState('directorio');  
+const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, configGlobal, setConfigGlobal }) => {
+  const [subSeccion, setSubSeccion] = useState('directorio');
 
   return (
-    <div className="max-w-[1400px] w-full mx-auto space-y-8 pb-12 animate-in fade-in px-4">  
-      {/* HEADER Y TABS */}
-      <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4 print:hidden">
-        <h2 className="text-3xl font-black text-slate-800 flex items-center gap-3"><Users /> Gestión de Empleados</h2>
-        
-        <div className="flex flex-wrap justify-center gap-2 bg-slate-200 p-1 rounded-2xl">
-          <button onClick={() => setVista('directorio')} className={`px-4 lg:px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${vista === 'directorio' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <Users size={18}/> Plantilla
-          </button>
-          <button onClick={() => setVista('horarios')} className={`px-4 lg:px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${vista === 'horarios' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <CalendarClock size={18}/> Horarios y Cortes
-          </button>
-          <button onClick={() => setVista('reportes')} className={`px-4 lg:px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${vista === 'reportes' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <TrendingUp size={18}/> Rendimiento
-          </button>
-          <button onClick={() => setVista('limpieza')} className={`px-4 lg:px-6 py-3 rounded-xl font-bold transition-all flex items-center gap-2 ${vista === 'limpieza' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            <Sparkles size={18}/> Limpieza
-          </button>
-        </div>
-      </div>  
+    <div className="max-w-[1400px] w-full mx-auto space-y-6 animate-in fade-in px-4 pb-12">
+      <div className="flex gap-2 border-b border-slate-200 pb-4 overflow-x-auto custom-scrollbar">
+        <button onClick={() => setSubSeccion('directorio')} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black whitespace-nowrap transition shadow-sm ${subSeccion === 'directorio' ? 'bg-blue-600 text-white shadow-blue-500/30' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Users size={18}/> Directorio</button>
+        <button onClick={() => setSubSeccion('horarios')} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black whitespace-nowrap transition shadow-sm ${subSeccion === 'horarios' ? 'bg-purple-600 text-white shadow-purple-500/30' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Clock size={18}/> Horarios (Mes)</button>
+        <button onClick={() => setSubSeccion('prestaciones')} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black whitespace-nowrap transition shadow-sm ${subSeccion === 'prestaciones' ? 'bg-rose-500 text-white shadow-rose-500/30' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Gift size={18}/> Prestaciones</button>
+        <button onClick={() => setSubSeccion('limpieza')} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black whitespace-nowrap transition shadow-sm ${subSeccion === 'limpieza' ? 'bg-teal-600 text-white shadow-teal-500/30' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Trash2 size={18}/> Limpieza (Mes)</button>
+        <button onClick={() => setSubSeccion('reportes')} className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-black whitespace-nowrap transition shadow-sm ${subSeccion === 'reportes' ? 'bg-emerald-600 text-white shadow-emerald-500/30' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><BarChart2 size={18}/> Reportes & Nómina</button>
+      </div>
 
-      {vista === 'directorio' && (
-        <DirectorioEmpleados
-          usuariosDB={usuariosDB}
-          apiUrl={apiUrl}
-          refrescarDatos={refrescarDatos}
-          showAlert={showAlert}
-          showConfirm={showConfirm}
-        />
-      )}  
-      
-      {vista === 'horarios' && (
-        <GestorHorarios
-          usuariosDB={usuariosDB}
-          apiUrl={apiUrl}
-          refrescarDatos={refrescarDatos}
-          showAlert={showAlert}
-          showConfirm={showConfirm}
-        />
-      )}
-
-      {vista === 'reportes' && (
-        <ReportesEmpleados
-          usuariosDB={usuariosDB}
-          apiUrl={apiUrl}
-        />
-      )}  
-
-      {vista === 'limpieza' && (
-        <ZonasLimpieza
-          usuariosDB={usuariosDB}
-          apiUrl={apiUrl}
-          showAlert={showAlert}
-          showConfirm={showConfirm}
-        />
-      )}
+      <div className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200">
+        {subSeccion === 'directorio' && <DirectorioEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}
+        {subSeccion === 'horarios' && <GestorHorarios usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}
+        {subSeccion === 'prestaciones' && <GestorPrestaciones usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} />}
+        {subSeccion === 'limpieza' && <ZonasLimpieza configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
+        {subSeccion === 'reportes' && <ReportesEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} />}
+      </div>
     </div>
   );
-};  
+};
 
 export default AdminUsuarios;

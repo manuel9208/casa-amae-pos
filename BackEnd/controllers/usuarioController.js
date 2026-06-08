@@ -84,7 +84,22 @@ exports.eliminarUsuario = async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Error al eliminar usuario' }); }
 };  
 
-// 👇 ACTUALIZADO: Ahora extrae también los datos del Histórico de Cortes
+// 👇 NUEVA FUNCIÓN PARA PRESTACIONES
+exports.actualizarPrestaciones = async (req, res) => {
+  const { id } = req.params;
+  const { prestaciones } = req.body;
+  try {
+    const result = await db.query(
+      'UPDATE usuarios SET prestaciones = $1 WHERE id = $2 RETURNING *',
+      [JSON.stringify(prestaciones || {}), id]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Error al actualizar prestaciones' });
+  }
+};
+
 exports.obtenerReporteRendimiento = async (req, res) => {
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0], usuario_id = 'Todos' } = req.query;  
   let queryFiltroFechaAsistencia = '';
@@ -129,7 +144,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY a.hora_entrada DESC
     `);  
     const historialRes = await db.query(`
-      SELECT u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
+      SELECT u.id as usuario_id, u.nombre, u.rol, a.hora_entrada, a.hora_salida, a.fecha,
       ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2) AS horas_trabajadas
       FROM registro_asistencias a
       JOIN usuarios u ON a.usuario_id = u.id
@@ -152,7 +167,6 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       ORDER BY pedidos_completados DESC
     `, params);  
 
-    // 👇 NUEVO: Consultamos la tabla de cortes históricos
     const cortesRes = await db.query(`
       SELECT id, fecha_corte, datos_corte, fecha_creacion
       FROM historico_nominas
@@ -164,7 +178,7 @@ exports.obtenerReporteRendimiento = async (req, res) => {
       asistenciasHoy: asistenciasHoyRes.rows, 
       historialAsistencias: historialRes.rows, 
       rendimientoCocina: rendimientoRes.rows,
-      cortesNomina: cortesRes.rows // 👈 Añadido al paquete de datos devuelto al front
+      cortesNomina: cortesRes.rows 
     });
   } catch (error) { res.status(500).json({ error: 'Error al obtener reportes' }); }
 };
@@ -198,7 +212,7 @@ exports.guardarCorteNomina = async (req, res) => {
 };
 
 exports.registrarAsistencia = async (req, res) => {
-  const { pin, tipo } = req.body; // tipo = 'Entrada' o 'Salida'
+  const { pin, tipo } = req.body; 
 
   if (!pin || pin.length !== 4) {
     return res.status(400).json({ error: 'PIN inválido.' });
@@ -213,7 +227,6 @@ exports.registrarAsistencia = async (req, res) => {
 
     const usuario = usuarioRes.rows[0];
 
-    // Buscamos si ya existe algún turno HOY para este empleado
     const turnoHoy = await db.query(
       'SELECT id, hora_entrada, hora_salida FROM registro_asistencias WHERE usuario_id = $1 AND fecha = CURRENT_DATE',
       [usuario.id]
@@ -221,24 +234,19 @@ exports.registrarAsistencia = async (req, res) => {
 
     if (tipo === 'Entrada') {
       if (turnoHoy.rows.length === 0) {
-        // No hay checadas previas hoy. Registramos la primera (y definitiva) hora de entrada.
         await db.query(
           'INSERT INTO registro_asistencias (usuario_id, hora_entrada, fecha) VALUES ($1, CURRENT_TIMESTAMP, CURRENT_DATE)',
           [usuario.id]
         );
         return res.json({ success: true, mensaje: `¡Entrada registrada con éxito para ${usuario.nombre}!` });
       } else {
-        // Ya tiene una entrada hoy. Se respeta la primera hora, no se crea un duplicado. Retornamos OK silencioso.
         return res.json({ success: true, mensaje: `¡Tu entrada ya estaba registrada, ${usuario.nombre}!` });
       }
 
     } else if (tipo === 'Salida') {
       if (turnoHoy.rows.length === 0) {
-        // No puede salir si no tiene una fila de entrada hoy.
         return res.status(400).json({ error: `¡${usuario.nombre}, debes registrar tu entrada primero!` });
       } else {
-        // Ya tiene una fila hoy. Actualizamos la salida con la hora actual. 
-        // Si ya tenía salida previa de hace horas, se sobrescribirá a esta más tarde.
         await db.query(
           'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE id = $1',
           [turnoHoy.rows[0].id]
