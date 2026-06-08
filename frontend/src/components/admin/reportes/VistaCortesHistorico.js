@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, ChefHat, PlusCircle, MapPin, TrendingDown, Bike, CreditCard, Banknote, Smartphone, AlertTriangle } from 'lucide-react';
+import { DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, ChefHat, PlusCircle, MapPin, TrendingDown, Bike, CreditCard, Banknote, Smartphone } from 'lucide-react';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
