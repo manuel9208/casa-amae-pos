@@ -5,7 +5,7 @@ import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV';
 import Repartidor from './components/Repartidor';
-import Empleado from './components/empleado/Empleado'; // 👈 NUEVA IMPORTACIÓN
+import Empleado from './components/empleado/Empleado';
 import { suscribirANotificaciones } from './pushManager';  
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -49,6 +49,7 @@ const App = () => {
   };  
   
   const iniciarSesionPersistente = (tipo, data) => { 
+    // Persistencia de 8 horas
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000);
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
     if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
@@ -91,10 +92,17 @@ const App = () => {
       const res = await fetch(`${apiUrl}/identificar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telefono }) });
       const data = await res.json();
       if (res.ok) {
-        if (data.tipo === 'empleado') setEmpleadoFase2(data.datos);
-        else if (data.tipo === 'cliente') iniciarSesionPersistente('cliente', data.datos);
+        const payload = data.data || data.datos || data.usuario || data.cliente;
+        if (data.tipo === 'empleado') {
+          setEmpleadoFase2(payload);
+        } else if (data.tipo === 'cliente') {
+          iniciarSesionPersistente('cliente', payload);
+        } else {
+          setNecesitaRegistro(true);
+        }
       } else {
-        if (res.status === 404) setNecesitaRegistro(true); else setError(data.error || 'Error al identificar.');
+        if (res.status === 404) setNecesitaRegistro(true); 
+        else setError(data.error || 'Error al identificar.');
       }
     } catch (err) { setError('Error de conexión al servidor.'); }
   };  
@@ -104,22 +112,45 @@ const App = () => {
     try {
       const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreNuevo, apellido: apellidoNuevo, telefono, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
       const data = await res.json();
-      if (res.ok) { setNecesitaRegistro(false); iniciarSesionPersistente('cliente', data); }
+      if (res.ok) { 
+        setNecesitaRegistro(false); 
+        iniciarSesionPersistente('cliente', data.cliente || data.data || data); 
+      }
       else { setError(data.error || 'No se pudo registrar.'); }
     } catch (err) { setError('Error de conexión.'); }
   };  
   
+  // 👇 RESTAURADA: ID del dispositivo para prevenir bloqueos y asegurar 8 horas persistentes
   const handleLoginEmpleado = async (e) => {
     e.preventDefault(); setError('');
+    const dispositivo_id = localStorage.getItem('pos_device_id'); 
     try {
-      const res = await fetch(`${apiUrl}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: empleadoFase2.usuario, password }) });
+      const res = await fetch(`${apiUrl}/login`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id }) 
+      });
       const data = await res.json();
-      if (res.ok) { setEmpleadoFase2(null); setPassword(''); iniciarSesionPersistente('empleado', data.usuario); }
+      if (res.ok) { 
+        setEmpleadoFase2(null); 
+        setPassword(''); 
+        iniciarSesionPersistente('empleado', data.usuario || data.data || data); 
+      }
       else { setError(data.error || 'Contraseña incorrecta.'); }
     } catch (err) { setError('Error de conexión.'); }
   };  
   
-  const cerrarSesion = () => {
+  // 👇 RESTAURADA: Cierre de sesión real en el servidor
+  const cerrarSesion = async () => {
+    if (usuarioActivo) { 
+      try { 
+        await fetch(`${apiUrl}/logout`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ usuario_id: usuarioActivo.id }) 
+        }); 
+      } catch (error) {} 
+    }
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false);
     setTelefono(''); setPassword(''); setEmpleadoFase2(null); setDestinoPortal(null);
     localStorage.removeItem('pos_sesion');
@@ -161,7 +192,6 @@ const App = () => {
     const rolesConDobleAcceso = ['cajero', 'cocina', 'repartidor', 'gerente', 'jefe'];
     const rolesSoloPortal = ['ayudante_cocina'];
 
-    // 1. Pantalla de Elección Visual
     if (!destinoPortal && rolesConDobleAcceso.includes(usuarioActivo.rol)) {
       return (
         <>
@@ -189,13 +219,11 @@ const App = () => {
 
     const destinoFinal = destinoPortal || (rolesSoloPortal.includes(usuarioActivo.rol) ? 'portal' : 'trabajo');
 
-    // 2. Redirección al Nuevo Portal Desmembrado
     if (destinoFinal === 'portal') {
       return (
         <>
           <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
           <div className="tema-cliente">
-            {/* 👇 MANDAMOS A LLAMAR AL NUEVO ARCHIVO ORQUESTADOR */}
             <Empleado 
               user={usuarioActivo} 
               apiUrl={apiUrl} 
@@ -207,7 +235,6 @@ const App = () => {
       );
     }
 
-    // ENRUTAMIENTO NORMAL
     if (usuarioActivo.rol === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
@@ -237,27 +264,49 @@ const App = () => {
             )}
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
             <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>  
+            
             {empleadoFase2 ? (
-              <form onSubmit={handleLoginEmpleado} className="space-y-6 text-left">
-                <div><label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Hola <span className="text-blue-600">{empleadoFase2.nombre}</span>, ingresa tu contraseña</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border-2 border-blue-500 rounded-2xl p-5 text-center text-2xl font-black outline-none transition-all" placeholder="••••••••" /></div>
+              <form onSubmit={handleLoginEmpleado} className="space-y-6 text-left animate-in slide-in-from-right">
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Hola <span className="text-blue-600">{empleadoFase2.nombre}</span>, ingresa tu contraseña</label>
+                  <input type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border-2 border-blue-500 rounded-2xl p-5 text-center text-2xl font-black outline-none transition-all" placeholder="••••••••" />
+                </div>
                 {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
-                <div className="flex gap-4"><button type="button" onClick={() => { setEmpleadoFase2(null); setPassword(''); setError(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-5 rounded-2xl font-black text-lg transition-all">Volver</button><button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-black text-lg shadow-lg shadow-blue-500/30 transition-all">Entrar</button></div>
+                <div className="flex gap-4">
+                  <button type="button" onClick={() => { setEmpleadoFase2(null); setPassword(''); setError(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-5 rounded-2xl font-black text-lg transition-all">Volver</button>
+                  <button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-black text-lg shadow-lg shadow-blue-500/30 transition-all">Entrar</button>
+                </div>
               </form>
             ) : necesitaRegistro ? (
-              <form onSubmit={handleRegistro} className="space-y-4 text-left">
-                <div className="grid grid-cols-2 gap-4"><input type="text" required value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" placeholder="Nombre *" /><input type="text" required value={apellidoNuevo} onChange={(e) => setApellidoNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" placeholder="Apellido *" /></div>
+              <form onSubmit={handleRegistro} className="space-y-4 text-left animate-in slide-in-from-right">
+                <div className="grid grid-cols-2 gap-4">
+                  <input type="text" required value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" placeholder="Nombre *" />
+                  <input type="text" required value={apellidoNuevo} onChange={(e) => setApellidoNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" placeholder="Apellido *" />
+                </div>
                 <input type="email" value={correoNuevo} onChange={(e) => setCorreoNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" placeholder="Correo Electrónico (Opcional)" />
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col justify-end"><label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Fecha Nacimiento</label><input type="date" value={fechaNacNuevo} onChange={(e) => setFechaNacNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" /></div>
-                  <div className="flex flex-col justify-end"><label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">NIP de Seguridad *</label><input type="password" maxLength="4" required value={nipNuevo} onChange={(e) => setNipNuevo(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-black outline-none tracking-[0.5em]" placeholder="••••" /></div>
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Fecha Nacimiento</label>
+                    <input type="date" value={fechaNacNuevo} onChange={(e) => setFechaNacNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" />
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">NIP de Seguridad *</label>
+                    <input type="password" maxLength="4" required value={nipNuevo} onChange={(e) => setNipNuevo(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-black outline-none tracking-[0.5em]" placeholder="••••" />
+                  </div>
                 </div>
                 <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest mt-2">Te pediremos el NIP solo para canjear puntos.</p>
                 {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-2 rounded-xl border border-red-100">{error}</p>}
-                <div className="flex gap-4 pt-2"><button type="button" onClick={() => { setNecesitaRegistro(false); setError(''); setNipNuevo(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-4 rounded-2xl font-black text-lg transition-all">Volver</button><button type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-emerald-500/30 transition-all">Empezar</button></div>
+                <div className="flex gap-4 pt-2">
+                  <button type="button" onClick={() => { setNecesitaRegistro(false); setError(''); setNipNuevo(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-4 rounded-2xl font-black text-lg transition-all">Volver</button>
+                  <button type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-emerald-500/30 transition-all">Empezar</button>
+                </div>
               </form>
             ) : (
-              <form onSubmit={handleIdentificar} className="space-y-6 text-left">
-                <div><label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Celular a 10 dígitos</label><input type="tel" maxLength="10" required value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-center text-2xl font-black outline-none focus:border-blue-500 transition-all tracking-widest placeholder-slate-400" placeholder="000 000 0000" /></div>
+              <form onSubmit={handleIdentificar} className="space-y-6 text-left animate-in fade-in">
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Celular a 10 dígitos</label>
+                  <input type="tel" maxLength="10" required autoFocus value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-center text-2xl font-black outline-none focus:border-blue-500 transition-all tracking-widest placeholder-slate-400" placeholder="000 000 0000" />
+                </div>
                 {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
                 <button type="submit" disabled={telefono.length !== 10} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 disabled:shadow-none active:scale-95">Continuar</button>
               </form>
