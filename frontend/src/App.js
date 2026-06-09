@@ -3,19 +3,22 @@ import AdminPanel from './components/AdminPanel';
 import Caja from './components/Caja';
 import Cocina from './components/Cocina';
 import Kiosco from './components/Kiosco';
-import PantallaTV from './components/PantallaTV'; 
-import Repartidor from './components/Repartidor'; 
-import { suscribirANotificaciones } from './pushManager'; 
+import PantallaTV from './components/PantallaTV';
+import Repartidor from './components/Repartidor';
+import Empleado from './components/empleado/Empleado'; // 👈 NUEVA IMPORTACIÓN
+import { suscribirANotificaciones } from './pushManager';  
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-const baseUrl = apiUrl.replace('/api', '');
+const baseUrl = apiUrl.replace('/api', '');  
 
 const App = () => {
   const [usuarioActivo, setUsuarioActivo] = useState(null);
   const [clienteActivo, setClienteActivo] = useState(null);
   const [modoInvitado, setModoInvitado] = useState(false);
-  const [vistaAdmin, setVistaAdmin] = useState('panel'); 
-  const [vistaTV, setVistaTV] = useState(false); 
+  const [vistaAdmin, setVistaAdmin] = useState('panel');
+  const [vistaTV, setVistaTV] = useState(false);  
+  
+  const [destinoPortal, setDestinoPortal] = useState(null); 
 
   const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
@@ -26,13 +29,13 @@ const App = () => {
   const [apellidoNuevo, setApellidoNuevo] = useState('');
   const [correoNuevo, setCorreoNuevo] = useState('');
   const [fechaNacNuevo, setFechaNacNuevo] = useState('');
-  const [nipNuevo, setNipNuevo] = useState('');
-
-  const [configGlobal, setConfigGlobal] = useState({ 
-    nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b' 
-  });
-
-  const getImageUrl = (url) => { /* ... Intacto ... */
+  const [nipNuevo, setNipNuevo] = useState('');  
+  
+  const [configGlobal, setConfigGlobal] = useState({
+    nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b'
+  });  
+  
+  const getImageUrl = (url) => { 
     if (!url) return '';
     const strUrl = String(url).trim();
     if (strUrl.includes('cloudinary.com')) {
@@ -43,16 +46,16 @@ const App = () => {
     if (lastHttp > 0) return strUrl.substring(lastHttp);
     if (strUrl.startsWith('http')) return strUrl;
     return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
-  };
-
-  const iniciarSesionPersistente = (tipo, data) => { /* ... Intacto ... */
-    const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000); 
+  };  
+  
+  const iniciarSesionPersistente = (tipo, data) => { 
+    const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000);
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
     if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
     if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
-  };
-
-  useEffect(() => { /* ... Intacto ... */
+  };  
+  
+  useEffect(() => { 
     if (!localStorage.getItem('pos_device_id')) localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
     const sesionGuardada = localStorage.getItem('pos_sesion');
     if (sesionGuardada) {
@@ -64,85 +67,74 @@ const App = () => {
         } else { localStorage.removeItem('pos_sesion'); }
       } catch(e) {}
     }
-    fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => { 
+    fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => {
       if(data) {
-        setConfigGlobal(data); 
+        setConfigGlobal(data);
         if (data.logo_url) {
-            const iconUrl = getImageUrl(data.logo_url);
-            let linkFavicon = document.querySelector("link[rel~='icon']");
-            if (!linkFavicon) { linkFavicon = document.createElement('link'); linkFavicon.rel = 'icon'; document.head.appendChild(linkFavicon); }
-            linkFavicon.href = iconUrl;
-            let linkApple = document.querySelector("link[rel='apple-touch-icon']");
-            if (!linkApple) { linkApple = document.createElement('link'); linkApple.rel = 'apple-touch-icon'; document.head.appendChild(linkApple); }
-            linkApple.href = iconUrl;
+          const iconUrl = getImageUrl(data.logo_url);
+          let linkFavicon = document.querySelector("link[rel~='icon']");
+          if (!linkFavicon) { linkFavicon = document.createElement('link'); linkFavicon.rel = 'icon'; document.head.appendChild(linkFavicon); }
+          linkFavicon.href = iconUrl;
+          let linkApple = document.querySelector("link[rel='apple-touch-icon']");
+          if (!linkApple) { linkApple = document.createElement('link'); linkApple.rel = 'apple-touch-icon'; document.head.appendChild(linkApple); }
+          linkApple.href = iconUrl;
         }
       }
-    }).catch(console.error);
-  }, []);
-
-  const handleIdentificar = async (e) => { /* ... Intacto ... */
+    }).catch(()=>{});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  
+  
+  const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
-    if (telefono.length !== 10) return setError('El número debe tener exactamente 10 dígitos.');
+    if (telefono === '0000000000') { setVistaTV(true); return; }
     try {
       const res = await fetch(`${apiUrl}/identificar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telefono }) });
       const data = await res.json();
       if (res.ok) {
-        if (data.tipo === 'empleado') setEmpleadoFase2(data.data);
-        else if (data.tipo === 'cliente') iniciarSesionPersistente('cliente', data.data); 
-        else if (data.tipo === 'nuevo') setNecesitaRegistro(true);
-        else { if (data.cliente) iniciarSesionPersistente('cliente', data.cliente); else setNecesitaRegistro(true); }
-      } else setError(data.error || 'Error al acceder');
-    } catch (err) { setError('Error de conexión'); }
-  };
-
-  const handleLoginEmpleado = async (e) => { /* ... Intacto ... */
+        if (data.tipo === 'empleado') setEmpleadoFase2(data.datos);
+        else if (data.tipo === 'cliente') iniciarSesionPersistente('cliente', data.datos);
+      } else {
+        if (res.status === 404) setNecesitaRegistro(true); else setError(data.error || 'Error al identificar.');
+      }
+    } catch (err) { setError('Error de conexión al servidor.'); }
+  };  
+  
+  const handleRegistro = async (e) => {
     e.preventDefault(); setError('');
-    const dispositivo_id = localStorage.getItem('pos_device_id');
     try {
-      const res = await fetch(`${apiUrl}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id }) });
+      const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreNuevo, apellido: apellidoNuevo, telefono, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
       const data = await res.json();
-      if (res.ok) iniciarSesionPersistente('empleado', data.usuario); else setError(data.error || 'Contraseña incorrecta');
-    } catch (err) { setError('Error de conexión'); }
-  };
-
-  const handleRegistro = async (e) => { /* ... Intacto ... */
-    e.preventDefault();
-    if(!nombreNuevo.trim() || !apellidoNuevo.trim() || nipNuevo.length !== 4) return setError("Nombre, Apellido y NIP (4) son obligatorios.");
+      if (res.ok) { setNecesitaRegistro(false); iniciarSesionPersistente('cliente', data); }
+      else { setError(data.error || 'No se pudo registrar.'); }
+    } catch (err) { setError('Error de conexión.'); }
+  };  
+  
+  const handleLoginEmpleado = async (e) => {
+    e.preventDefault(); setError('');
     try {
-      const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telefono, nombre: nombreNuevo, apellido: apellidoNuevo, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
+      const res = await fetch(`${apiUrl}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: empleadoFase2.usuario, password }) });
       const data = await res.json();
-      if (res.ok) { iniciarSesionPersistente('cliente', data.cliente || data); setNecesitaRegistro(false); } else setError(data.error || 'Error al registrar');
-    } catch (err) { setError('Error de conexión'); }
-  };
-
-  const cerrarSesion = async () => { /* ... Intacto ... */
-    if (usuarioActivo) { try { await fetch(`${apiUrl}/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario_id: usuarioActivo.id }) }); } catch (error) {} }
-    localStorage.removeItem('pos_sesion'); 
-    setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false); setTelefono(''); setPassword(''); setVistaAdmin('panel'); 
-    setVistaTV(false); setNecesitaRegistro(false); setEmpleadoFase2(null);
-  };
-
-  const inyectarEstilos = () => { /* ... Intacto ... */
-    const cPrimario = configGlobal.color_primario || '#2563eb';
-    const cSecundario = configGlobal.color_secundario || '#10b981';
-    const cFondo = configGlobal.color_fondo || '#f1f5f9';
-    const cTarjetas = configGlobal.color_fondo_tarjetas || '#ffffff';
-    const cTextoPrin = configGlobal.color_texto_principal || '#1e293b';
-    const cTextoSec = configGlobal.color_texto_secundario || '#64748b';
-    const cTextoKiosco = configGlobal.color_texto_kiosco || '#1e293b';
-    const fTitulos = configGlobal.fuente_titulos || 'system-ui, sans-serif';
-    const fTextos = configGlobal.fuente_textos || 'system-ui, sans-serif';
-
+      if (res.ok) { setEmpleadoFase2(null); setPassword(''); iniciarSesionPersistente('empleado', data.usuario); }
+      else { setError(data.error || 'Contraseña incorrecta.'); }
+    } catch (err) { setError('Error de conexión.'); }
+  };  
+  
+  const cerrarSesion = () => {
+    setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false);
+    setTelefono(''); setPassword(''); setEmpleadoFase2(null); setDestinoPortal(null);
+    localStorage.removeItem('pos_sesion');
+  };  
+  
+  const inyectarEstilos = () => {
     return `
-      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Montserrat:wght@400;500;700;900&family=Playfair+Display:wght@700;900&family=Poppins:wght@400;700;900&display=swap');
-      :root { --c-primario: ${cPrimario}; --c-secundario: ${cSecundario}; --c-fondo: ${cFondo}; --c-tarjetas: ${cTarjetas}; --c-texto-prin: ${cTextoPrin}; --c-texto-sec: ${cTextoSec}; --c-texto-kiosco: ${cTextoKiosco}; --f-titulos: ${fTitulos}; --f-textos: ${fTextos}; }
-      body, .font-sans, p, span, input, button, select, textarea { font-family: var(--f-textos) !important; }
-      h1, h2, h3, h4, h5, h6, .font-black { font-family: var(--f-titulos) !important; }
+      :root { --c-primario: ${configGlobal.color_primario}; --c-secundario: ${configGlobal.color_secundario}; --c-fondo: ${configGlobal.color_fondo}; --c-tarjetas: ${configGlobal.color_fondo_tarjetas}; --c-texto-prin: ${configGlobal.color_texto_principal}; --c-texto-sec: ${configGlobal.color_texto_secundario}; --c-texto-kiosco: ${configGlobal.color_texto_kiosco}; --f-titulos: ${configGlobal.fuente_titulos}; --f-textos: ${configGlobal.fuente_textos}; }
+      body { background-color: var(--c-fondo); font-family: var(--f-textos); color: var(--c-texto-prin); margin: 0; padding: 0; }
+      h1, h2, h3, h4, h5, h6 { font-family: var(--f-titulos) !important; }
       .bg-blue-600 { background-color: var(--c-primario) !important; }
       .text-blue-600 { color: var(--c-primario) !important; }
       .border-blue-600, .border-blue-500 { border-color: var(--c-primario) !important; }
       .hover\\:bg-blue-700:hover { background-color: color-mix(in srgb, var(--c-primario) 80%, black) !important; }
-      .bg-blue-50 { background-color: color-mix(in srgb, var(--c-primario) 8%, white) !important; border-color: color-mix(in srgb, var(--c-primario) 20%, white) !important;}
+      .bg-blue-50, .bg-blue-100 { background-color: color-mix(in srgb, var(--c-primario) 8%, white) !important; border-color: color-mix(in srgb, var(--c-primario) 20%, white) !important;}
       .focus\\:border-blue-500:focus, .focus\\:ring-blue-500:focus { border-color: var(--c-primario) !important; --tw-ring-color: var(--tw-ring-color) !important; }
       .bg-emerald-500, .bg-emerald-600 { background-color: var(--c-secundario) !important; }
       .text-emerald-500, .text-emerald-600 { color: var(--c-secundario) !important; }
@@ -159,29 +151,76 @@ const App = () => {
       .tema-cliente input, .tema-cliente textarea { color: var(--c-texto-prin) !important; background-color: color-mix(in srgb, var(--c-tarjetas) 95%, white) !important; }
       .tema-cliente button.bg-blue-600, .tema-cliente button.bg-emerald-500, .tema-cliente button.bg-slate-900 { color: #ffffff !important; }
     `;
-  };
+  };  
   
-  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;
-
+  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;  
+  
   if (usuarioActivo) {
-    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;
-    
+    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;  
+
+    const rolesConDobleAcceso = ['cajero', 'cocina', 'repartidor', 'gerente', 'jefe'];
+    const rolesSoloPortal = ['ayudante_cocina'];
+
+    // 1. Pantalla de Elección Visual
+    if (!destinoPortal && rolesConDobleAcceso.includes(usuarioActivo.rol)) {
+      return (
+        <>
+          <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
+          <div className="tema-cliente min-h-screen flex items-center justify-center p-4">
+            <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-2xl w-full text-center border relative overflow-hidden">
+              <h2 className="text-4xl font-black text-slate-800 mb-2">¡Hola, {usuarioActivo.nombre}!</h2>
+              <p className="text-slate-500 font-bold mb-10 text-lg">¿A dónde deseas ingresar hoy?</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <button onClick={() => setDestinoPortal('trabajo')} className="bg-blue-600 hover:bg-blue-700 text-white p-10 rounded-[32px] font-black text-xl shadow-xl transition active:scale-95 flex flex-col items-center gap-4 group">
+                  <span className="text-5xl group-hover:scale-110 transition-transform">💼</span> Mi Área de Trabajo
+                </button>
+                <button onClick={() => setDestinoPortal('portal')} className="bg-emerald-500 hover:bg-emerald-600 text-white p-10 rounded-[32px] font-black text-xl shadow-xl transition active:scale-95 flex flex-col items-center gap-4 group">
+                  <span className="text-5xl group-hover:scale-110 transition-transform">👤</span> Mi Portal (Empleado)
+                </button>
+              </div>
+
+              <button onClick={cerrarSesion} className="mt-12 px-6 py-3 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 font-bold transition-colors">Cerrar Sesión</button>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    const destinoFinal = destinoPortal || (rolesSoloPortal.includes(usuarioActivo.rol) ? 'portal' : 'trabajo');
+
+    // 2. Redirección al Nuevo Portal Desmembrado
+    if (destinoFinal === 'portal') {
+      return (
+        <>
+          <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
+          <div className="tema-cliente">
+            {/* 👇 MANDAMOS A LLAMAR AL NUEVO ARCHIVO ORQUESTADOR */}
+            <Empleado 
+              user={usuarioActivo} 
+              apiUrl={apiUrl} 
+              onLogout={cerrarSesion} 
+              onVolver={rolesConDobleAcceso.includes(usuarioActivo.rol) ? () => setDestinoPortal(null) : null} 
+            />
+          </div>
+        </>
+      );
+    }
+
+    // ENRUTAMIENTO NORMAL
     if (usuarioActivo.rol === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
-    }
-    
-    // 👇 ADIÓS COMPLEJIDAD DEL KIOSCO EN LA CAJA. LA CAJA AHORA VIVE SOLA CON SU MODAL.
+    }  
     if (usuarioActivo.rol === 'cajero') {
-      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} /></>;
-    }
-
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => {}} /></>;
+    }  
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
     if (usuarioActivo.rol === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
-  }
-
-  if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;
-
+  }  
+  
+  if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;  
+  
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
@@ -189,16 +228,15 @@ const App = () => {
         <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-lg w-full text-center border relative overflow-hidden">
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div><div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="relative z-10">
-            {configGlobal.logo_url ? (    
+            {configGlobal.logo_url ? (
               <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
                 <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" />
               </div>
-            ) : (    
+            ) : (
               <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30">🍔</div>
             )}
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
-            <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
-
+            <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>  
             {empleadoFase2 ? (
               <form onSubmit={handleLoginEmpleado} className="space-y-6 text-left">
                 <div><label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Hola <span className="text-blue-600">{empleadoFase2.nombre}</span>, ingresa tu contraseña</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border-2 border-blue-500 rounded-2xl p-5 text-center text-2xl font-black outline-none transition-all" placeholder="••••••••" /></div>
@@ -231,4 +269,5 @@ const App = () => {
     </>
   );
 };
+
 export default App;

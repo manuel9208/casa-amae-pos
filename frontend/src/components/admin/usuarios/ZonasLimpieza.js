@@ -1,33 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, RefreshCw, Calendar } from 'lucide-react';
+// 👇 CORRECCIÓN: Se eliminó RefreshCw para evitar el warning en producción
+import { Save, Plus, Trash2, Sparkles, AlertCircle, RotateCcw, Lock, Calendar } from 'lucide-react';  
 
 const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [areas, setAreas] = useState([]);
   const [asignaciones, setAsignaciones] = useState({});
   const [evidencias, setEvidencias] = useState({});
   const [evaluaciones, setEvaluaciones] = useState({});
+  const [diasCerrados, setDiasCerrados] = useState([]);
   const [nuevaArea, setNuevaArea] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);  
 
-  // 👇 Lógica Mensual Dinámica
   const hoy = new Date();
   const year = hoy.getFullYear();
   const month = hoy.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const mesNombre = hoy.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
-  
+  const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();  
+
+  const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
   const diasMes = Array.from({length: daysInMonth}, (_, i) => {
-      const d = new Date(year, month, i + 1);
-      return { 
-          num: i + 1, 
-          nombre: d.toLocaleDateString('es-ES', {weekday: 'short'}).toUpperCase(), 
-          fechaStr: `${year}-${String(month+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}` 
-      };
-  });
+    const d = new Date(year, month, i + 1);
+    return {
+      num: i + 1,
+      nombre: d.toLocaleDateString('es-MX', {weekday: 'short'}).toUpperCase(),
+      fechaStr: `${year}-${String(month+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`
+    };
+  });  
 
   const empleadosVisibles = usuariosDB
     .filter(u => u.usuario !== 'admin')
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
@@ -40,13 +43,14 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             setAsignaciones(parsed.asignaciones || {});
             setEvidencias(parsed.evidencias || {});
             setEvaluaciones(parsed.evaluaciones || {});
+            setDiasCerrados(parsed.dias_cerrados || []);
           } catch (e) {
             console.error("Error parseando matriz");
           }
         }
       })
       .catch(err => console.error("Error cargando matriz de limpieza"));
-  }, [apiUrl]);
+  }, [apiUrl]);  
 
   const agregarArea = (e) => {
     e.preventDefault();
@@ -55,7 +59,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     if (areas.includes(areaTrim)) return showAlert('Aviso', 'Esta área de limpieza ya existe.', 'info');
     setAreas([...areas, areaTrim]);
     setNuevaArea('');
-  };
+  };  
 
   const eliminarArea = (areaTarget) => {
     showConfirm("Eliminar Área", `¿Estás seguro que deseas eliminar el área: ${areaTarget}? Se borrarán también sus asignaciones y evidencias.`, () => {
@@ -65,24 +69,24 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const nuevasEvidencias = { ...evidencias };
       delete nuevasEvidencias[areaTarget];
       const nuevasEvaluaciones = { ...evaluaciones };
-      delete nuevasEvaluaciones[areaTarget];
-
+      delete nuevasEvaluaciones[areaTarget];  
+      
       setAreas(nuevasAreas);
       setAsignaciones(nuevasAsignaciones);
       setEvidencias(nuevasEvidencias);
       setEvaluaciones(nuevasEvaluaciones);
     });
-  };
+  };  
 
   const manejarAsignacion = (area, fechaStr, usuarioId) => {
+    if (diasCerrados.includes(fechaStr)) return;
     setAsignaciones(prev => ({
       ...prev,
       [area]: {
         ...(prev[area] || {}),
         [fechaStr]: usuarioId
       }
-    }));
-
+    }));  
     setEvidencias(prev => {
       const nuevas = { ...prev };
       if (nuevas[area] && nuevas[area][fechaStr]) delete nuevas[area][fechaStr];
@@ -93,9 +97,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       if (nuevas[area] && nuevas[area][fechaStr]) delete nuevas[area][fechaStr];
       return nuevas;
     });
-  };
+  };  
 
   const evaluarLimpieza = (area, fechaStr, status) => {
+    if (diasCerrados.includes(fechaStr)) return;
     setEvaluaciones(prev => ({
       ...prev,
       [area]: {
@@ -103,32 +108,46 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         [fechaStr]: status
       }
     }));
-  };
+  };  
 
-  const reiniciarMes = () => {
+  const realizarCorteLimpieza = () => {
     showConfirm(
-      "🔄 Limpiar Mes Actual",
-      "¿Deseas borrar TODAS las fotos de evidencia y evaluaciones actuales? Los empleados seguirán asignados a sus áreas.",
-      () => {
-        setEvidencias({});
-        setEvaluaciones({});
-        showAlert("Reiniciado", "Matriz lista para el nuevo mes. Recuerda guardar los cambios.", "info");
+      "🔒 Corte de Limpieza Parcial",
+      "Esto auditará y BLOQUEARÁ las áreas de limpieza desde el día 1 hasta el día de HOY. Las fechas pasadas ya no podrán ser evaluadas ni modificadas.",
+      async () => {
+        setIsSubmitting(true);
+        const fechasPasadas = diasMes.filter(d => d.fechaStr <= strHoy).map(d => d.fechaStr);
+        const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasPasadas])];
+
+        const payload = { areas, asignaciones, evidencias, evaluaciones, dias_cerrados: nuevosDiasCerrados };
+        const formData = new FormData();
+        formData.append('matriz_limpieza', JSON.stringify(payload));  
+
+        try {
+          const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+          if (res.ok) {
+            setDiasCerrados(nuevosDiasCerrados);
+            showAlert("Auditoría Cerrada", "Las limpiezas hasta hoy han sido bloqueadas exitosamente.", "success");
+          }
+        } catch (error) { 
+          showAlert("Error", "Fallo de conexión.", "error"); 
+        }
+        setIsSubmitting(false);
       }
     );
-  };
+  };  
 
   const guardarMatriz = async () => {
     setIsSubmitting(true);
     try {
-      const payload = { areas, asignaciones, evidencias, evaluaciones };
+      const payload = { areas, asignaciones, evidencias, evaluaciones, dias_cerrados: diasCerrados };
       const formData = new FormData();
-      formData.append('matriz_limpieza', JSON.stringify(payload));
-
+      formData.append('matriz_limpieza', JSON.stringify(payload));  
+      
       const res = await fetch(`${apiUrl}/configuracion`, {
         method: 'PUT',
         body: formData
-      });
-
+      });  
       if (res.ok) {
         showAlert('¡Guardado!', 'La matriz de limpieza se ha actualizado correctamente.', 'success');
       } else {
@@ -138,27 +157,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       showAlert('Error', 'Error de red al guardar.', 'error');
     }
     setIsSubmitting(false);
-  };
-
-  let hayAsignaciones = false;
-  let todoEvaluado = true;
-  Object.keys(asignaciones).forEach(area => {
-    Object.keys(asignaciones[area]).forEach(fechaStr => {
-      if (asignaciones[area][fechaStr]) {
-        hayAsignaciones = true;
-        if (!evaluaciones[area] || !evaluaciones[area][fechaStr]) {
-          todoEvaluado = false;
-        }
-      }
-    });
-  });
-
-  const puedeLimpiar = hayAsignaciones && todoEvaluado;
+  };  
 
   return (
-    <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">
-      
-      {/* HEADER DINÁMICO */}
+    <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">  
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 bg-teal-50 p-6 rounded-3xl border border-teal-100">
         <div className="flex items-center gap-4">
           <div className="bg-teal-500 text-white p-3 rounded-2xl shadow-md"><Calendar size={28}/></div>
@@ -183,7 +185,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             <Plus size={20}/> <span className="hidden sm:inline">Agregar</span>
           </button>
         </form>
-      </div>
+      </div>  
 
       <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 custom-scrollbar">
         {areas.length === 0 ? (
@@ -214,112 +216,103 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     {area}
                   </td>
                   {diasMes.map(d => {
-                    // 👇 VÍNCULO PERFECTO: Solo aparecen empleados que tengan turno asignado ESE DÍA EXACTO del mes.
+                    const isCerrado = diasCerrados.includes(d.fechaStr);
                     const empleadosDelDia = empleadosVisibles.filter(emp => {
                       try {
                         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal) : (emp.horario_semanal || {});
                         return hor[d.fechaStr] && hor[d.fechaStr].activo === true;
                       } catch(e) { return false; }
-                    });
+                    });  
 
                     return (
-                      <td key={`${area}-${d.fechaStr}`} className="p-3 border-r border-slate-100 align-top">
-                        <div className="flex flex-col gap-2">
-                          <select
-                            value={asignaciones[area]?.[d.fechaStr] || ''}
-                            onChange={(e) => manejarAsignacion(area, d.fechaStr, e.target.value)}
-                            className={`w-full p-2.5 rounded-xl border outline-none font-bold text-xs cursor-pointer appearance-none text-center transition-colors ${
-                              asignaciones[area]?.[d.fechaStr] ? 'bg-teal-50 border-teal-200 text-teal-800 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-white'
-                            }`}
-                          >
-                            <option value="">-- Sin asignar --</option>
-                            {empleadosDelDia.map(emp => (
-                              <option key={emp.id} value={emp.id}>{emp.nombre}</option>
-                            ))}
-                          </select>
+                      <td key={`${area}-${d.fechaStr}`} className={`p-3 border-r border-slate-100 align-top ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
+                        
+                        {isCerrado ? (
+                           <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
+                             <Lock size={16} className="text-slate-400 mb-1" />
+                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Auditoría<br/>Cerrada</span>
+                           </div>
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            <select
+                              value={asignaciones[area]?.[d.fechaStr] || ''}
+                              onChange={(e) => manejarAsignacion(area, d.fechaStr, e.target.value)}
+                              className={`w-full p-2.5 rounded-xl border outline-none font-bold text-xs cursor-pointer appearance-none text-center transition-colors ${
+                                asignaciones[area]?.[d.fechaStr] ? 'bg-teal-50 border-teal-200 text-teal-800 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-white'
+                              }`}
+                            >
+                              <option value="">-- Sin asignar --</option>
+                              {empleadosDelDia.map(emp => (
+                                <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                              ))}
+                            </select>  
 
-                          {asignaciones[area]?.[d.fechaStr] && (
-                            <div className="mt-1 border-t border-slate-200 pt-2 space-y-2 animate-in fade-in">
-                              {evidencias[area]?.[d.fechaStr] ? (
-                                <a href={evidencias[area][d.fechaStr]} target="_blank" rel="noreferrer" className="block w-full h-20 rounded-xl overflow-hidden border border-slate-200 hover:border-blue-400 transition-colors relative group/foto shadow-sm">
-                                  <img src={evidencias[area][d.fechaStr]} alt="Evidencia" className="w-full h-full object-cover" />
-                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/foto:opacity-100 flex items-center justify-center transition-opacity">
-                                    <span className="text-[10px] text-white font-black tracking-widest uppercase drop-shadow-md">Ver Foto</span>
+                            {asignaciones[area]?.[d.fechaStr] && (
+                              <div className="mt-1 border-t border-slate-200 pt-2 space-y-2 animate-in fade-in">
+                                {evidencias[area]?.[d.fechaStr] ? (
+                                  <a href={evidencias[area][d.fechaStr]} target="_blank" rel="noreferrer" className="block w-full h-20 rounded-xl overflow-hidden border border-slate-200 hover:border-blue-400 transition-colors relative group/foto shadow-sm">
+                                    <img src={evidencias[area][d.fechaStr]} alt="Evidencia" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/foto:opacity-100 flex items-center justify-center transition-opacity">
+                                      <span className="text-[10px] text-white font-black tracking-widest uppercase drop-shadow-md">Ver Foto</span>
+                                    </div>
+                                  </a>
+                                ) : (
+                                  <div className="h-12 border border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-slate-50/50">
+                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest px-2">Sin Foto</span>
                                   </div>
-                                </a>
-                              ) : (
-                                <div className="h-12 border border-dashed border-slate-300 rounded-xl flex items-center justify-center bg-slate-50/50">
-                                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest px-2">Sin Foto</span>
-                                </div>
-                              )}
+                                )}  
 
-                              {!evaluaciones[area]?.[d.fechaStr] ? (
-                                <div className="flex gap-1.5 w-full">
-                                  <button onClick={() => evaluarLimpieza(area, d.fechaStr, 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 text-[10px] py-2 rounded-lg font-black transition-all shadow-sm" title="Sí Cumplió">SÍ</button>
-                                  <button onClick={() => evaluarLimpieza(area, d.fechaStr, 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white hover:border-red-500 text-[10px] py-2 rounded-lg font-black transition-all shadow-sm" title="No Cumplió">NO</button>
-                                </div>
-                              ) : (
-                                <div className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm ${evaluaciones[area][d.fechaStr] === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
-                                  <span>{evaluaciones[area][d.fechaStr] === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
-                                  <button onClick={() => evaluarLimpieza(area, d.fechaStr, null)} className="opacity-80 hover:opacity-100 hover:scale-110 transition-all bg-black/20 p-1 rounded-md" title="Deshacer evaluación">
-                                    <RotateCcw size={12}/>
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                                {!evaluaciones[area]?.[d.fechaStr] ? (
+                                  <div className="flex gap-1.5 w-full">
+                                    <button onClick={() => evaluarLimpieza(area, d.fechaStr, 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 text-[10px] py-2 rounded-lg font-black transition-all shadow-sm" title="Sí Cumplió">SÍ</button>
+                                    <button onClick={() => evaluarLimpieza(area, d.fechaStr, 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white hover:border-red-500 text-[10px] py-2 rounded-lg font-black transition-all shadow-sm" title="No Cumplió">NO</button>
+                                  </div>
+                                ) : (
+                                  <div className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm ${evaluaciones[area][d.fechaStr] === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
+                                    <span>{evaluaciones[area][d.fechaStr] === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
+                                    <button onClick={() => evaluarLimpieza(area, d.fechaStr, null)} className="opacity-80 hover:opacity-100 hover:scale-110 transition-all bg-black/20 p-1 rounded-md" title="Deshacer evaluación">
+                                      <RotateCcw size={12}/>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     );
                   })}
                   <td className="p-2 text-center align-middle sticky right-0 bg-white z-10 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] group-hover:bg-slate-50">
-                    <button
-                      onClick={() => eliminarArea(area)}
-                      className="p-3 bg-white border border-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition shadow-sm"
-                      title="Eliminar Área"
-                    >
-                      <Trash2 size={18}/>
-                    </button>
+                    <button onClick={() => eliminarArea(area)} className="p-3 bg-white border border-red-100 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition shadow-sm"><Trash2 size={18}/></button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </div>  
 
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-6">
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
           <div className="flex items-center gap-2 text-amber-700 bg-amber-50 px-5 py-3 rounded-2xl text-sm font-bold border border-amber-200 shadow-sm">
             <AlertCircle size={18}/> ¡Guarda al asignar o evaluar!
-          </div>
-
+          </div>  
           {areas.length > 0 && (
             <button
-              onClick={reiniciarMes}
-              disabled={isSubmitting || !puedeLimpiar}
-              className={`text-sm font-bold flex items-center gap-2 px-5 py-3 rounded-2xl transition shadow-sm ${
-                puedeLimpiar
-                  ? 'bg-white border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
-                  : 'bg-slate-50 border border-slate-200 text-slate-400 cursor-not-allowed'
-              }`}
-              title={!puedeLimpiar ? "Debes evaluar todas las asignaciones pendientes del mes para poder limpiarla." : "Borrar evaluaciones y fotos del mes"}
+              onClick={realizarCorteLimpieza}
+              disabled={isSubmitting}
+              className="text-sm font-bold flex items-center gap-2 px-5 py-3 rounded-2xl transition shadow-sm bg-white border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
             >
-              <RefreshCw size={18}/> Limpiar Mes
+              <Lock size={18}/> Cerrar Auditoría (Hasta Hoy)
             </button>
           )}
-        </div>
-        
-        <button
-          onClick={guardarMatriz}
-          disabled={isSubmitting || areas.length === 0}
-          className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-teal-400 px-10 py-4 rounded-2xl font-black transition active:scale-95 shadow-xl shadow-slate-900/20 disabled:opacity-50 flex items-center justify-center gap-2 text-lg"
-        >
+        </div>  
+        <button onClick={guardarMatriz} disabled={isSubmitting || areas.length === 0} className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-teal-400 px-10 py-4 rounded-2xl font-black transition active:scale-95 shadow-xl shadow-slate-900/20 disabled:opacity-50 flex items-center justify-center gap-2 text-lg">
           <Save size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar Matriz'}
         </button>
       </div>
     </div>
   );
-};
+};  
 
 export default ZonasLimpieza;

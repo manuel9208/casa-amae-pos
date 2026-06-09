@@ -21,6 +21,7 @@ const mesaCtrl = require('../controllers/mesaController');
 const notificacionCtrl = require('../controllers/notificacionController');
 const repartidorCtrl = require('../controllers/repartidorController');
 const corteCtrl = require('../controllers/corteController'); 
+const mensajeCtrl = require('../controllers/mensajeController');
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -176,5 +177,14 @@ router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
 // ==========================================
 router.post('/cortes', corteCtrl.guardarCorte);              
 router.get('/cortes/historial', corteCtrl.obtenerHistorial);
+
+// ==========================================
+// Mensajes
+// ==========================================
+router.post('/mensajes', mensajeCtrl.enviarMensaje);
+router.get('/mensajes/admin', mensajeCtrl.obtenerMensajesAdmin);
+router.get('/mensajes/empleado/:id', mensajeCtrl.obtenerMensajesEmpleado);
+router.put('/mensajes/:id/leer', mensajeCtrl.marcarComoLeido);
+router.delete('/mensajes/:id', mensajeCtrl.eliminarMensaje);
 
 module.exports = router;
