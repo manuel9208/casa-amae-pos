@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { History, Calendar, CheckCircle2, XCircle, Sparkles } from 'lucide-react';
+import { History, Calendar, CheckCircle2, XCircle, Sparkles } from 'lucide-react';  
 
 const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
   const [mesFiltro, setMesFiltro] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [datosProcesados, setDatosProcesados] = useState([]);
-  const [cargando, setCargando] = useState(false);
+  const [cargando, setCargando] = useState(false);  
 
   // Calcula los días del mes seleccionado
   const [year, month] = mesFiltro.split('-').map(Number);
@@ -16,7 +16,7 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
       nombreBreve: d.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase(),
       fechaStr: `${year}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
     };
-  });
+  });  
 
   const cargarHistorico = useCallback(async () => {
     setCargando(true);
@@ -24,28 +24,26 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
       const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=mes&fecha=${mesFiltro}-01`);
       if (res.ok) {
         const data = await res.json();
-        const cortes = data.cortesNomina || [];
-        
-        const consolidados = {};
-        
-        cortes.forEach(corte => {
-          const datosCorte = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;
-          
-          datosCorte.forEach(emp => {
-            if (emp.rol === 'admin' || emp.nombre === 'Administrador Global') return;
+        const cortes = data.cortesNomina || [];  
+        const consolidados = {};  
 
+        cortes.forEach(corte => {
+          const datosCorte = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;  
+          datosCorte.forEach(emp => {
+            // 👇 MODIFICACIÓN APLICADA AQUÍ: Solo el 'Administrador Global' es excluido del histórico
+            if (emp.nombre === 'Administrador Global') return;  
+            
             if (!consolidados[emp.id]) {
               consolidados[emp.id] = {
                 id: emp.id,
                 nombre: emp.nombre,
                 rol: emp.rol,
                 horario: {},
-                limpiezaDetalle: {} 
+                limpiezaDetalle: {}
               };
-            }
-            
+            }  
             // FUSIONAR HORARIOS
-            consolidados[emp.id].horario = { ...consolidados[emp.id].horario, ...(emp.horario || {}) };
+            consolidados[emp.id].horario = { ...consolidados[emp.id].horario, ...(emp.horario || {}) };  
             
             // FUSIONAR LIMPIEZA DETALLADA
             if (emp.limpieza && emp.limpieza.detalle) {
@@ -56,8 +54,7 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
               });
             }
           });
-        });
-        
+        });  
         const result = Object.values(consolidados).sort((a, b) => a.nombre.localeCompare(b.nombre));
         setDatosProcesados(result);
       }
@@ -65,11 +62,11 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
       console.error("Error al cargar histórico de meses", e);
     }
     setCargando(false);
-  }, [apiUrl, mesFiltro]);
+  }, [apiUrl, mesFiltro]);  
 
   useEffect(() => {
     cargarHistorico();
-  }, [cargarHistorico]);
+  }, [cargarHistorico]);  
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4">
@@ -83,28 +80,28 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           <label className="text-slate-400 text-xs font-black uppercase tracking-widest">Seleccionar Mes:</label>
-          <input 
-            type="month" 
-            value={mesFiltro} 
-            onChange={e => setMesFiltro(e.target.value)} 
-            className="w-full md:w-auto bg-slate-800 text-blue-400 border border-slate-700 px-4 py-3 rounded-2xl font-black outline-none focus:border-blue-500 transition-colors" 
-            style={{ colorScheme: 'dark' }} 
+          <input
+            type="month"
+            value={mesFiltro}
+            onChange={e => setMesFiltro(e.target.value)}
+            className="w-full md:w-auto bg-slate-800 text-blue-400 border border-slate-700 px-4 py-3 rounded-2xl font-black outline-none focus:border-blue-500 transition-colors"
+            style={{ colorScheme: 'dark' }}
           />
         </div>
-      </div>
+      </div>  
 
       {cargando ? (
         <div className="py-20 text-center text-slate-400 animate-pulse">
-           <History size={48} className="mx-auto mb-4 opacity-50" />
-           <p className="font-black text-xl">Recopilando archivos del mes...</p>
+          <History size={48} className="mx-auto mb-4 opacity-50" />
+          <p className="font-black text-xl">Recopilando archivos del mes...</p>
         </div>
       ) : datosProcesados.length === 0 ? (
         <div className="bg-slate-50 p-12 rounded-[40px] text-center border-2 border-dashed border-slate-200">
-           <Calendar size={64} className="mx-auto text-slate-300 mb-4" />
-           <h3 className="text-2xl font-black text-slate-600">Mes sin registros</h3>
-           <p className="text-slate-500 font-medium mt-2 max-w-md mx-auto">
-             No se encontraron cortes de nómina ni limpiezas guardadas para {mesFiltro}.
-           </p>
+          <Calendar size={64} className="mx-auto text-slate-300 mb-4" />
+          <h3 className="text-2xl font-black text-slate-600">Mes sin registros</h3>
+          <p className="text-slate-500 font-medium mt-2 max-w-md mx-auto">
+            No se encontraron cortes de nómina ni limpiezas guardadas para {mesFiltro}.
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto bg-white rounded-[24px] border border-slate-200 shadow-sm custom-scrollbar w-full max-w-full">
@@ -124,8 +121,8 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
             <tbody>
               {datosProcesados.map(emp => {
                 const horarioGuardado = emp.horario || {};
-                const limpiezaDetalle = emp.limpiezaDetalle || {};
-
+                const limpiezaDetalle = emp.limpiezaDetalle || {};  
+                
                 return (
                   <tr key={emp.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
                     <td className="p-5 sticky left-0 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-10 group-hover:bg-slate-50">
@@ -134,11 +131,10 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
                     </td>
                     {diasMes.map(d => {
                       const diaHorario = horarioGuardado[d.fechaStr];
-                      const limpiezasDelDia = limpiezaDetalle[d.fechaStr];
-
+                      const limpiezasDelDia = limpiezaDetalle[d.fechaStr];  
+                      
                       return (
-                        <td key={d.fechaStr} className="p-3 border-l border-slate-100 text-center align-top">
-                          
+                        <td key={d.fechaStr} className="p-3 border-l border-slate-100 text-center align-top">  
                           {/* 1. HORARIOS */}
                           {!diaHorario || !diaHorario.activo ? (
                             <div className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest p-2 rounded-lg border border-slate-200 mb-2">
@@ -149,8 +145,8 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
                               {diaHorario.entrada} - {diaHorario.salida}
                               {diaHorario.pagado && <span className="block text-[8px] opacity-70 mt-0.5">✅ Pagado</span>}
                             </div>
-                          )}
-
+                          )}  
+                          
                           {/* 2. LIMPIEZAS */}
                           {limpiezasDelDia && limpiezasDelDia.length > 0 && (
                             <div className="flex flex-col gap-1 mt-2 border-t border-dashed border-slate-200 pt-2">
@@ -162,8 +158,7 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
                                 </div>
                               ))}
                             </div>
-                          )}
-
+                          )}  
                         </td>
                       );
                     })}
@@ -176,6 +171,6 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
       )}
     </div>
   );
-};
+};  
 
 export default VistaHistoricoMeses;

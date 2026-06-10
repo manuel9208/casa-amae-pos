@@ -7,9 +7,11 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);  
 
-  const empleadosVisibles = usuariosDB.filter(u => u.rol !== 'admin' && u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));  
+  // 👇 MODIFICADO: Solo se excluye al Administrador Global
+  const empleadosVisibles = usuariosDB
+    .filter(u => u.nombre !== 'Administrador Global')
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
-  // 👇 SOLUCIÓN DEFINITIVA: Envolvemos la función en useCallback
   const cargarMensajes = useCallback(async () => {
     try {
       const res = await fetch(`${apiUrl}/mensajes/admin`);
@@ -17,9 +19,8 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
     } catch(e) {}
   }, [apiUrl]);  
 
-  // 👇 Ahora React está feliz porque cargarMensajes está en las dependencias
-  useEffect(() => { 
-    cargarMensajes(); 
+  useEffect(() => {
+    cargarMensajes();
   }, [cargarMensajes]);  
 
   const enviarMensaje = async (e) => {
@@ -117,6 +118,6 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
       </div>
     </div>
   );
-};
+};  
 
 export default VistaMensajesAdmin;

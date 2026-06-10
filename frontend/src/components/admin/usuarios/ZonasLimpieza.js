@@ -17,7 +17,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();  
 
-  const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+  const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;  
 
   const diasMes = Array.from({length: daysInMonth}, (_, i) => {
     const d = new Date(year, month, i + 1);
@@ -28,8 +28,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     };
   });  
 
+  // 👇 MODIFICACIÓN APLICADA AQUÍ: Filtro que excluye solo al "Administrador Global"
   const empleadosVisibles = usuariosDB
-    .filter(u => u.usuario !== 'admin')
+    .filter(u => u.nombre !== 'Administrador Global')
     .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
   useEffect(() => {
@@ -70,7 +71,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       delete nuevasEvidencias[areaTarget];
       const nuevasEvaluaciones = { ...evaluaciones };
       delete nuevasEvaluaciones[areaTarget];  
-      
       setAreas(nuevasAreas);
       setAsignaciones(nuevasAsignaciones);
       setEvidencias(nuevasEvidencias);
@@ -86,7 +86,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         ...(prev[area] || {}),
         [fechaStr]: usuarioId
       }
-    }));  
+    }));
     setEvidencias(prev => {
       const nuevas = { ...prev };
       if (nuevas[area] && nuevas[area][fechaStr]) delete nuevas[area][fechaStr];
@@ -117,20 +117,18 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       async () => {
         setIsSubmitting(true);
         const fechasPasadas = diasMes.filter(d => d.fechaStr <= strHoy).map(d => d.fechaStr);
-        const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasPasadas])];
-
+        const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasPasadas])];  
         const payload = { areas, asignaciones, evidencias, evaluaciones, dias_cerrados: nuevosDiasCerrados };
         const formData = new FormData();
         formData.append('matriz_limpieza', JSON.stringify(payload));  
-
         try {
           const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
           if (res.ok) {
             setDiasCerrados(nuevosDiasCerrados);
             showAlert("Auditoría Cerrada", "Las limpiezas hasta hoy han sido bloqueadas exitosamente.", "success");
           }
-        } catch (error) { 
-          showAlert("Error", "Fallo de conexión.", "error"); 
+        } catch (error) {
+          showAlert("Error", "Fallo de conexión.", "error");
         }
         setIsSubmitting(false);
       }
@@ -143,11 +141,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const payload = { areas, asignaciones, evidencias, evaluaciones, dias_cerrados: diasCerrados };
       const formData = new FormData();
       formData.append('matriz_limpieza', JSON.stringify(payload));  
-      
       const res = await fetch(`${apiUrl}/configuracion`, {
         method: 'PUT',
         body: formData
-      });  
+      });
       if (res.ok) {
         showAlert('¡Guardado!', 'La matriz de limpieza se ha actualizado correctamente.', 'success');
       } else {
@@ -160,7 +157,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   };  
 
   return (
-    <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">  
+    <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4 w-full max-w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 bg-teal-50 p-6 rounded-3xl border border-teal-100">
         <div className="flex items-center gap-4">
           <div className="bg-teal-500 text-white p-3 rounded-2xl shadow-md"><Calendar size={28}/></div>
@@ -223,15 +220,13 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                         return hor[d.fechaStr] && hor[d.fechaStr].activo === true;
                       } catch(e) { return false; }
                     });  
-
                     return (
-                      <td key={`${area}-${d.fechaStr}`} className={`p-3 border-r border-slate-100 align-top ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
-                        
+                      <td key={`${area}-${d.fechaStr}`} className={`p-3 border-r border-slate-100 align-top ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>  
                         {isCerrado ? (
-                           <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
-                             <Lock size={16} className="text-slate-400 mb-1" />
-                             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Auditoría<br/>Cerrada</span>
-                           </div>
+                          <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
+                            <Lock size={16} className="text-slate-400 mb-1" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Auditoría<br/>Cerrada</span>
+                          </div>
                         ) : (
                           <div className="flex flex-col gap-2">
                             <select
@@ -246,7 +241,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                 <option key={emp.id} value={emp.id}>{emp.nombre}</option>
                               ))}
                             </select>  
-
                             {asignaciones[area]?.[d.fechaStr] && (
                               <div className="mt-1 border-t border-slate-200 pt-2 space-y-2 animate-in fade-in">
                                 {evidencias[area]?.[d.fechaStr] ? (
@@ -261,7 +255,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                     <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest px-2">Sin Foto</span>
                                   </div>
                                 )}  
-
                                 {!evaluaciones[area]?.[d.fechaStr] ? (
                                   <div className="flex gap-1.5 w-full">
                                     <button onClick={() => evaluarLimpieza(area, d.fechaStr, 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 text-[10px] py-2 rounded-lg font-black transition-all shadow-sm" title="Sí Cumplió">SÍ</button>
@@ -296,7 +289,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
           <div className="flex items-center gap-2 text-amber-700 bg-amber-50 px-5 py-3 rounded-2xl text-sm font-bold border border-amber-200 shadow-sm">
             <AlertCircle size={18}/> ¡Guarda al asignar o evaluar!
-          </div>  
+          </div>
           {areas.length > 0 && (
             <button
               onClick={realizarCorteLimpieza}
@@ -306,7 +299,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               <Lock size={18}/> Cerrar Auditoría (Hasta Hoy)
             </button>
           )}
-        </div>  
+        </div>
         <button onClick={guardarMatriz} disabled={isSubmitting || areas.length === 0} className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-teal-400 px-10 py-4 rounded-2xl font-black transition active:scale-95 shadow-xl shadow-slate-900/20 disabled:opacity-50 flex items-center justify-center gap-2 text-lg">
           <Save size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar Matriz'}
         </button>

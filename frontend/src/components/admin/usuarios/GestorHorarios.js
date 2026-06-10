@@ -1,32 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Save, History, Lock, Calendar, Clock, Palmtree, CheckCircle2, XCircle } from 'lucide-react';
+import { Save, History, Lock, Calendar, Clock, Palmtree, CheckCircle2, XCircle } from 'lucide-react';  
 
-const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];  
 
 const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [horariosTemp, setHorariosTemp] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [horarioNegocio, setHorarioNegocio] = useState({});
+  const [horarioNegocio, setHorarioNegocio] = useState({});  
 
   const hoy = new Date();
   const year = hoy.getFullYear();
   const month = hoy.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();
+  const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();  
 
-  const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+  const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;  
 
   const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
     const d = new Date(year, month, i + 1);
     return { num: i + 1, nombreBreve: d.toLocaleDateString('es-MX', { weekday: 'short' }).toUpperCase(), nombreCompleto: diasSemanaMap[d.getDay()], fechaStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}` };
-  });
+  });  
 
-  const empleadosVisibles = usuariosDB.filter(u => u.rol !== 'admin' && u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));
+  // 👇 MODIFICACIÓN APLICADA AQUÍ (Ya no excluimos el rol 'admin')
+  const empleadosVisibles = usuariosDB
+    .filter(u => u.nombre !== 'Administrador Global')
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
   const solicitudesPendientes = empleadosVisibles.filter(emp => {
     const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
     return pres.solicitud_vacaciones && pres.solicitud_vacaciones.estado === 'pendiente';
-  });
+  });  
 
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
@@ -36,7 +39,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           try { setHorarioNegocio(typeof data.horarios_semana === 'string' ? JSON.parse(data.horarios_semana) : data.horarios_semana || {}); } catch (e) {}
         }
       }).catch(()=>{});
-  }, [apiUrl]);
+  }, [apiUrl]);  
 
   const handleHorarioChange = (userId, fechaStr, campo, valor, configDiaGlobal, isPagado) => {
     if (isPagado) return;
@@ -50,7 +53,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       }
       return { ...prev, [userId]: { ...empPrev, [fechaStr]: { ...diaPrev, ...nuevosValores } } };
     });
-  };
+  };  
 
   const guardarHorarios = async () => {
     if (Object.keys(horariosTemp).length === 0) return showAlert('Aviso', 'No hay cambios que guardar.', 'info');
@@ -65,7 +68,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       setHorariosTemp({}); refrescarDatos();
     } catch (error) { showAlert('Error', 'Problema de conexión.', 'error'); }
     setIsSubmitting(false);
-  };
+  };  
 
   const realizarCorteNómina = async () => {
     showConfirm(
@@ -81,9 +84,9 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
 
           const datosCorte = empleadosVisibles.map(emp => {
             const h = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-            const diasNuevosPagados = diasMes.filter(d => h[d.fechaStr]?.activo && !h[d.fechaStr]?.pagado && d.fechaStr <= strHoy).length;  
-            let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};
-            
+            const diasNuevosPagados = diasMes.filter(d => h[d.fechaStr]?.activo && !h[d.fechaStr]?.pagado && d.fechaStr <= strHoy).length;
+            let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};  
+
             Object.keys(evaluaciones).forEach(area => {
               Object.keys(evaluaciones[area]).forEach(diaStr => {
                 if (diaStr <= strHoy && String(matriz.asignaciones?.[area]?.[diaStr]) === String(emp.id)) {
@@ -94,7 +97,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                   limpiezaDetalle[diaStr].push({ area, status });
                 }
               });
-            });  
+            });
+
             return {
               id: emp.id, nombre: emp.nombre, rol: emp.rol, dias_trabajados: diasNuevosPagados, horario: h,
               limpieza: { cumplidas: limpiezasCumplidas, incumplidas: limpiezasIncumplidas, detalle: limpiezaDetalle }
@@ -120,7 +124,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
               return fetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: hNuevo })
               });
-            }));  
+            }));
             showAlert("✅ Corte Procesado", "Los días hasta HOY han sido pagados y bloqueados exitosamente.", "success");
             setHorariosTemp({}); refrescarDatos();
           }
@@ -128,83 +132,72 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         setIsSubmitting(false);
       }
     );
-  };
+  };  
 
-  // 👇 ADAPTADO PARA RECIBIR UN ARREGLO DE FECHAS EN LUGAR DE INICIO Y FIN
   const responderVacaciones = async (emp, estado) => {
     setIsSubmitting(true);
     try {
       const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
-      pres.solicitud_vacaciones.estado = estado;
+      pres.solicitud_vacaciones.estado = estado;  
 
       if (estado === 'aprobada') {
-        pres.dias_vacaciones_usados = (Number(pres.dias_vacaciones_usados) || 0) + Number(pres.solicitud_vacaciones.dias_solicitados || 0);
+        pres.dias_vacaciones_usados = (Number(pres.dias_vacaciones_usados) || 0) + Number(pres.solicitud_vacaciones.dias_solicitados || 0);  
+        const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal) : (emp.horario_semanal || {});  
 
-        const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal) : (emp.horario_semanal || {});
-        
-        // El empleado envió un array de fechas exactas
         if (pres.solicitud_vacaciones.fechas && Array.isArray(pres.solicitud_vacaciones.fechas)) {
           pres.solicitud_vacaciones.fechas.forEach(dStr => {
             if (!hor[dStr]) hor[dStr] = {};
             hor[dStr] = { activo: true, vacaciones: true, pagado: true, entrada: '00:00', salida: '00:00' };
           });
-        }
-
+        }  
         await fetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
           method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ horario_semanal: hor })
         });
-      }
-
+      }  
       await fetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, {
         method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ prestaciones: pres })
-      });
-
+      });  
       showAlert("Resuelto", `La solicitud ha sido ${estado}.`, "success");
       refrescarDatos();
     } catch(e) {}
     setIsSubmitting(false);
-  };
+  };  
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-bottom-4">
-      
+    <div className="space-y-6 animate-in slide-in-from-bottom-4">  
       {solicitudesPendientes.length > 0 && (
         <div className="bg-amber-50 border-2 border-amber-400 p-6 md:p-8 rounded-[32px] shadow-lg mb-8 animate-in zoom-in-95">
           <h3 className="text-xl font-black text-amber-900 flex items-center gap-2 mb-6"><Palmtree/> Solicitudes de Vacaciones Pendientes</h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {solicitudesPendientes.map(emp => {
               const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : emp.prestaciones;
-              const sol = pres.solicitud_vacaciones;
-              
+              const sol = pres.solicitud_vacaciones;  
               const diasTotales = Number(pres.dias_vacaciones_disponibles) || 12;
               const diasUsados = Number(pres.dias_vacaciones_usados) || 0;
-              const diasRestantes = Math.max(0, diasTotales - diasUsados);
-
-              // Formateamos las fechas seleccionadas
+              const diasRestantes = Math.max(0, diasTotales - diasUsados);  
+              
               const fechasFormat = (sol.fechas || []).map(f => {
                 const [,m,d] = f.split('-');
                 return `${d}/${m}`;
-              }).join(', ');
-
+              }).join(', ');  
+              
               return (
                 <div key={emp.id} className="bg-white p-6 rounded-3xl border border-amber-200 shadow-sm flex flex-col justify-between">
                   <div className="mb-4">
                     <p className="font-black text-lg text-slate-800">{emp.nombre}</p>
                     <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest bg-amber-100 w-fit px-2 py-1 rounded-md mt-1 leading-snug max-w-full">
                       DÍAS: {fechasFormat}
-                    </p>
-                    
+                    </p>  
                     <div className="grid grid-cols-2 gap-2 mt-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Pide:</p>
                         <p className="text-lg font-black text-slate-700">{sol.dias_solicitados} días</p>
                       </div>
                       <div>
-                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Disponibles:</p>
-                         <p className={`text-lg font-black ${sol.dias_solicitados > diasRestantes ? 'text-red-500' : 'text-emerald-500'}`}>{diasRestantes} días</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Disponibles:</p>
+                        <p className={`text-lg font-black ${sol.dias_solicitados > diasRestantes ? 'text-red-500' : 'text-emerald-500'}`}>{diasRestantes} días</p>
                       </div>
-                    </div>
-
+                    </div>  
                     <p className="text-sm font-bold text-slate-500 mt-4 italic">"{sol.motivo}"</p>
                   </div>
                   <div className="flex gap-2">
@@ -216,7 +209,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             })}
           </div>
         </div>
-      )}
+      )}  
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-purple-50 p-6 rounded-[24px] border border-purple-100 gap-4 w-full max-w-full">
         <div className="flex items-center gap-4 text-purple-700">
@@ -224,7 +217,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           <div><h3 className="text-xl font-black tracking-tight leading-none mb-1">Planificador Mensual</h3><p className="text-xs font-bold uppercase tracking-widest">{mesNombre}</p></div>
         </div>
         <button disabled={isSubmitting} onClick={guardarHorarios} className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-2xl font-black shadow-lg shadow-purple-500/30 transition flex items-center justify-center gap-2 active:scale-95"><Save size={20} /> Guardar Cambios</button>
-      </div>
+      </div>  
 
       <div className="overflow-x-auto bg-white rounded-[24px] border border-slate-200 shadow-sm custom-scrollbar w-full max-w-full">
         <table className="w-full text-left border-collapse min-w-max">
@@ -253,8 +246,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                     const diaGuardado = horarioGuardado[d.fechaStr] || { entrada: '', salida: '', activo: false, pagado: false };
                     const diaEditado = (horariosTemp[emp.id] && horariosTemp[emp.id][d.fechaStr]) ? horariosTemp[emp.id][d.fechaStr] : diaGuardado;
                     const configDiaGlobal = horarioNegocio[d.nombreCompleto] || { activo: true, apertura: '08:00', cierre: '22:00' };
-                    const isPagado = diaEditado.pagado === true;
-
+                    const isPagado = diaEditado.pagado === true;  
+                    
                     if (diaEditado.vacaciones) {
                       return (
                         <td key={d.fechaStr} className="p-3 border-l border-slate-100 text-center bg-amber-50">
@@ -264,8 +257,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                           </div>
                         </td>
                       )
-                    }
-
+                    }  
+                    
                     return (
                       <td key={d.fechaStr} className={`p-3 border-l border-slate-100 text-center transition-all ${isPagado ? 'bg-slate-100/50' : diaEditado.activo ? 'bg-purple-50/30' : ''}`}>
                         {isPagado ? (
@@ -296,7 +289,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             })}
           </tbody>
         </table>
-      </div>
+      </div>  
 
       <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full max-w-full">
         <div><h3 className="text-xl font-black text-white flex items-center gap-2"><History className="text-emerald-400" /> Corte de Horarios hasta HOY</h3><p className="text-slate-400 text-xs mt-1 font-medium max-w-xl">Extraerá las horas trabajadas desde el inicio de mes hasta el día actual. <span className="text-emerald-300 font-bold">Los días anteriores se bloquearán 🔒 y ya no podrán ser pagados dos veces.</span></p></div>
@@ -304,6 +297,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       </div>
     </div>
   );
-};
+};  
 
 export default GestorHorarios;

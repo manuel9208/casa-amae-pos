@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Edit } from 'lucide-react';  
+import { Trash2, Edit } from 'lucide-react';
 
 const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
@@ -8,12 +8,12 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
   const [uPass, setUPass] = useState('');
   const [uTelefono, setUTelefono] = useState('');
   const [uRol, setURol] = useState('admin');
-  const [uPin, setUPin] = useState('');  
+  const [uPin, setUPin] = useState('');
 
   const [uPermisos, setUPermisos] = useState({
     menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false,
     corte_caja: false, cancelar_pedidos: false, compras_rapidas: false
-  });  
+  });
 
   const prepararEdicionUsuario = (u) => {
     setEditandoUsuarioId(u.id);
@@ -26,8 +26,8 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setUPermisos(u.permisos || {
       menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false
-    });  
-  };  
+    });
+  };
 
   const cancelarEdicionUsuario = () => {
     setEditandoUsuarioId(null);
@@ -36,15 +36,15 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false
     });
-  };  
+  };
 
   const handleRolChange = (e) => {
     const nuevoRol = e.target.value;
-    setURol(nuevoRol);  
+    setURol(nuevoRol);
     let perms = {
       menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false
-    };  
+    };
     if (nuevoRol === 'tv') {
       const uniqueId = Math.floor(1000 + Math.random() * 9000);
       setUNombre(`Pantalla TV ${uniqueId}`);
@@ -57,20 +57,20 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       setUNombre(''); setUUser(`ayudante_${uniqueId}`); setUPass('0000'); setUTelefono(''); setUPin('');
     } else {
       setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setUPin('');
-    }  
+    }
     if (nuevoRol === 'admin') {
       perms.menu = true; perms.inventario = true; perms.catalogos = true;
     } else if (nuevoRol === 'gerente' || nuevoRol === 'jefe') {
       perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true;
-    }  
+    }
     setUPermisos(perms);
-  };  
+  };
 
   const guardarUsuario = async (e) => {
-    e.preventDefault();  
+    e.preventDefault();
     if (uRol !== 'tv' && (!uTelefono || uTelefono.length !== 10)) {
       return showAlert("Atención", "El número celular es obligatorio y debe contener exactamente 10 dígitos numéricos.", "info");
-    }  
+    }
     if (uRol !== 'tv' && (!uPin || uPin.length !== 4)) {
       return showAlert("Atención", "El PIN de seguridad debe contener exactamente 4 dígitos numéricos.", "info");
     }
@@ -99,7 +99,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     } catch (error) {
       showAlert("Error", "Error al conectar con el servidor.", "error");
     }
-  };  
+  };
 
   const eliminarUsuario = (id) => {
     showConfirm("Eliminar Empleado", "¿Estás seguro de que deseas eliminar este empleado? Perderá acceso inmediatamente.", async () => {
@@ -115,15 +115,17 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         showAlert("Error", "Error al conectar con el servidor.", "error");
       }
     });
-  };  
+  };
 
-  const plantillaVisible = usuariosDB.filter(u => u.usuario !== 'admin');  
+  // 👇 MODIFICACIÓN APLICADA: Solo se excluye estrictamente al Administrador Global
+  const plantillaVisible = usuariosDB.filter(u => u.nombre !== 'Administrador Global');
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4">
       <div className="lg:col-span-1">
         <form onSubmit={guardarUsuario} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 space-y-5 sticky top-8">
-          <h3 className="text-xl font-bold mb-4 text-slate-700">{editandoUsuarioId ? '✏️ Editar Empleado' : '➕ Nuevo Empleado'}</h3>  
+          <h3 className="text-xl font-bold mb-4 text-slate-700">{editandoUsuarioId ? '✏️ Editar Empleado' : '➕ Nuevo Empleado'}</h3>
+          
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold text-slate-400 block mb-1">Nombre Completo *</label>
@@ -137,51 +139,51 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
               <label className="text-xs font-bold text-slate-400 block mb-1">{editandoUsuarioId ? 'Nueva Contraseña (Opcional)' : 'Contraseña de Acceso *'}</label>
               <input type="password" required={!editandoUsuarioId && uRol !== 'ayudante_cocina' && uRol !== 'tv'} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" placeholder="••••••••" />
             </div>
+            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-slate-400 block mb-1">Teléfono (10 Días) *</label>
-                <input type="tel" maxLength="10" required={uRol !== 'tv'} value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 tracking-wider" placeholder="0000000000" />
+                <input type="tel" maxLength="10" required={uRol !== 'tv'} value={uTelefono} onChange={e => setUTelefono(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" placeholder="10 dígitos" />
               </div>
               <div>
-                <label className="text-xs font-black text-emerald-500 block mb-1 uppercase">PIN Seguridad *</label>
-                {/* 👇 MODIFICADO: El input de PIN ahora es tipo "text" para que sea visible al editar */}
-                <input type="text" maxLength="4" required={uRol !== 'tv'} value={uPin} onChange={e => setUPin(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-xl outline-none font-black text-emerald-700 tracking-[0.5em] text-center" placeholder="Ej. 1234" />
+                <label className="text-xs font-bold text-slate-400 block mb-1">PIN de Seguridad *</label>
+                <input type="password" maxLength="4" required={uRol !== 'tv'} value={uPin} onChange={e => setUPin(e.target.value.replace(/\D/g, ''))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700" placeholder="4 dígitos" />
               </div>
             </div>
-          </div>  
 
-          <div>
-            <label className="text-xs font-bold text-slate-400 block mb-1">Puesto o Rol asignado</label>
-            <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-slate-100 border border-slate-300 rounded-xl outline-none font-black text-slate-800 cursor-pointer shadow-sm">
-              <option value="admin">Administrador (Acceso Web Personalizable)</option>
-              <option value="gerente">👔 Gerente de Sucursal</option>
-              <option value="jefe">⭐ Jefe de Turno</option>
-              <option value="cocina">👨‍🍳 Chef Principal (Inicio de Sesión KDS)</option>
-              <option value="cajero">💵 Cajero (Caja Principal)</option>
-              <option value="repartidor">🛵 Repartidor (Entregas Domicilio)</option>
-              <option value="ayudante_cocina">🔪 Ayudante de Cocina (Sub-Perfil KDS)</option>
-              <option value="tv">📺 Pantalla TV (KDS Cliente)</option>
-            </select>
-          </div>  
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-1">Rol en el Sistema *</label>
+              <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700 cursor-pointer">
+                <option value="admin">Administrador</option>
+                <option value="gerente">Gerente</option>
+                <option value="jefe">Jefe de Turno</option>
+                <option value="caja">Cajero</option>
+                <option value="cocina">Cocinero</option>
+                <option value="ayudante_cocina">Ayudante de Cocina</option>
+                <option value="repartidor">Repartidor (Moto)</option>
+                <option value="tv">Pantalla KDS (TV)</option>
+              </select>
+            </div>
+          </div>
 
-          {/* PERMISOS ESPECIALES DE POS (CAJA) */}
-          {['gerente', 'jefe', 'cajero', 'cocina'].includes(uRol) && (
+          {/* PERMISOS ADICIONALES (POS) */}
+          {(uRol === 'gerente' || uRol === 'jefe' || uRol === 'caja') && (
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <p className="text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Permisos de Autorización (POS)</p>  
+              <p className="text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Permisos de Autorización (POS)</p>
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.corte_caja === true} onChange={e => setUPermisos({...uPermisos, corte_caja: e.target.checked})} className="accent-blue-500 w-5 h-5" />
                 Puede realizar el Corte de Caja
-              </label>  
+              </label>
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.cancelar_pedidos === true} onChange={e => setUPermisos({...uPermisos, cancelar_pedidos: e.target.checked})} className="accent-red-500 w-5 h-5" />
                 Puede Cancelar / Rechazar Pedidos
-              </label>  
+              </label>
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.compras_rapidas === true} onChange={e => setUPermisos({...uPermisos, compras_rapidas: e.target.checked})} className="accent-emerald-500 w-5 h-5" />
                 Puede registrar Compras Rápidas
               </label>
             </div>
-          )}  
+          )}
 
           {/* PERMISOS DE ACCESO WEB (MÓDULOS DEL ADMIN) */}
           {uRol === 'admin' && (
@@ -210,7 +212,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                 <input type="checkbox" checked={uPermisos.configuracion === true} onChange={e => setUPermisos({...uPermisos, configuracion: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Configuración
               </label>
             </div>
-          )}  
+          )}
 
           <div className="flex flex-col md:flex-row gap-4 pt-2">
             {editandoUsuarioId && (
@@ -221,12 +223,12 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             </button>
           </div>
         </form>
-      </div>  
+      </div>
 
       <div className="lg:col-span-2">
         <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200">
           <h3 className="text-xl font-bold mb-4 text-slate-700">Plantilla Registrada</h3>
-          <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2">
+          <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
             {plantillaVisible.map(u => (
               <div key={u.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-2xl border transition gap-4 ${editandoUsuarioId === u.id ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
                 <div>
@@ -241,21 +243,20 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                       u.rol==='repartidor' ? 'bg-teal-100 text-teal-700' :
                       u.rol==='tv' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'
                     }`}>
-                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol === 'jefe' ? '⭐ Jefe de Turno' : u.rol === 'gerente' ? '👔 Gerente' : u.rol}
+                      {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol === 'jefe' ? '⭐ Jefe de Turno' : u.rol === 'gerente' ? '👔 Gerente' : u.rol === 'admin' ? '👑 Admin' : u.rol}
                     </span>
-                  </p>  
+                  </p>
                   <div className="mt-1 space-y-0.5 flex items-center gap-4 flex-wrap">
                     <p className="text-sm text-slate-600 font-bold">Tel: <span className="text-blue-600 font-black">{u.telefono || '--'}</span></p>
-                    {/* 👇 MODIFICADO: Se muestra el PIN real en lugar de puntitos */}
-                    {u.pin && <p className="text-sm text-slate-600 font-bold">PIN: <span className="text-emerald-600 font-black tracking-widest">{u.pin}</span></p>}  
+                    {u.pin && <p className="text-sm text-slate-600 font-bold">PIN: <span className="text-emerald-600 font-black tracking-widest">{u.pin}</span></p>}
                   </div>
-                </div>  
+                </div>
                 <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
                   <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
                   <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
                 </div>
               </div>
-            ))}  
+            ))}
             {plantillaVisible.length === 0 && (
               <p className="text-center text-slate-400 font-bold mt-10">No hay empleados registrados en tu plantilla.</p>
             )}
@@ -264,6 +265,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       </div>
     </div>
   );
-};  
+};
 
 export default DirectorioEmpleados;
