@@ -88,22 +88,35 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     fetch(`${apiUrl}/clasificaciones`).then(r=>r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : []));
     fetch(`${apiUrl}/ingredientes`).then(r=>r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : []));
     fetch(`${apiUrl}/usuarios`).then(r=>r.json()).then(data => setEmpleadosPOS(Array.isArray(data) ? data : []));  
+    
+    // 👇 CARGADOR DE CONFIGURACIÓN EN TIEMPO REAL
     const cargarConfig = async () => {
       try {
         const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
         const data = await res.json();
         if(data && !data.error) {
-          setConfigGlobal(data);
+          setConfigGlobal(prev => {
+              if (JSON.stringify(prev) !== JSON.stringify(data)) return data;
+              return prev;
+          });
+          
           if (data.bloqueo_caja_activo !== true && data.bloqueo_caja_activo !== 'true') {
             setIsCajaBloqueada(false);
           }
         }
-      } catch (error) { setIsCajaBloqueada(false); }
+      } catch (error) {}
     };
+
     cargarConfig();
     cargarDataDinamica();
-    const intervalo = setInterval(cargarDataDinamica, 3000);
-    return () => clearInterval(intervalo);
+    
+    const intervaloData = setInterval(cargarDataDinamica, 3000);
+    const intervaloConfig = setInterval(cargarConfig, 3000); // 👈 Sincronizador cada 3 seg
+    
+    return () => {
+        clearInterval(intervaloData);
+        clearInterval(intervaloConfig);
+    };
   }, [apiUrl, cargarDataDinamica]);  
 
   useEffect(() => {
@@ -175,7 +188,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };  
 
-  // 👇 CORRECCIÓN 3: Interceptar actualizaciones de estado y forzar cobro si es de Kiosco/QR
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado) => {
     if(isSubmitting) return; setIsSubmitting(true);
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
@@ -184,8 +196,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       let payload = { estado_preparacion: nuevoEstado };
       
-      // Si un pedido de Kiosco (que está en 'Por Cobrar') se marca como 'Entregado',
-      // se asume que se pagó en Efectivo automáticamente en el mostrador para sumarlo a caja.
       if (nuevoEstado === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
          payload.metodo_pago = 'Efectivo';
       }

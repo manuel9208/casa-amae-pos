@@ -6,17 +6,17 @@ import Kiosco from './components/Kiosco';
 import PantallaTV from './components/PantallaTV';
 import Repartidor from './components/Repartidor';
 import Empleado from './components/empleado/Empleado';
-import { suscribirANotificaciones } from './pushManager';  
+import { suscribirANotificaciones } from './pushManager';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-const baseUrl = apiUrl.replace('/api', '');  
+const baseUrl = apiUrl.replace('/api', '');
 
 const App = () => {
   const [usuarioActivo, setUsuarioActivo] = useState(null);
   const [clienteActivo, setClienteActivo] = useState(null);
   const [modoInvitado, setModoInvitado] = useState(false);
   const [vistaAdmin, setVistaAdmin] = useState('panel');
-  const [vistaTV, setVistaTV] = useState(false);  
+  const [vistaTV, setVistaTV] = useState(false);
   
   const [destinoPortal, setDestinoPortal] = useState(null); 
 
@@ -29,13 +29,13 @@ const App = () => {
   const [apellidoNuevo, setApellidoNuevo] = useState('');
   const [correoNuevo, setCorreoNuevo] = useState('');
   const [fechaNacNuevo, setFechaNacNuevo] = useState('');
-  const [nipNuevo, setNipNuevo] = useState('');  
-  
+  const [nipNuevo, setNipNuevo] = useState('');
+
   const [configGlobal, setConfigGlobal] = useState({
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b'
-  });  
-  
-  const getImageUrl = (url) => { 
+  });
+
+  const getImageUrl = (url) => {
     if (!url) return '';
     const strUrl = String(url).trim();
     if (strUrl.includes('cloudinary.com')) {
@@ -46,17 +46,16 @@ const App = () => {
     if (lastHttp > 0) return strUrl.substring(lastHttp);
     if (strUrl.startsWith('http')) return strUrl;
     return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
-  };  
-  
-  const iniciarSesionPersistente = (tipo, data) => { 
-    // Persistencia de 8 horas
+  };
+
+  const iniciarSesionPersistente = (tipo, data) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000);
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
     if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
     if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
-  };  
-  
-  useEffect(() => { 
+  };
+
+  useEffect(() => {
     if (!localStorage.getItem('pos_device_id')) localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
     const sesionGuardada = localStorage.getItem('pos_sesion');
     if (sesionGuardada) {
@@ -83,8 +82,8 @@ const App = () => {
       }
     }).catch(()=>{});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);  
-  
+  }, []);
+
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
     if (telefono === '0000000000') { setVistaTV(true); return; }
@@ -101,61 +100,59 @@ const App = () => {
           setNecesitaRegistro(true);
         }
       } else {
-        if (res.status === 404) setNecesitaRegistro(true); 
+        if (res.status === 404) setNecesitaRegistro(true);
         else setError(data.error || 'Error al identificar.');
       }
     } catch (err) { setError('Error de conexión al servidor.'); }
-  };  
-  
+  };
+
   const handleRegistro = async (e) => {
     e.preventDefault(); setError('');
     try {
       const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreNuevo, apellido: apellidoNuevo, telefono, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
       const data = await res.json();
-      if (res.ok) { 
-        setNecesitaRegistro(false); 
-        iniciarSesionPersistente('cliente', data.cliente || data.data || data); 
+      if (res.ok) {
+        setNecesitaRegistro(false);
+        iniciarSesionPersistente('cliente', data.cliente || data.data || data);
       }
       else { setError(data.error || 'No se pudo registrar.'); }
     } catch (err) { setError('Error de conexión.'); }
-  };  
-  
-  // 👇 RESTAURADA: ID del dispositivo para prevenir bloqueos y asegurar 8 horas persistentes
+  };
+
   const handleLoginEmpleado = async (e) => {
     e.preventDefault(); setError('');
-    const dispositivo_id = localStorage.getItem('pos_device_id'); 
+    const dispositivo_id = localStorage.getItem('pos_device_id');
     try {
-      const res = await fetch(`${apiUrl}/login`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id }) 
+      const res = await fetch(`${apiUrl}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id })
       });
       const data = await res.json();
-      if (res.ok) { 
-        setEmpleadoFase2(null); 
-        setPassword(''); 
-        iniciarSesionPersistente('empleado', data.usuario || data.data || data); 
+      if (res.ok) {
+        setEmpleadoFase2(null);
+        setPassword('');
+        iniciarSesionPersistente('empleado', data.usuario || data.data || data);
       }
       else { setError(data.error || 'Contraseña incorrecta.'); }
     } catch (err) { setError('Error de conexión.'); }
-  };  
-  
-  // 👇 RESTAURADA: Cierre de sesión real en el servidor
+  };
+
   const cerrarSesion = async () => {
-    if (usuarioActivo) { 
-      try { 
-        await fetch(`${apiUrl}/logout`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify({ usuario_id: usuarioActivo.id }) 
-        }); 
-      } catch (error) {} 
+    if (usuarioActivo) {
+      try {
+        await fetch(`${apiUrl}/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario_id: usuarioActivo.id })
+        });
+      } catch (error) {}
     }
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false);
     setTelefono(''); setPassword(''); setEmpleadoFase2(null); setDestinoPortal(null);
     localStorage.removeItem('pos_sesion');
-  };  
-  
+  };
+
   const inyectarEstilos = () => {
     return `
       :root { --c-primario: ${configGlobal.color_primario}; --c-secundario: ${configGlobal.color_secundario}; --c-fondo: ${configGlobal.color_fondo}; --c-tarjetas: ${configGlobal.color_fondo_tarjetas}; --c-texto-prin: ${configGlobal.color_texto_principal}; --c-texto-sec: ${configGlobal.color_texto_secundario}; --c-texto-kiosco: ${configGlobal.color_texto_kiosco}; --f-titulos: ${configGlobal.fuente_titulos}; --f-textos: ${configGlobal.fuente_textos}; }
@@ -182,12 +179,12 @@ const App = () => {
       .tema-cliente input, .tema-cliente textarea { color: var(--c-texto-prin) !important; background-color: color-mix(in srgb, var(--c-tarjetas) 95%, white) !important; }
       .tema-cliente button.bg-blue-600, .tema-cliente button.bg-emerald-500, .tema-cliente button.bg-slate-900 { color: #ffffff !important; }
     `;
-  };  
-  
-  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;  
-  
+  };
+
+  if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;
+
   if (usuarioActivo) {
-    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;  
+    if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;
 
     const rolesConDobleAcceso = ['cajero', 'cocina', 'repartidor', 'gerente', 'jefe'];
     const rolesSoloPortal = ['ayudante_cocina'];
@@ -224,11 +221,11 @@ const App = () => {
         <>
           <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
           <div className="tema-cliente">
-            <Empleado 
-              user={usuarioActivo} 
-              apiUrl={apiUrl} 
-              onLogout={cerrarSesion} 
-              onVolver={rolesConDobleAcceso.includes(usuarioActivo.rol) ? () => setDestinoPortal(null) : null} 
+            <Empleado
+              user={usuarioActivo}
+              apiUrl={apiUrl}
+              onLogout={cerrarSesion}
+              onVolver={rolesConDobleAcceso.includes(usuarioActivo.rol) ? () => setDestinoPortal(null) : null}
             />
           </div>
         </>
@@ -238,16 +235,16 @@ const App = () => {
     if (usuarioActivo.rol === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
-    }  
+    }
     if (usuarioActivo.rol === 'cajero') {
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => {}} /></>;
-    }  
+    }
     if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
     if (usuarioActivo.rol === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
-  }  
-  
-  if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;  
-  
+  }
+
+  if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;
+
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
@@ -263,7 +260,7 @@ const App = () => {
               <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30">🍔</div>
             )}
             <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
-            <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>  
+            <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
             
             {empleadoFase2 ? (
               <form onSubmit={handleLoginEmpleado} className="space-y-6 text-left animate-in slide-in-from-right">
