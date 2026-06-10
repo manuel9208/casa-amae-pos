@@ -19,23 +19,22 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // 🛡️ AUTO-AGREGADO: Aseguramos que la columna de horarios por día exista sin crashear la BD
-    await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb;`);
+    await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb;`);  
 
-    let result = await db.query('SELECT * FROM configuracion WHERE id = 1');  
+    let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
     if (result.rows.length === 0) {
       await db.query("INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING");
       result = await db.query('SELECT * FROM configuracion WHERE id = 1');
     }  
-    
+
     let config = result.rows[0] || {};  
-    
+
     for (let key in config) {
       if (config[key] === null) {
         config[key] = '';
       }
     }  
-    
+
     res.json(config);
   } catch (error) {
     console.error("Error al obtener config:", error);
@@ -50,7 +49,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     if (resActual.rows.length > 0) configActual = resActual.rows[0];
   } catch(e) {}  
 
-  const mergedBody = { ...configActual, ...req.body };  
+  const mergedBody = { ...configActual, ...req.body };
   const {
     nombre_negocio, whatsapp, banco, cuenta, titular,
     color_primario, color_secundario, color_fondo,
@@ -66,7 +65,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
     bloqueo_caja_activo, bloqueo_caja_segundos,
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
-    cocina_en_caja_activa, horarios_semana // 👈 NUEVA PROPIEDAD
+    cocina_en_caja_activa, horarios_semana 
   } = mergedBody;  
 
   let logo_url = configActual.logo_url || null;
@@ -90,7 +89,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isTicketActivo = ticket_impresion_activa === 'true' || ticket_impresion_activa === true;
   const isWaActiva = wa_api_activa === 'true' || wa_api_activa === true;
   const isPuntosActivos = puntos_activos === undefined ? true : (puntos_activos === 'true' || puntos_activos === true);
-  const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);  
+  const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
   const isBloqueoCajaActivo = bloqueo_caja_activo === 'true' || bloqueo_caja_activo === true;
   const isCocinaCajaActiva = cocina_en_caja_activa === 'true' || cocina_en_caja_activa === true;  
 
@@ -104,9 +103,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   try { bebidasParsed = (comedor_clasif_bebidas && comedor_clasif_bebidas !== '') ? (typeof comedor_clasif_bebidas === 'string' ? comedor_clasif_bebidas : JSON.stringify(comedor_clasif_bebidas)) : '[]'; } catch (e) {}
   try { platillosParsed = (comedor_clasif_platillos && comedor_clasif_platillos !== '') ? (typeof comedor_clasif_platillos === 'string' ? comedor_clasif_platillos : JSON.stringify(comedor_clasif_platillos)) : '[]'; } catch (e) {}
   try { matrizParsed = (matriz_limpieza && matriz_limpieza !== '') ? (typeof matriz_limpieza === 'string' ? matriz_limpieza : JSON.stringify(matriz_limpieza)) : '{}'; } catch (e) {}  
-  
-  // 👇 Empaquetado del JSONB de horario
-  try { horariosParsed = (horarios_semana && horarios_semana !== '') ? (typeof horarios_semana === 'string' ? horarios_semana : JSON.stringify(horarios_semana)) : '{}'; } catch (e) {}
+  try { horariosParsed = (horarios_semana && horarios_semana !== '') ? (typeof horarios_semana === 'string' ? horarios_semana : JSON.stringify(horarios_semana)) : '{}'; } catch (e) {}  
 
   try {
     await db.query(`
@@ -164,7 +161,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         tarifas_envio = EXCLUDED.tarifas_envio::jsonb,
         wa_api_activa = EXCLUDED.wa_api_activa,
         wa_api_token = EXCLUDED.wa_api_token,
-        wa_phone_id = EXCLUDED.wa_phone_id, 
+        wa_phone_id = EXCLUDED.wa_phone_id,
         puntos_porcentaje = EXCLUDED.puntos_porcentaje,
         puntos_valor_peso = EXCLUDED.puntos_valor_peso,
         puntos_activos = EXCLUDED.puntos_activos,
@@ -189,7 +186,7 @@ exports.actualizarConfiguracion = async (req, res) => {
       isWaActiva, wa_api_token, wa_phone_id,
       porcentajeSeguro, valorPesoSeguro, isPuntosActivos, isCanjeActivo,
       isBloqueoCajaActivo, segundosSeguros, limiteComedorSeguro, bebidasParsed, platillosParsed, matrizParsed,
-      isCocinaCajaActiva, horariosParsed // 👈
+      isCocinaCajaActiva, horariosParsed
     ]);  
 
     res.json({ success: true, logo_url });
@@ -197,6 +194,41 @@ exports.actualizarConfiguracion = async (req, res) => {
     res.status(500).json({ error: 'Error al actualizar configuración' });
   }
 };  
+
+// 👇 NUEVA FUNCIÓN: PROCESADOR DE EVIDENCIAS EN CLOUDINARY
+exports.subirEvidenciaLimpieza = async (req, res) => {
+  try {
+    const { area, fecha } = req.body;
+    let imgUrl = null;
+
+    if (req.files && req.files.length > 0) {
+      imgUrl = req.files[0].path; 
+    }
+
+    if (!imgUrl) {
+      return res.status(400).json({ error: 'No se procesó la imagen en Cloudinary' });
+    }
+
+    const resConf = await db.query('SELECT matriz_limpieza FROM configuracion WHERE id = 1');
+    let matriz = {};
+    if (resConf.rows.length > 0 && resConf.rows[0].matriz_limpieza) {
+      matriz = typeof resConf.rows[0].matriz_limpieza === 'string'
+        ? JSON.parse(resConf.rows[0].matriz_limpieza)
+        : resConf.rows[0].matriz_limpieza;
+    }
+
+    if (!matriz.evidencias) matriz.evidencias = {};
+    if (!matriz.evidencias[area]) matriz.evidencias[area] = {};
+    matriz.evidencias[area][fecha] = imgUrl;
+
+    await db.query('UPDATE configuracion SET matriz_limpieza = $1 WHERE id = 1', [JSON.stringify(matriz)]);
+
+    res.json({ success: true, url: imgUrl, matriz });
+  } catch (error) {
+    console.error("Error al subir evidencia:", error);
+    res.status(500).json({ error: 'Error interno al subir evidencia' });
+  }
+};
 
 exports.obtenerCupones = async (req, res) => {
   try {
@@ -241,11 +273,11 @@ exports.validarCupon = async (req, res) => {
   const { codigo } = req.body;
   try {
     const codigoLimpio = String(codigo).toUpperCase().replace(/\s+/g, '');
-    const result = await db.query('SELECT * FROM cupones WHERE codigo = $1 AND activo = true', [codigoLimpio]);  
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Cupón no encontrado o inactivo.' });  
+    const result = await db.query('SELECT * FROM cupones WHERE codigo = $1 AND activo = true', [codigoLimpio]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cupón no encontrado o inactivo.' });
     const cupon = result.rows[0];
     if (cupon.fecha_vencimiento && new Date(cupon.fecha_vencimiento) < new Date()) return res.status(400).json({ error: 'Este cupón ya expiró.' });
-    if (cupon.limite_usos !== null && cupon.usos_actuales >= cupon.limite_usos) return res.status(400).json({ error: 'Este cupón ya alcanzó su límite de usos.' });  
+    if (cupon.limite_usos !== null && cupon.usos_actuales >= cupon.limite_usos) return res.status(400).json({ error: 'Este cupón ya alcanzó su límite de usos.' });
     res.json(cupon);
   } catch (error) { res.status(500).json({ error: 'Error al validar cupón' }); }
 };

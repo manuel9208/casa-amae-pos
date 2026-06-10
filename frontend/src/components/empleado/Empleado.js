@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, Camera, CheckCircle2, Utensils, XCircle, Send, AlertTriangle, MessageSquare } from 'lucide-react';
-import VistaMensajesEmpleado from './VistaMensajesEmpleado'; // 👈 NUEVA IMPORTACIÓN
+import VistaMensajesEmpleado from './VistaMensajesEmpleado';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -97,30 +97,37 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
     }
   });
 
+  // 👇 LÓGICA DE SUBIDA ACTUALIZADA: ENVÍA EL ARCHIVO FÍSICO DIRECTO AL BACKEND/CLOUDINARY
   const subirEvidencia = async (area, e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsSubmitting(true);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64String = reader.result;
-      const matrizActualizada = { ...matriz };
-      if (!matrizActualizada.evidencias) matrizActualizada.evidencias = {};
-      if (!matrizActualizada.evidencias[area]) matrizActualizada.evidencias[area] = {};
-      matrizActualizada.evidencias[area][strHoy] = base64String;
+    
+    // Creamos un FormData nativo y empaquetamos la imagen
+    const formData = new FormData();
+    formData.append('evidencia', file); // El archivo físico
+    formData.append('area', area);
+    formData.append('fecha', strHoy);
 
-      const formData = new FormData();
-      formData.append('matriz_limpieza', JSON.stringify(matrizActualizada));
-      try {
-        const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-        if (res.ok) { 
-          setConfigGlobal(prev => ({ ...prev, matriz_limpieza: JSON.stringify(matrizActualizada) })); 
-          mostrarAlerta("¡Éxito!", "Tu evidencia fotográfica fue subida correctamente.", "success");
-        }
-      } catch (err) {}
-      setIsSubmitting(false);
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Llamamos a la nueva ruta en el Backend
+      const res = await fetch(`${apiUrl}/configuracion/evidencia`, { 
+        method: 'POST', 
+        body: formData 
+      });
+      
+      if (res.ok) { 
+        const data = await res.json();
+        // El servidor nos responde con la matriz actualizada que incluye la URL de Cloudinary
+        setConfigGlobal(prev => ({ ...prev, matriz_limpieza: JSON.stringify(data.matriz) })); 
+        mostrarAlerta("¡Éxito!", "Tu evidencia fue subida a la nube correctamente.", "success");
+      } else {
+        mostrarAlerta("Error", "No se pudo subir la foto.", "error");
+      }
+    } catch (err) {
+      mostrarAlerta("Error", "Fallo de conexión con la nube.", "error");
+    }
+    setIsSubmitting(false);
   };
 
   const enviarSolicitudVacaciones = async (e) => {
@@ -173,11 +180,7 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
       
       {alertaUI && (
         <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-md">
-          <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${
-            alertaUI.tipo === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' :
-            alertaUI.tipo === 'error' ? 'bg-red-50 border-red-500 text-red-800' :
-            'bg-amber-50 border-amber-500 text-amber-800'
-          }`}>
+          <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${alertaUI.tipo === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : alertaUI.tipo === 'error' ? 'bg-red-50 border-red-500 text-red-800' : 'bg-amber-50 border-amber-500 text-amber-800'}`}>
             {alertaUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 shrink-0" size={24} />}
             {alertaUI.tipo === 'error' && <XCircle className="text-red-500 shrink-0" size={24} />}
             {alertaUI.tipo === 'warning' && <AlertTriangle className="text-amber-500 shrink-0" size={24} />}
@@ -209,7 +212,6 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
           <button onClick={() => setVistaActiva('tareas')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'tareas' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Sparkles size={18}/> Mis Tareas (Hoy)</button>
           <button onClick={() => setVistaActiva('horarios')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'horarios' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Calendar size={18}/> Mi Mes</button>
           <button onClick={() => setVistaActiva('vacaciones')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'vacaciones' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Palmtree size={18}/> Vacaciones</button>
-          {/* 👇 NUEVA PESTAÑA DEL EMPLEADO PARA VER SUS MENSAJES */}
           <button onClick={() => setVistaActiva('mensajes')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'mensajes' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><MessageSquare size={18}/> Mis Avisos</button>
         </div>
 
@@ -242,10 +244,18 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
                   <div key={i} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
                     <div className="mb-4"><p className="text-[10px] font-black uppercase tracking-widest text-teal-600 mb-1">Área a limpiar</p><p className="text-2xl font-black text-slate-800">{limp.area}</p></div>
                     {limp.foto ? (
-                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center gap-3 text-emerald-700"><CheckCircle2 size={24} className="shrink-0"/><div><p className="font-black text-sm">Evidencia Subida</p><p className="text-xs font-medium opacity-80">El supervisor la validará pronto.</p></div></div>
+                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center gap-3 text-emerald-700">
+                        <CheckCircle2 size={24} className="shrink-0"/>
+                        <div>
+                          <p className="font-black text-sm">Evidencia Subida</p>
+                          <p className="text-xs font-medium opacity-80">El supervisor la validará pronto.</p>
+                        </div>
+                      </div>
                     ) : (
                       <label className={`w-full bg-teal-50 hover:bg-teal-100 text-teal-700 border-2 border-dashed border-teal-300 py-6 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}`}>
-                        <Camera size={32}/><span className="font-black text-sm uppercase tracking-widest">Tomar Foto</span><input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => subirEvidencia(limp.area, e)} disabled={isSubmitting}/>
+                        <Camera size={32}/>
+                        <span className="font-black text-sm uppercase tracking-widest">Tomar Foto</span>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => subirEvidencia(limp.area, e)} disabled={isSubmitting}/>
                       </label>
                     )}
                   </div>
@@ -259,7 +269,7 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
           <div className="space-y-6 animate-in slide-in-from-bottom-4 bg-white p-6 rounded-[40px] shadow-sm border border-slate-200">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Calendar className="text-blue-500"/> Mis Turnos</h3>
             <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse min-w-max">
                 <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><th className="p-4">Día</th><th className="p-4 text-center">Horario</th><th className="p-4 text-center">Estado</th></tr></thead>
                 <tbody className="divide-y divide-slate-50">
                   {diasMes.map(d => {
@@ -306,7 +316,7 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
               <div className="bg-amber-50 border border-amber-200 p-8 rounded-3xl text-center shadow-sm">
                  <Palmtree size={48} className="mx-auto text-amber-500 mb-4 animate-bounce"/>
                  <h4 className="text-xl font-black text-amber-800">Solicitud en Revisión</h4>
-                 <p className="text-sm font-bold text-amber-700/80 mt-2">Has solicitado <strong className="text-amber-600">{prestaciones.solicitud_vacaciones.dias_solicitados} días</strong>. El administrador los evaluará pronto.</p>
+                 <p className="text-sm font-bold text-amber-700/80 mt-2">Has solicitado <strong className="text-amber-600">{prestaciones.solicitud_vacaciones.dias_solicitados} días</strong> laborables. El administrador los evaluará pronto.</p>
               </div>
             ) : prestaciones.solicitud_vacaciones && prestaciones.solicitud_vacaciones.estado === 'rechazada' ? (
               <div className="bg-red-50 border border-red-200 p-8 rounded-3xl text-center shadow-sm relative">
@@ -374,7 +384,6 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         )}
 
-        {/* 👇 NUEVO: SE RENDERIZA EL MÓDULO DE MENSAJES (ENCARGOS) */}
         {vistaActiva === 'mensajes' && <VistaMensajesEmpleado user={userData} apiUrl={apiUrl} />}
 
       </div>
