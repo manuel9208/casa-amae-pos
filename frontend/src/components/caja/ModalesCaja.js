@@ -9,8 +9,8 @@ import ModalAgregarExtra from './modales/ModalAgregarExtra';
 import ModalZonaEnvio from './modales/ModalZonaEnvio';
 import ModalVerDetalle from './modales/ModalVerDetalle';
 import ModalAperturaCaja from './modales/ModalAperturaCaja';
-import ModalPuntoVenta from './modales/ModalPuntoVenta';  
-import ModalAsistencia from './modales/ModalAsistencia'; // 👈 NUEVO IMPORT
+import ModalPuntoVenta from './modales/ModalPuntoVenta';
+import ModalAsistencia from './modales/ModalAsistencia'; 
 
 const ModalesCaja = ({
   user, cargarDataDinamica, modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
@@ -23,7 +23,7 @@ const ModalesCaja = ({
   guardarEdicionPedido, isSubmitting, modalVerDetalle, setModalVerDetalle, modalIdentificar, setModalIdentificar, pasoIdentificar,
   setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente, buscarClienteParaPedido,
   registrarClienteParaPedido, onGoToKiosco, empleadosPOS, mesas,
-  modalAsistencia, setModalAsistencia // 👈 NUEVOS PROPS RECIBIDOS
+  modalAsistencia, setModalAsistencia 
 }) => {
   return (
     <>
@@ -54,6 +54,7 @@ const ModalesCaja = ({
             </div>
             <h2 className="text-5xl font-black text-slate-800 mb-2 uppercase tracking-tight">¡Cobrar Ahora!</h2>
             <p className="text-xl font-bold text-slate-500 mb-8">El cliente ha solicitado un ingrediente extra de último minuto.</p>
+            
             <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 mb-8 text-left">
               <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-4">
                 <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Orden</p>
@@ -71,6 +72,7 @@ const ModalesCaja = ({
                 </div>
               </div>
             </div>
+
             <button onClick={() => setAlertaCobroExtra(null)} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-6 rounded-3xl font-black text-2xl shadow-xl shadow-orange-500/30 transition active:scale-95 flex items-center justify-center gap-3">
               <CheckCircle2 size={32} /> ¡Entendido, ya lo cobré!
             </button>
@@ -78,19 +80,34 @@ const ModalesCaja = ({
         </div>
       )}  
 
-      <ModalAperturaCaja fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo} />  
-      <ModalPuntoVenta modalPuntoVenta={modalPuntoVenta} setModalPuntoVenta={setModalPuntoVenta} ordenEditandoRapida={ordenEditandoRapida} user={user} configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} lanzarImpresion={lanzarImpresion} setModalPago={setModalPago} refrescarDatosCaja={cargarDataDinamica} onClose={() => setModalPuntoVenta(false)} empleadosPOS={empleadosPOS} mesas={mesas} />  
-      <ModalIdentificar modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} />  
-      <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting} />
-      <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
-      <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />
-      <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
-      <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} />
-      <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />
-      <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />
+      <ModalAperturaCaja fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo} />
       
-      {/* 👇 NUEVO MODAL RENDERIZADO */}
-      <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} />
+      <ModalPuntoVenta modalPuntoVenta={modalPuntoVenta} setModalPuntoVenta={setModalPuntoVenta} ordenEditandoRapida={ordenEditandoRapida} user={user} configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} lanzarImpresion={lanzarImpresion} setModalPago={setModalPago} refrescarDatosCaja={cargarDataDinamica} onClose={() => setModalPuntoVenta(false)} empleadosPOS={empleadosPOS} mesas={mesas} />
+      
+      <ModalIdentificar modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} />
+      
+      <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting} />
+      
+      <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
+      
+      <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />
+      
+      <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />
+      
+      <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} />
+      
+      <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />
+      
+      <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />  
+      
+      {/* 👇 AQUÍ LE PASAMOS EL GATILLO A CAJA TAMBIÉN */}
+      <ModalAsistencia 
+        modalAsistencia={modalAsistencia} 
+        setModalAsistencia={setModalAsistencia} 
+        apiUrl={apiUrl} 
+        setAlertaCaja={setAlertaCaja} 
+        onSuccess={cargarDataDinamica} 
+      />
     </>
   );
 };  

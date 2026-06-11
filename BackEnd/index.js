@@ -39,7 +39,7 @@ io.on('connection', (socket) => {
     console.log(`Driver #${repartidorId} suscrito al feed de operaciones.`);
   });
 
-  自由.on('disconnect', () => {
+  socket.on('disconnect', () => {
     console.log(`❌ Conexión finalizada con el dispositivo: ${socket.id}`);
   });
 });

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import io from 'socket.io-client';
 import TopNavCaja from './caja/TopNavCaja';
 import VistasCaja from './caja/VistasCaja';
 import ModalesCaja from './caja/ModalesCaja';
@@ -8,6 +9,24 @@ import { useCajaCentral } from './caja/useCajaCentral';
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const c = useCajaCentral(user, onLogout, onGoToKiosco);  
+
+  // 👇 FIX DEL WARNING: Desestructuramos las variables para pasarlas al arreglo de dependencias
+  const { apiUrl, cargarDataDinamica } = c;
+
+  useEffect(() => {
+    if (!apiUrl) return;
+    const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
+    
+    const actualizarPantalla = () => {
+      if (cargarDataDinamica) cargarDataDinamica();
+    };
+
+    socket.on('nuevo_pedido', actualizarPantalla);
+    socket.on('pedido_actualizado', actualizarPantalla);
+    socket.on('pedido_eliminado', actualizarPantalla);
+    
+    return () => socket.disconnect();
+  }, [apiUrl, cargarDataDinamica]); // 👈 WARNING RESUELTO
 
   return (
     <>
@@ -19,8 +38,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
         configGlobal={c.configGlobal}
         onLogout={onLogout}
       />  
-
-      <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden overflow-hidden">  
+      <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden overflow-hidden">
         <TopNavCaja
           user={c.operadorActual} onLogout={c.cerrarCajaYSalir} configGlobal={c.configGlobal} toggleEstadoNegocio={c.toggleEstadoNegocio}
           vistaActiva={c.vistaActiva} setVistaActiva={c.setVistaActiva} pedidosPorConfirmar={c.pedidosPorConfirmar}
@@ -29,7 +47,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pedidosEnReparto={c.pedidosEnReparto}
           setModalAsistencia={c.setModalAsistencia}
         />  
-
         <main className="flex-1 overflow-y-auto">
           <VistasCaja
             user={c.operadorActual}
@@ -45,13 +62,12 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             setModalEditarPedido={c.setModalEditarPedido} isSubmitting={c.isSubmitting} setModalVerDetalle={c.setModalVerDetalle}
           />
         </main>  
-
         <ModalesCaja
           user={c.operadorActual} cargarDataDinamica={c.cargarDataDinamica} modalPuntoVenta={c.modalPuntoVenta} setModalPuntoVenta={c.setModalPuntoVenta}
           ordenEditandoRapida={c.ordenEditandoRapida} productos={c.productos} clasificaciones={c.clasificaciones}
-          apiUrl={c.apiUrl} lanzarImpresion={c.lanzarImpresion}  
-          empleadosPOS={c.empleadosPOS} 
-          mesas={c.mesas}               
+          apiUrl={c.apiUrl} lanzarImpresion={c.lanzarImpresion}
+          empleadosPOS={c.empleadosPOS}
+          mesas={c.mesas}
           fondoCaja={c.fondoCaja} iniciarTurno={c.iniciarTurno} inputFondo={c.inputFondo} setInputFondo={c.setInputFondo}
           modalResolver={c.modalResolver} setModalResolver={c.setModalResolver} itemAfectadoIdx={c.itemAfectadoIdx}
           setItemAfectadoIdx={c.setItemAfectadoIdx} accionAlerta={c.accionAlerta} setAccionAlerta={c.setAccionAlerta}
@@ -72,12 +88,11 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pasoIdentificar={c.pasoIdentificar} setPasoIdentificar={c.setPasoIdentificar} telClienteNuevo={c.telClienteNuevo}
           setTelClienteNuevo={c.setTelClienteNuevo} datosNuevoCliente={c.datosNuevoCliente} setDatosNuevoCliente={c.setDatosNuevoCliente}
           buscarClienteParaPedido={c.buscarClienteParaPedido} registrarClienteParaPedido={c.registrarClienteParaPedido}
-          onGoToKiosco={c.onGoToKiosco} /* 👈 AQUÍ ESTÁ LA CORRECCIÓN CLAVE */
-          modalAsistencia={c.modalAsistencia} 
-          setModalAsistencia={c.setModalAsistencia} 
+          onGoToKiosco={c.onGoToKiosco} 
+          modalAsistencia={c.modalAsistencia}
+          setModalAsistencia={c.setModalAsistencia}
         />
       </div>  
-
       <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />
     </>
   );

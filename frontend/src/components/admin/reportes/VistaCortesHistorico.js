@@ -1,32 +1,49 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, ChefHat, PlusCircle, MapPin, TrendingDown, Bike, CreditCard, Banknote, Smartphone } from 'lucide-react';
+import { 
+  DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, 
+  ChefHat, PlusCircle, MapPin, TrendingDown, Bike, CreditCard, 
+  Banknote, Smartphone} from 'lucide-react';  
 
-const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const formaterMoneda = (monto) => {
+  return "$" + Number(monto).toFixed(2);
+};
 
-const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
-  const hoyStr = new Date().toISOString().split('T')[0];
-  const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
+const VistaCortesHistorico = ({ apiUrl }) => {
+  const hoyStr = new Date().toLocaleDateString('en-CA');
   const [periodo, setPeriodo] = useState('dia');
-  const [cargando, setCargando] = useState(true);
-  const [pedidos, setPedidos] = useState([]);
-  const [corteEstatico, setCorteEstatico] = useState({ fondo_caja: 0, total_gastos: 0, fondo_repartidor: 0, detalles_envio: null });
+  const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroMetodoPago, setFiltroMetodoPago] = useState('Todos');
+  const [cargando, setCargando] = useState(false);
+  const [pedidos, setPedidos] = useState([]);
+  const [corteEstatico, setCorteEstatico] = useState({ fondo_caja: 0, total_gastos: 0, fondo_repartidor: 0, detalles_envio: null });
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
 
   const cargarPedidosHistoricos = useCallback(async () => {
     setCargando(true);
     try {
-      const isHoy = fechaFiltro === hoyStr;
+      const isHoy = fechaFiltro === hoyStr;  
 
-      // 1. Cargar pedidos
-      const res = await fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`);
-      if (res.ok) {
-        const data = await res.json();
-        setPedidos(Array.isArray(data) ? data : []);
+      const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`);
+      if (resPed.ok) {
+        let data = await resPed.json();
+        
+        data = data.filter(p => {
+          if (!p.fecha_creacion) return false;
+          const d = new Date(p.fecha_creacion);
+          const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const localMonthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          const localYearStr = `${d.getFullYear()}`;
+
+          if (periodo === 'dia') return localDateStr === fechaFiltro || String(p.fecha_creacion).startsWith(fechaFiltro);
+          if (periodo === 'mes') return localMonthStr === fechaFiltro.substring(0, 7) || String(p.fecha_creacion).startsWith(fechaFiltro.substring(0, 7));
+          if (periodo === 'anio') return localYearStr === fechaFiltro.substring(0, 4) || String(p.fecha_creacion).startsWith(fechaFiltro.substring(0, 4));
+          return true;
+        });
+        
+        setPedidos(data);
       }
 
-      // 2. Extraer GASTOS EN VIVO si el filtro es "Día" y es "Hoy"
       let gastosEnVivoHoy = 0;
       if (periodo === 'dia' && isHoy) {
         try {
@@ -38,9 +55,8 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             }
           }
         } catch(e) {}
-      }
+      }  
 
-      // 3. Cargar el corte estático
       if (periodo === 'dia') {
         const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
         if (resCorte.ok) {
@@ -60,7 +76,6 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
           });
         }
       } else {
-        // Para Mes y Año
         const resRep = await fetch(`${apiUrl}/reportes/ventas?tipo=${periodo}&fecha=${fechaFiltro}`);
         if(resRep.ok) {
           const repData = await resRep.json();
@@ -80,46 +95,53 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
     } finally {
       setCargando(false);
     }
-  }, [periodo, fechaFiltro, hoyStr]);
+  }, [periodo, fechaFiltro, hoyStr, apiUrl]);  
 
   useEffect(() => {
     cargarPedidosHistoricos();
     setPedidoSeleccionado(null);
-  }, [cargarPedidosHistoricos]);
+  }, [cargarPedidosHistoricos]);  
 
   const deserializarCarrito = (carritoRaw) => {
     if (!carritoRaw) return [];
     return typeof carritoRaw === 'string' ? JSON.parse(carritoRaw) : carritoRaw;
-  };
+  };  
 
   const pedidosFiltrados = pedidos.filter(p => {
     if (filtroCliente.trim() !== '') {
       const termino = filtroCliente.toLowerCase();
-      const nombreCliente = String(p.cliente_nombre || 'Invitado').toLowerCase();
+      
+      // 👇 FIX BÚSQUEDA: Extraemos el nombre oculto para que el buscador también lo encuentre
+      let extraido = p.cliente_nombre || p.cliente?.nombre || '';
+      if (!extraido && p.direccion_entrega) {
+          extraido = p.direccion_entrega.split('|')[0].replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+      }
+      const nombreCliente = String(extraido || 'Invitado').toLowerCase();
       const telCliente = String(p.cliente_telefono || p.telefono || '');
+      
       if (!nombreCliente.includes(termino) && !telCliente.includes(termino)) return false;
     }
     if (filtroMetodoPago !== 'Todos' && p.metodo_pago !== filtroMetodoPago) return false;
     return true;
-  });
+  });  
 
-  const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
+  const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
 
   let tPlatillos = 0, tExtras = 0, tEnvio = 0, tEfectivo = 0, tTarjeta = 0, tTransf = 0;
-  let dPlatillos = 0, dExtras = 0, dEnvio = 0, dEfectivo = 0, dTarjeta = 0, dTransf = 0;
+  let dPlatillos = 0, dExtras = 0, dEnvio = 0, dEfectivo = 0, dTarjeta = 0, dTransf = 0;  
 
   pedidos.forEach(p => {
-    if(p.estado_preparacion === 'Cancelado') return; // Ignorar cancelados
+    if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
+    if(['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) return;
 
     const isComedor = p.metodo_pago === 'Comida Personal';
-    const isDomicilio = p.tipo_consumo === 'Domicilio';
+    const isDomicilio = p.tipo_consumo === 'Domicilio';  
 
     const costoEnvio = parseMoney(p.costo_envio);
     tEnvio += costoEnvio;
-    if (isDomicilio) dEnvio += costoEnvio;
+    if (isDomicilio) dEnvio += costoEnvio;  
 
-    let efe=0, tar=0, tra=0;
-
+    let efe=0, tar=0, tra=0;  
     if (p.metodo_pago === 'Efectivo') efe += parseMoney(p.total);
     if (p.metodo_pago === 'Tarjeta') tar += parseMoney(p.total);
     if (p.metodo_pago === 'Transferencia') tra += parseMoney(p.total);
@@ -130,22 +152,20 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
         if(x.metodo==='Tarjeta') tar += parseMoney(x.monto);
         if(x.metodo==='Transferencia') tra += parseMoney(x.monto);
       });
-    }
-
+    }  
     tEfectivo += efe; tTarjeta += tar; tTransf += tra;
-    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; }
+    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; }  
 
     let car = [];
     if (Array.isArray(p.carrito)) {
       car = p.carrito;
     } else if (typeof p.carrito === 'string') {
       try { car = JSON.parse(p.carrito); } catch(e) {}
-    }
+    }  
 
     car.forEach(i => {
       const qty = parseMoney(i.cantidad) || 1;
-      let exP = 0;
-
+      let exP = 0;  
       if(Array.isArray(i.extras)) {
         i.extras.forEach(e => {
           const eNameLower = (e.nombre || '').trim().toLowerCase();
@@ -153,41 +173,36 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             exP += parseMoney(e.precioExtra || e.precio_extra || e.precio);
           }
         });
-      }
-
+      }  
       if (!isComedor) {
         const calcExtra = (exP * qty);
         let rawPrice = parseMoney(i.precioFinal || i.precio_base || i.precio);
         let calcBase = rawPrice - exP;
         if (calcBase < 0) calcBase = 0;
-        const calcPlat = (calcBase * qty);
+        const calcPlat = (calcBase * qty);  
 
         tExtras += calcExtra;
-        tPlatillos += calcPlat;
-
+        tPlatillos += calcPlat;  
         if (isDomicilio) {
           dExtras += calcExtra;
           dPlatillos += calcPlat;
         }
       }
     });
-  });
+  });  
 
   const fondoCaja = Number(corteEstatico.fondo_caja || corteEstatico.fondo_inicial || 0);
   const fondoRepartidor = Number(corteEstatico.fondo_repartidor || 0);
   const gastosCompras = Number(corteEstatico.total_gastos || 0);
-  const efectivoCajon = (fondoCaja + fondoRepartidor + tEfectivo) - gastosCompras;
+  const efectivoCajon = (fondoCaja + fondoRepartidor + tEfectivo) - gastosCompras;  
 
-  // 👇 LA REGLA INTELIGENTE: Si la BD mandó el corte con ceros (por el bug), forzamos a usar el cálculo en vivo.
-  let pEnvios = { platillos: dPlatillos, extras: dExtras, envio: dEnvio, efectivo: dEfectivo, tarjeta: dTarjeta, transf: dTransf };
-  
+  let pEnvios = { platillos: dPlatillos, extras: dExtras, envio: dEnvio, efectivo: dEfectivo, tarjeta: dTarjeta, transf: dTransf };  
   if (corteEstatico.detalles_envio) {
     const det = typeof corteEstatico.detalles_envio === 'string' ? JSON.parse(corteEstatico.detalles_envio) : corteEstatico.detalles_envio;
-    // Comprobamos si tiene datos reales (> 0). Si es puro cero, lo ignoramos para que use la fórmula de arriba.
     if (Object.keys(det).length > 0 && (det.platillos > 0 || det.envio > 0 || det.efectivo > 0 || det.tarjeta > 0)) {
       pEnvios = det;
     }
-  }
+  }  
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -226,13 +241,13 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             <option value="Mixto">Mixto</option>
           </select>
         </div>
-      </div>
+      </div>  
 
       <div className="hidden print:block text-center mb-6">
         <h1 className="text-2xl font-black text-slate-900">Reporte de Cortes y Auditoría</h1>
         <p className="text-slate-500 font-bold">Fecha de referencia: {fechaFiltro} | Rango: {periodo.toUpperCase()}</p>
         <hr className="mt-4 border-slate-300" />
-      </div>
+      </div>  
 
       <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 mb-6 print:shadow-none print:border-none print:p-0">
         <p className="text-slate-500 font-bold text-lg mb-4 print:text-sm">Origen de los Ingresos Totales</p>
@@ -261,7 +276,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
         </div>
 
         <div className="border-t border-slate-100 pt-8 mb-6 print:pt-4 print:mb-4"></div>
-        <p className="text-slate-500 font-bold text-lg mb-6 print:text-sm print:mb-3">Resumen por Método de Pago</p>
+        <p className="text-slate-500 font-bold text-lg mb-6 print:text-sm print:mb-3">Resumen por Método de Pago</p>  
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 print:mb-4">
           <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 print:p-3 print:rounded-xl">
@@ -272,7 +287,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2 print:text-slate-500">Efectivo Físico</p>
             <p className="text-2xl font-black text-emerald-700 print:text-base">{formaterMoneda(tEfectivo)}</p>
           </div>
-          <div className="bg-red-50 p-6 rounded-3xl border border-red-100 relative overflow-hidden print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
+          <div className="bg-red-50 p-6 rounded-3xl border border-red-100 relative overflow-hidden group print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
             <div className="absolute top-2 right-2 text-red-200 print:hidden"><TrendingDown size={32}/></div>
             <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 relative z-10 print:text-slate-500">Gastos (Compras)</p>
             <p className="text-2xl font-black text-red-700 relative z-10 print:text-base">-{formaterMoneda(gastosCompras)}</p>
@@ -285,7 +300,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2 print:text-slate-500">Transferencias</p>
             <p className="text-2xl font-black text-purple-700 print:text-base">{formaterMoneda(tTransf)}</p>
           </div>
-        </div>
+        </div>  
 
         <div className="bg-emerald-600 p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-4 print:text-black print:rounded-xl">
           <div>
@@ -300,7 +315,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
             {formaterMoneda(efectivoCajon)}
           </p>
         </div>
-      </div>
+      </div>  
 
       {(!cargando && pEnvios) && (
         <div className="bg-indigo-50 p-6 md:p-8 rounded-[32px] shadow-sm border border-indigo-100 animate-in slide-in-from-bottom-6 mb-6 print:border-slate-400 print:bg-white">
@@ -311,6 +326,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
               <p className="text-xs font-bold text-indigo-400/80 uppercase tracking-widest mt-0.5 print:text-slate-500">ESTAS CANTIDADES YA ESTÁN CONTEMPLADAS EN EL RESUMEN GENERAL</p>
             </div>
           </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm print:border-slate-300 print:shadow-none">
               <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Venta Comida</p><p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(pEnvios.platillos + pEnvios.extras)}</p></div>
@@ -344,8 +360,8 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
               <button onClick={() => window.print()} className="print:hidden flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md hover:bg-slate-700 transition active:scale-95">
                 <Printer size={16}/> Imprimir Reporte
               </button>
-            </div>
-            
+            </div>  
+
             <div className="overflow-x-auto print:overflow-visible">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -358,31 +374,41 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 print:divide-slate-200">
-                  {pedidosFiltrados.map((p) => (
-                    <tr key={p.id} className="text-slate-700 print:text-black hover:bg-slate-50/80 transition text-sm break-inside-avoid">
-                      <td className="py-3.5 font-black text-slate-900 text-base print:text-sm">#{p.numero_pedido}</td>
-                      <td className="py-3.5">
-                        <p className="font-bold text-slate-800 print:text-black">{p.cliente_nombre || 'Invitado'}</p>
-                        <p className="text-[10px] font-bold text-slate-400 print:text-slate-600 uppercase">{p.tipo_consumo}</p>
-                      </td>
-                      <td className="py-3.5">
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase print:bg-transparent print:border print:border-black ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
-                          {p.metodo_pago}
-                        </span>
-                      </td>
-                      <td className="py-3.5 text-right font-black text-slate-900">{formaterMoneda(parseMoney(p.total))}</td>
-                      <td className="py-3.5 text-center print:hidden">
-                        <button onClick={() => setPedidoSeleccionado(p)} className="p-2 bg-slate-100 hover:bg-blue-600 hover:text-white rounded-xl transition text-slate-500"><Eye size={16}/></button>
-                      </td>
-                    </tr>
-                  ))}
+                  {pedidosFiltrados.map((p) => {
+                    // 👇 FIX NOMBRE: Extraemos el nombre oculto para mostrarlo bonito en la tabla
+                    let nombreMostrar = p.cliente_nombre || p.cliente?.nombre || '';
+                    if (!nombreMostrar && p.direccion_entrega) {
+                      const partes = p.direccion_entrega.split('|').map(x => x.trim());
+                      nombreMostrar = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+                    }
+                    nombreMostrar = nombreMostrar || 'Invitado';
+
+                    return (
+                      <tr key={p.id} className="text-slate-700 print:text-black hover:bg-slate-50/80 transition text-sm break-inside-avoid">
+                        <td className="py-3.5 font-black text-slate-900 text-base print:text-sm">#{p.numero_pedido}</td>
+                        <td className="py-3.5">
+                          <p className="font-bold text-slate-800 print:text-black">{nombreMostrar}</p>
+                          <p className="text-[10px] font-bold text-slate-400 print:text-slate-600 uppercase">{p.tipo_consumo}</p>
+                        </td>
+                        <td className="py-3.5">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase print:bg-transparent print:border print:border-black ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-800' : p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                            {p.metodo_pago}
+                          </span>
+                        </td>
+                        <td className="py-3.5 text-right font-black text-slate-900">{formaterMoneda(parseMoney(p.total))}</td>
+                        <td className="py-3.5 text-center print:hidden">
+                          <button onClick={() => setPedidoSeleccionado(p)} className="p-2 bg-slate-100 hover:bg-blue-600 hover:text-white rounded-xl transition text-slate-500"><Eye size={16}/></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                   {pedidosFiltrados.length === 0 && (
                     <tr><td colSpan="5" className="text-center py-10 font-bold text-slate-400 text-sm">Ninguna orden coincide con los filtros en este rango temporal.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>  
 
           <div className={`xl:col-span-1 bg-slate-900 print:bg-white text-white print:text-black rounded-[32px] print:rounded-none p-6 print:p-0 shadow-xl print:shadow-none min-h-[400px] ${!pedidoSeleccionado ? 'print:hidden' : 'print:block print:border-t print:border-black print:mt-6 print:pt-4 break-inside-avoid'}`}>
             {pedidoSeleccionado ? (
@@ -393,7 +419,7 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
                 </div>
                 <div>
                   <p className="text-[10px] font-black text-slate-500 print:text-slate-700 uppercase tracking-widest mb-3 flex items-center gap-1"><ShoppingBag size={12}/> Productos e Ingredientes</p>
-                  <div className="space-y-2 max-h-60 overflow-y-auto print:max-h-none print:overflow-visible">
+                  <div className="space-y-2 max-h-60 overflow-y-auto print:max-h-none print:overflow-visible custom-scrollbar">
                     {deserializarCarrito(pedidoSeleccionado.carrito).map((item, idx) => (
                       <div key={idx} className="bg-slate-950 print:bg-slate-50 p-3 rounded-xl border border-slate-800 print:border-slate-300">
                         <div className="flex justify-between font-bold text-sm">
@@ -412,13 +438,14 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
                 </div>
                 <div className="bg-slate-950 print:bg-white p-4 rounded-2xl border border-slate-800 print:border-slate-300 text-sm space-y-2">
                   <div className="flex justify-between"><span className="text-slate-400 print:text-slate-600 font-bold">Liquidación:</span><span className="font-black uppercase">{pedidoSeleccionado.metodo_pago}</span></div>
-                  <div className="flex justify-between text-base font-black border-t border-slate-800 print:border-slate-300 pt-2 text-blue-400 print:text-blue-800"><span>Total Cobrado:</span><span>{formaterMoneda(parseMoney(pedidoSeleccionado.total))}</span></div>
+                  <div className="flex justify-between text-base font-black border-t border-slate-800 print:border-slate-400 pt-2 mt-2"><span className="text-slate-400 print:text-slate-800">Total:</span><span className="text-emerald-400 print:text-black">{formaterMoneda(parseMoney(pedidoSeleccionado.total))}</span></div>
                 </div>
               </div>
             ) : (
-              <div className="text-center opacity-40 py-20 print:hidden">
-                <Eye size={48} className="mx-auto mb-2" /><p className="text-sm font-black uppercase">Visor de Ticket</p>
-                <p className="text-xs mt-1">Selecciona una orden de la lista para auditar su desglose.</p>
+              <div className="h-full flex flex-col items-center justify-center text-center text-slate-600 opacity-60">
+                <Eye size={64} className="mx-auto mb-4 opacity-50"/>
+                <p className="text-xl font-bold">Visor de Tickets</p>
+                <p className="text-sm">Selecciona una orden de la tabla para ver el detalle de los productos.</p>
               </div>
             )}
           </div>
@@ -426,6 +453,6 @@ const VistaCortesHistorico = ({ formaterMoneda, parseFechaSegura }) => {
       )}
     </div>
   );
-};
+};  
 
 export default VistaCortesHistorico;
