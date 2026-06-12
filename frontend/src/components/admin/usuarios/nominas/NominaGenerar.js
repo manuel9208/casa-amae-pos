@@ -30,9 +30,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     });
   }, [apiUrl]);
 
-  // ==========================================
-  // CEREBRO MATEMÁTICO: CALCULAR PRE-NÓMINA Y BONOS
-  // ==========================================
   const calcularNomina = async () => {
     setIsSubmitting(true);
     try {
@@ -47,7 +44,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
       for (const emp of empleadosVisibles) {
         const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-        if (pres.generar_nomina === false) continue; // Si se excluyó, lo saltamos
+        if (pres.generar_nomina === false) continue; 
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
@@ -56,10 +53,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let diasDescanso = 0;
         const diasAuditados = [];
 
-        // Métricas para los Bonos
         let fallasLimpieza = 0;
-        let eventosTarde = 0; // Para Regla 2 (Clásica)
-        let minutosTardeTotales = 0; // Para Regla 3 (Estricta)
+        let eventosTarde = 0; 
+        let minutosTardeTotales = 0; 
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
         const endDate = new Date(fechaFin + 'T12:00:00');
@@ -86,7 +82,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           if (asistenciasDelDia.length > 0) {
             diasAsistidos++; diasAuditados.push(dateStr);
 
-            // Cálculos de Retardos (Cruzar Horario Oficial vs Real)
             if (hor[dateStr] && hor[dateStr].entrada) {
               const entradaOficial = hor[dateStr].entrada;
               const [hOf, mOf] = entradaOficial.split(':').map(Number);
@@ -99,15 +94,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               const difMinutos = minReales - minOficiales;
 
               if (difMinutos > 0) {
-                 minutosTardeTotales += difMinutos; // Suma acumulativa para Regla 3
+                 minutosTardeTotales += difMinutos; 
                  if (difMinutos > Number(reglasNomina.puntualidad_eventos_tolerancia_minutos)) {
-                     eventosTarde++; // Suma de evento para Regla 2
+                     eventosTarde++; 
                  }
               }
             }
           }
 
-          // Cálculos de Limpieza
           for (const area of Object.keys(evaluacionesLimpieza)) {
             if (String(matriz.asignaciones?.[area]?.[dateStr]) === String(emp.id)) {
               if (evaluacionesLimpieza[area][dateStr] === 'no_cumplio') fallasLimpieza++;
@@ -117,11 +111,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           currentDate.setDate(currentDate.getDate() + 1);
         }
 
-        if (diasAsistidos === 0 && (!pres.sueldo_base || Number(pres.sueldo_base) === 0)) continue;
-
-        // ==========================================
-        // MATEMÁTICA FINANCIERA DEL EMPLEADO
-        // ==========================================
         const sueldoBase = Number(pres.sueldo_base) || 0;
         let ingresoSueldo = 0;
         let sueldoDiarioEstimado = 0;
@@ -140,38 +129,43 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresoSueldo += montoPrima; 
         }
 
-        // APLICACIÓN DE BONOS (RECOMPENSAS)
         let bonosTotales = 0;
 
-        if (reglasNomina.bono_limpieza_activo) {
-            if (fallasLimpieza <= Number(reglasNomina.limpieza_omisiones_permitidas)) {
-                ingresosList.push({ concepto: `BONO LIMPIEZA (Fallas: ${fallasLimpieza})`, monto: Number(reglasNomina.bono_limpieza_monto) });
-                bonosTotales += Number(reglasNomina.bono_limpieza_monto);
-            }
-        }
+        // 👇 CORRECCIÓN CLAVE: Solo damos bonos si el empleado fue a trabajar al menos 1 día
+        if (diasAsistidos > 0) {
+          if (reglasNomina.bono_limpieza_activo) {
+              if (fallasLimpieza <= Number(reglasNomina.limpieza_omisiones_permitidas)) {
+                  ingresosList.push({ concepto: `BONO LIMPIEZA (Fallas: ${fallasLimpieza})`, monto: Number(reglasNomina.bono_limpieza_monto) });
+                  bonosTotales += Number(reglasNomina.bono_limpieza_monto);
+              }
+          }
 
-        if (reglasNomina.bono_puntualidad_eventos_activo) {
-            if (eventosTarde <= Number(reglasNomina.puntualidad_eventos_retardos_permitidos)) {
-                ingresosList.push({ concepto: `BONO PUNTUALIDAD CLÁSICA (Eventos Tarde: ${eventosTarde})`, monto: Number(reglasNomina.bono_puntualidad_eventos_monto) });
-                bonosTotales += Number(reglasNomina.bono_puntualidad_eventos_monto);
-            }
-        }
+          if (reglasNomina.bono_puntualidad_eventos_activo) {
+              if (eventosTarde <= Number(reglasNomina.puntualidad_eventos_retardos_permitidos)) {
+                  ingresosList.push({ concepto: `BONO PUNTUALIDAD CLÁSICA (Eventos Tarde: ${eventosTarde})`, monto: Number(reglasNomina.bono_puntualidad_eventos_monto) });
+                  bonosTotales += Number(reglasNomina.bono_puntualidad_eventos_monto);
+              }
+          }
 
-        if (reglasNomina.bono_puntualidad_estricta_activo) {
-            if (minutosTardeTotales <= Number(reglasNomina.puntualidad_estricta_limite_minutos_semana)) {
-                ingresosList.push({ concepto: `BONO PUNTUALIDAD ESTRICTA (Minutos Acumulados: ${minutosTardeTotales})`, monto: Number(reglasNomina.bono_puntualidad_estricta_monto) });
-                bonosTotales += Number(reglasNomina.bono_puntualidad_estricta_monto);
-            }
+          if (reglasNomina.bono_puntualidad_estricta_activo) {
+              if (minutosTardeTotales <= Number(reglasNomina.puntualidad_estricta_limite_minutos_semana)) {
+                  ingresosList.push({ concepto: `BONO PUNTUALIDAD ESTRICTA (Minutos Acumulados: ${minutosTardeTotales})`, monto: Number(reglasNomina.bono_puntualidad_estricta_monto) });
+                  bonosTotales += Number(reglasNomina.bono_puntualidad_estricta_monto);
+              }
+          }
         }
 
         const ingresosFinal = ingresoSueldo + bonosTotales;
+
+        // 👇 FILTRO: Si la nómina quedó en $0 pesos, ignoramos a este empleado para no generar recibos basura
+        if (ingresosFinal === 0) continue;
 
         calculos.push({
           empleado_id: emp.id, nombre: emp.nombre, nombre_completo: pres.nombre_completo || emp.nombre, rol: emp.rol, telefono: pres.telefono || emp.telefono,
           datos_banco: { banco: pres.banco, cuenta: pres.cuenta, rfc: pres.rfc, nss: pres.nss },
           metricas: { diasAsistidos, eventosTarde, minutosTardeTotales, fallasLimpieza, diasAuditados, diasVacaciones, diasDescanso },
           ingresos: ingresosList,
-          egresos: [], // Ya no hay castigos por defecto, solo Bonos
+          egresos: [], 
           nuevos_ingresos: [], 
           nuevos_egresos: [],
           total_ingresos: ingresosFinal, 
@@ -180,7 +174,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         });
       }
       setPreNomina(calculos);
-      if (calculos.length === 0) showAlert("Aviso", "No hay días pendientes de pago para generar en este rango.", "info");
+      if (calculos.length === 0) showAlert("Aviso", "No hay días pendientes de pago para generar en este rango o todos los recibos están en $0.", "info");
     } catch (e) {
       console.error(e);
       showAlert("Error", "No se pudo calcular la nómina.", "error");
@@ -188,7 +182,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     setIsSubmitting(false);
   };
 
-  // AGREGAR MONTOS MANUALES (Propinas, Préstamos, etc.)
   const agregarDinamico = (idxEmp, tipo) => {
     const arr = [...preNomina];
     if (tipo === 'ingreso') arr[idxEmp].nuevos_ingresos.push({ concepto: '', monto: 0 });
@@ -220,9 +213,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     setPreNomina(arr);
   };
 
-  // ==========================================
-  // SELLAR Y GUARDAR NÓMINA EN BD
-  // ==========================================
   const guardarCorteNomina = async () => {
     if (preNomina.length === 0) return;
     showConfirm("Aprobar Nómina", "¿Estás seguro? Se generarán los recibos y se bloquearán estos días para no volver a pagarse.", async () => {
