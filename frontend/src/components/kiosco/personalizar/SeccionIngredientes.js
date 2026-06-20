@@ -12,7 +12,9 @@ const SeccionIngredientes = ({
     const extrasMap = new Map(); 
     extrasGlobales.forEach(e => extrasMap.set(e.nombre, { nombre: e.nombre, precioExtra: Number(e.precio_extra) })); 
     extrasManuales.forEach(e => extrasMap.set(e.nombre, { nombre: e.nombre, precioExtra: Number(e.precioExtra) })); 
-    return Array.from(extrasMap.values()); 
+    
+    // 👇 ORDEN ALFABÉTICO EN EXTRAS DEL KIOSCO
+    return Array.from(extrasMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre)); 
   };
 
   return (
@@ -22,7 +24,8 @@ const SeccionIngredientes = ({
         <div>
           <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Quitar Ingredientes</h4>
           <div className="space-y-2">
-            {productoEnEspera.opciones.filter(o => o.tipo === 'base').map((o, idx) => { 
+            {/* 👇 ORDEN ALFABÉTICO EN BASES DEL KIOSCO */}
+            {productoEnEspera.opciones.filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre)).map((o, idx) => { 
               const estaRemovido = ingredientesRemovidos.includes(o.nombre); 
               return ( 
                 <button key={idx} type="button" onClick={() => toggleIngredienteBase(o.nombre)} className={`w-full flex justify-between p-4 rounded-2xl border-2 transition-all font-bold ${estaRemovido ? 'border-red-200 bg-red-50 text-red-500' : 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>

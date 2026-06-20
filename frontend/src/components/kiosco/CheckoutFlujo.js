@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// 🛡️ CORRECCIÓN: Rutas exactas según tu estructura de carpetas
 import PantallaConsumo from './checkout/PantallaConsumo';
 import PantallaRegistro from './checkout/PantallaRegistro';
 import PantallaMesa from './checkout/PantallaMesa';
@@ -100,7 +99,9 @@ const CheckoutFlujo = ({
         else if (esPersonalInterno && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
         else seleccionarPago('Pendiente', null, 'Local');
     } else if (tipoConsumo === 'Para llevar') {
-        seleccionarPago('Pendiente', null, 'Para llevar'); 
+        // 👇 FIX: Obligamos a pedir el teléfono si es Para llevar y no tiene cuenta
+        if (!clienteActivo) setPasoTelefono(true);
+        else seleccionarPago('Pendiente', null, 'Para llevar'); 
     }
   };
 
@@ -123,13 +124,11 @@ const CheckoutFlujo = ({
     setPantallaActual('pago');
   };
 
-  // 🛡️ CORRECCIÓN: Aceptamos "nuevoClienteIdBypass" para amarrar la orden al cliente recién registrado
   const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
     setErrorTransaccion(''); 
     setMetodoPagoFinal(metodoSeleccionado);
     
     const tipoReal = tipoBypass || tipoConsumo;
-    // Asignamos el ID correcto si es cliente viejo, si es externo, o si se acaba de registrar
     const idClienteAGuardar = nuevoClienteIdBypass || (ordenExterna ? ordenExterna.cliente_id : (clienteActivo?.id || null));
     
     let origenCalculado = 'Web'; 
@@ -139,10 +138,12 @@ const CheckoutFlujo = ({
     let notaDireccion = direccionFinalConAviso;
     const tel = clienteActivo ? clienteActivo.telefono : telefonoRecoger;
 
+    // 👇 FIX: Imprimir el teléfono en el ticket si es Domicilio o Para Llevar
     if (tipoReal === 'Recoger') notaDireccion = `PEDIDO POR TELÉFONO - CONTACTO: ${tel || ''}`;
     else if (tipoReal === 'Domicilio' && tel) notaDireccion = `${direccionFinalConAviso} | TEL: ${tel}`;
     else if (tipoReal === 'Local' || tipoReal === 'Para llevar') {
         if (nombreOrden) notaDireccion = `A NOMBRE DE: ${nombreOrden}`;
+        if (tipoReal === 'Para llevar' && tel) notaDireccion += ` | TEL: ${tel}`; 
     } else if (tel) notaDireccion = `TEL: ${tel}`;
 
     const carritoExpandido = [];
@@ -204,16 +205,15 @@ const CheckoutFlujo = ({
         if (cuponActivo && cuponActivo.id) {
            try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }
-
-        // 🛡️ SINCRONIZACIÓN INTELIGENTE DIRECTA (FIRE AND FORGET)
-        // Ya no requerimos GET previo, enviamos el PUT con la dirección directamente
+        
+        // Actualizamos directo en la BD
         if (idClienteAGuardar && tipoReal === 'Domicilio' && direccionFinalConAviso) {
             const dirLimpia = direccionFinalConAviso.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
             fetch(`${apiUrl}/clientes/${idClienteAGuardar}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ direccion: dirLimpia })
-            }).catch(() => {}); // Si falla silenciosamente, no interrumpe el flujo
+            }).catch(() => {});
         }
 
         setNumeroPedidoReal(data.numero_pedido); 

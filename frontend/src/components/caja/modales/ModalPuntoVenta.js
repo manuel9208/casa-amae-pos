@@ -8,6 +8,8 @@ const ModalPuntoVenta = ({
 }) => {
   const [paso, setPaso] = useState('identificar');
   const [telefonoCliente, setTelefonoCliente] = useState('');
+  const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
+
   const [clienteAsignado, setClienteAsignado] = useState(null);
   const [nombreOrden, setNombreOrden] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -19,6 +21,9 @@ const ModalPuntoVenta = ({
   const [carrito, setCarrito] = useState([]);
   const [productoEnEspera, setProductoEnEspera] = useState(null);
   
+  const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
+  const [gruposSeleccionados, setGruposSeleccionados] = useState({});
+
   const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
   const [saborSeleccionado, setSaborSeleccionado] = useState(null);
   const [extrasSeleccionados, setExtrasSeleccionados] = useState([]);
@@ -39,6 +44,12 @@ const ModalPuntoVenta = ({
   const [msgCupon, setMsgCupon] = useState({texto: '', tipo: ''});
 
   const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio || '[]') : (configGlobal?.tarifas_envio || []);
+
+  const resetWizard = () => {
+    setProductoEnEspera(null); setOpcionSeleccionada(null); setSaborSeleccionado(null);
+    setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
+    setPasoPersonalizacion(0); setGruposSeleccionados({});
+  };
 
   useEffect(() => {
     if (modalPuntoVenta) {
@@ -65,7 +76,7 @@ const ModalPuntoVenta = ({
         setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional(''); setErrorMsg('');
         setMesaSeleccionada(''); setZonaEnvioCosto(''); setModoComedor(false); setPinEmpleado(''); setErrorComedor('');
         setCuponInput(''); setCuponActivo(null); setMsgCupon({texto: '', tipo: ''});
-        setCategoriaActiva(null);
+        setCategoriaActiva(null); setTelefonoOrdenRapida('');
         setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
       }
     }
@@ -73,6 +84,7 @@ const ModalPuntoVenta = ({
 
   const cerrarModalVenta = () => {
     setCategoriaActiva(null);
+    resetWizard();
     setModalPuntoVenta(false);
   };
 
@@ -90,7 +102,6 @@ const ModalPuntoVenta = ({
   
   const totalConEnvio = (subtotal - descuento) + (zonaEnvioCosto ? Number(zonaEnvioCosto) : 0);
 
-  // 👇 LÓGICA DE DIFERENCIAS SI EL PEDIDO YA ESTABA PAGADO
   const esEdicion = !!ordenEditandoRapida;
   const yaPagado = esEdicion && !['Por Cobrar', 'Pendiente'].includes(ordenEditandoRapida.metodo_pago);
   const montoOriginal = esEdicion ? Number(ordenEditandoRapida.total) : 0;
@@ -106,7 +117,11 @@ const ModalPuntoVenta = ({
 
   const cambiarCantidadCart = (idTicket, delta) => setCarrito(carrito.map(item => item.idTicket === idTicket ? { ...item, cantidad: Math.max(1, (item.cantidad || 1) + delta) } : item));
   const quitarDelCarrito = (idTicket) => setCarrito(carrito.filter(i => i.idTicket !== idTicket));
-  const abrirModalProducto = (p) => { setProductoEnEspera(p); };
+  
+  const abrirModalProducto = (p) => { 
+    resetWizard();
+    setProductoEnEspera(p); 
+  };
 
   const buscarClienteRapido = async (e) => {
     e.preventDefault(); setErrorMsg('');
@@ -180,8 +195,10 @@ const ModalPuntoVenta = ({
       if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
       else if (nombreOrden) stringDireccion = `A NOMBRE DE: ${nombreOrden} | ${notaOpcional}`;
       
-      if (tipoConsumo === 'Domicilio' && !clienteAsignado && telefonoCliente) {
-        stringDireccion += ` | TEL: ${telefonoCliente}`;
+      if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
+        stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+      } else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) {
+        stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
       }
     }
 
@@ -226,7 +243,6 @@ const ModalPuntoVenta = ({
         
         refrescarDatosCaja();
 
-        // Si estamos editando un pedido pagado, solo cierra el modal (El cajero cobra la diferencia a mano)
         if (metodoAcelerado === 'Mandar a Cocina' || empleadoComedor || ordenEditandoRapida) {
           if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
           cerrarModalVenta();
@@ -265,8 +281,35 @@ const ModalPuntoVenta = ({
     generarPedidoBD('Mandar a Cocina', empleadoActivo);
   };
 
+  let pasosWiz = [];
+  if (productoEnEspera) {
+     const tamanosList = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
+     const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
+     const gruposObligatoriosList = [...new Set((productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
+
+     if (tamanosList.length > 0) pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
+     
+     gruposObligatoriosList.forEach(g => {
+        // 👇 ORDEN ALFABÉTICO EN GRUPOS OBLIGATORIOS
+        pasosWiz.push({ 
+           id: `grupo_${g}`, 
+           tipo: 'grupo_obligatorio', 
+           titulo: `Elige: ${g} *`, 
+           categoria: g, 
+           opciones: (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' && o.categoria === g).sort((a, b) => a.nombre.localeCompare(b.nombre)) 
+        });
+     });
+
+     // Sabores (Los ordenamos también por si acaso)
+     if (saboresList.length > 0) pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
+     
+     pasosWiz.push({ id: 'final', tipo: 'final', titulo: 'Notas y Detalles Extra' });
+  }
+  const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
+
   const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
-    (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && telefonoCliente.length !== 10)));
+    (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
+    (tipoConsumo === 'Para llevar' && (!clienteAsignado && telefonoOrdenRapida.length !== 10));
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
@@ -306,7 +349,6 @@ const ModalPuntoVenta = ({
           </div>
         ) : (
           <div className="flex flex-1 overflow-hidden animate-in slide-in-from-right">
-            {/* LADO IZQUIERDO: MENÚ */}
             <div className="w-2/3 flex flex-col bg-slate-50 border-r border-slate-200">
               <div className="p-6 bg-white shadow-sm shrink-0">
                 <h2 className="text-3xl font-black text-slate-800 tracking-tight">¿Qué se te antoja hoy?</h2>
@@ -355,7 +397,6 @@ const ModalPuntoVenta = ({
               )}
             </div>
 
-            {/* LADO DERECHO: TICKET */}
             <div className="w-1/3 bg-white flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.03)] z-10">
               <div className="p-6 bg-slate-50 border-b border-slate-200 shrink-0">
                 <div className="flex items-center gap-3 mb-6">
@@ -379,7 +420,12 @@ const ModalPuntoVenta = ({
                   )}
 
                   {!modoComedor ? (
-                    <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className="w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900" />
+                    <>
+                      <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900 ${['Domicilio', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado ? 'mb-2' : ''}`} />
+                      {['Domicilio', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado && (
+                        <input type="tel" maxLength="10" placeholder="Teléfono 10 dígitos (Obligatorio) *" value={telefonoOrdenRapida} onChange={e => setTelefonoOrdenRapida(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900" />
+                      )}
+                    </>
                   ) : (
                     <input type="password" maxLength="4" placeholder="Ingresa tu PIN (4 dígitos) *" value={pinEmpleado} onChange={e => {setPinEmpleado(e.target.value.replace(/\D/g, '')); setErrorComedor('');}} className="w-full bg-white border border-indigo-200 rounded-xl p-3 text-center font-black tracking-[0.5em] outline-none focus:border-indigo-400 text-indigo-900" />
                   )}
@@ -471,7 +517,6 @@ const ModalPuntoVenta = ({
                   </div>
                 )}
 
-                {/* 👇 FIX: Usamos !modoComedor en lugar de !empleadoComedor */}
                 {yaPagado && (
                   <div className="mb-4 bg-orange-50 border border-orange-200 rounded-xl p-4">
                     <div className="flex justify-between text-xs font-bold text-slate-500 mb-1">
@@ -515,130 +560,130 @@ const ModalPuntoVenta = ({
           </div>
         )}
 
-        {/* MODAL SECUNDARIO: PERSONALIZACIÓN DEL PRODUCTO */}
-        {productoEnEspera && (
+        {productoEnEspera && pasoActualObj && (
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="p-8 text-center shrink-0">
+            
+            {pasoPersonalizacion > 0 && (
+              <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-6 top-6 text-white bg-slate-800/50 hover:bg-blue-600 p-3 rounded-full shadow-lg transition z-50">
+                 ← Volver
+              </button>
+            )}
+
+            <div className="bg-slate-50 rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100">
+              <div className="p-8 text-center shrink-0 bg-white border-b border-slate-200">
                 <h3 className="text-3xl font-black text-slate-800">{productoEnEspera.nombre}</h3>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-2">Personaliza tu orden</p>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-8 pt-0 custom-scrollbar border-y border-slate-100">
-                <div className="space-y-8">
-                  
-                  {(() => {
-                    const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base');
-                    if (bases.length > 0) {
-                      return (
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Quitar Ingredientes</p>
-                          <div className="space-y-3">
-                            {bases.map((o, idx) => {
-                              const isBaseQuitada = ingredientesBase.includes(o.nombre);
-                              return (
-                                <button key={idx} onClick={() => {
-                                  if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
-                                  else setIngredientesBase([...ingredientesBase, o.nombre]);
-                                }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                  <span>{o.nombre}</span><span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null;
-                  })()}
-
-                  {(() => {
-                    const tamanos = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
-                    if (tamanos.length > 0) {
-                      if (!opcionSeleccionada) setOpcionSeleccionada(tamanos[0]);
-                      return (
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Elige el Tamaño *</p>
-                          <div className="grid grid-cols-3 gap-3">
-                            {tamanos.map((o, idx) => (
-                              <button key={idx} onClick={() => setOpcionSeleccionada(o)} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${opcionSeleccionada?.nombre === o.nombre ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200'}`}>
-                                <span>{o.nombre}</span>
-                                {o.precioExtra > 0 && <span className={opcionSeleccionada?.nombre === o.nombre ? 'text-blue-200' : 'text-slate-400'}>+${o.precioExtra}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null;
-                  })()}
-
-                  {(() => {
-                    const sabores = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
-                    if (sabores.length > 0) {
-                      if (!saborSeleccionado) setSaborSeleccionado(sabores[0]);
-                      return (
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Elige un Sabor *</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            {sabores.map((s, idx) => (
-                              <button key={idx} onClick={() => setSaborSeleccionado(s)} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${saborSeleccionado?.nombre === s.nombre ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200'}`}>
-                                <span>{s.nombre}</span>
-                                {s.precioExtra > 0 && <span className={saborSeleccionado?.nombre === s.nombre ? 'text-blue-200' : 'text-slate-400'}>+${s.precioExtra}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null;
-                  })()}
-
-                  {(() => {
-                    const categoriaItem = productoEnEspera.categoria || '';
-                    const extrasDelSistema = catalogoIngredientes.filter(i => 
-                      (i.clasificacion_nombre === categoriaItem || i.es_extra || i.tipo === 'extra') && 
-                      i.permite_extra !== false
-                    );
-                    
-                    const extrasMap = new Map();
-                    (productoEnEspera.opciones || []).forEach(o => { if (o.tipo === 'extra') extrasMap.set(o.nombre, o); });
-                    extrasDelSistema.forEach(o => { extrasMap.set(o.nombre, { nombre: o.nombre, precioExtra: o.precio_extra || 0 }); });
-
-                    const extrasTodos = Array.from(extrasMap.values());
-
-                    if (extrasTodos.length > 0) {
-                      return (
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Agrega Extras</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            {extrasTodos.map((ex, idx) => {
-                              const seleccionado = extrasSeleccionados.find(e => e.nombre === ex.nombre);
-                              return (
-                                <button key={idx} onClick={() => {
-                                  if (seleccionado) setExtrasSeleccionados(extrasSeleccionados.filter(e => e.nombre !== ex.nombre));
-                                  else setExtrasSeleccionados([...extrasSeleccionados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
-                                }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
-                                  <span>{ex.nombre}</span>
-                                  <span className={seleccionado ? 'text-blue-500' : 'text-slate-400'}>{ex.precioExtra > 0 ? `+$${ex.precioExtra}` : 'Gratis'}</span>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    }
-                    return null;
-                  })()}
-
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Notas</p>
-                    <textarea value={notaProducto} onChange={e => setNotaProducto(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-24" />
-                  </div>
+                <div className="flex justify-center gap-2 mt-4">
+                  {pasosWiz.map((_, i) => (
+                    <div key={i} className={`h-2 rounded-full transition-all duration-300 ${i === pasoPersonalizacion ? 'w-8 bg-blue-600' : i < pasoPersonalizacion ? 'w-4 bg-emerald-500' : 'w-4 bg-slate-200'}`} />
+                  ))}
                 </div>
               </div>
 
-              <div className="p-8 bg-white shrink-0">
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                
+                {pasoActualObj.tipo !== 'final' && (
+                  <div className="animate-in slide-in-from-right duration-200">
+                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 text-center">{pasoActualObj.titulo}</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      {pasoActualObj.opciones.map((o, idx) => {
+                        let estaSeleccionado = false;
+                        if (pasoActualObj.tipo === 'tamaño') estaSeleccionado = opcionSeleccionada?.nombre === o.nombre;
+                        else if (pasoActualObj.tipo === 'sabor') estaSeleccionado = saborSeleccionado?.nombre === o.nombre;
+                        else if (pasoActualObj.tipo === 'grupo_obligatorio') estaSeleccionado = gruposSeleccionados[pasoActualObj.categoria]?.nombre === o.nombre;
+
+                        return (
+                          <button key={idx} onClick={() => {
+                            if (pasoActualObj.tipo === 'tamaño') setOpcionSeleccionada(o);
+                            else if (pasoActualObj.tipo === 'sabor') setSaborSeleccionado(o);
+                            else if (pasoActualObj.tipo === 'grupo_obligatorio') setGruposSeleccionados({ ...gruposSeleccionados, [pasoActualObj.categoria]: o });
+                            
+                            setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
+                          }} className={`p-6 rounded-3xl font-bold text-lg transition-all border-2 flex flex-col items-center justify-center gap-2 ${estaSeleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105' : 'bg-white text-slate-700 border-slate-100 hover:border-blue-400 hover:shadow-sm'}`}>
+                            <span className="text-center leading-tight">{o.nombre}</span>
+                            {o.precioExtra > 0 && <span className={`text-sm ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {pasoActualObj.tipo === 'final' && (
+                  <div className="animate-in slide-in-from-right duration-200 space-y-6">
+                    
+                    {(() => {
+                      // 👇 ORDEN ALFABÉTICO EN BASES
+                      const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
+                      if (bases.length > 0) {
+                        return (
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Quitar Ingredientes (Opcional)</p>
+                            <div className="space-y-2">
+                              {bases.map((o, idx) => {
+                                const isBaseQuitada = ingredientesBase.includes(o.nombre);
+                                return (
+                                  <button key={idx} onClick={() => {
+                                    if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
+                                    else setIngredientesBase([...ingredientesBase, o.nombre]);
+                                  }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                    <span>{o.nombre}</span><span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null;
+                    })()}
+
+                    {(() => {
+                      const categoriaItem = productoEnEspera.categoria || '';
+                      const extrasDelSistema = catalogoIngredientes.filter(i => 
+                        (i.clasificacion_nombre === categoriaItem || i.es_extra || i.tipo === 'extra') && 
+                        i.permite_extra !== false
+                      );
+                      
+                      const extrasMap = new Map();
+                      (productoEnEspera.opciones || []).forEach(o => { if (o.tipo === 'extra') extrasMap.set(o.nombre, o); });
+                      extrasDelSistema.forEach(o => { extrasMap.set(o.nombre, { nombre: o.nombre, precioExtra: o.precio_extra || 0 }); });
+
+                      // 👇 ORDEN ALFABÉTICO EN EXTRAS
+                      const extrasTodos = Array.from(extrasMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+                      if (extrasTodos.length > 0) {
+                        return (
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Añadir Extras (Opcional)</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {extrasTodos.map((ex, idx) => {
+                                const seleccionado = extrasSeleccionados.find(e => e.nombre === ex.nombre);
+                                return (
+                                  <button key={idx} onClick={() => {
+                                    if (seleccionado) setExtrasSeleccionados(extrasSeleccionados.filter(e => e.nombre !== ex.nombre));
+                                    else setExtrasSeleccionados([...extrasSeleccionados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
+                                  }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
+                                    <span>{ex.nombre}</span>
+                                    <span className={seleccionado ? 'text-blue-500' : 'text-slate-400'}>{ex.precioExtra > 0 ? `+$${ex.precioExtra}` : 'Gratis'}</span>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null;
+                    })()}
+
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Notas Generales</p>
+                      <textarea value={notaProducto} onChange={e => setNotaProducto(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-white border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-24 shadow-inner" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-8 bg-white border-t border-slate-200 shrink-0">
                 <div className="flex justify-between items-center mb-6">
                   <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
                     <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
@@ -651,46 +696,52 @@ const ModalPuntoVenta = ({
                       ${((Number(productoEnEspera.precio_base) + 
                          (opcionSeleccionada?.precioExtra || 0) + 
                          (saborSeleccionado?.precioExtra || 0) + 
+                         Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
                          extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0)) * cantidadProducto).toFixed(2)}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex gap-4">
-                  <button onClick={() => {
-                    setProductoEnEspera(null); setOpcionSeleccionada(null); setSaborSeleccionado(null);
-                    setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
-                  }} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
-                  <button onClick={() => {
-                    const extrasFinales = [];
-                    if (opcionSeleccionada && opcionSeleccionada.precioExtra > 0) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: opcionSeleccionada.precioExtra, tipo: 'variacion' });
-                    if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: saborSeleccionado.precioExtra, tipo: 'variacion' });
-                    ingredientesBase.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
-                    extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
-                    if (notaProducto.trim() !== '') extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
+                  <button onClick={resetWizard} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
+                  
+                  {pasoActualObj.tipo === 'final' && (
+                    <button onClick={() => {
+                      const extrasFinales = [];
+                      if (opcionSeleccionada && opcionSeleccionada.precioExtra > 0) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: opcionSeleccionada.precioExtra, tipo: 'variacion' });
+                      if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: saborSeleccionado.precioExtra, tipo: 'variacion' });
+                      
+                      Object.values(gruposSeleccionados).forEach(g => {
+                          extrasFinales.push({ nombre: `🔸 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_obligatorio' });
+                      });
 
-                    const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
-                    let nombreCompleto = productoEnEspera.nombre;
-                    if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
+                      ingredientesBase.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
+                      extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
+                      if (notaProducto.trim() !== '') extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
-                    const nuevoItem = {
-                      idTicket: Date.now().toString(),
-                      producto_id: productoEnEspera.id,
-                      nombre: nombreCompleto,
-                      categoria: productoEnEspera.categoria,
-                      destino: productoEnEspera.destino || 'Cocina',
-                      tiempo_preparacion: productoEnEspera.tiempo_preparacion,
-                      precio_base: productoEnEspera.precio_base,
-                      precioFinal: precioIndividualCalculado,
-                      cantidad: cantidadProducto,
-                      opciones: productoEnEspera.opciones || [],
-                      extras: extrasFinales
-                    };
+                      const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
+                      
+                      let nombreCompleto = productoEnEspera.nombre;
+                      if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
 
-                    setCarrito([...carrito, nuevoItem]);
-                    setProductoEnEspera(null); setOpcionSeleccionada(null); setSaborSeleccionado(null);
-                    setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
-                  }} className="flex-[2] py-5 bg-blue-600 text-white font-black text-xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95">Añadir ({cantidadProducto})</button>
+                      const nuevoItem = {
+                        idTicket: Date.now().toString(),
+                        producto_id: productoEnEspera.id,
+                        nombre: nombreCompleto,
+                        categoria: productoEnEspera.categoria,
+                        destino: productoEnEspera.destino || 'Cocina',
+                        tiempo_preparacion: productoEnEspera.tiempo_preparacion,
+                        precio_base: productoEnEspera.precio_base,
+                        precioFinal: precioIndividualCalculado,
+                        cantidad: cantidadProducto,
+                        opciones: productoEnEspera.opciones || [],
+                        extras: extrasFinales
+                      };
+
+                      setCarrito([...carrito, nuevoItem]);
+                      resetWizard();
+                    }} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">Añadir ({cantidadProducto})</button>
+                  )}
                 </div>
               </div>
             </div>

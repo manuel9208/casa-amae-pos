@@ -4,13 +4,12 @@ import { UserPlus } from 'lucide-react';
 const PantallaRegistro = ({
   pantallaActual, pasoTelefono, setPasoTelefono, tipoConsumo, isSubmitting, telefonoRecoger, setTelefonoRecoger,
   setPantallaActual, seleccionarPago, nombreOrden, setNombreOrden, continuarDesdeNombre,
-  direccionEntrega // 👈 RECIBIMOS LA DIRECCIÓN
+  direccionEntrega 
 }) => {
   const [registroInvitadoActivo, setRegistroInvitadoActivo] = useState(false);
   const [errorRegistro, setErrorRegistro] = useState('');
   const [isSubmittingLocal, setIsSubmittingLocal] = useState(false);
   
-  // 🛡️ MAGIA: El formulario nace con la dirección que el cliente escribió un paso atrás
   const [datosNuevoCliente, setDatosNuevoCliente] = useState({
     nombre: '', apellido: '', nip: '', direccion: direccionEntrega || ''
   });
@@ -40,6 +39,19 @@ const PantallaRegistro = ({
     setIsSubmittingLocal(false);
   };
 
+  // 👇 FIX INTELIGENTE: Botón Atrás detecta el contexto para no botarte al inicio
+  const handleVolverTelefono = () => {
+    if (tipoConsumo === 'Domicilio') {
+        setPasoTelefono(false);
+        setPantallaActual('direccion');
+    } else if (tipoConsumo === 'Para llevar') {
+        setPasoTelefono(false); // Bajo el capó ya estaba en la vista "pedir_nombre"
+    } else {
+        setPasoTelefono(false);
+        setPantallaActual('consumo');
+    }
+  };
+
   if (pasoTelefono) {
     if (registroInvitadoActivo) {
         return (
@@ -67,7 +79,7 @@ const PantallaRegistro = ({
     return (
       <div className="max-w-md mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
         <div className="flex justify-start mb-6">
-            <button disabled={isSubmitting} onClick={() => setPantallaActual('consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button>
+            <button disabled={isSubmitting} onClick={handleVolverTelefono} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button>
         </div>
         <span className="text-6xl block mb-6">📱</span>
         <h2 className="text-3xl font-black mb-2 texto-destacado">Tu número de celular</h2>
