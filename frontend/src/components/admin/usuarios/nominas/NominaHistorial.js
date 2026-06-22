@@ -9,7 +9,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
   const [cargando, setCargando] = useState(true);
   const [reciboPrint, setReciboPrint] = useState(null);
   
-  // 👇 NUEVOS ESTADOS PARA LOS MENÚS DESPLEGABLES
+  // ESTADOS PARA LOS MENÚS DESPLEGABLES
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroPeriodo, setFiltroPeriodo] = useState('');
 
@@ -64,7 +64,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
     setTimeout(() => { window.print(); setReciboPrint(null); }, 500);
   };
 
-  // 👇 LÓGICA DE FILTRADO POR DESPLEGABLES
+  // LÓGICA DE FILTRADO POR DESPLEGABLES
   const nominasFiltradas = historicoNominas.filter(nomina => {
     const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
     const recibos = datos.recibos || [];
@@ -93,10 +93,10 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         </div>
       </div>
 
-      {/* 👇 MENÚS DESPLEGABLES DE FILTRO */}
+      {/* MENÚS DESPLEGABLES DE FILTRO */}
       <div className="flex flex-col md:flex-row gap-4 mb-8 bg-slate-50 p-4 rounded-2xl border border-slate-100 animate-in slide-in-from-top-4">
         <div className="flex-1">
-          <label className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 block flex items-center gap-1"><Users size={14}/> Empleado</label>
+          <label className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={14}/> Empleado</label>
           <select 
             value={filtroEmpleado} 
             onChange={(e) => setFiltroEmpleado(e.target.value)}
@@ -110,7 +110,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         </div>
 
         <div className="flex-1">
-          <label className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 block flex items-center gap-1"><Calendar size={14}/> Periodo de Nómina</label>
+          <label className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Calendar size={14}/> Periodo de Nómina</label>
           <select 
             value={filtroPeriodo} 
             onChange={(e) => setFiltroPeriodo(e.target.value)}
@@ -180,11 +180,12 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {recibosAMostrar.map((r, i) => (
-                    <div key={i} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition">
-                      <div>
-                        <p className="font-black text-slate-800 text-lg">{r.nombre}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">{r.rol}</p>
-                        <p className="text-2xl font-black text-emerald-600 mb-4">{formaterMoneda(r.neto)}</p>
+                    <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition">
+                      <div className="mb-4">
+                        {/* 👇 FIX: Mostramos el nombre completo legal si existe, si no el nombre corto */}
+                        <p className="font-black text-slate-800 text-lg leading-tight mb-1">{r.nombre_completo || r.nombre}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">{r.rol}</p>
+                        <p className="text-3xl font-black text-emerald-600">{formaterMoneda(r.neto)}</p>
                       </div>
                       <button onClick={() => lanzarImpresion(r, metadata)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95">
                         <Printer size={16}/> Imprimir Recibo

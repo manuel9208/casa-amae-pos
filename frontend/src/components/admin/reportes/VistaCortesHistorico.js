@@ -8,6 +8,25 @@ const formaterMoneda = (monto) => {
   return "$" + Number(monto).toFixed(2);
 };
 
+// 👇 Utilidad para sincronizar la fecha exacta con el servidor de Mazatlán
+const getMazatlanDate = (dateString) => {
+  if (!dateString) return {};
+  const dateObj = new Date(dateString);
+  const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const parts = formatter.formatToParts(dateObj);
+  let dDay, dMonth, dYear;
+  parts.forEach(part => {
+     if(part.type === 'day') dDay = part.value;
+     if(part.type === 'month') dMonth = part.value;
+     if(part.type === 'year') dYear = part.value;
+  });
+  return {
+     localDateStr: `${dYear}-${dMonth}-${dDay}`,
+     localMonthStr: `${dYear}-${dMonth}`,
+     localYearStr: `${dYear}`
+  };
+};
+
 const VistaCortesHistorico = ({ apiUrl }) => {
   const hoyStr = new Date().toLocaleDateString('en-CA');
   const [periodo, setPeriodo] = useState('dia');
@@ -28,16 +47,14 @@ const VistaCortesHistorico = ({ apiUrl }) => {
       if (resPed.ok) {
         let data = await resPed.json();
         
+        // 👇 FIX FECHAS: Eliminamos las filtraciones del día anterior
         data = data.filter(p => {
           if (!p.fecha_creacion) return false;
-          const d = new Date(p.fecha_creacion);
-          const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          const localMonthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          const localYearStr = `${d.getFullYear()}`;
+          const { localDateStr, localMonthStr, localYearStr } = getMazatlanDate(p.fecha_creacion);
 
-          if (periodo === 'dia') return localDateStr === fechaFiltro || String(p.fecha_creacion).startsWith(fechaFiltro);
-          if (periodo === 'mes') return localMonthStr === fechaFiltro.substring(0, 7) || String(p.fecha_creacion).startsWith(fechaFiltro.substring(0, 7));
-          if (periodo === 'anio') return localYearStr === fechaFiltro.substring(0, 4) || String(p.fecha_creacion).startsWith(fechaFiltro.substring(0, 4));
+          if (periodo === 'dia') return localDateStr === fechaFiltro;
+          if (periodo === 'mes') return localMonthStr === fechaFiltro.substring(0, 7);
+          if (periodo === 'anio') return localYearStr === fechaFiltro.substring(0, 4);
           return true;
         });
         
@@ -111,7 +128,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     if (filtroCliente.trim() !== '') {
       const termino = filtroCliente.toLowerCase();
       
-      // 👇 FIX BÚSQUEDA: Extraemos el nombre oculto para que el buscador también lo encuentre
       let extraido = p.cliente_nombre || p.cliente?.nombre || '';
       if (!extraido && p.direccion_entrega) {
           extraido = p.direccion_entrega.split('|')[0].replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
@@ -169,8 +185,15 @@ const VistaCortesHistorico = ({ apiUrl }) => {
       if(Array.isArray(i.extras)) {
         i.extras.forEach(e => {
           const eNameLower = (e.nombre || '').trim().toLowerCase();
-          if (!eNameLower.includes('nota:') && !eNameLower.includes('sabor:') && !eNameLower.includes('tamaño:')) {
-            exP += parseMoney(e.precioExtra || e.precio_extra || e.precio);
+          // 👇 FIX FINANCIERO: Lógica idéntica al Reporte de Ventas para clasificar Extras Reales vs Base Modificada
+          let isRealExtra = true;
+          if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
+              isRealExtra = false;
+          } else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') {
+              isRealExtra = false;
+          }
+          if (isRealExtra) {
+              exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
           }
         });
       }  
@@ -369,13 +392,13 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     <th className="pb-3">Orden</th>
                     <th className="pb-3">Cliente / Identificador</th>
                     <th className="pb-3">Método</th>
+                    <th className="pb-3 text-center">Estado</th> {/* 👇 NUEVA COLUMNA ESTADO */}
                     <th className="pb-3 text-right">Monto</th>
                     <th className="pb-3 text-center print:hidden">Detalle</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 print:divide-slate-200">
                   {pedidosFiltrados.map((p) => {
-                    // 👇 FIX NOMBRE: Extraemos el nombre oculto para mostrarlo bonito en la tabla
                     let nombreMostrar = p.cliente_nombre || p.cliente?.nombre || '';
                     if (!nombreMostrar && p.direccion_entrega) {
                       const partes = p.direccion_entrega.split('|').map(x => x.trim());
@@ -395,6 +418,18 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                             {p.metodo_pago}
                           </span>
                         </td>
+                        {/* 👇 FIX ESTADOS: Identificador visual rápido para el auditor */}
+                        <td className="py-3.5 text-center">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${
+                            p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Pagado' || p.estado_preparacion === 'Finalizado' 
+                              ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                              : p.estado_preparacion === 'Cancelado' 
+                              ? 'bg-red-50 text-red-600 border-red-200' 
+                              : 'bg-orange-50 text-orange-600 border-orange-200'
+                          }`}>
+                            {p.estado_preparacion}
+                          </span>
+                        </td>
                         <td className="py-3.5 text-right font-black text-slate-900">{formaterMoneda(parseMoney(p.total))}</td>
                         <td className="py-3.5 text-center print:hidden">
                           <button onClick={() => setPedidoSeleccionado(p)} className="p-2 bg-slate-100 hover:bg-blue-600 hover:text-white rounded-xl transition text-slate-500"><Eye size={16}/></button>
@@ -403,7 +438,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     );
                   })}
                   {pedidosFiltrados.length === 0 && (
-                    <tr><td colSpan="5" className="text-center py-10 font-bold text-slate-400 text-sm">Ninguna orden coincide con los filtros en este rango temporal.</td></tr>
+                    <tr><td colSpan="6" className="text-center py-10 font-bold text-slate-400 text-sm">Ninguna orden coincide con los filtros en este rango temporal.</td></tr>
                   )}
                 </tbody>
               </table>

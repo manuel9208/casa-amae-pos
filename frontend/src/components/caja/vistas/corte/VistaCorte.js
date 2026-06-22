@@ -3,6 +3,21 @@ import { ChefHat, PlusCircle, MapPin, TrendingDown, Calendar, Search, History, B
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
+// 👇 Utilidad para sincronizar la fecha exacta con el servidor de Mazatlán
+const getMazatlanDate = (dateString) => {
+  if (!dateString) return {};
+  const dateObj = new Date(dateString);
+  const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const parts = formatter.formatToParts(dateObj);
+  let dDay, dMonth, dYear;
+  parts.forEach(part => {
+     if(part.type === 'day') dDay = part.value;
+     if(part.type === 'month') dMonth = part.value;
+     if(part.type === 'year') dYear = part.value;
+  });
+  return { localDateStr: `${dYear}-${dMonth}-${dDay}` };
+};
+
 const VistaCorte = (props) => {
   const {
     totalGastos, fondoCaja, fondoRepartidor, user
@@ -32,12 +47,11 @@ const VistaCorte = (props) => {
         if(resPed.ok) {
            let data = await resPed.json();
            
+           // 👇 FIX FECHAS: Usamos el TimeZone de Mazatlán para no arrastrar pedidos de ayer
            data = data.filter(p => {
               if (!p.fecha_creacion) return false;
-              const d = new Date(p.fecha_creacion);
-              const localDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-              
-              return localDateStr === fechaFiltro || String(p.fecha_creacion).startsWith(fechaFiltro);
+              const { localDateStr } = getMazatlanDate(p.fecha_creacion);
+              return localDateStr === fechaFiltro;
            });
            
            setPedidos(data);
@@ -58,7 +72,6 @@ const VistaCorte = (props) => {
     let int;
     if(esHoy) int = setInterval(() => cargarDatos(true), 3000); 
     
-    // 👇 FIX ESLINT: Retiramos apiUrl de las dependencias
     return () => clearInterval(int);
   }, [fechaFiltro, esHoy]);  
 
@@ -108,8 +121,16 @@ const VistaCorte = (props) => {
         if(Array.isArray(i.extras)) {
           i.extras.forEach(e => {
             const eNameLower = (e.nombre || '').trim().toLowerCase();
-            if (!eNameLower.includes('nota:') && !eNameLower.includes('sabor:') && !eNameLower.includes('tamaño:')) {
-              exP += parseMoney(e.precioExtra || e.precio_extra || e.precio);
+            // 👇 FIX FINANCIERO: Lógica idéntica al Reporte de Ventas para clasificar Extras Reales vs Base Modificada
+            let isRealExtra = true;
+            if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
+                isRealExtra = false;
+            } else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') {
+                isRealExtra = false;
+            }
+            
+            if (isRealExtra) {
+                exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
             }
           });
         }  
@@ -164,7 +185,6 @@ const VistaCorte = (props) => {
       }, 3000);
       return () => clearTimeout(temporizadorSincronizacion);
     }
-    // 👇 FIX ESLINT: Retiramos apiUrl de las dependencias
   }, [esHoy, hoyStr, fondoCaja, mathHoy, totalGastos, fondoRepartidor, user]);  
 
   // 4. ASIGNACIÓN DE VARIABLES DE VISTA (Siempre Dinámicas para que cuadren con el Reporte)
