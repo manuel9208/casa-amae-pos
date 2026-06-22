@@ -8,6 +8,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     const horaAperturaDB = Number(configRes.rows[0]?.hora_apertura !== undefined ? configRes.rows[0].hora_apertura : 17);
     const horaCierreDB = Number(configRes.rows[0]?.hora_cierre !== undefined ? configRes.rows[0].hora_cierre : 23);
 
+    // 👇 QUERY DE COSTOS BLINDADA: Ahora divide el costo del lote entre el rendimiento del producto raíz
     const costosRes = await db.query(`
       WITH RECURSIVE EmpaquesCosto AS (
           SELECT p.id as producto_id,
@@ -39,19 +40,22 @@ exports.obtenerReporteVentas = async (req, res) => {
       SELECT 
           e.root_producto_id as producto_id,
           (
-              COALESCE(SUM(CASE WHEN e.insumo_id IS NOT NULL THEN 
-                  ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * e.qty_factor
-              ELSE 0 END), 0)
-              +
-              COALESCE(SUM(CASE WHEN e.sub_producto_id IS NOT NULL THEN 
-                  (ec_sub.costo_empaques_batch / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) * e.qty_factor
-              ELSE 0 END), 0)
+              (
+                  COALESCE(SUM(CASE WHEN e.insumo_id IS NOT NULL THEN 
+                      ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) * e.qty_factor
+                  ELSE 0 END), 0)
+                  +
+                  COALESCE(SUM(CASE WHEN e.sub_producto_id IS NOT NULL THEN 
+                      (ec_sub.costo_empaques_batch / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) * e.qty_factor
+                  ELSE 0 END), 0)
+              ) / COALESCE(NULLIF(MAX(p_root.rendimiento::numeric), 0), 1) -- 🌟 Aquí se divide el lote entre las piezas reales que rinde
               +
               COALESCE(MAX(ec_root.costo_empaques_batch), 0)
           ) as costo_base_crudo
       FROM Explosion e
       LEFT JOIN insumos i ON e.insumo_id = i.id
       LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id
+      LEFT JOIN productos p_root ON e.root_producto_id = p_root.id
       LEFT JOIN EmpaquesCosto ec_sub ON e.sub_producto_id = ec_sub.producto_id
       LEFT JOIN EmpaquesCosto ec_root ON e.root_producto_id = ec_root.producto_id
       GROUP BY e.root_producto_id;
@@ -97,12 +101,10 @@ exports.obtenerReporteVentas = async (req, res) => {
     `;
     const pedidosRes = await db.query(sqlPedidos, params);
 
-    // 👇 DICCIONARIO MAESTRO: Conecta los nombres de texto con su ID real (Resuelve el problema de Mar y Tierra)
     const sqlTodos = `SELECT id, nombre FROM productos`;
     const todosProds = await db.query(sqlTodos);
     const productDict = {};
     todosProds.rows.forEach(p => { 
-        // Normalizamos quitando espacios extra en los extremos y pasándolo a minúsculas
         productDict[p.nombre.toLowerCase().trim()] = p.id; 
     });
 
@@ -137,9 +139,8 @@ exports.obtenerReporteVentas = async (req, res) => {
 
       carrito.forEach(item => {
          let baseName = item.nombre || 'Desconocido';
-         let cleanName = baseName.trim(); // Mantenemos el nombre intacto para no romper promos como "2 Mar y Tierra"
+         let cleanName = baseName.trim(); 
 
-         // 👇 RESCATE DE ID: Si el ticket no guardó el ID, lo buscamos en el catálogo por nombre exacto
          let pId = Number(item.id) || 0;
          if (pId === 0) {
              pId = productDict[cleanName.toLowerCase()] || 0;
@@ -180,7 +181,7 @@ exports.obtenerReporteVentas = async (req, res) => {
              if (!targetObj[itemKey]) {
                  targetObj[itemKey] = {
                      producto_nombre: cleanName, 
-                     producto_id: pId, // 👈 Ahora pId siempre tendrá el ID real de la receta
+                     producto_id: pId, 
                      precio_venta: finalBasePrice, 
                      categoria: itemCat, 
                      cantidad_vendida: 0
