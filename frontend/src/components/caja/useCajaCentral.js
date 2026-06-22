@@ -213,20 +213,26 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };  
 
+  // INTERCEPTOR DE SEGURIDAD COCINA
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado) => {
     if(isSubmitting) return; setIsSubmitting(true);
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
     const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);  
     
+    let estadoSeguro = nuevoEstado;
+    if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
+        estadoSeguro = 'Pagado';
+    }
+
     try {
-      let payload = { estado_preparacion: nuevoEstado };  
-      if (nuevoEstado === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
+      let payload = { estado_preparacion: estadoSeguro };  
+      if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
         payload.metodo_pago = 'Efectivo';
       }
       
       await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       
-      if ((nuevoEstado === 'Cancelado' || nuevoEstado === 'Finalizado') && pedidoFull?.mesa) {
+      if ((estadoSeguro === 'Cancelado' || estadoSeguro === 'Finalizado') && pedidoFull?.mesa) {
          const tableObj = mesas.find(m => String(m.numero) === String(pedidoFull.mesa));
          if (tableObj) {
             fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
@@ -242,19 +248,37 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };
 
   const confirmarPedidoRecoger = async (id) => {
-    await actualizarEstadoPedido(id, 'Preparando');
+    await actualizarEstadoPedido(id, 'Pagado');
   };
 
+  // 👇 FIX MATEMÁTICA Y SINCRONIZACIÓN DE ENVÍOS A DOMICILIO
   const confirmarPedidoDomicilio = async (pedidoModificado) => {
     if (isSubmitting) return; setIsSubmitting(true);
     try {
+        const oldPedido = pedidos.find(p => p.id === pedidoModificado.id);
+        if (oldPedido) {
+            // Extraemos el costo anterior por si ya tenía uno (evita sumar 2 veces)
+            const oldEnvio = Number(oldPedido.costo_envio || 0);
+            const newEnvio = Number(pedidoModificado.costo_envio || 0);
+            
+            // Re-calculamos el total real de la orden para blindar la matemática
+            const baseTotal = Number(oldPedido.total) - oldEnvio;
+            pedidoModificado.total = (baseTotal + newEnvio).toFixed(2);
+        }
+        
+        // Empujamos primero las finanzas (total y costo_envio)
         await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}`, { 
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify(pedidoModificado) 
         });
+        
         setModalZonaEnvio(null);
-        await actualizarEstadoPedido(pedidoModificado.id, 'Preparando');
-    } catch(e) {}
+        // Luego lo formamos en la Cola de Cocina
+        await actualizarEstadoPedido(pedidoModificado.id, 'Pagado');
+        await cargarDataDinamica(); // Refresco inmediato visual
+    } catch(e) {
+        console.error("Error al confirmar domicilio:", e);
+    }
     setIsSubmitting(false);
   };
 
@@ -302,7 +326,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precioExtra)).toFixed(2);
       const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precioExtra)).toFixed(2);
       
-      // 👇 FIX 1: Evitar que cobrar un extra desaparezca el pedido enviándole el estado actual
       await fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' }, 
@@ -342,7 +365,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       const items = typeof modalResolver.carrito === 'string' ? JSON.parse(modalResolver.carrito) : modalResolver.carrito;
       
-      // 👇 FIX 2: Mantener el estado original activo (no volverlo NULL)
       let payloadEstado = { 
         carrito: items,
         estado_preparacion: modalResolver.estado_preparacion 
@@ -351,7 +373,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       let textoRespuesta = 'CAJA RESPONDE: Revisado.';
 
       if (accionAlerta === 'cancelar') {
-        payloadEstado.estado_preparacion = 'Cancelado'; // Solo si se cancela lo sobrescribe a Cancelado
+        payloadEstado.estado_preparacion = 'Cancelado'; 
         textoRespuesta = 'CAJA RESPONDE: Se canceló todo el pedido.';
         if (modalResolver.mesa) {
            const tableObj = mesas.find(m => String(m.numero) === String(modalResolver.mesa));

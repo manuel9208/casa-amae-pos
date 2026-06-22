@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, ShoppingBag, Tag, CheckSquare, Square } from 'lucide-react';
+import { XCircle, ShoppingBag, Tag, CheckSquare, Square, Gift } from 'lucide-react';
 
 const ModalPuntoVenta = ({
   modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
@@ -23,7 +23,6 @@ const ModalPuntoVenta = ({
   
   const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
   const [gruposSeleccionados, setGruposSeleccionados] = useState({});
-  // Para guardar las múltiples selecciones de los grupos opcionales
   const [gruposOpcionalesSeleccionados, setGruposOpcionalesSeleccionados] = useState({});
 
   const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
@@ -45,6 +44,9 @@ const ModalPuntoVenta = ({
   const [cuponActivo, setCuponActivo] = useState(null);
   const [msgCupon, setMsgCupon] = useState({texto: '', tipo: ''});
 
+  const [promociones, setPromociones] = useState([]);
+  const [promocionVigente, setPromocionVigente] = useState(null);
+
   const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio || '[]') : (configGlobal?.tarifas_envio || []);
 
   const resetWizard = () => {
@@ -52,6 +54,13 @@ const ModalPuntoVenta = ({
     setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
     setPasoPersonalizacion(0); setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({});
   };
+
+  useEffect(() => {
+    fetch(`${apiUrl}/promociones`)
+      .then(r => r.json())
+      .then(data => setPromociones(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [apiUrl]);
 
   useEffect(() => {
     if (modalPuntoVenta) {
@@ -123,6 +132,50 @@ const ModalPuntoVenta = ({
   const abrirModalProducto = (p) => { 
     resetWizard();
     setProductoEnEspera(p); 
+  };
+
+  const evaluarUpsell = (prodId, catName) => {
+    const ahora = new Date();
+    const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const diaHoy = dias[ahora.getDay()];
+    const horaActual = ahora.getHours() * 60 + ahora.getMinutes();
+
+    return promociones.find(p => {
+        if (!p.activo || p.tipo !== 'upselling') return false;
+        const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
+        if (!diasPromo.includes(diaHoy)) return false;
+        const [hI, mI] = p.hora_inicio.split(':').map(Number);
+        const [hF, mF] = p.hora_fin.split(':').map(Number);
+        const minI = hI * 60 + mI;
+        const minF = hF * 60 + mF;
+        if (horaActual < minI || horaActual > minF) return false;
+        if (p.producto_trigger_id && Number(p.producto_trigger_id) === Number(prodId)) return true;
+        if (p.categoria_trigger && p.categoria_trigger === catName) return true;
+        if (!p.producto_trigger_id && !p.categoria_trigger) return true; 
+        return false;
+    });
+  };
+
+  const agregarUpsellAlCarrito = () => {
+    let precioFinal = Number(promocionVigente.valor_descuento);
+    if (promocionVigente.tipo_descuento === 'porcentaje') {
+        let precioBase = 0;
+        const prodOriginal = productos.find(p => p.id === promocionVigente.producto_oferta_id);
+        if (prodOriginal) precioBase = Number(prodOriginal.precio_base);
+        precioFinal = precioBase - (precioBase * (precioFinal / 100));
+    }
+    
+    const nuevoItem = {
+        idTicket: Date.now().toString() + '_promo',
+        id: promocionVigente.producto_oferta_id,
+        nombre: promocionVigente.oferta_nombre,
+        precioFinal: Math.max(0, precioFinal), 
+        cantidad: 1,
+        extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precioExtra: 0, tipo: 'nota' }]
+    };
+    
+    setCarrito([...carrito, nuevoItem]);
+    setPromocionVigente(null);
   };
 
   const buscarClienteRapido = async (e) => {
@@ -197,13 +250,12 @@ const ModalPuntoVenta = ({
       if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
       else if (nombreOrden) stringDireccion = `A NOMBRE DE: ${nombreOrden} | ${notaOpcional}`;
       
-      // El teléfono de orden rápida se añade al ticket si lo anotaron (sea obligatorio o no)
       if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
         stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
       } else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) {
         stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
-      } else if (tipoConsumo === 'Recoger' && !clienteAsignado && telefonoOrdenRapida) {
-        stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+      } else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
+        stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
       }
     }
 
@@ -292,7 +344,6 @@ const ModalPuntoVenta = ({
      const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
      const gruposObligatoriosList = [...new Set((productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
      
-     // Detectar Grupos Opcionales únicos
      const objGruposOpcionales = {};
      (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
        if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
@@ -301,7 +352,8 @@ const ModalPuntoVenta = ({
      const gruposOpcionalesList = Object.keys(objGruposOpcionales);
 
      if (tamanosList.length > 0) pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
-     
+     if (saboresList.length > 0) pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
+
      gruposObligatoriosList.forEach(g => {
         pasosWiz.push({ 
            id: `grupo_obl_${g}`, 
@@ -312,7 +364,6 @@ const ModalPuntoVenta = ({
         });
      });
 
-     // Inyectar pasos opcionales
      gruposOpcionalesList.forEach(g => {
         pasosWiz.push({
            id: `grupo_opc_${g}`,
@@ -324,16 +375,19 @@ const ModalPuntoVenta = ({
         });
      });
 
-     if (saboresList.length > 0) pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
+     const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
+     if (bases.length > 0) {
+         pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: '¿Quitar Ingredientes?', opciones: bases });
+     }
      
-     pasosWiz.push({ id: 'final', tipo: 'final', titulo: 'Notas y Detalles Extra' });
+     pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
   }
   const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
 
-  // 👇 FIX TELÉFONO OBLIGATORIO: Solo Domicilio y Recoger lo exigen. Para llevar es opcional (pero si lo llenan, debe ser 10 digitos).
+  // Teléfono Opcional en Para Llevar, Obligatorio en Domicilio y Recoger
   const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
-    (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoOrdenRapida.length !== 10)) ||
+    (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
 
   return (
@@ -447,7 +501,7 @@ const ModalPuntoVenta = ({
                   {!modoComedor ? (
                     <>
                       <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900 ${['Domicilio', 'Recoger'].includes(tipoConsumo) && !clienteAsignado ? 'mb-2' : ''}`} />
-                      {/* 👇 El Teléfono Rápido sale en Domicilio/Recoger (Obligatorio) y Para Llevar (Opcional) */}
+                      
                       {['Domicilio', 'Recoger', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado && (
                         <input 
                           type="tel" 
@@ -455,7 +509,11 @@ const ModalPuntoVenta = ({
                           placeholder={`Teléfono 10 dígitos ${['Domicilio', 'Recoger'].includes(tipoConsumo) ? '(Obligatorio) *' : '(Opcional)'}`} 
                           value={telefonoOrdenRapida} 
                           onChange={e => setTelefonoOrdenRapida(e.target.value.replace(/\D/g, ''))} 
-                          className={`w-full bg-white rounded-xl p-3 text-sm font-bold outline-none border ${['Domicilio', 'Recoger'].includes(tipoConsumo) ? 'border-red-200 focus:border-red-400 placeholder-red-300 text-red-900' : 'border-slate-200 focus:border-blue-400 placeholder-slate-400 text-slate-800'}`} 
+                          className={`w-full bg-white rounded-xl p-3 text-sm font-bold outline-none border transition-colors ${
+                            ['Domicilio', 'Recoger'].includes(tipoConsumo) 
+                            ? 'border-red-200 focus:border-red-400 placeholder-red-300 text-red-900' 
+                            : 'border-slate-200 focus:border-blue-400 placeholder-slate-400 text-slate-800'
+                          }`} 
                         />
                       )}
                     </>
@@ -614,11 +672,10 @@ const ModalPuntoVenta = ({
 
               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 
-                {pasoActualObj.tipo !== 'final' && (
+                {['tamaño', 'sabor', 'grupo_obligatorio', 'grupo_opcional'].includes(pasoActualObj.tipo) && (
                   <div className="animate-in slide-in-from-right duration-200">
                     <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2 text-center">{pasoActualObj.titulo}</p>
                     
-                    {/* 👇 TEXTO DEL LÍMITE (Solo para grupos opcionales) */}
                     {pasoActualObj.tipo === 'grupo_opcional' && (
                       <p className="text-center text-xs font-bold text-emerald-500 mb-6">
                          Seleccionadas: {(gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).length} de {pasoActualObj.limite}
@@ -634,7 +691,6 @@ const ModalPuntoVenta = ({
                         else if (pasoActualObj.tipo === 'grupo_obligatorio') estaSeleccionado = gruposSeleccionados[pasoActualObj.categoria]?.nombre === o.nombre;
                         else if (pasoActualObj.tipo === 'grupo_opcional') estaSeleccionado = (gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).some(x => x.nombre === o.nombre);
 
-                        // Lógica de bloqueo para opcionales
                         const seleccionadosActuales = gruposOpcionalesSeleccionados[pasoActualObj.categoria] || [];
                         const yaLlegoAlLimite = pasoActualObj.tipo === 'grupo_opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
                         const disabled = yaLlegoAlLimite && !estaSeleccionado;
@@ -661,7 +717,6 @@ const ModalPuntoVenta = ({
                             }
                           }} className={`p-5 rounded-3xl font-bold transition-all border-2 flex flex-col items-center justify-center gap-2 ${disabled ? 'opacity-40 grayscale cursor-not-allowed' : ''} ${estaSeleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105' : 'bg-white text-slate-700 border-slate-100 hover:border-blue-400 hover:shadow-sm'}`}>
                             
-                            {/* Checkbox visual para grupos opcionales */}
                             {pasoActualObj.tipo === 'grupo_opcional' && (
                                <div className="absolute top-3 left-3 opacity-60">
                                  {estaSeleccionado ? <CheckSquare size={18}/> : <Square size={18}/>}
@@ -677,34 +732,30 @@ const ModalPuntoVenta = ({
                   </div>
                 )}
 
-                {pasoActualObj.tipo === 'final' && (
-                  <div className="animate-in slide-in-from-right duration-200 space-y-6">
-                    
-                    {(() => {
-                      const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
-                      if (bases.length > 0) {
+                {pasoActualObj.tipo === 'quitar_ingredientes' && (
+                  <div className="animate-in slide-in-from-right duration-200 space-y-4">
+                    <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar algún ingrediente?</p>
+                    <div className="space-y-2">
+                      {pasoActualObj.opciones.map((o, idx) => {
+                        const isBaseQuitada = ingredientesBase.includes(o.nombre);
                         return (
-                          <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Quitar Ingredientes (Opcional)</p>
-                            <div className="space-y-2">
-                              {bases.map((o, idx) => {
-                                const isBaseQuitada = ingredientesBase.includes(o.nombre);
-                                return (
-                                  <button key={idx} onClick={() => {
-                                    if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
-                                    else setIngredientesBase([...ingredientesBase, o.nombre]);
-                                  }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                                    <span>{o.nombre}</span><span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
+                          <button key={idx} onClick={() => {
+                            if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
+                            else setIngredientesBase([...ingredientesBase, o.nombre]);
+                          }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                            <span className={isBaseQuitada ? 'line-through' : ''}>{o.nombre}</span>
+                            <span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
+                          </button>
                         )
-                      }
-                      return null;
-                    })()}
+                      })}
+                    </div>
+                  </div>
+                )}
 
+                {pasoActualObj.tipo === 'extras_notas' && (
+                  <div className="animate-in slide-in-from-right duration-200 space-y-6">
+                    <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">Añadir Extras (Opcional)</p>
+                    
                     {(() => {
                       const categoriaItem = productoEnEspera.categoria || '';
                       const extrasDelSistema = catalogoIngredientes.filter(i => 
@@ -720,31 +771,28 @@ const ModalPuntoVenta = ({
 
                       if (extrasTodos.length > 0) {
                         return (
-                          <div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Añadir Extras (Opcional)</p>
-                            <div className="grid grid-cols-2 gap-3">
-                              {extrasTodos.map((ex, idx) => {
-                                const seleccionado = extrasSeleccionados.find(e => e.nombre === ex.nombre);
-                                return (
-                                  <button key={idx} onClick={() => {
-                                    if (seleccionado) setExtrasSeleccionados(extrasSeleccionados.filter(e => e.nombre !== ex.nombre));
-                                    else setExtrasSeleccionados([...extrasSeleccionados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
-                                  }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
-                                    <span>{ex.nombre}</span>
-                                    <span className={seleccionado ? 'text-blue-500' : 'text-slate-400'}>{ex.precioExtra > 0 ? `+$${ex.precioExtra}` : 'Gratis'}</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
+                          <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                            {extrasTodos.map((ex, idx) => {
+                              const seleccionado = extrasSeleccionados.find(e => e.nombre === ex.nombre);
+                              return (
+                                <button key={idx} onClick={() => {
+                                  if (seleccionado) setExtrasSeleccionados(extrasSeleccionados.filter(e => e.nombre !== ex.nombre));
+                                  else setExtrasSeleccionados([...extrasSeleccionados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
+                                }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
+                                  <span className="text-center leading-tight">{ex.nombre}</span>
+                                  <span className={seleccionado ? 'text-blue-500' : 'text-slate-400'}>{ex.precioExtra > 0 ? `+$${ex.precioExtra}` : 'Gratis'}</span>
+                                </button>
+                              )
+                            })}
                           </div>
                         )
                       }
-                      return null;
+                      return <p className="text-center text-sm font-bold text-slate-400">No hay extras disponibles para este platillo.</p>;
                     })()}
 
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Notas Generales</p>
-                      <textarea value={notaProducto} onChange={e => setNotaProducto(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-white border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-24 shadow-inner" />
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 mt-4">Notas Generales</p>
+                      <textarea value={notaProducto} onChange={e => setNotaProducto(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-20 shadow-inner" />
                     </div>
                   </div>
                 )}
@@ -752,7 +800,7 @@ const ModalPuntoVenta = ({
 
               <div className="p-8 bg-white border-t border-slate-200 shrink-0">
                 <div className="flex justify-between items-center mb-6">
-                  {pasoActualObj.tipo === 'final' ? (
+                  {pasoActualObj.tipo === 'extras_notas' ? (
                       <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
                         <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
                         <span className="px-4 font-black text-xl">{cantidadProducto}</span>
@@ -760,8 +808,7 @@ const ModalPuntoVenta = ({
                       </div>
                   ) : (
                       <div className="flex items-center">
-                          {/* Botón de Continuar para Grupos Opcionales */}
-                          {pasoActualObj.tipo === 'grupo_opcional' && (
+                          {['grupo_opcional', 'quitar_ingredientes'].includes(pasoActualObj.tipo) && (
                              <button onClick={() => setPasoPersonalizacion(p => p + 1)} className="bg-emerald-500 text-white font-black px-6 py-3 rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition">
                                 Siguiente ➡
                              </button>
@@ -785,7 +832,7 @@ const ModalPuntoVenta = ({
                 <div className="flex gap-4">
                   <button onClick={resetWizard} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
                   
-                  {pasoActualObj.tipo === 'final' && (
+                  {pasoActualObj.tipo === 'extras_notas' && (
                     <button onClick={() => {
                       const extrasFinales = [];
                       if (opcionSeleccionada && opcionSeleccionada.precioExtra > 0) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: opcionSeleccionada.precioExtra, tipo: 'variacion' });
@@ -795,7 +842,6 @@ const ModalPuntoVenta = ({
                           extrasFinales.push({ nombre: `🔸 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_obligatorio' });
                       });
 
-                      // 👇 Inyectamos selecciones del grupo opcional
                       Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => {
                           extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' });
                       });
@@ -824,10 +870,51 @@ const ModalPuntoVenta = ({
                       };
 
                       setCarrito([...carrito, nuevoItem]);
-                      resetWizard();
+
+                      // 👇 DISPARADOR DE PROMOCIÓN
+                      const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
+                      if (promo) {
+                          setPromocionVigente(promo);
+                          resetWizard(); 
+                      } else {
+                          resetWizard();
+                      }
+
                     }} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">Añadir ({cantidadProducto})</button>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 👇 MODAL PROMOCIÓN / UPSELL */}
+        {promocionVigente && (
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4">
+            <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
+              <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                 <Gift size={48} />
+              </div>
+              <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Oferta Especial! 🔥</h2>
+              <p className="text-slate-500 font-medium mb-6">Ofrece esto al cliente:</p>
+              
+              <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-6 mb-8 transform hover:scale-105 transition">
+                 {promocionVigente.oferta_imagen && (
+                    <img 
+                        src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${apiUrl.replace('/api', '')}${promocionVigente.oferta_imagen}`} 
+                        className="w-32 h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" 
+                        alt="promo" 
+                    />
+                 )}
+                 <h3 className="font-black text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
+                 <p className="text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
+                   {promocionVigente.tipo_descuento === 'porcentaje' ? `Llévalo con ${promocionVigente.valor_descuento}% de descuento` : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
+                 </p>
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
+                <button onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
               </div>
             </div>
           </div>

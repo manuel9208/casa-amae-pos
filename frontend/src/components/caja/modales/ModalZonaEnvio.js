@@ -1,70 +1,58 @@
-import React from 'react';
-import { MapPin, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { MapPin, XCircle } from 'lucide-react';
 
-const ModalZonaEnvio = ({
-  modalZonaEnvio, setModalZonaEnvio, confirmarPedidoDomicilio, configGlobal, isSubmitting
-}) => {
+const ModalZonaEnvio = ({ modalZonaEnvio, setModalZonaEnvio, confirmarPedidoDomicilio, configGlobal, isSubmitting }) => {
+  const [zonaSeleccionada, setZonaSeleccionada] = useState('');
+
+  useEffect(() => {
+    if (modalZonaEnvio) {
+      setZonaSeleccionada('');
+    }
+  }, [modalZonaEnvio]);
+
   if (!modalZonaEnvio) return null;
 
-  const getTarifasEnvio = () => {
-    if (!configGlobal?.tarifas_envio) return [];
-    try {
-      return typeof configGlobal.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio) : configGlobal.tarifas_envio;
-    } catch (e) { return []; }
+  const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string' ? JSON.parse(configGlobal.tarifas_envio || '[]') : (configGlobal?.tarifas_envio || []);
+
+  const handleConfirmar = () => {
+     if (zonaSeleccionada === '') return;
+     // Pasamos el costo del envío al hook central para que haga las matemáticas
+     confirmarPedidoDomicilio({ ...modalZonaEnvio, costo_envio: Number(zonaSeleccionada) });
   };
 
-  const tarifas = getTarifasEnvio();
-
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-xl animate-in zoom-in duration-200">
-        <div className="flex items-center gap-3 mb-6 border-b pb-4">
-          <MapPin className="text-purple-500" size={32} />
-          <h2 className="text-2xl font-black text-slate-800">Asignar Zona de Envío</h2>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-in zoom-in duration-200">
+      <div className="bg-white p-8 rounded-[40px] shadow-2xl w-full max-w-sm text-center relative border-4 border-purple-500">
+        <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(null)} className="absolute top-4 right-4 text-slate-400 hover:text-red-500 transition disabled:opacity-50">
+          <XCircle size={28}/>
+        </button>
+        
+        <div className="bg-purple-100 text-purple-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+          <MapPin size={40}/>
         </div>
         
-        <div className="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-100 flex justify-between items-center">
-          <div>
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Orden a Domicilio</p>
-            <p className="font-bold text-slate-800 text-lg">#{modalZonaEnvio.numero_pedido}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Actual</p>
-            <p className="font-black text-2xl text-blue-600">${modalZonaEnvio.total}</p>
-          </div>
-        </div>
-
-        <p className="text-sm font-bold text-slate-50 mb-4 uppercase tracking-widest">Selecciona la zona correspondiente:</p>
+        <h2 className="text-2xl font-black text-slate-800 mb-2">Asignar Envío</h2>
+        <p className="text-sm font-bold text-slate-500 mb-6">Pedido #{modalZonaEnvio.numero_pedido}</p>
         
-        <div className="space-y-3 mb-8 max-h-60 overflow-y-auto pr-2">
-          {tarifas.length === 0 ? (
-            <div className="bg-orange-50 text-orange-700 p-4 rounded-xl border border-orange-200 flex items-center gap-3">
-              <AlertTriangle size={20} />
-              <p className="font-bold text-sm">No hay zonas configuradas. Se enviará a cocina con costo de envío $0.</p>
-            </div>
-          ) : (
-            tarifas.map((tarifa, index) => (
-              <button 
-                key={index} 
-                disabled={isSubmitting}
-                onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, tarifa)}
-                className="w-full flex justify-between items-center p-4 bg-white border-2 border-slate-100 rounded-xl hover:border-purple-500 hover:bg-purple-50 transition group disabled:opacity-50"
-              >
-                <span className="font-black text-slate-700 group-hover:text-purple-800">{tarifa.zona}</span>
-                <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg font-black group-hover:bg-purple-600 group-hover:text-white transition">
-                  + ${tarifa.costo}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
+        <select 
+          value={zonaSeleccionada} 
+          onChange={e => setZonaSeleccionada(e.target.value)} 
+          disabled={isSubmitting} 
+          className="w-full bg-slate-50 border-2 border-purple-200 text-purple-900 font-black rounded-2xl p-4 mb-6 outline-none focus:border-purple-500 cursor-pointer"
+        >
+          <option value="">-- Selecciona la zona --</option>
+          {tarifasEnvio.map((t, i) => (
+            <option key={i} value={t.costo}>{t.zona} (+${t.costo})</option>
+          ))}
+        </select>
 
-        <div className="flex gap-4">
-          <button disabled={isSubmitting} onClick={() => setModalZonaEnvio(null)} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
-          {tarifas.length === 0 && (
-             <button disabled={isSubmitting} onClick={() => confirmarPedidoDomicilio(modalZonaEnvio, {zona: 'Sin Zona', costo: 0})} className="flex-[2] py-5 bg-purple-600 text-white font-black text-xl rounded-2xl hover:bg-purple-700 shadow-lg transition disabled:opacity-50">Mandar a Cocina (Envío $0)</button>
-          )}
-        </div>
+        <button 
+          disabled={isSubmitting || zonaSeleccionada === ''} 
+          onClick={handleConfirmar} 
+          className="w-full bg-purple-600 hover:bg-purple-700 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-purple-500/30 transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isSubmitting ? 'Confirmando...' : 'Aceptar y Mandar'}
+        </button>
       </div>
     </div>
   );
