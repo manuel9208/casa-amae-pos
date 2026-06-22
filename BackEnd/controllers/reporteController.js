@@ -97,8 +97,17 @@ exports.obtenerReporteVentas = async (req, res) => {
     `;
     const pedidosRes = await db.query(sqlPedidos, params);
 
+    // 👇 DICCIONARIO MAESTRO: Conecta los nombres de texto con su ID real (Resuelve el problema de Mar y Tierra)
+    const sqlTodos = `SELECT id, nombre FROM productos`;
+    const todosProds = await db.query(sqlTodos);
+    const productDict = {};
+    todosProds.rows.forEach(p => { 
+        // Normalizamos quitando espacios extra en los extremos y pasándolo a minúsculas
+        productDict[p.nombre.toLowerCase().trim()] = p.id; 
+    });
+
     const ventasObj = {}; 
-    const comedorObj = {}; // 👈 NUEVO: Aislamos la comida de empleado
+    const comedorObj = {}; 
     
     let t_efectivo = 0; let t_tarjeta = 0; let t_transf = 0; let t_envio = 0;
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
@@ -128,6 +137,14 @@ exports.obtenerReporteVentas = async (req, res) => {
 
       carrito.forEach(item => {
          let baseName = item.nombre || 'Desconocido';
+         let cleanName = baseName.trim(); // Mantenemos el nombre intacto para no romper promos como "2 Mar y Tierra"
+
+         // 👇 RESCATE DE ID: Si el ticket no guardó el ID, lo buscamos en el catálogo por nombre exacto
+         let pId = Number(item.id) || 0;
+         if (pId === 0) {
+             pId = productDict[cleanName.toLowerCase()] || 0;
+         }
+
          let rawPrice = parseMoney(item.precioFinal || item.precio_base || item.precio);
          let qty = parseMoney(item.cantidad) || 1;
          let exP = 0;
@@ -143,7 +160,7 @@ exports.obtenerReporteVentas = async (req, res) => {
                      return; 
                  } else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || extra.tipo === 'variacion') {
                      const cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
-                     baseName += ` (${cleanVariationName})`;
+                     cleanName += ` (${cleanVariationName})`;
                  } else {
                      const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
                      exP += ePrice;
@@ -156,16 +173,14 @@ exports.obtenerReporteVentas = async (req, res) => {
          if (finalBasePrice < 0) finalBasePrice = 0;
 
          const itemCat = item.categoria || item.clasificacion || 'Sin Categoría';
-         
-         // 👇 Mandamos el platillo al objeto correcto (Ventas Reales vs Empleados)
          const targetObj = isComedor ? comedorObj : ventasObj;
 
          if (!clasificacion || clasificacion === 'Todas' || clasificacion === itemCat) {
-             const itemKey = `BAS_${baseName}_${finalBasePrice}`;
+             const itemKey = `ID_${pId}_P_${finalBasePrice}_N_${cleanName}`;
              if (!targetObj[itemKey]) {
                  targetObj[itemKey] = {
-                     producto_nombre: baseName, 
-                     producto_id: item.id || 0,
+                     producto_nombre: cleanName, 
+                     producto_id: pId, // 👈 Ahora pId siempre tendrá el ID real de la receta
                      precio_venta: finalBasePrice, 
                      categoria: itemCat, 
                      cantidad_vendida: 0
@@ -221,7 +236,6 @@ exports.obtenerReporteVentas = async (req, res) => {
         };
     });
 
-    // 👇 Agregamos los alimentos de empleados pero les cambiamos la categoría para renderizarlos aparte
     let detalles_comedor = Object.values(comedorObj).map(v => {
         let c_unitario = 0;
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
@@ -229,19 +243,17 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
         return {
             ...v,
-            categoria: 'Comedor', // 👈 Etiqueta secreta para la tabla 2
+            categoria: 'Comedor', 
             categoria_original: v.categoria,
             costo_unitario: Number(c_unitario),
-            subtotal_ventas: 0, // Ingreso 0 al restaurante
-            valor_prestacion: Number(v.cantidad_vendida) * Number(v.precio_venta), // Valor del menú
+            subtotal_ventas: 0, 
+            valor_prestacion: Number(v.cantidad_vendida) * Number(v.precio_venta), 
             subtotal_inversion: Number(v.cantidad_vendida) * Number(c_unitario),
-            ganancia_neta: -(Number(v.cantidad_vendida) * Number(c_unitario)) // Representa un gasto
+            ganancia_neta: -(Number(v.cantidad_vendida) * Number(c_unitario)) 
         };
     });
 
-    // Juntamos ambos arrays (el frontend los va a separar)
     detalles = [...detalles, ...detalles_comedor];
-
     detalles.sort((a, b) => {
         const catA = a.categoria === 'Comedor' ? 4 : (a.categoria === 'Envíos' ? 3 : (a.categoria === 'Extras' ? 2 : 1));
         const catB = b.categoria === 'Comedor' ? 4 : (b.categoria === 'Envíos' ? 3 : (b.categoria === 'Extras' ? 2 : 1));
@@ -251,14 +263,13 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     let t_fondo = 0; let t_gastos = 0;
     try {
-        const hcRes = await db.query(`SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha')}`);
+        const hcRes = await db.query(`SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha_corte')}`);
         hcRes.rows.forEach(row => {
-            if(row.fondo_caja) t_fondo += Number(row.fondo_caja);
+            if(row.fondo_inicial) t_fondo += Number(row.fondo_inicial);
             if(row.total_gastos) t_gastos += Number(row.total_gastos);
         });
     } catch(e) {}
 
-    // Los cálculos puros de caja solo toman las ventas normales
     let t_platillos = detalles.filter(d => d.categoria !== 'Extras' && d.categoria !== 'Envíos' && d.categoria !== 'Comedor').reduce((s,d) => s + d.subtotal_ventas, 0);
     let t_extras = detalles.filter(d => d.categoria === 'Extras').reduce((s,d) => s + d.subtotal_ventas, 0);
 
@@ -295,8 +306,6 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     const idsVendidosHoy = new Set(prodReales.map(r => Number(r.producto_id)));
-    const sqlTodos = `SELECT id, nombre FROM productos WHERE estado = 'Activo' OR disponible = true`;
-    const todosProds = await db.query(sqlTodos);
     insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
 
     try {

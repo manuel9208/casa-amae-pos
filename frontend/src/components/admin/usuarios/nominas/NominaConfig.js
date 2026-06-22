@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Save, User, ShieldCheck, Clock, CheckCircle2, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote } from 'lucide-react';
+import { Save, User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote } from 'lucide-react';
 
 const diasSemanaMap = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+// 👇 Utilidad para asegurar que los inputs de fecha siempre reciban "YYYY-MM-DD"
+const formatoFechaSeguro = (fechaStr) => {
+  if (!fechaStr) return '';
+  try {
+     return fechaStr.split('T')[0];
+  } catch(e) {
+     return '';
+  }
+};
 
 const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -14,9 +24,9 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [reglasNomina, setReglasNomina] = useState({
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
     bono_puntualidad_eventos_activo: false, bono_puntualidad_eventos_monto: 0, puntualidad_eventos_tolerancia_minutos: 15, puntualidad_eventos_retardos_permitidos: 0,
+    // 👇 Recuperamos el estado del bono estricto
     bono_puntualidad_estricta_activo: false, bono_puntualidad_estricta_monto: 0, puntualidad_estricta_limite_minutos_semana: 15,
     
-    // 👇 NUEVAS REGLAS LFT Y DEDUCCIONES
     descuento_descanso_activo: true, 
     prima_dominical_activa: true,
     retencion_isr_activa: false, porcentaje_isr: 0,
@@ -28,7 +38,9 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   // ==========================================
   const [empleadoEditId, setEmpleadoEditId] = useState('');
   const [prestacionesEmp, setPrestacionesEmp] = useState({ 
-    sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', fecha_ingreso: '', nombre_completo: '', generar_nomina: true,
+    sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
+    fecha_ingreso: '', fecha_nacimiento: '', // 🎂 Añadido fecha_nacimiento
+    nombre_completo: '', generar_nomina: true,
     dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12,
     limite_platillos: 1, limite_bebidas: 1,
     prestamos: [], bonos_recurrentes: []
@@ -64,7 +76,10 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         setPrestacionesEmp({
           sueldo_base: presParsed.sueldo_base || 0, tipo_sueldo: presParsed.tipo_sueldo || 'Semanal', banco: presParsed.banco || '', cuenta: presParsed.cuenta || '',
           rfc: presParsed.rfc || '', curp: presParsed.curp || '', nss: presParsed.nss || '', telefono: presParsed.telefono || emp.telefono || '',
-          correo: presParsed.correo || '', fecha_ingreso: presParsed.fecha_ingreso || '', nombre_completo: presParsed.nombre_completo || '', 
+          correo: presParsed.correo || '', 
+          fecha_ingreso: formatoFechaSeguro(presParsed.fecha_ingreso), 
+          fecha_nacimiento: formatoFechaSeguro(presParsed.fecha_nacimiento), 
+          nombre_completo: presParsed.nombre_completo || '', 
           generar_nomina: presParsed.generar_nomina !== undefined ? presParsed.generar_nomina : true,
           dias_descanso: descansosArray,
           prima_vacacional: presParsed.prima_vacacional !== undefined ? presParsed.prima_vacacional : 25,
@@ -76,7 +91,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         });
       }
     } else {
-      setPrestacionesEmp({ sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', fecha_ingreso: '', nombre_completo: '', generar_nomina: true, dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] });
+      setPrestacionesEmp({ sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: true, dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] });
     }
   }, [empleadoEditId, usuariosDB]);
 
@@ -88,7 +103,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     });
   };
 
-  // 👇 MANEJADORES DE PRÉSTAMOS
+  // MANEJADORES DE PRÉSTAMOS
   const agregarPrestamo = () => {
     setPrestacionesEmp(prev => ({
       ...prev, prestamos: [...prev.prestamos, { id: Date.now(), concepto: '', monto_total: 0, saldo_restante: 0, descuento_por_nomina: 0, activo: true }]
@@ -103,7 +118,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     setPrestacionesEmp(prev => ({ ...prev, prestamos: prev.prestamos.filter(p => p.id !== id) }));
   };
 
-  // 👇 MANEJADORES DE BONOS RECURRENTES
+  // MANEJADORES DE BONOS RECURRENTES
   const agregarBonoRecurrente = () => {
     setPrestacionesEmp(prev => ({
       ...prev, bonos_recurrentes: [...prev.bonos_recurrentes, { id: Date.now(), concepto: '', monto: 0, tipo: 'bono', fecha_inicio: '', fecha_fin: '', activo: true }]
@@ -274,6 +289,23 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             )}
           </div>
 
+          {/* 👇 RE-INYECCIÓN: BONO 3: PUNTUALIDAD ESTRICTA */}
+          <div className={`p-5 rounded-2xl border-2 transition-all ${reglasNomina.bono_puntualidad_estricta_activo ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="font-black text-slate-800 flex items-center gap-2"><AlertTriangle className="text-orange-500" size={18}/> Bono Puntualidad Estricta</h4>
+              <button type="button" onClick={() => setReglasNomina({...reglasNomina, bono_puntualidad_estricta_activo: !reglasNomina.bono_puntualidad_estricta_activo})} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition shrink-0 ${reglasNomina.bono_puntualidad_estricta_activo ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>
+                {reglasNomina.bono_puntualidad_estricta_activo ? 'Activado' : 'Desactivado'}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mb-4 font-bold uppercase tracking-wider">Suma todos los minutos tarde de la semana.</p>
+            {reglasNomina.bono_puntualidad_estricta_activo && (
+              <div className="grid grid-cols-2 gap-4 animate-in fade-in">
+                <div><label className="text-xs font-bold text-slate-500">Monto del Bono ($)</label><input type="number" value={reglasNomina.bono_puntualidad_estricta_monto} onChange={e => setReglasNomina({...reglasNomina, bono_puntualidad_estricta_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" /></div>
+                <div><label className="text-xs font-bold text-slate-500">Límite Global Semanal (Minutos)</label><input type="number" value={reglasNomina.puntualidad_estricta_limite_minutos_semana} onChange={e => setReglasNomina({...reglasNomina, puntualidad_estricta_limite_minutos_semana: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" /></div>
+              </div>
+            )}
+          </div>
+
           <button type="submit" disabled={isSubmitting} className="w-full bg-slate-800 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-700 transition shadow-lg active:scale-95">
             <Save size={20} /> Guardar Políticas Generales
           </button>
@@ -327,16 +359,20 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
               </div>
             </div>
 
-            {/* ANTIGÜEDAD Y VACACIONES */}
+            {/* 👇 RE-INYECCIÓN Y MEJORA: ANTIGÜEDAD, VACACIONES Y CUMPLEAÑOS */}
             <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
-               <h4 className="font-black text-emerald-900 flex items-center gap-2 mb-3 text-sm"><CalendarDays size={16}/> Antigüedad y Vacaciones (LFT)</h4>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <h4 className="font-black text-emerald-900 flex items-center gap-2 mb-3 text-sm"><CalendarDays size={16}/> Fechas Importantes y Vacaciones</h4>
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
-                    <label className="text-[10px] font-bold text-emerald-700 uppercase">Fecha Ingreso</label>
-                    <input type="date" required value={prestacionesEmp.fecha_ingreso} onChange={e => setPrestacionesEmp({...prestacionesEmp, fecha_ingreso: e.target.value})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-bold text-emerald-900 outline-none" />
+                    <label className="text-[10px] font-bold text-emerald-700 uppercase">Ingreso</label>
+                    <input type="date" value={prestacionesEmp.fecha_ingreso} onChange={e => setPrestacionesEmp({...prestacionesEmp, fecha_ingreso: e.target.value})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-bold text-emerald-900 outline-none" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-emerald-700 uppercase" title="Base: 12 días primer año">Días de Vacaciones</label>
+                    <label className="text-[10px] font-bold text-emerald-700 uppercase">Cumpleaños</label>
+                    <input type="date" value={prestacionesEmp.fecha_nacimiento} onChange={e => setPrestacionesEmp({...prestacionesEmp, fecha_nacimiento: e.target.value})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-bold text-emerald-900 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-700 uppercase" title="Base: 12 días primer año">Días Vacaciones</label>
                     <input type="number" min="0" required value={prestacionesEmp.dias_vacaciones_disponibles} onChange={e => setPrestacionesEmp({...prestacionesEmp, dias_vacaciones_disponibles: Number(e.target.value)})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-black text-center text-emerald-900 outline-none" />
                   </div>
                   <div>
@@ -344,7 +380,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                     <input type="number" min="25" required value={prestacionesEmp.prima_vacacional} onChange={e => setPrestacionesEmp({...prestacionesEmp, prima_vacacional: Number(e.target.value)})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-black text-center text-emerald-900 outline-none" />
                   </div>
                </div>
-               <p className="text-[10px] text-emerald-600 mt-2 leading-tight font-bold">Si detectamos aniversario, te recomendaremos pagar la Prima sobre estos días configurados.</p>
+               <p className="text-[10px] text-emerald-600 mt-2 leading-tight font-bold">Si detectamos aniversario o cumpleaños, te avisaremos al calcular la nómina.</p>
             </div>
 
             {/* LIMITES DE COMEDOR (PRESTACIÓN) */}

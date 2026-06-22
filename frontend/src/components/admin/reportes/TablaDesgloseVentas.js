@@ -8,6 +8,13 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
   const ventasNormales = detalles.filter(d => d.categoria !== 'Comedor');
   const ventasComedor = detalles.filter(d => d.categoria === 'Comedor');
 
+  // 👇 MATEMÁTICAS PARA LA BARRA DE TOTALES (Ventas Reales)
+  const totalesNormales = ventasNormales.reduce((acc, item) => ({
+    vendidos: acc.vendidos + Number(item.cantidad_vendida),
+    costoReceta: acc.costoReceta + Number(item.subtotal_inversion),
+    gananciaTotal: acc.gananciaTotal + Number(item.ganancia_neta)
+  }), { vendidos: 0, costoReceta: 0, gananciaTotal: 0 });
+
   return (
     <div className="space-y-8 animate-in fade-in">
       
@@ -66,6 +73,17 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                     );
                   })}
                 </tbody>
+                {/* 👇 NUEVA BARRA DE TOTALES INYECTADA */}
+                <tfoot>
+                  <tr className="bg-slate-800 text-white print:bg-slate-200 print:text-black border-t-4 border-slate-900 print:border-black">
+                    <td className="p-4 font-black uppercase tracking-widest text-xs print:p-2 print:text-sm">Totales Globales</td>
+                    <td className="p-4 font-black text-center text-xl print:p-2 print:text-sm">{totalesNormales.vendidos}</td>
+                    <td className="p-4"></td>
+                    <td className="p-4 font-black text-red-400 text-right text-lg print:p-2 print:text-sm print:text-red-700">-{formaterMoneda(totalesNormales.costoReceta)}</td>
+                    <td className="p-4"></td>
+                    <td className="p-4 font-black text-emerald-400 text-right text-xl print:p-2 print:text-sm print:text-emerald-700">{formaterMoneda(totalesNormales.gananciaTotal)}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
         )}

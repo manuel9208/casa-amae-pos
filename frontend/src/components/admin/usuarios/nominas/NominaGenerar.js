@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Sun } from 'lucide-react';
+import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Sun, Cake } from 'lucide-react';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -78,6 +78,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           const dateStr = currentDate.toISOString().split('T')[0];
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
           const esDomingo = currentDate.getDay() === 0;
+
+          // 👇 Escáner de Cumpleaños (Detecta si el cumpleaños cae en los días que estamos calculando)
+          if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
+             const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
+             if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
+                 alertasEmpleado.push({ tipo: 'cumpleaños', msg: `🎂 ¡Cumpleaños detectado el ${dateStr}! ¿Deseas agregarle un bono festivo?` });
+             }
+          }
           
           if (!hor[dateStr] || hor[dateStr].pagado !== true) { currentDate.setDate(currentDate.getDate() + 1); continue; }
           if (hor[dateStr].nomina_pagada === true) { currentDate.setDate(currentDate.getDate() + 1); continue; }
@@ -304,6 +312,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const accionRapidaPropinas = (idxEmp) => {
      agregarDinamico(idxEmp, 'ingreso', 'Reparto de Propinas (Tarjeta)', 0);
   };
+  const accionRapidaCumpleanos = (idxEmp) => {
+     agregarDinamico(idxEmp, 'ingreso', 'Bono de Cumpleaños 🎂', 0);
+  };
 
   const guardarCorteNomina = async () => {
     if (preNomina.length === 0) return;
@@ -314,7 +325,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           empleado_id: p.empleado_id, nombre: p.nombre, rol: p.rol, datos_banco: p.datos_banco,
           metricas: p.metricas, ingresos_base: p.ingresos, egresos_base: p.egresos,
           adicionales_ingresos: p.nuevos_ingresos, adicionales_egresos: p.nuevos_egresos,
-          total_ingresos: p.total_ingresos, total_egresos: p.total_egresos, neto: p.neto
+          total_ingresos: p.total_ingresos, total_egresos: p.total_egresos, neto: p.neto,
+          nombre_completo: p.nombre_completo
         }));
 
         const payloadCorte = {
@@ -386,7 +398,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               {p.neto <= 0 && <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>}
               
               <h4 className="text-xl font-black text-slate-800 flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
-                {p.nombre} ({p.rol})
+                {p.nombre_completo || p.nombre} ({p.rol})
                 <span className={`text-3xl font-black ${p.neto > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formaterMoneda(p.neto)}</span>
               </h4>
 
@@ -395,7 +407,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <div className="mb-6 space-y-2">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas del Sistema</p>
                    {p.metricas.alertasEmpleado.map((alerta, iAlt) => (
-                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                          <span>{alerta.msg}</span>
                          {alerta.tipo === 'falta' && (
                            <button onClick={() => justificarFalta(idxEmp, alerta.fecha)} className="bg-white px-3 py-1.5 rounded-lg text-xs hover:bg-red-100 transition shadow-sm border border-red-100">
@@ -413,6 +425,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <button onClick={() => accionRapidaFestivo(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-orange-500 hover:text-orange-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Sun size={14}/> + Día Festivo Trabajado</button>
                 <button onClick={() => accionRapidaAguinaldo(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-purple-500 hover:text-purple-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Gift size={14}/> + Aguinaldo LFT</button>
                 <button onClick={() => accionRapidaPropinas(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Banknote size={14}/> + Propinas Tarjeta</button>
+                <button onClick={() => accionRapidaCumpleanos(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-pink-500 hover:text-pink-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Cake size={14}/> + Bono Cumpleaños</button>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
