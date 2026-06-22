@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, ShoppingBag, Tag } from 'lucide-react';
+import { XCircle, ShoppingBag, Tag, CheckSquare, Square } from 'lucide-react';
 
 const ModalPuntoVenta = ({
   modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
@@ -23,6 +23,8 @@ const ModalPuntoVenta = ({
   
   const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
   const [gruposSeleccionados, setGruposSeleccionados] = useState({});
+  // Para guardar las múltiples selecciones de los grupos opcionales
+  const [gruposOpcionalesSeleccionados, setGruposOpcionalesSeleccionados] = useState({});
 
   const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
   const [saborSeleccionado, setSaborSeleccionado] = useState(null);
@@ -48,7 +50,7 @@ const ModalPuntoVenta = ({
   const resetWizard = () => {
     setProductoEnEspera(null); setOpcionSeleccionada(null); setSaborSeleccionado(null);
     setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
-    setPasoPersonalizacion(0); setGruposSeleccionados({});
+    setPasoPersonalizacion(0); setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({});
   };
 
   useEffect(() => {
@@ -195,9 +197,12 @@ const ModalPuntoVenta = ({
       if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
       else if (nombreOrden) stringDireccion = `A NOMBRE DE: ${nombreOrden} | ${notaOpcional}`;
       
+      // El teléfono de orden rápida se añade al ticket si lo anotaron (sea obligatorio o no)
       if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
         stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
       } else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) {
+        stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+      } else if (tipoConsumo === 'Recoger' && !clienteAsignado && telefonoOrdenRapida) {
         stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
       }
     }
@@ -286,13 +291,20 @@ const ModalPuntoVenta = ({
      const tamanosList = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
      const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
      const gruposObligatoriosList = [...new Set((productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
+     
+     // Detectar Grupos Opcionales únicos
+     const objGruposOpcionales = {};
+     (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
+       if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
+       objGruposOpcionales[o.categoria].opciones.push(o);
+     });
+     const gruposOpcionalesList = Object.keys(objGruposOpcionales);
 
      if (tamanosList.length > 0) pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
      
      gruposObligatoriosList.forEach(g => {
-        // 👇 ORDEN ALFABÉTICO EN GRUPOS OBLIGATORIOS
         pasosWiz.push({ 
-           id: `grupo_${g}`, 
+           id: `grupo_obl_${g}`, 
            tipo: 'grupo_obligatorio', 
            titulo: `Elige: ${g} *`, 
            categoria: g, 
@@ -300,16 +312,29 @@ const ModalPuntoVenta = ({
         });
      });
 
-     // Sabores (Los ordenamos también por si acaso)
+     // Inyectar pasos opcionales
+     gruposOpcionalesList.forEach(g => {
+        pasosWiz.push({
+           id: `grupo_opc_${g}`,
+           tipo: 'grupo_opcional',
+           titulo: `Personaliza: ${g}`,
+           categoria: g,
+           limite: objGruposOpcionales[g].limite,
+           opciones: objGruposOpcionales[g].opciones.sort((a, b) => a.nombre.localeCompare(b.nombre))
+        });
+     });
+
      if (saboresList.length > 0) pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
      
      pasosWiz.push({ id: 'final', tipo: 'final', titulo: 'Notas y Detalles Extra' });
   }
   const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
 
+  // 👇 FIX TELÉFONO OBLIGATORIO: Solo Domicilio y Recoger lo exigen. Para llevar es opcional (pero si lo llenan, debe ser 10 digitos).
   const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
-    (tipoConsumo === 'Para llevar' && (!clienteAsignado && telefonoOrdenRapida.length !== 10));
+    (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoOrdenRapida.length !== 10)) ||
+    (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
@@ -421,9 +446,17 @@ const ModalPuntoVenta = ({
 
                   {!modoComedor ? (
                     <>
-                      <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900 ${['Domicilio', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado ? 'mb-2' : ''}`} />
-                      {['Domicilio', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado && (
-                        <input type="tel" maxLength="10" placeholder="Teléfono 10 dígitos (Obligatorio) *" value={telefonoOrdenRapida} onChange={e => setTelefonoOrdenRapida(e.target.value.replace(/\D/g, ''))} className="w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900" />
+                      <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-white border border-red-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-400 placeholder-red-300 text-red-900 ${['Domicilio', 'Recoger'].includes(tipoConsumo) && !clienteAsignado ? 'mb-2' : ''}`} />
+                      {/* 👇 El Teléfono Rápido sale en Domicilio/Recoger (Obligatorio) y Para Llevar (Opcional) */}
+                      {['Domicilio', 'Recoger', 'Para llevar'].includes(tipoConsumo) && !clienteAsignado && (
+                        <input 
+                          type="tel" 
+                          maxLength="10" 
+                          placeholder={`Teléfono 10 dígitos ${['Domicilio', 'Recoger'].includes(tipoConsumo) ? '(Obligatorio) *' : '(Opcional)'}`} 
+                          value={telefonoOrdenRapida} 
+                          onChange={e => setTelefonoOrdenRapida(e.target.value.replace(/\D/g, ''))} 
+                          className={`w-full bg-white rounded-xl p-3 text-sm font-bold outline-none border ${['Domicilio', 'Recoger'].includes(tipoConsumo) ? 'border-red-200 focus:border-red-400 placeholder-red-300 text-red-900' : 'border-slate-200 focus:border-blue-400 placeholder-slate-400 text-slate-800'}`} 
+                        />
                       )}
                     </>
                   ) : (
@@ -583,23 +616,59 @@ const ModalPuntoVenta = ({
                 
                 {pasoActualObj.tipo !== 'final' && (
                   <div className="animate-in slide-in-from-right duration-200">
-                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 text-center">{pasoActualObj.titulo}</p>
+                    <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-2 text-center">{pasoActualObj.titulo}</p>
+                    
+                    {/* 👇 TEXTO DEL LÍMITE (Solo para grupos opcionales) */}
+                    {pasoActualObj.tipo === 'grupo_opcional' && (
+                      <p className="text-center text-xs font-bold text-emerald-500 mb-6">
+                         Seleccionadas: {(gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).length} de {pasoActualObj.limite}
+                      </p>
+                    )}
+                    {pasoActualObj.tipo !== 'grupo_opcional' && <div className="mb-6"></div>}
+
                     <div className="grid grid-cols-2 gap-4">
                       {pasoActualObj.opciones.map((o, idx) => {
                         let estaSeleccionado = false;
                         if (pasoActualObj.tipo === 'tamaño') estaSeleccionado = opcionSeleccionada?.nombre === o.nombre;
                         else if (pasoActualObj.tipo === 'sabor') estaSeleccionado = saborSeleccionado?.nombre === o.nombre;
                         else if (pasoActualObj.tipo === 'grupo_obligatorio') estaSeleccionado = gruposSeleccionados[pasoActualObj.categoria]?.nombre === o.nombre;
+                        else if (pasoActualObj.tipo === 'grupo_opcional') estaSeleccionado = (gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).some(x => x.nombre === o.nombre);
+
+                        // Lógica de bloqueo para opcionales
+                        const seleccionadosActuales = gruposOpcionalesSeleccionados[pasoActualObj.categoria] || [];
+                        const yaLlegoAlLimite = pasoActualObj.tipo === 'grupo_opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
+                        const disabled = yaLlegoAlLimite && !estaSeleccionado;
 
                         return (
-                          <button key={idx} onClick={() => {
-                            if (pasoActualObj.tipo === 'tamaño') setOpcionSeleccionada(o);
-                            else if (pasoActualObj.tipo === 'sabor') setSaborSeleccionado(o);
-                            else if (pasoActualObj.tipo === 'grupo_obligatorio') setGruposSeleccionados({ ...gruposSeleccionados, [pasoActualObj.categoria]: o });
+                          <button key={idx} disabled={disabled} onClick={() => {
+                            if (pasoActualObj.tipo === 'tamaño') {
+                              setOpcionSeleccionada(o);
+                              setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
+                            } else if (pasoActualObj.tipo === 'sabor') {
+                              setSaborSeleccionado(o);
+                              setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
+                            } else if (pasoActualObj.tipo === 'grupo_obligatorio') {
+                              setGruposSeleccionados({ ...gruposSeleccionados, [pasoActualObj.categoria]: o });
+                              setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
+                            } else if (pasoActualObj.tipo === 'grupo_opcional') {
+                              let currentSelection = [...(gruposOpcionalesSeleccionados[pasoActualObj.categoria] || [])];
+                              if (estaSeleccionado) {
+                                currentSelection = currentSelection.filter(x => x.nombre !== o.nombre);
+                              } else {
+                                if (currentSelection.length < pasoActualObj.limite) currentSelection.push(o);
+                              }
+                              setGruposOpcionalesSeleccionados({ ...gruposOpcionalesSeleccionados, [pasoActualObj.categoria]: currentSelection });
+                            }
+                          }} className={`p-5 rounded-3xl font-bold transition-all border-2 flex flex-col items-center justify-center gap-2 ${disabled ? 'opacity-40 grayscale cursor-not-allowed' : ''} ${estaSeleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105' : 'bg-white text-slate-700 border-slate-100 hover:border-blue-400 hover:shadow-sm'}`}>
                             
-                            setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
-                          }} className={`p-6 rounded-3xl font-bold text-lg transition-all border-2 flex flex-col items-center justify-center gap-2 ${estaSeleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md scale-105' : 'bg-white text-slate-700 border-slate-100 hover:border-blue-400 hover:shadow-sm'}`}>
-                            <span className="text-center leading-tight">{o.nombre}</span>
+                            {/* Checkbox visual para grupos opcionales */}
+                            {pasoActualObj.tipo === 'grupo_opcional' && (
+                               <div className="absolute top-3 left-3 opacity-60">
+                                 {estaSeleccionado ? <CheckSquare size={18}/> : <Square size={18}/>}
+                               </div>
+                            )}
+
+                            <span className="text-center leading-tight text-lg">{o.nombre}</span>
                             {o.precioExtra > 0 && <span className={`text-sm ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
                           </button>
                         )
@@ -612,7 +681,6 @@ const ModalPuntoVenta = ({
                   <div className="animate-in slide-in-from-right duration-200 space-y-6">
                     
                     {(() => {
-                      // 👇 ORDEN ALFABÉTICO EN BASES
                       const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
                       if (bases.length > 0) {
                         return (
@@ -648,7 +716,6 @@ const ModalPuntoVenta = ({
                       (productoEnEspera.opciones || []).forEach(o => { if (o.tipo === 'extra') extrasMap.set(o.nombre, o); });
                       extrasDelSistema.forEach(o => { extrasMap.set(o.nombre, { nombre: o.nombre, precioExtra: o.precio_extra || 0 }); });
 
-                      // 👇 ORDEN ALFABÉTICO EN EXTRAS
                       const extrasTodos = Array.from(extrasMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
                       if (extrasTodos.length > 0) {
@@ -685,11 +752,23 @@ const ModalPuntoVenta = ({
 
               <div className="p-8 bg-white border-t border-slate-200 shrink-0">
                 <div className="flex justify-between items-center mb-6">
-                  <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
-                    <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
-                    <span className="px-4 font-black text-xl">{cantidadProducto}</span>
-                    <button onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">+</button>
-                  </div>
+                  {pasoActualObj.tipo === 'final' ? (
+                      <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
+                        <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
+                        <span className="px-4 font-black text-xl">{cantidadProducto}</span>
+                        <button onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">+</button>
+                      </div>
+                  ) : (
+                      <div className="flex items-center">
+                          {/* Botón de Continuar para Grupos Opcionales */}
+                          {pasoActualObj.tipo === 'grupo_opcional' && (
+                             <button onClick={() => setPasoPersonalizacion(p => p + 1)} className="bg-emerald-500 text-white font-black px-6 py-3 rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition">
+                                Siguiente ➡
+                             </button>
+                          )}
+                      </div>
+                  )}
+
                   <div className="text-right">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Platillo</p>
                     <p className="text-4xl font-black text-blue-600">
@@ -697,6 +776,7 @@ const ModalPuntoVenta = ({
                          (opcionSeleccionada?.precioExtra || 0) + 
                          (saborSeleccionado?.precioExtra || 0) + 
                          Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
+                         Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
                          extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0)) * cantidadProducto).toFixed(2)}
                     </p>
                   </div>
@@ -715,11 +795,16 @@ const ModalPuntoVenta = ({
                           extrasFinales.push({ nombre: `🔸 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_obligatorio' });
                       });
 
+                      // 👇 Inyectamos selecciones del grupo opcional
+                      Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => {
+                          extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' });
+                      });
+
                       ingredientesBase.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
                       extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                       if (notaProducto.trim() !== '') extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
-                      const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
+                      const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) + Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
                       
                       let nombreCompleto = productoEnEspera.nombre;
                       if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
