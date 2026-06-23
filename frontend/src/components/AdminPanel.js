@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import TopNavAdmin from './admin/TopNavAdmin'; 
+import TopNavAdmin from './admin/TopNavAdmin';
 import AdminConfiguracion from './admin/AdminConfiguracion';
 import AdminUsuarios from './admin/AdminUsuarios';
 import AdminCatalogos from './admin/AdminCatalogos';
@@ -45,8 +45,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true;
-  const canViewPromociones = isGlobalAdmin;
-  const canViewMesas = isGlobalAdmin;  
+  
+  // 👇 SOLUCIÓN: Se vinculan a los permisos individuales del empleado en lugar de ser fijos para el Admin Global
+  const canViewPromociones = isGlobalAdmin || user?.permisos?.promociones === true;
+  const canViewMesas = isGlobalAdmin || user?.permisos?.mesas === true;  
 
   // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
@@ -103,7 +105,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           .then(r => r.json())
           .then(data => setInsumosDB(Array.isArray(data) ? data : []))
           .catch(e => console.error("Error silenciado auto-refresh inventario", e));
-      }, 5000);
+          }, 5000);
     }
     return () => clearInterval(intervalo);
   }, [seccion, apiUrl, canViewInventario]);  
@@ -113,7 +115,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
   return (
     // Estructura de Flex Vertical (Columna) para acomodar la barra arriba
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">  
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       <TopNavAdmin
         user={user}
         onLogout={onLogout}
@@ -130,8 +132,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewPromociones={canViewPromociones}
         canViewMesas={canViewMesas}
       />  
-
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">  
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
         {seccion === 'menu' && canViewMenu && (
           <AdminMenu
             {...commonProps}
@@ -141,7 +142,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
           />
         )}  
-
         {seccion === 'inventario' && canViewInventario && (
           <AdminInventario
             {...commonProps}
@@ -150,7 +150,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             clasificaciones={clasificaciones}
           />
         )}  
-
         {seccion === 'catalogos' && canViewCatalogos && (
           <AdminCatalogos
             {...commonProps}
@@ -159,7 +158,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
           />
         )}  
-
         {seccion === 'configuracion' && canViewConfig && (
           <AdminConfiguracion
             {...commonProps}
@@ -167,28 +165,25 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             setConfigGlobal={setConfigGlobal}
           />
         )}  
-
         {seccion === 'usuarios' && canViewUsuarios && (
           <AdminUsuarios
             {...commonProps}
             usuariosDB={usuariosDB}
+            user={user} /* 👈 NUEVA PROPIEDAD: Inyectamos el operador para propagar las reglas de acceso */
           />
         )}  
-
         {seccion === 'clientes' && canViewClientes && (
           <AdminClientes
             apiUrl={apiUrl}
             showAlert={showAlert}
           />
         )}  
-
         {seccion === 'reportes' && canViewReportes && (
           <AdminReportes
             apiUrl={apiUrl}
             showAlert={showAlert}
           />
         )}  
-
         {/* 👇 AQUÍ SE APLICÓ LA CORRECCIÓN: Pasamos configGlobal y setConfigGlobal */}
         {seccion === 'promociones' && canViewPromociones && (
           <AdminPromociones
@@ -198,14 +193,12 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             setConfigGlobal={setConfigGlobal}
           />
         )}  
-
         {seccion === 'mesas' && canViewMesas && (
           <AdminMesas
             apiUrl={apiUrl}
           />
-        )}  
+        )}
       </main>  
-
       {/* === MODAL GLOBAL REUTILIZABLE === */}
       {modalUI.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -214,10 +207,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             {modalUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'confirm' && <AlertTriangle className="text-orange-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'info' && <AlertTriangle className="text-blue-500 w-16 h-16 mb-4" />}  
-
             <h3 className="text-2xl font-black text-slate-800 mb-2">{modalUI.titulo}</h3>
             <p className="text-slate-500 font-medium mb-8 whitespace-pre-line">{modalUI.mensaje}</p>  
-
             <div className="flex flex-col sm:flex-row gap-4 w-full">
               {modalUI.tipo === 'confirm' ? (
                 <>

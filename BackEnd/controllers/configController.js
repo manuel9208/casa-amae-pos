@@ -19,12 +19,14 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
+    // 👇 BLINDAJE: Añadimos la columna politicas_sustitucion automáticamente si no existe en la BD
     await db.query(`
       ALTER TABLE configuracion 
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS asistencia_pin_caja BOOLEAN DEFAULT true,
       ADD COLUMN IF NOT EXISTS asistencia_login BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS asistencia_huella BOOLEAN DEFAULT false;
+      ADD COLUMN IF NOT EXISTS asistencia_huella BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS politicas_sustitucion JSONB DEFAULT '{}'::jsonb;
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -54,6 +56,8 @@ exports.actualizarConfiguracion = async (req, res) => {
   } catch(e) {}
 
   const mergedBody = { ...configActual, ...req.body };
+  
+  // 👇 INYECCIÓN: Agregamos politicas_sustitucion a la desestructuración
   const {
     nombre_negocio, whatsapp, banco, cuenta, titular,
     color_primario, color_secundario, color_fondo,
@@ -70,7 +74,8 @@ exports.actualizarConfiguracion = async (req, res) => {
     bloqueo_caja_activo, bloqueo_caja_segundos,
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
     cocina_en_caja_activa, horarios_semana,
-    asistencia_pin_caja, asistencia_login, asistencia_huella
+    asistencia_pin_caja, asistencia_login, asistencia_huella,
+    politicas_sustitucion 
   } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
@@ -107,12 +112,14 @@ exports.actualizarConfiguracion = async (req, res) => {
   const porcentajeSeguro = puntos_porcentaje !== undefined ? Number(puntos_porcentaje) : 10;
   const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
 
-  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', horariosParsed = '{}';
+  // 👇 INYECCIÓN: Parseo seguro para asegurar que sea un JSONB válido en Postgres
+  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', horariosParsed = '{}', politicasParsed = '{}';
   try { tarifasParsed = (tarifas_envio && tarifas_envio !== '') ? (typeof tarifas_envio === 'string' ? tarifas_envio : JSON.stringify(tarifas_envio)) : '[]'; } catch (e) {}
   try { bebidasParsed = (comedor_clasif_bebidas && comedor_clasif_bebidas !== '') ? (typeof comedor_clasif_bebidas === 'string' ? comedor_clasif_bebidas : JSON.stringify(comedor_clasif_bebidas)) : '[]'; } catch (e) {}
   try { platillosParsed = (comedor_clasif_platillos && comedor_clasif_platillos !== '') ? (typeof comedor_clasif_platillos === 'string' ? comedor_clasif_platillos : JSON.stringify(comedor_clasif_platillos)) : '[]'; } catch (e) {}
   try { matrizParsed = (matriz_limpieza && matriz_limpieza !== '') ? (typeof matriz_limpieza === 'string' ? matriz_limpieza : JSON.stringify(matriz_limpieza)) : '{}'; } catch (e) {}
   try { horariosParsed = (horarios_semana && horarios_semana !== '') ? (typeof horarios_semana === 'string' ? horarios_semana : JSON.stringify(horarios_semana)) : '{}'; } catch (e) {}
+  try { politicasParsed = (politicas_sustitucion && politicas_sustitucion !== '') ? (typeof politicas_sustitucion === 'string' ? politicas_sustitucion : JSON.stringify(politicas_sustitucion)) : '{}'; } catch (e) {}
 
   try {
     await db.query(`
@@ -129,10 +136,10 @@ exports.actualizarConfiguracion = async (req, res) => {
         puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
         bloqueo_caja_activo, bloqueo_caja_segundos, comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
         cocina_en_caja_activa, horarios_semana,
-        asistencia_pin_caja, asistencia_login, asistencia_huella
+        asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion
       )
       VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
       )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
@@ -186,7 +193,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         horarios_semana = EXCLUDED.horarios_semana::jsonb,
         asistencia_pin_caja = EXCLUDED.asistencia_pin_caja,
         asistencia_login = EXCLUDED.asistencia_login,
-        asistencia_huella = EXCLUDED.asistencia_huella
+        asistencia_huella = EXCLUDED.asistencia_huella,
+        politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -200,7 +208,7 @@ exports.actualizarConfiguracion = async (req, res) => {
       porcentajeSeguro, valorPesoSeguro, isPuntosActivos, isCanjeActivo,
       isBloqueoCajaActivo, segundosSeguros, limiteComedorSeguro, bebidasParsed, platillosParsed, matrizParsed,
       isCocinaCajaActiva, horariosParsed,
-      isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella
+      isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed // 👈 INYECTADO AQUÍ EN LA POSICIÓN 53
     ]);
 
     res.json({ success: true, logo_url });

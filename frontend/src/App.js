@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { io } from 'socket.io-client'; // 👈 NUEVA IMPORTACIÓN PARA TIEMPO REAL
 import AdminPanel from './components/AdminPanel';
 import Caja from './components/Caja';
 import Cocina from './components/Cocina';
@@ -83,6 +84,44 @@ const App = () => {
     }).catch(()=>{});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 👇 NUEVO EFECTO: Escuchador de Sockets en tiempo real para cambios de permisos/eliminaciones
+  useEffect(() => {
+    const socket = io(baseUrl);
+
+    socket.on('usuario_actualizado', (usuarioEditado) => {
+      setUsuarioActivo((prevUsuario) => {
+        // Verificamos si el usuario que estamos usando es el que acaban de actualizar en el backend
+        if (prevUsuario && prevUsuario.id === usuarioEditado.id) {
+          // Actualizamos la sesión persistente en el navegador
+          const sesionGuardada = localStorage.getItem('pos_sesion');
+          if (sesionGuardada) {
+            const parsed = JSON.parse(sesionGuardada);
+            parsed.data = usuarioEditado;
+            localStorage.setItem('pos_sesion', JSON.stringify(parsed));
+          }
+          // Devolvemos el nuevo usuario para que React actualice toda la interfaz instantáneamente
+          return usuarioEditado;
+        }
+        return prevUsuario;
+      });
+    });
+
+    socket.on('usuario_eliminado', (idEliminado) => {
+      setUsuarioActivo((prevUsuario) => {
+        // Verificamos si el Admin acaba de borrarnos de la base de datos
+        if (prevUsuario && prevUsuario.id === parseInt(idEliminado)) {
+          localStorage.removeItem('pos_sesion');
+          setTimeout(() => window.location.reload(), 100); // Forzamos expulsión inmediata y recarga
+          return null;
+        }
+        return prevUsuario;
+      });
+    });
+
+    // Limpieza de conexión al desmontar
+    return () => socket.disconnect();
+  }, []); // 👈 SOLUCIÓN: Arreglo vacío, baseUrl es externa y no cambiará
 
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');

@@ -8,7 +8,7 @@ import VistaHistoricoMeses from './usuarios/VistaHistoricoMeses';
 import VistaNominas from './usuarios/VistaNominas';
 import VistaMensajesAdmin from './usuarios/VistaMensajesAdmin'; // 👈 NUEVA IMPORTACIÓN
 
-const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
+const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, user }) => {
   const [vista, setVista] = useState('directorio');  
 
   return (
@@ -42,7 +42,8 @@ const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConf
         </div>
       </div>  
 
-      {vista === 'directorio' && <DirectorioEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}  
+      {/* 👇 MODIFICACIÓN OPERATIVA: Heredamos la prop 'user' hacia el Directorio */}
+      {vista === 'directorio' && <DirectorioEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} user={user} />}  
       {vista === 'horarios' && <GestorHorarios usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}
       {vista === 'limpieza' && <ZonasLimpieza usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
       {vista === 'reportes' && <ReportesEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} />}  

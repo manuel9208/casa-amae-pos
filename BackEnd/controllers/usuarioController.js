@@ -67,7 +67,16 @@ exports.actualizarUsuario = async (req, res) => {
       );
     }  
     if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json(result.rows[0]);
+    
+    const usuarioEditado = result.rows[0];
+
+    // 👇 SOLUCIÓN TIEMPO REAL: Disparamos el evento a todos los dispositivos conectados
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('usuario_actualizado', usuarioEditado);
+    }
+
+    res.json(usuarioEditado);
   } catch (error) {
     if (error.code === '23505') {
       return res.status(400).json({ error: 'El número de teléfono o nombre de usuario ya está en uso.' });
@@ -80,6 +89,13 @@ exports.eliminarUsuario = async (req, res) => {
   const { id } = req.params;
   try {
     await db.query('DELETE FROM usuarios WHERE id = $1', [id]);
+
+    // 👇 SOLUCIÓN TIEMPO REAL: Forzamos la expulsión si el usuario estaba activo
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('usuario_eliminado', parseInt(id));
+    }
+
     res.json({ success: true });
   } catch (error) { res.status(500).json({ error: 'Error al eliminar usuario' }); }
 };  
