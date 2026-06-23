@@ -44,11 +44,19 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const evaluacionesLimpieza = matriz.evaluaciones || {};
       const calculos = [];
 
+      // Tolerancias globales
+      const toleranciaSalida = 30; // Minutos límite para cortar el turno si olvidaron checar
+      const minTolEntrada = Number(reglasNomina.puntualidad_eventos_tolerancia_minutos) || 15;
+      
+      const gApertura = String(configGlobal.hora_apertura || 17).padStart(2, '0') + ':00';
+      const gCierre = String(configGlobal.hora_cierre || 23).padStart(2, '0') + ':00';
+
       for (const emp of empleadosVisibles) {
         const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
         if (pres.generar_nomina === false) continue; 
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+        const arrDescansos = pres.dias_descanso || [];
         
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -84,84 +92,159 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                  alertasEmpleado.push({ tipo: 'cumpleaños', msg: `🎂 ¡Cumpleaños detectado el ${dateStr}! ¿Deseas agregarle un bono festivo?` });
              }
           }
-          
-          if (!hor[dateStr] || hor[dateStr].activo !== true) { 
-            currentDate.setDate(currentDate.getDate() + 1); 
-            continue; 
-          }
-          if (hor[dateStr].nomina_pagada === true) { 
+
+          if (hor[dateStr]?.nomina_pagada === true) { 
             currentDate.setDate(currentDate.getDate() + 1); 
             continue; 
           }
 
-          diasProgramados++;
-
-          if (hor[dateStr].vacaciones === true) {
-            diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr);
-            currentDate.setDate(currentDate.getDate() + 1); continue;
-          }
-
-          const arrDescansos = pres.dias_descanso || [];
-          if (arrDescansos.includes(nombreDiaActual)) {
-            diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr);
-            currentDate.setDate(currentDate.getDate() + 1); continue;
-          }
-
+          const diaActivo = hor[dateStr]?.activo === true;
+          const esDescanso = arrDescansos.includes(nombreDiaActual);
           const asistenciasDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));
-          if (asistenciasDelDia.length > 0) {
-            diasAsistidos++; diasAuditados.push(dateStr);
-            if (esDomingo) domingosTrabajados++;
 
-            if (hor[dateStr] && hor[dateStr].entrada) {
-              const entradaOficial = hor[dateStr].entrada;
-              const salidaOficial = hor[dateStr].salida || '23:00';
-              const [hOf, mOf] = entradaOficial.split(':').map(Number);
-              const minOficiales = (hOf * 60) + mOf;
-              
-              const primeraAsistencia = asistenciasDelDia.sort((a,b) => new Date(a.hora_entrada) - new Date(b.hora_entrada))[0];
-              const stringHoraLocal = new Date(primeraAsistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-              const [hReal, mReal] = stringHoraLocal.split(':').map(Number);
-              const minReales = (hReal * 60) + mReal;
-
-              const difMinutos = minReales - minOficiales;
-
-              if (difMinutos > 0) {
-                 minutosTardeTotales += difMinutos; 
-                 if (difMinutos > Number(reglasNomina.puntualidad_eventos_tolerancia_minutos)) {
-                     eventosTarde++; 
-                 }
-              }
-
-              const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
-              const minsOficialesRequeridos = (hSalOf * 60 + mSalOf) - minOficiales;
-
-              let minsTrabajadosHoy = 0;
-              asistenciasDelDia.forEach(asist => {
-                 if (asist.hora_entrada && asist.hora_salida) {
-                    const diff = (new Date(asist.hora_salida) - new Date(asist.hora_entrada)) / 60000;
-                    if (diff > 0) minsTrabajadosHoy += diff;
-                 }
-              });
-
-              if (minsTrabajadosHoy > 0 && minsTrabajadosHoy < (minsOficialesRequeridos - 15)) {
-                 const hrsFaltantes = ((minsOficialesRequeridos - minsTrabajadosHoy) / 60).toFixed(2);
-                 alertasEmpleado.push({
-                    type: 'jornada_incompleta',
-                    fecha: dateStr,
-                    msg: `⏳ Jornada Incompleta el ${dateStr}: Trabajó ${(minsTrabajadosHoy / 60).toFixed(2)}h de ${(minsOficialesRequeridos / 60).toFixed(2)}h requeridas. Faltaron ${hrsFaltantes}h.`
-                 });
-              }
-            }
-          } else {
-            diasFaltaInjustificada++;
-            alertasEmpleado.push({ tipo: 'falta', fecha: dateStr, msg: `⚠️ Falta detectada el ${dateStr}.` });
-            diasAuditados.push(dateStr); 
+          // Validar Programación
+          if (diaActivo && !esDescanso && !hor[dateStr]?.vacaciones) {
+              diasProgramados++;
           }
 
+          if (hor[dateStr]?.vacaciones === true) {
+              if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); }
+              currentDate.setDate(currentDate.getDate() + 1); 
+              continue;
+          }
+
+          if (esDescanso && asistenciasDelDia.length === 0) {
+              if (diaActivo) { diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr); }
+              currentDate.setDate(currentDate.getDate() + 1); 
+              continue;
+          }
+
+          if (asistenciasDelDia.length > 0) {
+              // 🛡️ MOTOR INTELIGENTE: FUSIÓN DE CHECADAS
+              let minEntrada = new Date(asistenciasDelDia[0].hora_entrada);
+              let maxSalida = asistenciasDelDia[0].hora_salida ? new Date(asistenciasDelDia[0].hora_salida) : null;
+              let tieneNullSalida = !asistenciasDelDia[0].hora_salida;
+
+              for (let i = 1; i < asistenciasDelDia.length; i++) {
+                  const inD = new Date(asistenciasDelDia[i].hora_entrada);
+                  if (inD < minEntrada) minEntrada = inD;
+                  if (asistenciasDelDia[i].hora_salida) {
+                      const outD = new Date(asistenciasDelDia[i].hora_salida);
+                      if (!maxSalida || outD > maxSalida) maxSalida = outD;
+                  } else {
+                      tieneNullSalida = true;
+                  }
+              }
+
+              const entradaOficial = hor[dateStr]?.entrada || gApertura;
+              const salidaOficial = hor[dateStr]?.salida || gCierre;
+
+              let limiteSalidaTime = null;
+              if (salidaOficial) {
+                  const [hOut, mOut] = salidaOficial.split(':').map(Number);
+                  const [hIn] = entradaOficial.split(':').map(Number);
+                  let dateLimit = new Date(dateStr + 'T00:00:00');
+                  dateLimit.setHours(hOut, mOut, 0, 0);
+                  if (hOut < hIn) dateLimit.setDate(dateLimit.getDate() + 1); 
+                  dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
+                  limiteSalidaTime = dateLimit.getTime();
+              }
+
+              let outTime, olvidoSalida = false, turnoActivo = false;
+              
+              if (tieneNullSalida) {
+                  if (dateStr === hoyStr) {
+                      outTime = new Date().getTime();
+                      turnoActivo = true;
+                  } else {
+                      olvidoSalida = true;
+                      outTime = limiteSalidaTime || minEntrada.getTime();
+                  }
+              } else {
+                  if (limiteSalidaTime && maxSalida.getTime() > limiteSalidaTime) {
+                      olvidoSalida = true;
+                      outTime = limiteSalidaTime;
+                  } else {
+                      outTime = maxSalida.getTime();
+                  }
+              }
+
+              let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
+              if (diffHrs < 0) diffHrs = 0;
+
+              if (olvidoSalida) {
+                  alertasEmpleado.push({
+                      tipo: 'olvido_salida',
+                      fecha: dateStr,
+                      msg: `⚠️ Olvidó checar salida el ${dateStr}. Se topó su jornada al límite oficial de las ${salidaOficial}.`
+                  });
+              }
+
+              // 🛡️ MOTOR DE ALERTAS
+              if (!diaActivo || esDescanso) {
+                  alertasEmpleado.push({
+                      tipo: 'anomalia_descanso',
+                      fecha: dateStr,
+                      msg: `🚨 Checó el ${dateStr} pero era su día de descanso o inactivo. Trabajó ${diffHrs.toFixed(2)}h.`
+                  });
+              } else {
+                  const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+                  const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
+                  const [hOfIn, mOfIn] = entradaOficial.split(':').map(Number);
+
+                  if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
+                      alertasEmpleado.push({
+                          tipo: 'anomalia_horario',
+                          fecha: dateStr,
+                          msg: `🚨 Checó a las ${stringHoraCompleta} en un turno de ${entradaOficial}. Totalmente fuera de rango.`
+                      });
+                  } else {
+                      // Validar jornada incompleta
+                      const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
+                      let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
+                      if (minsOficiales < 0) minsOficiales += 24 * 60;
+
+                      const minsTrabajados = diffHrs * 60;
+                      
+                      if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
+                          const hrsFaltantes = ((minsOficiales - minsTrabajados) / 60).toFixed(2);
+                          alertasEmpleado.push({
+                              tipo: 'jornada_incompleta',
+                              fecha: dateStr,
+                              msg: `⏳ Jornada Incompleta el ${dateStr}: Trabajó ${diffHrs.toFixed(2)}h de ${(minsOficiales/60).toFixed(2)}h requeridas. Faltaron ${hrsFaltantes}h.`
+                          });
+                      }
+
+                      // Retardos
+                      if (minsTrabajados > 0) {
+                          const minR = (hReal * 60) + mReal;
+                          const minO = (hOfIn * 60) + mOfIn;
+                          if (minR > (minO + minTolEntrada)) {
+                              eventosTarde++;
+                              minutosTardeTotales += (minR - minO);
+                          }
+                      }
+                  }
+              }
+
+              diasAsistidos++;
+              diasAuditados.push(dateStr);
+              if (esDomingo) domingosTrabajados++;
+
+          } else {
+              // No checkins
+              if (diaActivo && !esDescanso) {
+                  diasFaltaInjustificada++;
+                  alertasEmpleado.push({ tipo: 'falta', fecha: dateStr, msg: `⚠️ Falta Injustificada el ${dateStr}.` });
+                  diasAuditados.push(dateStr); 
+              }
+          }
+
+          // Validación de Limpieza
           for (const area of Object.keys(evaluacionesLimpieza)) {
-            if (String(matriz.asignaciones?.[area]?.[dateStr]) === String(emp.id)) {
-              if (evaluacionesLimpieza[area][dateStr] === 'no_cumplio') fallasLimpieza++;
-            }
+              if (String(matriz.asignaciones?.[area]?.[dateStr]) === String(emp.id)) {
+                  if (evaluacionesLimpieza[area][dateStr] === 'no_cumplio') fallasLimpieza++;
+              }
           }
 
           currentDate.setDate(currentDate.getDate() + 1);
@@ -254,7 +337,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const totalIn = ingresosList.reduce((acc, c) => acc + Number(c.monto), 0);
         const totalEg = egresosList.reduce((acc, c) => acc + Number(c.monto), 0);
 
-        if (totalIn === 0 && diasProgramados === 0) continue; 
+        if (totalIn === 0 && diasProgramados === 0 && diasFaltaInjustificada === 0 && alertasEmpleado.length === 0) continue; 
 
         calculos.push({
           empleado_id: emp.id, nombre: emp.nombre, nombre_completo: pres.nombre_completo || emp.nombre, rol: emp.rol, telefono: pres.telefono || emp.telefono,
@@ -427,7 +510,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <div className="mb-6 space-y-2">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas de Cumplimiento</p>
                    {p.metricas.alertasEmpleado.map((alerta, iAlt) => (
-                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'jornada_incompleta' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'olvido_salida' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                          <span className="max-w-[75%]">{alerta.msg}</span>
                          <div className="flex gap-2">
                            {alerta.tipo === 'falta' && (
@@ -436,7 +519,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                              </button>
                            )}
                            {alerta.tipo === 'jornada_incompleta' && (
-                             <button onClick={() => penalizarJornadaIncompleta(idxEmp, alerta.msg)} className="bg-orange-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-orange-700 transition shadow-sm font-black">
+                             <button onClick={() => penalizarJornadaIncompleta(idxEmp, alerta.msg)} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-red-700 transition shadow-sm font-black">
                                Aplicar Descuento
                              </button>
                            )}
