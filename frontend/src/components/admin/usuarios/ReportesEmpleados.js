@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User } from 'lucide-react';
+import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert } from 'lucide-react';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -8,9 +8,13 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [matrizLimpiezaGlobal, setMatrizLimpiezaGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
   
   const hoyStr = new Date().toISOString().split('T')[0];
-  const [periodo, setPeriodo] = useState('dia');
+  const [periodo, setPeriodo] = useState('semana');
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroUsuario, setFiltroUsuario] = useState('Todos');
+  
+  // Configuraciones de Tolerancia
+  const [minutosTolerancia, setMinutosTolerancia] = useState(15); // Para retardos al entrar
+  const [toleranciaSalida, setToleranciaSalida] = useState(30);   // Límite de minutos después de la hora de salida para cortar el turno
 
   const cargarReportes = useCallback(async () => {
     try {
@@ -72,6 +76,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     return fechas;
   };
 
+  // ======================================================================
+  // 🧠 MOTOR INTELIGENTE DE PROCESAMIENTO MATRICIAL Y FUSIÓN DE CHECADAS
+  // ======================================================================
   const procesarDashboard = () => {
     const fechasAAnalizar = getFechasPeriodo();
     
@@ -92,37 +99,87 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             const esDescanso = descansos.includes(nombreDia);
             const esDiaLaboral = confDia.activo === true && !esDescanso;
 
-            // 1. PROCESAR ASISTENCIAS Y BUG DE 24 HORAS
-            const checkins = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));
+            // 1. EXTRAER Y FUSIONAR TODAS LAS CHECADAS DE ESTE DÍA PARA ESTE EMPLEADO
+            const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));
 
-            checkins.forEach(checada => {
-                const inTime = new Date(checada.hora_entrada).getTime();
+            if (checkinsDelDia.length > 0) {
+                // Buscamos la primera entrada y la última salida
+                let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
+                let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
+                let tieneNullSalida = !checkinsDelDia[0].hora_salida;
+
+                for (let i = 1; i < checkinsDelDia.length; i++) {
+                    const inD = new Date(checkinsDelDia[i].hora_entrada);
+                    if (inD < minEntrada) minEntrada = inD;
+
+                    if (checkinsDelDia[i].hora_salida) {
+                        const outD = new Date(checkinsDelDia[i].hora_salida);
+                        if (!maxSalida || outD > maxSalida) maxSalida = outD;
+                    } else {
+                        tieneNullSalida = true;
+                    }
+                }
+
+                // 2. APLICAR TOPE DE SEGURIDAD Y TOLERANCIA DE SALIDA
                 let outTime;
                 let olvidoSalida = false;
                 let turnoActivo = false;
+                let limiteSalidaTime = null;
 
-                if (checada.hora_salida) {
-                    outTime = new Date(checada.hora_salida).getTime();
-                } else {
+                if (confDia.salida) {
+                    const [hOut, mOut] = confDia.salida.split(':').map(Number);
+                    const [hIn] = (confDia.entrada || '00:00').split(':').map(Number);
+                    let dateLimit = new Date(fechaStr + 'T00:00:00');
+                    dateLimit.setHours(hOut, mOut, 0, 0);
+
+                    // Si la salida oficial es de madrugada (menor a la entrada), sumamos un día al límite
+                    if (hOut < hIn) {
+                        dateLimit.setDate(dateLimit.getDate() + 1);
+                    }
+                    
+                    // Añadimos la tolerancia máxima permitida
+                    dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
+                    limiteSalidaTime = dateLimit.getTime();
+                }
+
+                if (tieneNullSalida) {
                     if (fechaStr === hoyStr) {
                         outTime = new Date().getTime();
                         turnoActivo = true;
                     } else {
-                        outTime = inTime;
                         olvidoSalida = true;
+                        outTime = limiteSalidaTime || minEntrada.getTime(); // Topamos a su límite oficial
+                    }
+                } else {
+                    // Tienen hora de salida, verificamos si excede el límite permitido absurdamente
+                    if (limiteSalidaTime && maxSalida.getTime() > limiteSalidaTime) {
+                        olvidoSalida = true;
+                        outTime = limiteSalidaTime; // Topar horas para evitar jornadas de 15hrs
+                    } else {
+                        outTime = maxSalida.getTime();
                     }
                 }
 
-                let diffHrs = (outTime - inTime) / 3600000;
-                
-                // 🛡️ TOPE DE SEGURIDAD: Previene reportes de 34 horas si olvidaron checar
-                if (diffHrs > 16 || olvidoSalida) {
-                    diffHrs = 0;
-                    olvidoSalida = true;
-                }
+                let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
+                if (diffHrs < 0) diffHrs = 0;
 
-                const strEntrada = new Date(checada.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
-                const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(checada.hora_salida).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));
+                const strEntrada = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
+                const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(outTime).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));
+
+                // Verificamos si hubo retardo en la entrada
+                let esRetardo = false;
+                if (confDia.entrada) {
+                    const [hIn, mIn] = confDia.entrada.split(':').map(Number);
+                    const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+                    const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
+                    
+                    const minOficiales = (hIn * 60) + mIn;
+                    const minReales = (hReal * 60) + mReal;
+
+                    if (minReales > (minOficiales + minutosTolerancia)) {
+                        esRetardo = true;
+                    }
+                }
 
                 const record = {
                     fecha: fechaStr,
@@ -132,34 +189,35 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     horas: diffHrs.toFixed(2),
                     turnoActivo,
                     olvidoSalida,
+                    esRetardo,
                     oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
                 };
 
-                // Clasificación Inteligente
+                // 3. CLASIFICACIÓN (DÍAS OFICIALES VS ANOMALÍAS)
                 if (!esDiaLaboral) {
-                    anomalas.push({ ...record, motivo: esDescanso ? 'Checó en su Día de Descanso' : 'Día Inactivo en Configuración' });
+                    anomalas.push({ ...record, motivo: esDescanso ? 'Checada en su Día de Descanso' : 'Día Inactivo en Configuración' });
                 } else {
                     let anomaloPorHorario = false;
                     if (confDia.entrada) {
-                        const stringHoraCompleta = new Date(checada.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+                        const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
                         const [hReal] = stringHoraCompleta.split(':').map(Number);
                         const [hOfIn] = confDia.entrada.split(':').map(Number);
 
-                        // Si checa más de 2 horas antes de su turno, o 4 horas después
-                        if (hReal < hOfIn - 2 || hReal > hOfIn + 4) {
+                        // Si checa absurdamente temprano (ej. > 3 horas antes) o muy tarde (> 4 horas después)
+                        if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
                             anomaloPorHorario = true;
                         }
                     }
 
                     if (anomaloPorHorario) {
-                        anomalas.push({ ...record, motivo: `Fuera del rango del turno asignado (${confDia.entrada})` });
+                        anomalas.push({ ...record, motivo: `Totalmente fuera del rango asignado (${confDia.entrada})` });
                     } else {
                         oficiales.push(record);
                     }
                 }
-            });
+            }
 
-            // 2. PROCESAR AUDITORÍA DE LIMPIEZA DIRECTO DE LA BD
+            // 4. PROCESAR AUDITORÍA DE LIMPIEZA CONGELADA (Candados)
             const evals = matrizLimpiezaGlobal.evaluaciones || {};
             const asigs = matrizLimpiezaGlobal.asignaciones || {};
             Object.keys(evals).forEach(area => {
@@ -183,7 +241,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
-      {/* CABECERA Y FILTROS */}
+      {/* CABECERA Y CONFIGURACIÓN DE TOLERANCIAS */}
       <div className="bg-slate-900 text-white p-6 md:p-8 rounded-[36px] shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
         <div className="flex items-center gap-5">
           <div className="bg-emerald-500/20 p-4 rounded-2xl border border-emerald-500/30 text-emerald-400"><Calendar size={32}/></div>
@@ -192,7 +250,19 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             <h3 className="text-2xl font-black tracking-tight">Cumplimiento en Vivo</h3>
           </div>
         </div>  
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+          
+          <div className="flex flex-col gap-2 bg-slate-800 border border-slate-700 p-3 rounded-2xl shadow-inner w-full md:w-auto">
+             <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase">Tolerancia Entrada:</span>
+                <div className="flex items-center"><input type="number" min="0" value={minutosTolerancia} onChange={e => setMinutosTolerancia(Number(e.target.value))} className="w-12 bg-slate-900 border border-slate-600 text-center text-emerald-400 font-black rounded-lg py-1 outline-none focus:border-emerald-500 transition-colors" /><span className="text-[9px] text-slate-500 ml-1">Min</span></div>
+             </div>
+             <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] font-black text-slate-400 uppercase">Tope Cierre Salida:</span>
+                <div className="flex items-center"><input type="number" min="0" value={toleranciaSalida} onChange={e => setToleranciaSalida(Number(e.target.value))} className="w-12 bg-slate-900 border border-slate-600 text-center text-red-400 font-black rounded-lg py-1 outline-none focus:border-red-500 transition-colors" /><span className="text-[9px] text-slate-500 ml-1">Min</span></div>
+             </div>
+          </div>
+
           <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="w-full md:w-auto h-[58px] bg-slate-800 text-white border border-slate-700 px-4 rounded-2xl font-bold outline-none focus:ring-2 ring-emerald-500 cursor-pointer">
             <option value="Todos">Todos los empleados</option>
             {empleadosVisibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
@@ -218,7 +288,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             </div>
          ) : (
             datosFiltrados.map((data) => (
-                <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-4">
+                <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-6">
                     
                     {/* 👨‍🍳 PERFIL DEL EMPLEADO */}
                     <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
@@ -253,11 +323,15 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                             <tr key={i} className="hover:bg-slate-50 transition print:text-sm">
                                                 <td className="p-3 font-bold text-slate-700">{rec.dia} <span className="text-[10px] font-medium text-slate-400 ml-1">{rec.fecha}</span></td>
                                                 <td className="p-3 font-bold text-slate-500">{rec.oficial}</td>
-                                                <td className="p-3 font-black text-emerald-600">{rec.entrada}</td>
-                                                <td className="p-3 font-black text-blue-600">
-                                                    {rec.olvidoSalida ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] uppercase">⚠️ {rec.salida}</span> : rec.salida}
+                                                <td className="p-3 font-black text-emerald-600">
+                                                    {rec.entrada} {rec.esRetardo && <span className="ml-2 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase">Retardo</span>}
                                                 </td>
-                                                <td className="p-3 font-black text-slate-800 text-right">{rec.horas}h</td>
+                                                <td className="p-3 font-black text-blue-600">
+                                                    {rec.olvidoSalida ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] uppercase">⚠️ Olvidó Checar</span> : rec.salida}
+                                                </td>
+                                                <td className="p-3 font-black text-slate-800 text-right">
+                                                   <span className="bg-slate-100 px-2 py-1 rounded-lg">{rec.horas}h</span>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -270,7 +344,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     <div className="mb-8">
                         <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Sparkles className="text-emerald-500 print:text-black"/> 2. Resultados de Limpieza (Candados Cerrados)</h4>
                         {data.limpiezas.length === 0 ? (
-                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No se encontraron limpiezas evaluadas y cerradas en este periodo.</p>
+                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No se encontraron áreas evaluadas o cerradas para este empleado en este periodo.</p>
                         ) : (
                             <div className="flex flex-wrap gap-3">
                                 {data.limpiezas.map((limp, i) => (
@@ -289,7 +363,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     {/* ⚠️ SECCIÓN 3: ANOMALÍAS Y DESCANSOS */}
                     {data.anomalas.length > 0 && (
                         <div>
-                            <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><AlertTriangle className="text-red-500 print:text-black"/> 3. Alertas: Checadas Anómalas y Descansos</h4>
+                            <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><ShieldAlert className="text-red-500 print:text-black"/> 3. Alertas: Checadas Anómalas y Descansos</h4>
                             <div className="overflow-x-auto border border-red-100 rounded-2xl custom-scrollbar print:border-slate-300">
                                 <table className="w-full text-left border-collapse bg-red-50/30">
                                     <thead className="bg-red-50 border-b border-red-100 print:bg-slate-100">
@@ -307,8 +381,12 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                 <td className="p-3 font-bold text-red-900">{rec.dia} <span className="text-[10px] font-medium text-red-400 ml-1">{rec.fecha}</span></td>
                                                 <td className="p-3 font-black text-red-600 text-xs">{rec.motivo}</td>
                                                 <td className="p-3 font-black text-red-800">{rec.entrada}</td>
-                                                <td className="p-3 font-black text-red-800">{rec.salida}</td>
-                                                <td className="p-3 font-black text-red-900 text-right">{rec.horas}h</td>
+                                                <td className="p-3 font-black text-red-800">
+                                                    {rec.olvidoSalida ? <span className="text-[10px] uppercase">⚠️ {rec.salida}</span> : rec.salida}
+                                                </td>
+                                                <td className="p-3 font-black text-red-900 text-right">
+                                                   <span className="bg-red-100 px-2 py-1 rounded-lg">{rec.horas}h</span>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
