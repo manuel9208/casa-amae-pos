@@ -20,7 +20,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   // ==========================================
   // ESTADO: REGLAS GLOBALES (BONOS Y LEYES)
   // ==========================================
-  // 🛡️ CORRECCIÓN ESLINT: Se eliminó 'configGlobal' porque ya no se usa, la lectura es directa.
+  // 🛡️ CORRECCIÓN ESLINT: Se eliminó 'configGlobal' porque la escritura y lectura se hace directo al backend
   const [reglasNomina, setReglasNomina] = useState({
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
     bono_puntualidad_eventos_activo: false, bono_puntualidad_eventos_monto: 0, puntualidad_eventos_tolerancia_minutos: 15, puntualidad_eventos_retardos_permitidos: 0,

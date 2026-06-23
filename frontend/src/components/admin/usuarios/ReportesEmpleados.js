@@ -332,8 +332,8 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                 const listaEmpleados = Array.isArray(datosRaw) ? datosRaw : (datosRaw.recibos || []);
 
                 const datosFiltrados = (filtroUsuario !== 'Todos' ? listaEmpleados.filter(d => String(d.id || d.empleado_id) === String(filtroUsuario)) : listaEmpleados)
-                  .filter(emp => emp.nombre !== 'Administrador Global')
-                  // 🛡️ CORRECCIÓN ESLINT APLICADA AQUÍ: Se cambió "emp" por "a" y "b" para evitar el error de indefinido.
+                  .filter(usuarioListado => usuarioListado.nombre !== 'Administrador Global')
+                  // 🛡️ CORRECCIÓN DE INDEFINICIÓN: Se ordenan utilizando las referencias A y B del sort
                   .sort((a, b) => (a.nombre_completo || a.nombre).localeCompare(b.nombre_completo || b.nombre));  
 
                 if (datosFiltrados.length === 0) return null;  
@@ -348,10 +348,10 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                       curr.setDate(curr.getDate() + 1);
                    }
                 } else {
-                   listaEmpleados.forEach(emp => {
-                      if (emp.horario) Object.keys(emp.horario).forEach(k => fechasDelCorte.add(k));
-                      if (emp.limpieza && emp.limpieza.detalle) Object.keys(emp.limpieza.detalle).forEach(k => fechasDelCorte.add(k));
-                      if (emp.metricas && emp.metricas.diasAuditados) emp.metricas.diasAuditados.forEach(k => fechasDelCorte.add(k));
+                   listaEmpleados.forEach(eTarget => {
+                      if (eTarget.horario) Object.keys(eTarget.horario).forEach(k => fechasDelCorte.add(k));
+                      if (eTarget.limpieza && eTarget.limpieza.detalle) Object.keys(eTarget.limpieza.detalle).forEach(k => fechasDelCorte.add(k));
+                      if (eTarget.metricas && eTarget.metricas.diasAuditados) eTarget.metricas.diasAuditados.forEach(k => fechasDelCorte.add(k));
                    });
                 }
                 
@@ -387,28 +387,29 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {datosFiltrados.map(emp => {
-                              const empDB = usuariosDB.find(u => u.id === emp.id || u.id === emp.empleado_id) || {};
+                          {datosFiltrados.map(empleadoActivo => {
+                              const empDB = usuariosDB.find(u => u.id === empleadoActivo.id || u.id === empleadoActivo.empleado_id) || {};
                               let horarioReferencia = {};
-                              if (emp.horario) horarioReferencia = emp.horario;
+                              if (empleadoActivo.horario) horarioReferencia = empleadoActivo.horario;
                               else if (empDB.horario_semanal) {
                                  try { horarioReferencia = typeof empDB.horario_semanal === 'string' ? JSON.parse(empDB.horario_semanal) : empDB.horario_semanal; } catch(e){}
                               }
 
                               return (
-                                <tr key={emp.id || emp.empleado_id} className="hover:bg-slate-50 transition group">
+                                <tr key={empleadoActivo.id || empleadoActivo.empleado_id} className="hover:bg-slate-50 transition group">
                                    <td className="p-4 border-r border-slate-50 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)] group-hover:bg-slate-50">
-                                     <p className="font-bold text-slate-700 whitespace-nowrap">{emp.nombre_completo || emp.nombre}</p>
-                                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{emp.rol}</p>
+                                     <p className="font-bold text-slate-700 whitespace-nowrap">{empleadoActivo.nombre_completo || empleadoActivo.nombre}</p>
+                                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{empleadoActivo.rol}</p>
                                    </td>
                                    {diasCorte.map(dStr => {
                                        const diaHorario = horarioReferencia[dStr];
-                                       let limpiezasGuardadas = emp.limpieza && emp.limpieza.detalle ? emp.limpieza.detalle[dStr] : null;
+                                       let limpiezasGuardadas = empleadoActivo.limpieza && empleadoActivo.limpieza.detalle ? empleadoActivo.limpieza.detalle[dStr] : null;
                                        
+                                       // Rescate histórico
                                        if (!limpiezasGuardadas && matrizLimpiezaGlobal.evaluaciones) {
                                            limpiezasGuardadas = [];
                                            Object.keys(matrizLimpiezaGlobal.evaluaciones).forEach(area => {
-                                               if (String(matrizLimpiezaGlobal.asignaciones?.[area]?.[dStr]) === String(emp.id || emp.empleado_id)) {
+                                               if (String(matrizLimpiezaGlobal.asignaciones?.[area]?.[dStr]) === String(empleadoActivo.id || empleadoActivo.empleado_id)) {
                                                    limpiezasGuardadas.push({ area, status: matrizLimpiezaGlobal.evaluaciones[area][dStr] });
                                                }
                                            });
@@ -422,7 +423,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                   Descanso
                                                 </div>
                                              ) : (
-                                                <div className={`text-[10px] font-black uppercase tracking-widest p-1.5 rounded border mb-1 ${diaHorario.pagado || (emp.metricas && emp.metricas.diasAuditados?.includes(dStr)) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                                                <div className={`text-[10px] font-black uppercase tracking-widest p-1.5 rounded border mb-1 ${diaHorario.pagado || (empleadoActivo.metricas && empleadoActivo.metricas.diasAuditados?.includes(dStr)) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
                                                   {diaHorario.entrada || '--:--'} a {diaHorario.salida || '--:--'}
                                                 </div>
                                              )}
