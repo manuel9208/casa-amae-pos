@@ -31,10 +31,8 @@ const FormularioProducto = ({
   const [aplicaSabores, setAplicaSabores] = useState(false);
   const [listaSabores, setListaSabores] = useState([{ nombre: '', extra: 0 }]);  
 
-  // Estado: Grupos Obligatorios de Ingredientes (Forzoso 1 opción)
+  // Grupos de Selección (Ahora almacenan objetos {id, cobrar})
   const [gruposObligatorios, setGruposObligatorios] = useState([]);
-
-  // 👇 NUEVO ESTADO: Grupos Opcionales con Límite (Ej. Elige hasta 4 vegetales)
   const [gruposOpcionales, setGruposOpcionales] = useState([]);
 
   const ingredientesParaClasifActiva = (catalogoIngredientes || []).filter(i => Number(i.clasificacion_id) === Number(categoriaSelect));  
@@ -59,14 +57,26 @@ const FormularioProducto = ({
   const toggleIngredienteGrupo = (gIndex, ingId, checked) => {
     const copia = [...gruposObligatorios];
     if (checked) {
-      copia[gIndex].ingredientesAgregados.push(Number(ingId));
+      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true });
     } else {
-      copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(id => id !== Number(ingId));
+      copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(i => (typeof i === 'object' ? i.id : i) !== Number(ingId));
+    }
+    setGruposObligatorios(copia);
+  };
+  const toggleCobroGrupo = (gIndex, ingId, cobrar) => {
+    const copia = [...gruposObligatorios];
+    const itemIndex = copia[gIndex].ingredientesAgregados.findIndex(i => (typeof i === 'object' ? i.id : i) === Number(ingId));
+    if (itemIndex > -1) {
+       if (typeof copia[gIndex].ingredientesAgregados[itemIndex] !== 'object') {
+           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar };
+       } else {
+           copia[gIndex].ingredientesAgregados[itemIndex].cobrar = cobrar;
+       }
     }
     setGruposObligatorios(copia);
   };
 
-  // 👇 Helpers Grupos Opcionales
+  // Helpers Grupos Opcionales
   const agregarGrupoOpcional = () => setGruposOpcionales([...gruposOpcionales, { nombreGrupo: '', limite: 1, ingredientesAgregados: [] }]);
   const eliminarGrupoOpcional = (index) => setGruposOpcionales(gruposOpcionales.filter((_, i) => i !== index));
   const actualizarNombreGrupoOpcional = (index, valor) => {
@@ -82,9 +92,21 @@ const FormularioProducto = ({
   const toggleIngredienteGrupoOpcional = (gIndex, ingId, checked) => {
     const copia = [...gruposOpcionales];
     if (checked) {
-      copia[gIndex].ingredientesAgregados.push(Number(ingId));
+      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true });
     } else {
-      copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(id => id !== Number(ingId));
+      copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(i => (typeof i === 'object' ? i.id : i) !== Number(ingId));
+    }
+    setGruposOpcionales(copia);
+  };
+  const toggleCobroGrupoOpcional = (gIndex, ingId, cobrar) => {
+    const copia = [...gruposOpcionales];
+    const itemIndex = copia[gIndex].ingredientesAgregados.findIndex(i => (typeof i === 'object' ? i.id : i) === Number(ingId));
+    if (itemIndex > -1) {
+       if (typeof copia[gIndex].ingredientesAgregados[itemIndex] !== 'object') {
+           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar };
+       } else {
+           copia[gIndex].ingredientesAgregados[itemIndex].cobrar = cobrar;
+       }
     }
     setGruposOpcionales(copia);
   };
@@ -105,7 +127,7 @@ const FormularioProducto = ({
     setAplicaSabores(false); setListaSabores([{ nombre: '', extra: 0 }]);
     setCheckedIngredientes([]);
     setGruposObligatorios([]); 
-    setGruposOpcionales([]); // 👇 Limpiamos los grupos opcionales
+    setGruposOpcionales([]);
     
     const fileInput = document.getElementById('imagen-producto-upload');
     if (fileInput) fileInput.value = '';
@@ -132,7 +154,7 @@ const FormularioProducto = ({
       let tieneSabores = false;
       const tempSabores = [];
       const loadedGruposMap = new Map(); 
-      const loadedGruposOpcionalesMap = new Map(); // 👇 Para parsear los Grupos Opcionales
+      const loadedGruposOpcionalesMap = new Map();
       
       const newTamanos = { 
         chico: { activo: false, extra: 0 }, 
@@ -159,9 +181,13 @@ const FormularioProducto = ({
             String(ci.nombre).trim().toLowerCase() === String(o.nombre).trim().toLowerCase() && 
             Number(ci.clasificacion_id) === Number(catId)
           );
-          if (catItem) loadedGruposMap.get(o.categoria).ingredientesAgregados.push(Number(catItem.id));
+          if (catItem) {
+              loadedGruposMap.get(o.categoria).ingredientesAgregados.push({
+                 id: Number(catItem.id),
+                 cobrar: Number(o.precioExtra) > 0
+              });
+          }
         } else if (o.tipo === 'grupo_opcional') {
-          // 👇 Cargar los ingredientes en sus respectivos grupos opcionales
           if (!loadedGruposOpcionalesMap.has(o.categoria)) {
             loadedGruposOpcionalesMap.set(o.categoria, { nombreGrupo: o.categoria, limite: Number(o.limite) || 1, ingredientesAgregados: [] });
           }
@@ -169,9 +195,13 @@ const FormularioProducto = ({
             String(ci.nombre).trim().toLowerCase() === String(o.nombre).trim().toLowerCase() && 
             Number(ci.clasificacion_id) === Number(catId)
           );
-          if (catItem) loadedGruposOpcionalesMap.get(o.categoria).ingredientesAgregados.push(Number(catItem.id));
+          if (catItem) {
+              loadedGruposOpcionalesMap.get(o.categoria).ingredientesAgregados.push({
+                 id: Number(catItem.id),
+                 cobrar: Number(o.precioExtra) > 0
+              });
+          }
         } else {
-          // Ingredientes Base
           const catItem = catalogoIngredientes.find(ci => 
             String(ci.nombre).trim().toLowerCase() === String(o.nombre).trim().toLowerCase() && 
             Number(ci.clasificacion_id) === Number(catId)
@@ -185,7 +215,7 @@ const FormularioProducto = ({
       setAplicaSabores(tieneSabores);
       setListaSabores(tempSabores.length > 0 ? tempSabores : [{ nombre: '', extra: 0 }]);
       setGruposObligatorios(Array.from(loadedGruposMap.values())); 
-      setGruposOpcionales(Array.from(loadedGruposOpcionalesMap.values())); // 👇 Llenar estado de grupos opcionales
+      setGruposOpcionales(Array.from(loadedGruposOpcionalesMap.values()));
       setCheckedIngredientes(Array.from(newChecksSet)); 
       setPrecio(p.precio_base);
     }
@@ -228,12 +258,14 @@ const FormularioProducto = ({
     // Grupos Obligatorios
     gruposObligatorios.forEach(grupo => {
       if (grupo.nombreGrupo.trim() !== '' && grupo.ingredientesAgregados.length > 0) {
-        grupo.ingredientesAgregados.forEach(id => {
-          const ing = catalogoIngredientes.find(i => Number(i.id) === Number(id));
+        grupo.ingredientesAgregados.forEach(item => {
+          const itemId = typeof item === 'object' ? item.id : item;
+          const itemCobrar = typeof item === 'object' ? item.cobrar : true;
+          const ing = catalogoIngredientes.find(i => Number(i.id) === Number(itemId));
           if (ing) {
             opcionesArmadas.push({
               nombre: ing.nombre,
-              precioExtra: Number(ing.precio_extra || 0),
+              precioExtra: itemCobrar ? Number(ing.precio_extra || 0) : 0,
               tipo: 'grupo_obligatorio',
               categoria: grupo.nombreGrupo.trim()
             });
@@ -242,15 +274,17 @@ const FormularioProducto = ({
       }
     });
 
-    // 👇 Inyectar Grupos Opcionales con Límite
+    // Grupos Opcionales
     gruposOpcionales.forEach(grupo => {
       if (grupo.nombreGrupo.trim() !== '' && grupo.ingredientesAgregados.length > 0) {
-        grupo.ingredientesAgregados.forEach(id => {
-          const ing = catalogoIngredientes.find(i => Number(i.id) === Number(id));
+        grupo.ingredientesAgregados.forEach(item => {
+          const itemId = typeof item === 'object' ? item.id : item;
+          const itemCobrar = typeof item === 'object' ? item.cobrar : true;
+          const ing = catalogoIngredientes.find(i => Number(i.id) === Number(itemId));
           if (ing) {
             opcionesArmadas.push({
               nombre: ing.nombre,
-              precioExtra: Number(ing.precio_extra || 0),
+              precioExtra: itemCobrar ? Number(ing.precio_extra || 0) : 0,
               tipo: 'grupo_opcional',
               categoria: grupo.nombreGrupo.trim(),
               limite: Number(grupo.limite) || 1
@@ -316,9 +350,8 @@ const FormularioProducto = ({
   };
 
   // Magia para evitar duplicidades visuales: 
-  const idsEnGrupos = new Set(gruposObligatorios.flatMap(g => g.ingredientesAgregados).map(Number));
-  // 👇 Añadimos los de grupos opcionales a la lista de "ya usados"
-  const idsEnGruposOpcionales = new Set(gruposOpcionales.flatMap(g => g.ingredientesAgregados).map(Number));
+  const idsEnGrupos = new Set(gruposObligatorios.flatMap(g => g.ingredientesAgregados).map(i => typeof i === 'object' ? Number(i.id) : Number(i)));
+  const idsEnGruposOpcionales = new Set(gruposOpcionales.flatMap(g => g.ingredientesAgregados).map(i => typeof i === 'object' ? Number(i.id) : Number(i)));
 
   return (
     <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-100 max-w-4xl mx-auto animate-in slide-in-from-bottom-4">
@@ -345,9 +378,14 @@ const FormularioProducto = ({
           </div>
           <div>
             <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Icono / Emoji</label>
+            {/* 👇 CORRECCIÓN: Optgroups restaurados para una selección ordenada */}
             <select value={emoji} onChange={e => setEmoji(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-2xl p-4 outline-none focus:border-blue-500 transition-all cursor-pointer text-center text-xl">
-              {Object.keys(EMOJIS_POR_GIRO).flatMap(k => EMOJIS_POR_GIRO[k]).map((em, idx) => (
-                <option key={idx} value={em}>{em}</option>
+              {Object.keys(EMOJIS_POR_GIRO).map(categoria => (
+                <optgroup key={categoria} label={categoria.toUpperCase()}>
+                  {EMOJIS_POR_GIRO[categoria].map((em, idx) => (
+                    <option key={idx} value={em}>{em}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -465,16 +503,33 @@ const FormularioProducto = ({
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Ingredientes pertenecientes a este grupo</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {ingredientesParaClasifActiva.map(ing => {
-                            const estaEnEsteGrupo = grupo.ingredientesAgregados.includes(ing.id);
+                            const estaEnEsteGrupoObj = grupo.ingredientesAgregados.find(i => (typeof i === 'object' ? i.id : i) === ing.id);
+                            const estaEnEsteGrupo = !!estaEnEsteGrupoObj;
+                            const cobrarExtra = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.cobrar : true;
+                            
                             const estaEnOtroGrupo = idsEnGrupos.has(ing.id) && !estaEnEsteGrupo;
                             const estaEnGrupoOpcional = idsEnGruposOpcionales.has(ing.id);
+                            const tienePrecio = Number(ing.precio_extra) > 0;
+
                             if (estaEnOtroGrupo || estaEnGrupoOpcional) return null;
 
                             return (
-                              <label key={ing.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition select-none ${estaEnEsteGrupo ? 'bg-purple-100 border-purple-400 text-purple-800 font-bold shadow-sm' : 'bg-white border-slate-200 text-slate-600 font-medium hover:border-slate-300'}`}>
-                                <input type="checkbox" checked={estaEnEsteGrupo} onChange={e => toggleIngredienteGrupo(gIndex, ing.id, e.target.checked)} className="accent-purple-600 w-4 h-4 rounded"/>
-                                <span className="text-sm truncate" title={ing.nombre}>{ing.nombre} {ing.precio_extra > 0 ? `(+$${ing.precio_extra})` : ''}</span>
-                              </label>
+                              <div key={ing.id} className={`flex flex-col p-2.5 rounded-lg border transition select-none ${estaEnEsteGrupo ? 'bg-purple-100 border-purple-400 text-purple-800 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={estaEnEsteGrupo} onChange={e => toggleIngredienteGrupo(gIndex, ing.id, e.target.checked)} className="accent-purple-600 w-4 h-4 rounded"/>
+                                  <span className={`text-sm truncate ${estaEnEsteGrupo ? 'font-black' : 'font-medium'}`} title={ing.nombre}>{ing.nombre}</span>
+                                </label>
+                                
+                                {/* 👇 BOTÓN MAGICO DE COBRO */}
+                                {estaEnEsteGrupo && tienePrecio && (
+                                  <div className="mt-2 pl-6 border-t border-purple-200/60 pt-2">
+                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-purple-700 hover:text-purple-900 transition">
+                                       <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupo(gIndex, ing.id, e.target.checked)} className="accent-purple-600 w-3 h-3"/>
+                                       {cobrarExtra ? `COBRAR EXTRA (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                     </label>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -485,7 +540,7 @@ const FormularioProducto = ({
               )}
             </div>
 
-            {/* 👇 NUEVA SECCIÓN DE GRUPOS OPCIONALES CON LÍMITE */}
+            {/* SECCIÓN DE GRUPOS OPCIONALES CON LÍMITE */}
             <div className="bg-emerald-50/40 p-6 rounded-3xl border border-emerald-200 mt-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
                 <div>
@@ -522,16 +577,33 @@ const FormularioProducto = ({
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Ingredientes pertenecientes a este grupo</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {ingredientesParaClasifActiva.map(ing => {
-                            const estaEnEsteGrupo = grupo.ingredientesAgregados.includes(ing.id);
+                            const estaEnEsteGrupoObj = grupo.ingredientesAgregados.find(i => (typeof i === 'object' ? i.id : i) === ing.id);
+                            const estaEnEsteGrupo = !!estaEnEsteGrupoObj;
+                            const cobrarExtra = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.cobrar : true;
+
                             const estaEnOtroGrupoObligatorio = idsEnGrupos.has(ing.id);
                             const estaEnOtroGrupoOpcional = idsEnGruposOpcionales.has(ing.id) && !estaEnEsteGrupo;
+                            const tienePrecio = Number(ing.precio_extra) > 0;
+
                             if (estaEnOtroGrupoObligatorio || estaEnOtroGrupoOpcional) return null;
 
                             return (
-                              <label key={ing.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition select-none ${estaEnEsteGrupo ? 'bg-emerald-100 border-emerald-400 text-emerald-800 font-bold shadow-sm' : 'bg-white border-slate-200 text-slate-600 font-medium hover:border-slate-300'}`}>
-                                <input type="checkbox" checked={estaEnEsteGrupo} onChange={e => toggleIngredienteGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-emerald-600 w-4 h-4 rounded"/>
-                                <span className="text-sm truncate" title={ing.nombre}>{ing.nombre} {ing.precio_extra > 0 ? `(+$${ing.precio_extra})` : ''}</span>
-                              </label>
+                              <div key={ing.id} className={`flex flex-col p-2.5 rounded-lg border transition select-none ${estaEnEsteGrupo ? 'bg-emerald-100 border-emerald-400 text-emerald-800 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={estaEnEsteGrupo} onChange={e => toggleIngredienteGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-emerald-600 w-4 h-4 rounded"/>
+                                  <span className={`text-sm truncate ${estaEnEsteGrupo ? 'font-black' : 'font-medium'}`} title={ing.nombre}>{ing.nombre}</span>
+                                </label>
+                                
+                                {/* 👇 BOTÓN MAGICO DE COBRO */}
+                                {estaEnEsteGrupo && tienePrecio && (
+                                  <div className="mt-2 pl-6 border-t border-emerald-200/60 pt-2">
+                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-emerald-700 hover:text-emerald-900 transition">
+                                       <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-emerald-600 w-3 h-3"/>
+                                       {cobrarExtra ? `COBRAR EXTRA (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                     </label>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -547,7 +619,6 @@ const FormularioProducto = ({
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Ingredientes Base (Modificables Con/Sin)</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
                 {ingredientesParaClasifActiva.map(ing => {
-                  // Magia: Ocultamos si ya está en grupo obligatorio u opcional
                   if (idsEnGrupos.has(ing.id) || idsEnGruposOpcionales.has(ing.id)) return null;
 
                   return (

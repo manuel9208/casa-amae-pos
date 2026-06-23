@@ -172,7 +172,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0); 
       setCuponActivo(null); setDescuentoCuponDinero(0);
       
-      // 👇 Retornar a la Caja en lugar de cerrar sesión
       if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
     } else { 
       if (mesaQR) {
@@ -325,7 +324,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     setPromocionVigente(null); 
   };
 
-  // 👇 NUEVO: FUNCIÓN PARA GUARDAR DIRECTO SIN PASAR POR CHECKOUT
   const guardarEdicionDirecta = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -361,7 +359,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       });
 
       if (res.ok) {
-         reiniciarKiosco(); // Regresa al cajero instantáneamente
+         reiniciarKiosco(); 
       } else {
          alert("Error al actualizar la orden en el servidor.");
       }
@@ -447,8 +445,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           setDescuentoPuntosPuntosFisicos={setDescuentoPuntosPuntosFisicos} cuponActivo={cuponActivo}
           setCuponActivo={setCuponActivo} descuentoCuponDinero={descuentoCuponDinero} apiUrl={apiUrl} mesaQR={mesaQR} isOffline={isOffline} 
           setPromocionVigente={setPromocionVigente}
-          
-          // 👇 AQUÍ ES DONDE FALTABA PASAR LAS PROPS. ESTA VEZ SÍ SE VAN AL HIJO.
           guardarEdicionDirecta={guardarEdicionDirecta} 
           isSubmitting={isSubmitting} 
         />
@@ -497,6 +493,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           itemAEditar={itemAEditar} setItemAEditar={setItemAEditar}
           carrito={carrito} setCarrito={setCarrito} 
           catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones}
+          configGlobal={configGlobal}
         />
       )}
 

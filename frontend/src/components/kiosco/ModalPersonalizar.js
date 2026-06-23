@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { CheckSquare, Square, Gift } from 'lucide-react';
+import { CheckSquare, Square } from 'lucide-react';
 
 const ModalPersonalizar = ({ 
   productoEnEspera, setProductoEnEspera, 
   itemAEditar, setItemAEditar, 
   carrito, setCarrito, 
-  catalogoIngredientes, clasificaciones 
+  catalogoIngredientes, clasificaciones,
+  configGlobal = {} // 👈 INYECTADO PARA LEER POLÍTICAS DE SUSTITUCIÓN DESDE LA BD
 }) => {
 
   const [cantidadProducto, setCantidadProducto] = useState(1);
@@ -14,6 +15,11 @@ const ModalPersonalizar = ({
   const [ingredientesRemovidos, setIngredientesRemovidos] = useState([]);
   const [variacionesSeleccionadas, setVariacionesSeleccionadas] = useState({});
   const [gruposOpcionalesSeleccionados, setGruposOpcionalesSeleccionados] = useState({});
+  
+  // 👇 NUEVOS ESTADOS PARA GESTIONAR LAS SUSTITUCIONES EN TIEMPO REAL
+  const [ingredientesSustituidos, setIngredientesSustituidos] = useState({});
+  const [ingredienteDesplegado, setIngredienteDesplegado] = useState(null);
+
   const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
 
   const [promociones, setPromociones] = useState([]);
@@ -34,6 +40,7 @@ const ModalPersonalizar = ({
       const extrasTemp = []; 
       const variacionesTemp = {}; 
       const gruposOpcTemp = {}; 
+      const sustTemp = {}; 
       let notaTemp = '';
 
       (itemAEditar.extras || []).forEach(e => { 
@@ -50,6 +57,11 @@ const ModalPersonalizar = ({
              gruposOpcTemp[parts[0]].push({ nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] });
           }
         } 
+        // 👇 CARGAR SUSTITUCIONES PREVIAS SI ESTAMOS EDITANDO UN ITEM EN EL CARRITO
+        else if (e.nombre.startsWith('🔄 Cambio: ')) {
+          const parts = e.nombre.replace('🔄 Cambio: ', '').split(' x ');
+          if (parts.length === 2) sustTemp[parts[0]] = { nuevoNombre: parts[1], precioCalculado: e.precioExtra };
+        }
         else if (e.nombre.startsWith('Extra ')) extrasTemp.push({ nombre: e.nombre.replace('Extra ', ''), precioExtra: e.precioExtra }); 
       });
       
@@ -58,11 +70,14 @@ const ModalPersonalizar = ({
       setNotaEspecial(notaTemp); 
       setVariacionesSeleccionadas(variacionesTemp); 
       setGruposOpcionalesSeleccionados(gruposOpcTemp);
+      setIngredientesSustituidos(sustTemp); 
       setCantidadProducto(itemAEditar.cantidad || 1); 
     } else {
       setExtrasAgregados([]); setIngredientesRemovidos([]); setNotaEspecial(''); setCantidadProducto(1); 
       setVariacionesSeleccionadas({});
       setGruposOpcionalesSeleccionados({});
+      setIngredientesSustituidos({}); 
+      setIngredienteDesplegado(null);
     }
     setPasoPersonalizacion(0);
   }, [productoEnEspera, itemAEditar]);
@@ -122,12 +137,39 @@ const ModalPersonalizar = ({
     cerrarModal();
   };
 
+  // 👇 MOTOR MATEMÁTICO DE SUSTITUCIONES DINÁMICAS SINCRO BD
+  const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
+    let politicas = { activa: false, modalidad: 'proporcional', tarifa_fija: 0 };
+    try {
+        if (configGlobal && configGlobal.politicas_sustitucion) {
+            politicas = typeof configGlobal.politicas_sustitucion === 'string' 
+                ? JSON.parse(configGlobal.politicas_sustitucion) 
+                : configGlobal.politicas_sustitucion;
+        }
+    } catch(e) {}
+
+    if (!politicas.activa) return 0;
+    if (politicas.modalidad === 'fija') return Number(politicas.tarifa_fija || 0);
+
+    // Modalidad Diferencia Proporcional de Precios
+    const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
+    const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
+
+    const precioBase = Number(ingBase?.precio_extra || 0);
+    const precioNuevo = Number(ingNuevo?.precio_extra || 0);
+
+    const diferencia = precioNuevo - precioBase;
+    return diferencia > 0 ? diferencia : 0; 
+  };
+
   if (!productoEnEspera) return null;
 
+  // 👇 RE-CALCULO DEL TOTAL INYECTANDO EL VALOR DE LAS SUSTITUCIONES ELEGIDAS
   const totalPlatilloCalculado = (Number(productoEnEspera.precio_base) + 
     extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
     Object.values(variacionesSeleccionadas).reduce((s, v) => s + Number(v.precioExtra || 0), 0) +
-    Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra || 0), 0)
+    Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra || 0), 0) +
+    Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0)
   ) * cantidadProducto;
 
   const objGruposOpcionales = {};
@@ -168,12 +210,15 @@ const ModalPersonalizar = ({
 
   const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
   if (bases.length > 0) {
-      pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: '¿Quitar Ingredientes?', opciones: bases });
+      pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
   }
 
   pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
   const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
   if (!pasoActualObj) return null;
+
+  let politicasSustUI = { activa: false };
+  try { if (configGlobal && configGlobal.politicas_sustitucion) politicasSustUI = typeof configGlobal.politicas_sustitucion === 'string' ? JSON.parse(configGlobal.politicas_sustitucion) : configGlobal.politicas_sustitucion; } catch(e){}
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
@@ -254,20 +299,78 @@ const ModalPersonalizar = ({
              </div>
           )}
 
+          {/* 👇 INTEGRACIÓN DE SUSTITUCIONES RESPETANDO EL BOTÓN ORIGINAL DE "SOLO QUITAR" */}
           {pasoActualObj.tipo === 'quitar_ingredientes' && (
             <div className="animate-in slide-in-from-right duration-200 space-y-4">
-              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar algún ingrediente?</p>
-              <div className="space-y-2">
+              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar o cambiar un ingrediente?</p>
+              <div className="space-y-3">
                 {pasoActualObj.opciones.map((o, idx) => {
                   const isBaseQuitada = ingredientesRemovidos.includes(o.nombre);
+                  const isSustituida = ingredientesSustituidos[o.nombre];
+                  const isSelectingSust = ingredienteDesplegado === o.nombre;
+
                   return (
-                    <button key={idx} onClick={() => {
-                      if (isBaseQuitada) setIngredientesRemovidos(ingredientesRemovidos.filter(i => i !== o.nombre));
-                      else setIngredientesRemovidos([...ingredientesRemovidos, o.nombre]);
-                    }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                      <span className={isBaseQuitada ? 'line-through' : ''}>{o.nombre}</span>
-                      <span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
-                    </button>
+                    <div key={idx} className={`p-4 rounded-xl transition border ${isBaseQuitada ? 'bg-rose-50 border-rose-200' : isSustituida ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-emerald-50 border-emerald-200'}`}>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <span className={`font-bold text-sm ${isBaseQuitada ? 'line-through text-rose-500' : isSustituida ? 'text-blue-700' : 'text-emerald-700'}`}>
+                                {o.nombre} {isSustituida ? `(🔄 x ${isSustituida.nuevoNombre})` : ''}
+                            </span>
+                            
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <button type="button" onClick={() => {
+                                    if (isBaseQuitada) setIngredientesRemovidos(ingredientesRemovidos.filter(i => i !== o.nombre));
+                                    else {
+                                        setIngredientesRemovidos([...ingredientesRemovidos, o.nombre]);
+                                        const newSust = {...ingredientesSustituidos};
+                                        delete newSust[o.nombre];
+                                        setIngredientesSustituidos(newSust);
+                                        setIngredienteDesplegado(null);
+                                    }
+                                }} className={`flex-1 sm:flex-none px-3 py-2 text-xs font-black rounded-lg transition ${isBaseQuitada ? 'bg-rose-500 text-white shadow-sm' : 'bg-white text-rose-500 border border-rose-200 hover:bg-rose-50'}`}>
+                                    {isBaseQuitada ? 'Deshacer ❌' : 'Solo Quitar'}
+                                </button>
+                                
+                                {politicasSustUI.activa && (
+                                    <button type="button" onClick={() => {
+                                        if (isSustituida) {
+                                            const newSust = {...ingredientesSustituidos};
+                                            delete newSust[o.nombre];
+                                            setIngredientesSustituidos(newSust);
+                                        } else {
+                                            setIngredientesRemovidos(ingredientesRemovidos.filter(i => i !== o.nombre));
+                                            setIngredienteDesplegado(isSelectingSust ? null : o.nombre);
+                                        }
+                                    }} className={`flex-1 sm:flex-none px-3 py-2 text-xs font-black rounded-lg transition ${isSustituida ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-600 border border-blue-200 hover:bg-blue-50'}`}>
+                                        {isSustituida ? 'Deshacer 🔄' : 'Cambiar por...'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* SELECTOR DE EXTAS DISPONIBLES EN ESTA CATEGORÍA */}
+                        {isSelectingSust && !isSustituida && !isBaseQuitada && (
+                            <div className="mt-4 pt-4 border-t border-emerald-200/50 animate-in fade-in zoom-in-95">
+                                <p className="text-[10px] uppercase font-black text-slate-500 mb-3 tracking-widest">Elige el ingrediente de reemplazo:</p>
+                                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                    {catalogoIngredientes.filter(i => 
+                                        (i.clasificacion_id === productoEnEspera.clasificacion_id || i.es_extra || i.tipo === 'extra') && 
+                                        i.permite_extra !== false
+                                    ).map((ex, idxEx) => {
+                                        const extraCost = calcularPrecioSustitucion(o.nombre, ex.nombre);
+                                        return (
+                                            <button key={idxEx} type="button" onClick={() => {
+                                                setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ex.nombre, precioCalculado: extraCost }});
+                                                setIngredienteDesplegado(null);
+                                            }} className="text-left p-3 rounded-xl bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm transition group">
+                                                <p className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-800">{ex.nombre}</p>
+                                                <p className="text-[10px] font-black mt-0.5 text-blue-500">{extraCost > 0 ? `+$${extraCost.toFixed(2)}` : 'Gratis'}</p>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                   )
                 })}
               </div>
@@ -297,7 +400,7 @@ const ModalPersonalizar = ({
                       {extrasTodos.map((ex, idx) => {
                         const seleccionado = extrasAgregados.find(e => e.nombre === ex.nombre);
                         return (
-                          <button key={idx} onClick={() => {
+                          <button key={idx} type="button" onClick={() => {
                             if (seleccionado) setExtrasAgregados(extrasAgregados.filter(e => e.nombre !== ex.nombre));
                             else setExtrasAgregados([...extrasAgregados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
                           }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
@@ -325,14 +428,14 @@ const ModalPersonalizar = ({
           <div className="flex justify-between items-center mb-6">
             {pasoActualObj.tipo === 'extras_notas' ? (
                 <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
-                  <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
+                  <button type="button" onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
                   <span className="px-4 font-black text-xl">{cantidadProducto}</span>
-                  <button onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">+</button>
+                  <button type="button" onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">+</button>
                 </div>
             ) : (
                 <div className="flex items-center">
                     {['opcional', 'quitar_ingredientes'].includes(pasoActualObj.tipo) && (
-                       <button onClick={() => setPasoPersonalizacion(p => p + 1)} className="bg-emerald-500 text-white font-black px-6 py-3 rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition">
+                       <button type="button" onClick={() => setPasoPersonalizacion(p => p + 1)} className="bg-emerald-500 text-white font-black px-6 py-3 rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition">
                           Siguiente ➡
                        </button>
                     )}
@@ -348,13 +451,19 @@ const ModalPersonalizar = ({
           </div>
 
           <div className="flex gap-4">
-            <button onClick={cerrarModal} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
+            <button type="button" onClick={cerrarModal} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
             
             {pasoActualObj.tipo === 'extras_notas' && (
-              <button onClick={() => {
+              <button type="button" onClick={() => {
                 const extrasFinales = [];
-                Object.values(variacionesSeleccionadas).forEach(v => extrasFinales.push({ nombre: `🔸 ${v.categoria}: ${v.nombre}`, precioExtra: v.precioExtra, tipo: 'grupo_obligatorio' }));
+                Object.values(variacionesSeleccionadas).forEach(v => extrasFinales.push({ nombre: `🔸 ${v.category || v.categoria}: ${v.nombre}`, precioExtra: v.precioExtra, tipo: 'grupo_obligatorio' }));
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));
+                
+                // 👇 ADJUNTAR LAS SUSTITUCIONES REALIZADAS AL HISTORIAL DE EXTRAS PARA COCINA Y TICKET
+                Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
+                    extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculated || data.precioCalculado, tipo: 'sustitucion' });
+                });
+
                 ingredientesRemovidos.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
                 extrasAgregados.forEach(ex => extrasFinales.push({ nombre: `Extra ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                 if (notaEspecial.trim() !== '') extrasFinales.push({ nombre: `📝 Nota: ${notaEspecial.trim()}`, precioExtra: 0, tipo: 'nota' });
@@ -362,6 +471,7 @@ const ModalPersonalizar = ({
                 const precioIndividualCalculado = Number(productoEnEspera.precio_base) + 
                   Object.values(variacionesSeleccionadas).reduce((s, v) => s + (v.precioExtra || 0), 0) + 
                   Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + 
+                  Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) + 
                   extrasAgregados.reduce((s, e) => s + Number(e.precioExtra), 0);
                 
                 const nuevoItem = {
@@ -408,12 +518,12 @@ const ModalPersonalizar = ({
           </div>
         </div>
 
-        {/* MODAL PROMOCIÓN / UPSELL KIOSCO */}
+        {/* MODAL PROMOCIÓN / UPSELL */}
         {promocionVigente && (
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4">
             <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
               <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                 <Gift size={48} />
+                 <span className="text-5xl">🎁</span>
               </div>
               <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Oferta Especial! 🔥</h2>
               <p className="text-slate-500 font-medium mb-6">¿Te gustaría agregar esto a tu orden?</p>
@@ -429,8 +539,8 @@ const ModalPersonalizar = ({
               </div>
               
               <div className="flex flex-col gap-3">
-                <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
-                <button onClick={() => { setPromocionVigente(null); cerrarModal(); }} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
+                <button type="button" onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
+                <button type="button" onClick={() => { setPromocionVigente(null); cerrarModal(); }} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
               </div>
             </div>
           </div>

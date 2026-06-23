@@ -29,6 +29,10 @@ const ModalPuntoVenta = ({
   const [saborSeleccionado, setSaborSeleccionado] = useState(null);
   const [extrasSeleccionados, setExtrasSeleccionados] = useState([]);
   const [ingredientesBase, setIngredientesBase] = useState([]);
+  
+  const [ingredientesSustituidos, setIngredientesSustituidos] = useState({});
+  const [ingredienteDesplegado, setIngredienteDesplegado] = useState(null);
+
   const [notaProducto, setNotaProducto] = useState('');
   const [cantidadProducto, setCantidadProducto] = useState(1);
   const [tipoConsumo, setTipoConsumo] = useState('Local');
@@ -53,6 +57,7 @@ const ModalPuntoVenta = ({
     setProductoEnEspera(null); setOpcionSeleccionada(null); setSaborSeleccionado(null);
     setExtrasSeleccionados([]); setIngredientesBase([]); setNotaProducto(''); setCantidadProducto(1);
     setPasoPersonalizacion(0); setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({});
+    setIngredientesSustituidos({}); setIngredienteDesplegado(null); 
   };
 
   useEffect(() => {
@@ -269,7 +274,7 @@ const ModalPuntoVenta = ({
     }
 
     const paquete = {
-      cliente_id: empleadoComedor ? null : (clienteAsignado?.id || null),
+      client_id: empleadoComedor ? null : (clienteAsignado?.id || null),
       tipo_consumo: tipoFinal, metodo_pago: pagoFinal,
       total: empleadoComedor ? 0 : totalConEnvio,
       costo_envio: costoEnvioFinal,
@@ -338,6 +343,29 @@ const ModalPuntoVenta = ({
     generarPedidoBD('Mandar a Cocina', empleadoActivo);
   };
 
+  const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
+    let politicas = { activa: false, modalidad: 'proporcional', tarifa_fija: 0 };
+    try {
+        if (configGlobal && configGlobal.politicas_sustitucion) {
+            politicas = typeof configGlobal.politicas_sustitucion === 'string' 
+                ? JSON.parse(configGlobal.politicas_sustitucion) 
+                : configGlobal.politicas_sustitucion;
+        }
+    } catch(e) {}
+
+    if (!politicas.activa) return 0;
+    if (politicas.modalidad === 'fija') return Number(politicas.tarifa_fija || 0);
+
+    const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
+    const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
+
+    const precioBase = Number(ingBase?.precio_extra || 0);
+    const precioNuevo = Number(ingNuevo?.precio_extra || 0);
+
+    const diferencia = precioNuevo - precioBase;
+    return diferencia > 0 ? diferencia : 0; 
+  };
+
   let pasosWiz = [];
   if (productoEnEspera) {
      const tamanosList = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
@@ -377,18 +405,20 @@ const ModalPuntoVenta = ({
 
      const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
      if (bases.length > 0) {
-         pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: '¿Quitar Ingredientes?', opciones: bases });
+         pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
      }
      
      pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
   }
   const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
 
-  // Teléfono Opcional en Para Llevar, Obligatorio en Domicilio y Recoger
   const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
     (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
+
+  let politicasSustUI = { activa: false };
+  try { if (configGlobal && configGlobal.politicas_sustitucion) politicasSustUI = typeof configGlobal.politicas_sustitucion === 'string' ? JSON.parse(configGlobal.politicas_sustitucion) : configGlobal.politicas_sustitucion; } catch(e){}
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
@@ -692,6 +722,7 @@ const ModalPuntoVenta = ({
                         else if (pasoActualObj.tipo === 'grupo_opcional') estaSeleccionado = (gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).some(x => x.nombre === o.nombre);
 
                         const seleccionadosActuales = gruposOpcionalesSeleccionados[pasoActualObj.categoria] || [];
+                        // 👇 REGLA FIX LÍNEA 726: Removido el espacio en blanco fantasma de la variable
                         const yaLlegoAlLimite = pasoActualObj.tipo === 'grupo_opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
                         const disabled = yaLlegoAlLimite && !estaSeleccionado;
 
@@ -732,20 +763,77 @@ const ModalPuntoVenta = ({
                   </div>
                 )}
 
+                {/* MODIFICAR INGREDIENTES BASE CON SUSTITUCIONES */}
                 {pasoActualObj.tipo === 'quitar_ingredientes' && (
                   <div className="animate-in slide-in-from-right duration-200 space-y-4">
-                    <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar algún ingrediente?</p>
-                    <div className="space-y-2">
+                    <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar o cambiar algún ingrediente?</p>
+                    <div className="space-y-3">
                       {pasoActualObj.opciones.map((o, idx) => {
                         const isBaseQuitada = ingredientesBase.includes(o.nombre);
+                        const isSustituida = ingredientesSustituidos[o.nombre];
+                        const isSelectingSust = ingredienteDesplegado === o.nombre;
+
                         return (
-                          <button key={idx} onClick={() => {
-                            if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
-                            else setIngredientesBase([...ingredientesBase, o.nombre]);
-                          }} className={`w-full flex justify-between items-center p-4 rounded-xl font-bold transition border ${isBaseQuitada ? 'bg-rose-50 text-rose-500 border-rose-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
-                            <span className={isBaseQuitada ? 'line-through' : ''}>{o.nombre}</span>
-                            <span>{isBaseQuitada ? 'Sin ❌' : 'Con ✅'}</span>
-                          </button>
+                          <div key={idx} className={`p-4 rounded-xl transition border ${isBaseQuitada ? 'bg-rose-50 border-rose-200' : isSustituida ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-emerald-50 border-emerald-200'}`}>
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                  <span className={`font-bold text-sm ${isBaseQuitada ? 'line-through text-rose-500' : isSustituida ? 'text-blue-700' : 'text-emerald-700'}`}>
+                                      {o.nombre} {isSustituida ? `(🔄 x ${isSustituida.nuevoNombre})` : ''}
+                                  </span>
+                                  
+                                  <div className="flex gap-2 w-full sm:w-auto">
+                                      <button onClick={() => {
+                                          if (isBaseQuitada) setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
+                                          else {
+                                              setIngredientesBase([...ingredientesBase, o.nombre]);
+                                              const newSust = {...ingredientesSustituidos};
+                                              delete newSust[o.nombre];
+                                              setIngredientesSustituidos(newSust);
+                                              setIngredienteDesplegado(null);
+                                          }
+                                      }} className={`flex-1 sm:flex-none px-3 py-2 text-xs font-black rounded-lg transition ${isBaseQuitada ? 'bg-rose-500 text-white shadow-sm' : 'bg-white text-rose-500 border border-rose-200 hover:bg-rose-50'}`}>
+                                          {isBaseQuitada ? 'Deshacer ❌' : 'Solo Quitar'}
+                                      </button>
+                                      
+                                      {politicasSustUI.activa && (
+                                          <button onClick={() => {
+                                              if (isSustituida) {
+                                                  const newSust = {...ingredientesSustituidos};
+                                                  delete newSust[o.nombre];
+                                                  setIngredientesSustituidos(newSust);
+                                              } else {
+                                                  setIngredientesBase(ingredientesBase.filter(i => i !== o.nombre));
+                                                  setIngredienteDesplegado(isSelectingSust ? null : o.nombre);
+                                              }
+                                          }} className={`flex-1 sm:flex-none px-3 py-2 text-xs font-black rounded-lg transition ${isSustituida ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-blue-600 border border-blue-200 hover:bg-blue-50'}`}>
+                                              {isSustituida ? 'Deshacer 🔄' : 'Cambiar por...'}
+                                          </button>
+                                      )}
+                                  </div>
+                              </div>
+
+                              {isSelectingSust && !isSustituida && !isBaseQuitada && (
+                                  <div className="mt-4 pt-4 border-t border-emerald-200/50 animate-in fade-in zoom-in-95">
+                                      <p className="text-[10px] uppercase font-black text-slate-500 mb-3 tracking-widest">Elige el ingrediente a sustituir:</p>
+                                      <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                          {catalogoIngredientes.filter(i => 
+                                              (i.clasificacion_nombre === (productoEnEspera.categoria || '') || i.es_extra || i.tipo === 'extra') && 
+                                              i.permite_extra !== false
+                                          ).map((ex, idxEx) => {
+                                              const extraCost = calcularPrecioSustitucion(o.nombre, ex.nombre);
+                                              return (
+                                                  <button key={idxEx} onClick={() => {
+                                                      setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ex.nombre, precioCalculado: extraCost }});
+                                                      setIngredienteDesplegado(null);
+                                                  }} className="text-left p-3 rounded-xl bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm transition group">
+                                                      <p className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-800">{ex.nombre}</p>
+                                                      <p className="text-[10px] font-black mt-0.5 text-blue-500">{extraCost > 0 ? `+$${extraCost.toFixed(2)}` : 'Gratis'}</p>
+                                                  </button>
+                                              )
+                                          })}
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
                         )
                       })}
                     </div>
@@ -757,9 +845,9 @@ const ModalPuntoVenta = ({
                     <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">Añadir Extras (Opcional)</p>
                     
                     {(() => {
-                      const categoriaItem = productoEnEspera.categoria || '';
+                      const categoryItem = productoEnEspera.categoria || '';
                       const extrasDelSistema = catalogoIngredientes.filter(i => 
-                        (i.clasificacion_nombre === categoriaItem || i.es_extra || i.tipo === 'extra') && 
+                        (i.clasificacion_nombre === categoryItem || i.es_extra || i.tipo === 'extra') && 
                         i.permite_extra !== false
                       );
                       
@@ -824,6 +912,7 @@ const ModalPuntoVenta = ({
                          (saborSeleccionado?.precioExtra || 0) + 
                          Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
                          Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
+                         Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
                          extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0)) * cantidadProducto).toFixed(2)}
                     </p>
                   </div>
@@ -846,11 +935,15 @@ const ModalPuntoVenta = ({
                           extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' });
                       });
 
+                      Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
+                          extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado, tipo: 'sustitucion' });
+                      });
+
                       ingredientesBase.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
                       extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                       if (notaProducto.trim() !== '') extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
-                      const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) + Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
+                      const precioIndividualCalculado = Number(productoEnEspera.precio_base) + (opcionSeleccionada?.precioExtra || 0) + (saborSeleccionado?.precioExtra || 0) + Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) + Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) + extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
                       
                       let nombreCompleto = productoEnEspera.nombre;
                       if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
@@ -871,7 +964,6 @@ const ModalPuntoVenta = ({
 
                       setCarrito([...carrito, nuevoItem]);
 
-                      // 👇 DISPARADOR DE PROMOCIÓN
                       const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
                       if (promo) {
                           setPromocionVigente(promo);
@@ -888,7 +980,7 @@ const ModalPuntoVenta = ({
           </div>
         )}
 
-        {/* 👇 MODAL PROMOCIÓN / UPSELL */}
+        {/* MODAL PROMOCIÓN / UPSELL */}
         {promocionVigente && (
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4">
             <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
@@ -913,8 +1005,8 @@ const ModalPuntoVenta = ({
               </div>
               
               <div className="flex flex-col gap-3">
-                <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
-                <button onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
+                <button type="button" onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
+                <button type="button" onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
               </div>
             </div>
           </div>

@@ -11,10 +11,11 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [periodo, setPeriodo] = useState('semana');
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroUsuario, setFiltroUsuario] = useState('Todos');
+  const [refreshToggle, setRefreshToggle] = useState(false); // 👈 Forzador de renderizado para UI instantánea
   
   // Configuraciones de Tolerancia
-  const [minutosTolerancia, setMinutosTolerancia] = useState(15); // Para retardos al entrar
-  const [toleranciaSalida, setToleranciaSalida] = useState(30);   // Límite de minutos después de la hora de salida para cortar el turno
+  const [minutosTolerancia, setMinutosTolerancia] = useState(15); 
+  const [toleranciaSalida, setToleranciaSalida] = useState(30);   
 
   const cargarReportes = useCallback(async () => {
     try {
@@ -76,6 +77,35 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     return fechas;
   };
 
+  // 🛡️ ACCIÓN DE AUDITORÍA (Guardado directo a Base de Datos)
+  const guardarAuditoria = async (empId, fecha, tipo, decision) => {
+    try {
+        const emp = usuariosDB.find(u => u.id === empId);
+        if (!emp) return;
+
+        const horActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+        
+        if (!horActual[fecha]) horActual[fecha] = {};
+        if (!horActual[fecha].auditoria) horActual[fecha].auditoria = {};
+        
+        horActual[fecha].auditoria[tipo] = decision;
+
+        const res = await fetch(`${apiUrl}/usuarios/${empId}/horario`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ horario_semanal: horActual })
+        });
+
+        if (res.ok) {
+            // Mutación local segura para reflejar el cambio al instante sin recargar la página entera
+            emp.horario_semanal = JSON.stringify(horActual); 
+            setRefreshToggle(!refreshToggle);
+        }
+    } catch (e) {
+        console.error("Error al guardar la auditoría", e);
+    }
+  };
+
   // ======================================================================
   // 🧠 MOTOR INTELIGENTE DE PROCESAMIENTO MATRICIAL Y FUSIÓN DE CHECADAS
   // ======================================================================
@@ -99,11 +129,11 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             const esDescanso = descansos.includes(nombreDia);
             const esDiaLaboral = confDia.activo === true && !esDescanso;
 
-            // 1. EXTRAER Y FUSIONAR TODAS LAS CHECADAS DE ESTE DÍA PARA ESTE EMPLEADO
+            const auditoriaDia = hor[fechaStr]?.auditoria || {};
+
             const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));
 
             if (checkinsDelDia.length > 0) {
-                // Buscamos la primera entrada y la última salida
                 let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
                 let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
                 let tieneNullSalida = !checkinsDelDia[0].hora_salida;
@@ -120,7 +150,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     }
                 }
 
-                // 2. APLICAR TOPE DE SEGURIDAD Y TOLERANCIA DE SALIDA
                 let outTime;
                 let olvidoSalida = false;
                 let turnoActivo = false;
@@ -132,12 +161,10 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     let dateLimit = new Date(fechaStr + 'T00:00:00');
                     dateLimit.setHours(hOut, mOut, 0, 0);
 
-                    // Si la salida oficial es de madrugada (menor a la entrada), sumamos un día al límite
                     if (hOut < hIn) {
                         dateLimit.setDate(dateLimit.getDate() + 1);
                     }
                     
-                    // Añadimos la tolerancia máxima permitida
                     dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
                     limiteSalidaTime = dateLimit.getTime();
                 }
@@ -148,13 +175,12 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         turnoActivo = true;
                     } else {
                         olvidoSalida = true;
-                        outTime = limiteSalidaTime || minEntrada.getTime(); // Topamos a su límite oficial
+                        outTime = limiteSalidaTime || minEntrada.getTime(); 
                     }
                 } else {
-                    // Tienen hora de salida, verificamos si excede el límite permitido absurdamente
                     if (limiteSalidaTime && maxSalida.getTime() > limiteSalidaTime) {
                         olvidoSalida = true;
-                        outTime = limiteSalidaTime; // Topar horas para evitar jornadas de 15hrs
+                        outTime = limiteSalidaTime; 
                     } else {
                         outTime = maxSalida.getTime();
                     }
@@ -166,14 +192,15 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                 const strEntrada = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
                 const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(outTime).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));
 
-                // Verificamos si hubo retardo en la entrada
                 let esRetardo = false;
+                let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;
+
                 if (confDia.entrada) {
-                    const [hIn, mIn] = confDia.entrada.split(':').map(Number);
+                    [hOfIn, mOfIn] = confDia.entrada.split(':').map(Number);
                     const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-                    const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
+                    [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
                     
-                    const minOficiales = (hIn * 60) + mIn;
+                    const minOficiales = (hOfIn * 60) + mOfIn;
                     const minReales = (hReal * 60) + mReal;
 
                     if (minReales > (minOficiales + minutosTolerancia)) {
@@ -193,31 +220,77 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
                 };
 
-                // 3. CLASIFICACIÓN (DÍAS OFICIALES VS ANOMALÍAS)
+                // Si olvidó checar, es una anomalía para auditar
+                if (olvidoSalida) {
+                    anomalas.push({
+                        ...record,
+                        tipo: 'olvido_salida',
+                        motivo: `Olvidó checar salida. Se recortó a su límite de ${confDia.salida || 'jornada'} + ${toleranciaSalida}min.`,
+                        estadoAuditoria: auditoriaDia['olvido_salida']
+                    });
+                }
+
+                // Clasificación Oficial VS Anomalías
                 if (!esDiaLaboral) {
-                    anomalas.push({ ...record, motivo: esDescanso ? 'Checada en su Día de Descanso' : 'Día Inactivo en Configuración' });
+                    anomalas.push({ 
+                        ...record, 
+                        tipo: 'anomalia_descanso',
+                        motivo: esDescanso ? 'Checó en su Día de Descanso Oficial.' : 'Checó en un Día Inactivo.',
+                        estadoAuditoria: auditoriaDia['anomalia_descanso']
+                    });
                 } else {
                     let anomaloPorHorario = false;
                     if (confDia.entrada) {
-                        const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-                        const [hReal] = stringHoraCompleta.split(':').map(Number);
-                        const [hOfIn] = confDia.entrada.split(':').map(Number);
-
-                        // Si checa absurdamente temprano (ej. > 3 horas antes) o muy tarde (> 4 horas después)
                         if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
                             anomaloPorHorario = true;
                         }
                     }
 
                     if (anomaloPorHorario) {
-                        anomalas.push({ ...record, motivo: `Totalmente fuera del rango asignado (${confDia.entrada})` });
+                        anomalas.push({ 
+                            ...record, 
+                            tipo: 'anomalia_horario',
+                            motivo: `Totalmente fuera del rango de su turno (${confDia.entrada}).`,
+                            estadoAuditoria: auditoriaDia['anomalia_horario']
+                        });
                     } else {
+                        // Si está en día laboral oficial y rango de horas correcto, validamos Jornadas Truncas u Horas Extras
                         oficiales.push(record);
+
+                        if (confDia.salida) {
+                            const [hSalOf, mSalOf] = confDia.salida.split(':').map(Number);
+                            let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
+                            if (minsOficiales < 0) minsOficiales += 24 * 60;
+                            
+                            const minsTrabajados = diffHrs * 60;
+
+                            // Alerta Jornada Incompleta
+                            if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
+                                const hrsFaltantes = ((minsOficiales - minsTrabajados) / 60).toFixed(2);
+                                anomalas.push({
+                                    ...record,
+                                    tipo: 'jornada_incompleta',
+                                    motivo: `Jornada Incompleta: Faltaron ${hrsFaltantes}h de su turno oficial.`,
+                                    estadoAuditoria: auditoriaDia['jornada_incompleta']
+                                });
+                            }
+
+                            // Alerta Horas Extras
+                            if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
+                                const hrsExtra = ((minsTrabajados - minsOficiales) / 60).toFixed(2);
+                                anomalas.push({
+                                    ...record,
+                                    tipo: 'horas_extras',
+                                    motivo: `Tiempo Extra Detectado: Se quedó ${hrsExtra}h más de su hora oficial.`,
+                                    estadoAuditoria: auditoriaDia['horas_extras']
+                                });
+                            }
+                        }
                     }
                 }
             }
 
-            // 4. PROCESAR AUDITORÍA DE LIMPIEZA CONGELADA (Candados)
+            // PROCESAR AUDITORÍA DE LIMPIEZA CONGELADA (Candados)
             const evals = matrizLimpiezaGlobal.evaluaciones || {};
             const asigs = matrizLimpiezaGlobal.asignaciones || {};
             Object.keys(evals).forEach(area => {
@@ -327,7 +400,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                     {rec.entrada} {rec.esRetardo && <span className="ml-2 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase">Retardo</span>}
                                                 </td>
                                                 <td className="p-3 font-black text-blue-600">
-                                                    {rec.olvidoSalida ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] uppercase">⚠️ Olvidó Checar</span> : rec.salida}
+                                                    {rec.salida}
                                                 </td>
                                                 <td className="p-3 font-black text-slate-800 text-right">
                                                    <span className="bg-slate-100 px-2 py-1 rounded-lg">{rec.horas}h</span>
@@ -360,19 +433,20 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         )}
                     </div>
 
-                    {/* ⚠️ SECCIÓN 3: ANOMALÍAS Y DESCANSOS */}
+                    {/* ⚠️ SECCIÓN 3: ANOMALÍAS Y DECISIONES (AUDITORÍA) */}
                     {data.anomalas.length > 0 && (
                         <div>
-                            <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><ShieldAlert className="text-red-500 print:text-black"/> 3. Alertas: Checadas Anómalas y Descansos</h4>
+                            <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><ShieldAlert className="text-red-500 print:text-black"/> 3. Auditoría de Anomalías Operativas</h4>
                             <div className="overflow-x-auto border border-red-100 rounded-2xl custom-scrollbar print:border-slate-300">
                                 <table className="w-full text-left border-collapse bg-red-50/30">
                                     <thead className="bg-red-50 border-b border-red-100 print:bg-slate-100">
                                         <tr>
                                             <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Día / Fecha</th>
                                             <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Motivo de Alerta</th>
-                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Marcó Entrada</th>
-                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Marcó Salida</th>
-                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest text-right">Hrs Acumuladas</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">M. Entrada</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">M. Salida</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest text-right">Horas</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest text-center print:hidden">Auditoría</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-red-50/50">
@@ -382,10 +456,22 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                 <td className="p-3 font-black text-red-600 text-xs">{rec.motivo}</td>
                                                 <td className="p-3 font-black text-red-800">{rec.entrada}</td>
                                                 <td className="p-3 font-black text-red-800">
-                                                    {rec.olvidoSalida ? <span className="text-[10px] uppercase">⚠️ {rec.salida}</span> : rec.salida}
+                                                    {rec.olvidoSalida ? <span className="text-[10px] uppercase text-orange-600">⚠️ {rec.salida}</span> : rec.salida}
                                                 </td>
-                                                <td className="p-3 font-black text-red-900 text-right">
-                                                   <span className="bg-red-100 px-2 py-1 rounded-lg">{rec.horas}h</span>
+                                                <td className="p-3 font-black text-red-900 text-right">{rec.horas}h</td>
+                                                
+                                                {/* BOTONES DE DECISIÓN DEL GERENTE */}
+                                                <td className="p-3 text-center print:hidden">
+                                                    {rec.estadoAuditoria === 'aprobado' ? (
+                                                        <span className="text-emerald-700 font-black text-[10px] uppercase tracking-widest bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200">✅ Aprobado</span>
+                                                    ) : rec.estadoAuditoria === 'rechazado' ? (
+                                                        <span className="text-red-700 font-black text-[10px] uppercase tracking-widest bg-red-100 px-3 py-1.5 rounded-lg border border-red-200">❌ Rechazado</span>
+                                                    ) : (
+                                                        <div className="flex justify-center gap-1.5">
+                                                            <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, 'aprobado')} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider">Aprobar</button>
+                                                            <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, 'rechazado')} className="bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider">Rechazar</button>
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}

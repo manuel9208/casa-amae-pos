@@ -37,7 +37,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [modalIdentificar, setModalIdentificar] = useState(false);
   const [pasoIdentificar, setPasoIdentificar] = useState(1);
   const [telClienteNuevo, setTelClienteNuevo] = useState('');
-  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });  
+  const [datosNuevoCliente, setDatosNuevoCliente] = useState({ 
+    nombre: '', 
+    apellido: '', 
+    correo: '', 
+    fecha_nacimiento: '', 
+    nip: '', 
+    direccion: '' 
+  });  
 
   const [modalPuntoVenta, setModalPuntoVenta] = useState(false);
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
@@ -67,7 +74,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const cargarDataDinamica = useCallback(async () => {
     try {
       const t = new Date().getTime();
-      const [resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu] = await Promise.all([
+      const [
+        resPed, 
+        resMesas, 
+        resInsumos, 
+        resGastos, 
+        resProd, 
+        resClas, 
+        resIng, 
+        resUsu
+      ] = await Promise.all([
         fetch(`${apiUrl}/pedidos/hoy?t=${t}`),
         fetch(`${apiUrl}/mesas?t=${t}`),
         fetch(`${apiUrl}/insumos?t=${t}`),
@@ -160,10 +176,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     };
   }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia]);  
 
-  const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => { setAlertaCaja({ titulo, mensaje, tipo }); setTimeout(() => setAlertaCaja(null), 4000); };
+  const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => { 
+    setAlertaCaja({ titulo, mensaje, tipo }); 
+    setTimeout(() => setAlertaCaja(null), 4000); 
+  };
+
   const cerrarCajaYSalir = async () => { onLogout(); };
-  const iniciarTurno = (e) => { e.preventDefault(); const m = Number(inputFondo); localStorage.setItem(`fondo_caja_${user?.id}_${hoyStr}`, m); setFondoCaja(m); };
-  const lanzarImpresion = (pedido) => { setTicketImprimir(pedido); setTimeout(() => { window.print(); setTicketImprimir(null); }, 500); };  
+
+  const iniciarTurno = (e) => { 
+    e.preventDefault(); 
+    const m = Number(inputFondo); 
+    localStorage.setItem(`fondo_caja_${user?.id}_${hoyStr}`, m); 
+    setFondoCaja(m); 
+  };
+
+  const lanzarImpresion = (pedido) => { 
+    setTicketImprimir(pedido); 
+    setTimeout(() => { window.print(); setTicketImprimir(null); }, 500); 
+  };  
 
   const toggleEstadoNegocio = async () => {
     try {
@@ -194,7 +224,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         const carritoActual = typeof modalPago.carrito === 'string' ? JSON.parse(modalPago.carrito) : (modalPago.carrito || []);
         payload.carrito = carritoActual.map(item => ({ ...item, estado: 'Finalizado' }));
         
-        if (modalPago.mesa) {
+        // COMENTADO PARA EVITAR LIBERACIÓN AUTOMÁTICA AL PAGAR
+        /* if (modalPago.mesa) {
            const tableObj = mesas.find(m => String(m.numero) === String(modalPago.mesa));
            if (tableObj) {
                fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
@@ -202,7 +233,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
                  body: JSON.stringify({ estado: 'disponible' }) 
                }).catch(()=>{});
            }
-        }
+        } */
       }
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) {
@@ -232,7 +263,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       
       await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       
-      if ((estadoSeguro === 'Cancelado' || estadoSeguro === 'Finalizado') && pedidoFull?.mesa) {
+      // SOLO SE LIBERA AUTOMÁTICAMENTE SI SE CANCELA
+      if (estadoSeguro === 'Cancelado' && pedidoFull?.mesa) {
          const tableObj = mesas.find(m => String(m.numero) === String(pedidoFull.mesa));
          if (tableObj) {
             fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
@@ -474,23 +506,85 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };  
 
   const abrirIdentificador = () => { setOrdenEditandoRapida(null); setModalPuntoVenta(true); };
-  const onGoToKioscoLocal = (cliente, orden) => { setOrdenEditandoRapida(orden); setModalEditarPedido(null); setModalPuntoVenta(true); };  
+  
+  const onGoToKioscoLocal = (cliente, orden) => { 
+    setOrdenEditandoRapida(orden); 
+    setModalEditarPedido(null); 
+    setModalPuntoVenta(true); 
+  };  
 
   return {
-    vistaActiva, setVistaActiva, subVistaHistorial, setSubVistaHistorial, pedidos, mesas, catalogoIngredientes,
-    configGlobal, insumosDB, gastosDia, modalPago, setModalPago, montoRecibido, setMontoRecibido,
-    modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx, accionAlerta, setAccionAlerta,
-    ingredienteReemplazo, setIngredienteReemplazo, ticketImprimir, modalZonaEnvio, setModalZonaEnvio,
-    modalVerDetalle, setModalVerDetalle, modalEditarPedido, setModalEditarPedido, modalCompraRapida,
-    setModalCompraRapida, insumoComprar, setInsumoComprar, paquetesComprados, setPaquetesComprados, alertaCaja,
-    setAlertaCaja, modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
-    modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
-    buscarClienteParaPedido: () => {}, registrarClienteParaPedido: () => {},
-    modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
-    empleadosPOS, isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
-    isSubmitting, fondoCaja, inputFondo, setInputFondo, apiUrl, cargarDataDinamica,
-    fondoRepartidor, actualizarFondoRepartidor,
-    modalAsistencia, setModalAsistencia,  
+    vistaActiva, 
+    setVistaActiva, 
+    subVistaHistorial, 
+    setSubVistaHistorial, 
+    pedidos, 
+    mesas, 
+    catalogoIngredientes,
+    configGlobal, 
+    insumosDB, 
+    gastosDia, 
+    modalPago, 
+    setModalPago, 
+    montoRecibido, 
+    setMontoRecibido,
+    modalResolver, 
+    setModalResolver, 
+    itemAfectadoIdx, 
+    setItemAfectadoIdx, 
+    accionAlerta, 
+    setAccionAlerta,
+    ingredienteReemplazo, 
+    setIngredienteReemplazo, 
+    ticketImprimir, 
+    modalZonaEnvio, 
+    setModalZonaEnvio,
+    modalVerDetalle, 
+    setModalVerDetalle, 
+    modalEditarPedido, 
+    setModalEditarPedido, 
+    modalCompraRapida,
+    setModalCompraRapida, 
+    insumoComprar, 
+    setInsumoComprar, 
+    paquetesComprados, 
+    setPaquetesComprados, 
+    alertaCaja,
+    setAlertaCaja, 
+    modalAgregarExtra, 
+    setModalAgregarExtra, 
+    alertaCobroExtra, 
+    setAlertaCobroExtra,
+    modalIdentificar, 
+    setModalIdentificar, 
+    pasoIdentificar, 
+    setPasoIdentificar, 
+    telClienteNuevo, 
+    setTelClienteNuevo, 
+    datosNuevoCliente, 
+    setDatosNuevoCliente,
+    buscarClienteParaPedido: () => {}, 
+    registrarClienteParaPedido: () => {},
+    modalPuntoVenta, 
+    setModalPuntoVenta, 
+    ordenEditandoRapida, 
+    productos, 
+    clasificaciones,
+    empleadosPOS, 
+    isCajaBloqueada, 
+    setIsCajaBloqueada, 
+    operadorActual, 
+    setOperadorActual,
+    isSubmitting, 
+    fondoCaja, 
+    inputFondo, 
+    setInputFondo, 
+    apiUrl, 
+    cargarDataDinamica,
+    fondoRepartidor, 
+    actualizarFondoRepartidor,
+    modalAsistencia, 
+    setModalAsistencia,  
     pedidosPorConfirmar: pedidos.filter(p => {
       if (p.estado_preparacion !== 'Pendiente') return false;
       if (p.origen === 'Caja') return false;
@@ -518,8 +612,21 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     pedidosEnReparto: pedidos.filter(p => p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino'),
     mesasPagadas: pedidos.filter(p => p.tipo_consumo === 'Local' && p.estado_preparacion === 'Entregado' && p.metodo_pago !== 'Por Cobrar' && p.metodo_pago !== 'Pendiente' && p.estado_preparacion !== 'Cancelado' && p.estado_preparacion !== 'Finalizado'),
     pedidosConAlerta: pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion)),
-    toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno, lanzarImpresion, procesarPago, confirmarPedidoRecoger,
-    confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido, limpiarAlerta, abrirModalResolver,
-    enviarRespuestaCocina, registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador, onGoToKiosco: onGoToKioscoLocal
+    toggleEstadoNegocio, 
+    cerrarCajaYSalir, 
+    iniciarTurno, 
+    lanzarImpresion, 
+    procesarPago, 
+    confirmarPedidoRecoger,
+    confirmarPedidoDomicilio, 
+    actualizarEstadoPedido, 
+    guardarEdicionPedido, 
+    limpiarAlerta, 
+    abrirModalResolver,
+    enviarRespuestaCocina, 
+    registrarCompraRapida, 
+    confirmarAgregarExtra, 
+    abrirIdentificador, 
+    onGoToKiosco: onGoToKioscoLocal
   };
 };
