@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Printer, FileText, Sparkles, AlertCircle } from 'lucide-react';  
+import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User } from 'lucide-react';
+
+const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
-  const [reportes, setReportes] = useState({ asistenciasHoy: [], historialAsistencias: [], rendimientoCocina: [], cortesNomina: [] });
+  const [reportes, setReportes] = useState({ historialAsistencias: [] });
   const [matrizLimpiezaGlobal, setMatrizLimpiezaGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
+  
+  const hoyStr = new Date().toISOString().split('T')[0];
   const [periodo, setPeriodo] = useState('dia');
-  const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
-  const [filtroUsuario, setFiltroUsuario] = useState('Todos');  
-  const [minutosTolerancia, setMinutosTolerancia] = useState(15);  
+  const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
+  const [filtroUsuario, setFiltroUsuario] = useState('Todos');
 
   const cargarReportes = useCallback(async () => {
     try {
@@ -17,7 +20,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         setReportes(data);
       }
 
-      // 🛡️ RECOLECTOR GLOBAL: Necesario para reconstruir los detalles de limpieza en cortes antiguos
       const resConfig = await fetch(`${apiUrl}/configuracion`);
       if (resConfig.ok) {
          const configData = await resConfig.json();
@@ -26,162 +28,171 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     } catch (error) {
       console.error("Error al cargar reportes", error);
     }
-  }, [apiUrl, periodo, fechaFiltro, filtroUsuario]);  
+  }, [apiUrl, periodo, fechaFiltro, filtroUsuario]);
 
   useEffect(() => {
     cargarReportes();
-  }, [cargarReportes]);  
+  }, [cargarReportes]);
 
   const empleadosVisibles = usuariosDB
     .filter(u => u.nombre !== 'Administrador Global')
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-  const getTituloFormateado = () => {
-    if (!fechaFiltro) return periodo;
+  const getFechasPeriodo = () => {
+    const fechas = [];
     const f = new Date(fechaFiltro + 'T12:00:00');
-    if (periodo === 'dia') return f.toLocaleDateString('es-MX');
-    if (periodo === 'semana') return `Semana del ${f.toLocaleDateString('es-MX')}`;
-    if (periodo === 'mes') {
-      const str = f.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
-      return str.charAt(0).toUpperCase() + str.slice(1);
-    }
-    if (periodo === 'anio') return `Año ${f.getFullYear()}`;
-    return periodo;
-  };  
-
-  const tituloPeriodo = getTituloFormateado();  
-
-  const cortesUnicos = [];
-  const fechasCortesVistas = new Set();
-  (reportes.cortesNomina || []).forEach(corte => {
-    const fechaDia = String(corte.fecha_corte).split('T')[0];
-    if (!fechasCortesVistas.has(fechaDia)) {
-      fechasCortesVistas.add(fechaDia);
-      cortesUnicos.push(corte);
-    }
-  });  
-
-  const historialAgrupado = Object.values((reportes.historialAsistencias || []).reduce((acc, curr) => {
-    if (curr.nombre === 'Administrador Global') return acc;  
     
-    const fechaLimpia = String(curr.fecha).split('T')[0];
-    const key = `${curr.nombre}-${fechaLimpia}`;  
-    
-    if (!acc[key]) {
-      acc[key] = { ...curr, fecha: fechaLimpia };
-    } else {
-      const currentIn = new Date(acc[key].hora_entrada);
-      const newIn = new Date(curr.hora_entrada);
-      if (newIn < currentIn) acc[key].hora_entrada = curr.hora_entrada;  
-      
-      if (curr.hora_salida) {
-        if (!acc[key].hora_salida) {
-          acc[key].hora_salida = curr.hora_salida;
-        } else {
-          const currentOut = new Date(acc[key].hora_salida);
-          const newOut = new Date(curr.hora_salida);
-          if (newOut > currentOut) acc[key].hora_salida = curr.hora_salida;
+    if (periodo === 'dia') {
+        fechas.push(fechaFiltro);
+    } else if (periodo === 'semana') {
+        const day = f.getDay();
+        const diff = f.getDate() - day + (day === 0 ? -6 : 1); 
+        const start = new Date(f.setDate(diff));
+        for (let i = 0; i < 7; i++) {
+            const cur = new Date(start);
+            cur.setDate(start.getDate() + i);
+            fechas.push(cur.toISOString().split('T')[0]);
         }
-      }
+    } else if (periodo === 'mes') {
+        const y = f.getFullYear(), m = f.getMonth();
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        for (let i = 1; i <= daysInMonth; i++) {
+            fechas.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+        }
+    } else if (periodo === 'anio') {
+        const y = f.getFullYear();
+        const curMonth = y === new Date().getFullYear() ? new Date().getMonth() : 11;
+        for(let m=0; m<=curMonth; m++) {
+            const daysInMonth = new Date(y, m + 1, 0).getDate();
+            for (let i = 1; i <= daysInMonth; i++) {
+                fechas.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
+            }
+        }
     }
-    return acc;
-  }, {})).map(h => {
-    const inTime = new Date(h.hora_entrada).getTime();
-    const outTime = h.hora_salida ? new Date(h.hora_salida).getTime() : new Date().getTime();
-    h.horas_trabajadas = ((outTime - inTime) / 3600000).toFixed(2);
-    return h;
-  }).sort((a, b) => {
-    const dateA = new Date(a.fecha).getTime();
-    const dateB = new Date(b.fecha).getTime();
-    if (dateA !== dateB) return dateB - dateA;
-    return a.nombre.localeCompare(b.nombre);
-  });  
-
-  const horror12To24 = (time12) => {
-     if(!time12) return "00:00";
-     return time12;
+    return fechas;
   };
 
-  const calcularPreNomina = () => {
-    let calculos = {};  
-    historialAgrupado.forEach(asistencia => {
-      const emp = usuariosDB.find(u => u.nombre === asistencia.nombre);
-      if (!emp) return;
-      const uid = emp.id;  
-      
-      if (!calculos[uid]) {
-        let pres = { sueldo: 0, tipo_sueldo: 'Mensual' };
-        if (emp.prestaciones) {
-          pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : emp.prestaciones;
-        }
-        calculos[uid] = {
-          nombre: asistencia.nombre, rol: asistencia.rol,
-          diasAsistidos: 0, retardos: 0, horasTotales: 0, sueldoBase: Number(pres.sueldo) || 0, tipoSueldo: pres.tipo_sueldo,
-          detalleDias: []
-        };
-      }  
-      
-      calculos[uid].diasAsistidos += 1;
-      calculos[uid].horasTotales += Number(asistencia.horas_trabajadas) || 0;  
-      
-      const horario = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});  
-      const dObj = new Date(asistencia.fecha + 'T12:00:00');
-      const diasNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-      const nombreDia = diasNombres[dObj.getDay()];  
-      const turnoDia = horario[asistencia.fecha] || horario[nombreDia];  
-      
-      let esRetardo = false;
-      let oficial = '--:--';
-      let oficialSalida = '--:--';
-      
-      const stringHoraCompleta = new Date(asistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-      const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
-      const minutosReales = hReal * 60 + mReal;
-
-      if (turnoDia && turnoDia.activo && turnoDia.entrada) {
-        oficial = turnoDia.entrada;
-        oficialSalida = turnoDia.salida || '--:--';  
-        const [hOf, mOf] = horror12To24(turnoDia.entrada).split(':').map(Number);
-        const minutosOficiales = hOf * 60 + mOf;  
-        
-        if (minutosReales > (minutosOficiales + minutosTolerancia)) {
-          esRetardo = true;
-          calculos[uid].retardos += 1;
-        }
-      }  
-      
-      calculos[uid].detalleDias.push({
-        fecha: dObj.toLocaleDateString('es-MX', {weekday: 'short', day: 'numeric', month: 'short'}),
-        oficialEntrada: oficial,
-        oficialSalida: oficialSalida,
-        real: new Date(asistencia.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-        esRetardo: esRetardo,
-        tieneTurno: !!(turnoDia && turnoDia.activo)
-      });
-    });  
+  const procesarDashboard = () => {
+    const fechasAAnalizar = getFechasPeriodo();
     
-    return Object.values(calculos).sort((a, b) => a.nombre.localeCompare(b.nombre));
-  };  
+    return empleadosVisibles.map(emp => {
+        const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+        const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+        const descansos = pres.dias_descanso || [];
 
-  const preNominaData = calcularPreNomina();  
+        const oficiales = [];
+        const anomalas = [];
+        const limpiezas = [];
+
+        fechasAAnalizar.forEach(fechaStr => {
+            const dateObj = new Date(fechaStr + 'T12:00:00');
+            const nombreDia = diasSemanaMap[dateObj.getDay()];
+            
+            const confDia = hor[fechaStr] || hor[nombreDia] || { activo: false };
+            const esDescanso = descansos.includes(nombreDia);
+            const esDiaLaboral = confDia.activo === true && !esDescanso;
+
+            // 1. PROCESAR ASISTENCIAS Y BUG DE 24 HORAS
+            const checkins = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));
+
+            checkins.forEach(checada => {
+                const inTime = new Date(checada.hora_entrada).getTime();
+                let outTime;
+                let olvidoSalida = false;
+                let turnoActivo = false;
+
+                if (checada.hora_salida) {
+                    outTime = new Date(checada.hora_salida).getTime();
+                } else {
+                    if (fechaStr === hoyStr) {
+                        outTime = new Date().getTime();
+                        turnoActivo = true;
+                    } else {
+                        outTime = inTime;
+                        olvidoSalida = true;
+                    }
+                }
+
+                let diffHrs = (outTime - inTime) / 3600000;
+                
+                // 🛡️ TOPE DE SEGURIDAD: Previene reportes de 34 horas si olvidaron checar
+                if (diffHrs > 16 || olvidoSalida) {
+                    diffHrs = 0;
+                    olvidoSalida = true;
+                }
+
+                const strEntrada = new Date(checada.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
+                const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(checada.hora_salida).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));
+
+                const record = {
+                    fecha: fechaStr,
+                    dia: nombreDia,
+                    entrada: strEntrada,
+                    salida: strSalida,
+                    horas: diffHrs.toFixed(2),
+                    turnoActivo,
+                    olvidoSalida,
+                    oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
+                };
+
+                // Clasificación Inteligente
+                if (!esDiaLaboral) {
+                    anomalas.push({ ...record, motivo: esDescanso ? 'Checó en su Día de Descanso' : 'Día Inactivo en Configuración' });
+                } else {
+                    let anomaloPorHorario = false;
+                    if (confDia.entrada) {
+                        const stringHoraCompleta = new Date(checada.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+                        const [hReal] = stringHoraCompleta.split(':').map(Number);
+                        const [hOfIn] = confDia.entrada.split(':').map(Number);
+
+                        // Si checa más de 2 horas antes de su turno, o 4 horas después
+                        if (hReal < hOfIn - 2 || hReal > hOfIn + 4) {
+                            anomaloPorHorario = true;
+                        }
+                    }
+
+                    if (anomaloPorHorario) {
+                        anomalas.push({ ...record, motivo: `Fuera del rango del turno asignado (${confDia.entrada})` });
+                    } else {
+                        oficiales.push(record);
+                    }
+                }
+            });
+
+            // 2. PROCESAR AUDITORÍA DE LIMPIEZA DIRECTO DE LA BD
+            const evals = matrizLimpiezaGlobal.evaluaciones || {};
+            const asigs = matrizLimpiezaGlobal.asignaciones || {};
+            Object.keys(evals).forEach(area => {
+                if (String(asigs[area]?.[fechaStr]) === String(emp.id)) {
+                    limpiezas.push({
+                        fecha: fechaStr,
+                        dia: nombreDia,
+                        area: area,
+                        status: evals[area][fechaStr]
+                    });
+                }
+            });
+        });
+
+        return { emp, oficiales, anomalas, limpiezas };
+    }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.limpiezas.length > 0);
+  };
+
+  const datosCompletos = procesarDashboard();
+  const datosFiltrados = filtroUsuario === 'Todos' ? datosCompletos : datosCompletos.filter(d => String(d.emp.id) === String(filtroUsuario));
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
-      {/* CABECERA FILTROS */}
+      {/* CABECERA Y FILTROS */}
       <div className="bg-slate-900 text-white p-6 md:p-8 rounded-[36px] shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
         <div className="flex items-center gap-5">
           <div className="bg-emerald-500/20 p-4 rounded-2xl border border-emerald-500/30 text-emerald-400"><Calendar size={32}/></div>
           <div>
-            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Centro de Reportes</p>
-            <h3 className="text-2xl font-black tracking-tight">Métricas y Pre-Nómina</h3>
+            <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Visor Operativo</p>
+            <h3 className="text-2xl font-black tracking-tight">Cumplimiento en Vivo</h3>
           </div>
         </div>  
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 p-2 rounded-2xl h-[58px] shadow-inner">
-            <span className="text-[10px] font-black text-slate-400 uppercase ml-3">Tolerancia:</span>
-            <input type="number" min="0" value={minutosTolerancia} onChange={e => setMinutosTolerancia(Number(e.target.value))} className="w-14 bg-slate-900 border border-slate-600 text-center text-emerald-400 font-black rounded-xl py-1.5 outline-none focus:border-emerald-500 transition-colors" />
-            <span className="text-[10px] font-black text-slate-400 uppercase mr-3">Min</span>
-          </div>  
           <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="w-full md:w-auto h-[58px] bg-slate-800 text-white border border-slate-700 px-4 rounded-2xl font-bold outline-none focus:ring-2 ring-emerald-500 cursor-pointer">
             <option value="Todos">Todos los empleados</option>
             {empleadosVisibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
@@ -199,261 +210,116 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>
       </div>  
 
-      <div id="seccion-a-imprimir" className="grid grid-cols-1 gap-6">
-        
-        {/* TABLA PRE-NOMINA */}
-        <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200">
-           <h3 className="text-2xl font-black text-slate-800 mb-6">Proyección Pre-Nómina</h3>
-           <div className="overflow-x-auto custom-scrollbar border border-slate-200 rounded-3xl">
-             <table className="w-full text-left">
-                <thead className="bg-slate-100 border-b border-slate-200">
-                  <tr>
-                    <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest border-r border-slate-100">Empleado</th>
-                    <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest text-center border-r border-slate-100">Asistencias</th>
-                    <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest text-center border-r border-slate-100">Detalle de Checadas</th>
-                    <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest text-right">Sueldo Estimado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {preNominaData.map((d, i) => {
-                     let montoCalculado = d.sueldoBase; 
-                     return (
-                      <tr key={i} className="hover:bg-slate-50 transition group">
-                         <td className="p-5 border-r border-slate-100 align-top">
-                           <p className="font-black text-lg text-slate-700">{d.nombre}</p>
-                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{d.rol}</p>
-                           {d.retardos > 0 && (
-                             <span className="inline-flex mt-3 items-center gap-1 bg-red-100 text-red-600 px-2.5 py-1 rounded-md text-[10px] font-black uppercase">
-                               <AlertCircle size={12}/> {d.retardos} Retardos
-                             </span>
-                           )}
-                         </td>
-                         <td className="p-5 border-r border-slate-100 text-center align-top">
-                           <span className="text-3xl font-black text-blue-600">{d.diasAsistidos}</span>
-                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Días</p>
-                           <p className="text-xs font-black text-blue-400 bg-blue-50 px-2 py-1 rounded-lg mt-3 inline-block">{d.horasTotales.toFixed(1)} Hrs</p>
-                         </td>
-                         <td className="p-5 border-r border-slate-100 align-top">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                               {d.detalleDias.map((r, idx) => (
-                                  <div key={idx} className={`p-3 rounded-xl border flex flex-col justify-between shadow-sm transition ${r.esRetardo ? 'bg-red-50 border-red-200 hover:border-red-300' : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300'}`}>
-                                    <div className="flex justify-between items-center mb-2">
-                                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{r.fecha}</span>
-                                      {r.tieneTurno ? (
-                                        <span className="text-[9px] font-bold text-slate-400 border border-slate-200 bg-white px-1.5 py-0.5 rounded">{r.oficialEntrada} - {r.oficialSalida}</span>
-                                      ) : (
-                                        <span className="text-[9px] font-bold text-amber-500 border border-amber-200 bg-amber-50 px-1.5 py-0.5 rounded">Turno Libre</span>
-                                      )}
-                                    </div>
-                                    <div className="flex justify-between items-end">
-                                      <div>
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">Marcó Entrada</p>
-                                        <p className={`text-base font-black leading-none ${r.esRetardo ? 'text-red-600' : 'text-emerald-600'}`}>{r.real}</p>
-                                      </div>
-                                      {r.tieneTurno && (
-                                        <div className="text-right">
-                                          <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${r.esRetardo ? 'bg-red-200 text-red-700' : 'bg-emerald-200 text-emerald-800'}`}>
-                                            {r.esRetardo ? 'Retardo' : 'A Tiempo'}
-                                          </span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                               ))}
+      <div id="seccion-a-imprimir" className="space-y-8">
+         {datosFiltrados.length === 0 ? (
+            <div className="text-center py-16 bg-slate-50 rounded-[32px] border border-slate-200 border-dashed">
+              <AlertTriangle size={48} className="mx-auto text-slate-300 mb-4 opacity-50"/>
+              <p className="text-slate-500 font-bold text-lg">No hay registros de asistencia ni auditorías en las fechas seleccionadas.</p>
+            </div>
+         ) : (
+            datosFiltrados.map((data) => (
+                <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-4">
+                    
+                    {/* 👨‍🍳 PERFIL DEL EMPLEADO */}
+                    <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
+                        <div className="bg-blue-100 text-blue-600 p-4 rounded-2xl print:bg-slate-200 print:text-black">
+                            <User size={28}/>
+                        </div>
+                        <div>
+                            <h3 className="text-2xl font-black text-slate-800">{data.emp.nombre}</h3>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{data.emp.rol}</p>
+                        </div>
+                    </div>
+
+                    {/* 🟢 SECCIÓN 1: CHECADAS EN DÍAS OFICIALES */}
+                    <div className="mb-8">
+                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Clock className="text-blue-500 print:text-black"/> 1. Checadas en Días Laborales Programados</h4>
+                        {data.oficiales.length === 0 ? (
+                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No tuvo asistencias en sus días asignados durante este periodo.</p>
+                        ) : (
+                            <div className="overflow-x-auto border border-slate-200 rounded-2xl custom-scrollbar print:border-slate-300">
+                                <table className="w-full text-left border-collapse">
+                                    <thead className="bg-slate-50 border-b border-slate-200 print:bg-slate-100">
+                                        <tr>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Día / Fecha</th>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Turno Asignado</th>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Marcó Entrada</th>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Marcó Salida</th>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Hrs Acumuladas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {data.oficiales.map((rec, i) => (
+                                            <tr key={i} className="hover:bg-slate-50 transition print:text-sm">
+                                                <td className="p-3 font-bold text-slate-700">{rec.dia} <span className="text-[10px] font-medium text-slate-400 ml-1">{rec.fecha}</span></td>
+                                                <td className="p-3 font-bold text-slate-500">{rec.oficial}</td>
+                                                <td className="p-3 font-black text-emerald-600">{rec.entrada}</td>
+                                                <td className="p-3 font-black text-blue-600">
+                                                    {rec.olvidoSalida ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] uppercase">⚠️ {rec.salida}</span> : rec.salida}
+                                                </td>
+                                                <td className="p-3 font-black text-slate-800 text-right">{rec.horas}h</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
-                         </td>
-                         <td className="p-5 text-right bg-slate-50/50 group-hover:bg-emerald-50 transition-colors align-top">
-                            <p className="text-3xl font-black text-emerald-600">${montoCalculado.toLocaleString('es-MX', {minimumFractionDigits: 2})}</p>
-                            <p className="text-[10px] font-bold text-emerald-500/60 uppercase tracking-widest mt-1">{d.tipoSueldo}</p>
-                         </td>
-                      </tr>
-                     )
-                  })}
-                </tbody>
-             </table>
-           </div>
-        </div>
-
-        {/* TABLA BITACORA ACCESOS */}
-        <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="bg-blue-100 p-3 rounded-2xl text-blue-600"><FileText size={28}/></div>
-            <div>
-              <h3 className="text-2xl font-black text-slate-800">Bitácora de Accesos</h3>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Historial del Periodo: {tituloPeriodo}</p>
-            </div>
-          </div>
-          <div className="overflow-x-auto border border-slate-200 rounded-3xl custom-scrollbar">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200">
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest">Empleado</th>
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest">Fecha</th>
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest">Entrada</th>
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest">Salida</th>
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest text-right">Horas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {historialAgrupado.map((h, i) => (
-                  <tr key={i} className="hover:bg-slate-50 transition">
-                    <td className="p-4"><p className="font-bold text-slate-700">{h.nombre}</p></td>
-                    <td className="p-4 text-slate-600 font-medium">{h.fecha}</td>
-                    <td className="p-4 font-black text-emerald-600">{new Date(h.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</td>
-                    <td className="p-4 font-black text-blue-600">{h.hora_salida ? new Date(h.hora_salida).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : 'Turno Activo'}</td>
-                    <td className="p-4 text-right font-black text-slate-700">{h.horas_trabajadas}h</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* 🛡️ REPORTE HISTÓRICO MATRICIAL DETALLADO */}
-        <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="bg-teal-100 p-3 rounded-2xl text-teal-600"><Sparkles size={28}/></div>
-            <div>
-              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Cumplimiento de Limpieza y Turnos</h3>
-              <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Cortes Históricos Detallados</p>
-            </div>
-          </div>  
-
-          {cortesUnicos.length === 0 ? (
-            <div className="text-center py-16 bg-slate-50 rounded-[32px] border border-slate-100 border-dashed">
-              <Sparkles size={48} className="mx-auto text-slate-300 mb-4 opacity-50"/>
-              <p className="text-slate-500 font-bold text-lg">No hay cortes de limpieza/nómina guardados en este periodo.</p>
-            </div>
-          ) : (
-            <div className="space-y-8">
-              {cortesUnicos.map(corte => {
-                const datosRaw = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;
-                const metadata = datosRaw.metadata || corte.metadata;
-                const listaEmpleados = Array.isArray(datosRaw) ? datosRaw : (datosRaw.recibos || []);
-
-                const datosFiltrados = (filtroUsuario !== 'Todos' ? listaEmpleados.filter(d => String(d.id || d.empleado_id) === String(filtroUsuario)) : listaEmpleados)
-                  .filter(usuarioListado => usuarioListado.nombre !== 'Administrador Global')
-                  // 🛡️ CORRECCIÓN DE INDEFINICIÓN: Se ordenan utilizando las referencias A y B del sort
-                  .sort((a, b) => (a.nombre_completo || a.nombre).localeCompare(b.nombre_completo || b.nombre));  
-
-                if (datosFiltrados.length === 0) return null;  
-
-                // 🗓️ CONSTRUCCIÓN DEL CALENDARIO DINÁMICO DEL CORTE
-                let fechasDelCorte = new Set();
-                if (metadata && metadata.fecha_inicio && metadata.fecha_fin) {
-                   let curr = new Date(metadata.fecha_inicio + 'T12:00:00');
-                   const end = new Date(metadata.fecha_fin + 'T12:00:00');
-                   while(curr <= end) {
-                      fechasDelCorte.add(curr.toISOString().split('T')[0]);
-                      curr.setDate(curr.getDate() + 1);
-                   }
-                } else {
-                   listaEmpleados.forEach(eTarget => {
-                      if (eTarget.horario) Object.keys(eTarget.horario).forEach(k => fechasDelCorte.add(k));
-                      if (eTarget.limpieza && eTarget.limpieza.detalle) Object.keys(eTarget.limpieza.detalle).forEach(k => fechasDelCorte.add(k));
-                      if (eTarget.metricas && eTarget.metricas.diasAuditados) eTarget.metricas.diasAuditados.forEach(k => fechasDelCorte.add(k));
-                   });
-                }
-                
-                const diasCorte = Array.from(fechasDelCorte).sort();
-                if (diasCorte.length === 0) return null;
-                const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-                return (
-                  <div key={corte.id} className="border border-slate-200 rounded-[24px] overflow-hidden shadow-sm bg-white">
-                    <div className="bg-slate-50 p-5 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 gap-2">
-                      <p className="font-black text-slate-700 uppercase tracking-widest text-xs flex items-center gap-2">
-                        Auditoría del: <span className="text-blue-600 text-sm bg-blue-100 px-2 py-0.5 rounded-md">{diasCorte[0]} al {diasCorte[diasCorte.length-1]}</span>
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
-                        Fecha de Emisión: {new Date(corte.fecha_creacion).toLocaleString()}
-                      </p>
+                        )}
                     </div>
-                    <div className="w-full max-w-full overflow-x-auto custom-scrollbar pb-2">
-                      <table className="w-full text-left border-collapse min-w-max">
-                        <thead>
-                          <tr className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                            <th className="p-4 border-r border-slate-100 w-48 sticky left-0 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20">Empleado</th>
-                            {diasCorte.map(dStr => {
-                               const dObj = new Date(dStr + 'T12:00:00');
-                               return (
-                                  <th key={dStr} className="p-3 text-center border-r border-slate-100 min-w-[140px]">
-                                     <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-sm text-slate-600">
-                                       {dObj.getDate()} <span className="block text-[9px] mt-0.5">{diasNombres[dObj.getDay()]}</span>
-                                     </div>
-                                  </th>
-                               );
-                            })}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                          {datosFiltrados.map(empleadoActivo => {
-                              const empDB = usuariosDB.find(u => u.id === empleadoActivo.id || u.id === empleadoActivo.empleado_id) || {};
-                              let horarioReferencia = {};
-                              if (empleadoActivo.horario) horarioReferencia = empleadoActivo.horario;
-                              else if (empDB.horario_semanal) {
-                                 try { horarioReferencia = typeof empDB.horario_semanal === 'string' ? JSON.parse(empDB.horario_semanal) : empDB.horario_semanal; } catch(e){}
-                              }
 
-                              return (
-                                <tr key={empleadoActivo.id || empleadoActivo.empleado_id} className="hover:bg-slate-50 transition group">
-                                   <td className="p-4 border-r border-slate-50 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)] group-hover:bg-slate-50">
-                                     <p className="font-bold text-slate-700 whitespace-nowrap">{empleadoActivo.nombre_completo || empleadoActivo.nombre}</p>
-                                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{empleadoActivo.rol}</p>
-                                   </td>
-                                   {diasCorte.map(dStr => {
-                                       const diaHorario = horarioReferencia[dStr];
-                                       let limpiezasGuardadas = empleadoActivo.limpieza && empleadoActivo.limpieza.detalle ? empleadoActivo.limpieza.detalle[dStr] : null;
-                                       
-                                       // Rescate histórico
-                                       if (!limpiezasGuardadas && matrizLimpiezaGlobal.evaluaciones) {
-                                           limpiezasGuardadas = [];
-                                           Object.keys(matrizLimpiezaGlobal.evaluaciones).forEach(area => {
-                                               if (String(matrizLimpiezaGlobal.asignaciones?.[area]?.[dStr]) === String(empleadoActivo.id || empleadoActivo.empleado_id)) {
-                                                   limpiezasGuardadas.push({ area, status: matrizLimpiezaGlobal.evaluaciones[area][dStr] });
-                                               }
-                                           });
-                                           if (limpiezasGuardadas.length === 0) limpiezasGuardadas = null;
-                                       }
-
-                                       return (
-                                         <td key={dStr} className="p-3 border-r border-slate-50 text-center align-top">
-                                             {!diaHorario || !diaHorario.activo ? (
-                                                <div className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest p-1.5 rounded border border-slate-100 mb-1">
-                                                  Descanso
-                                                </div>
-                                             ) : (
-                                                <div className={`text-[10px] font-black uppercase tracking-widest p-1.5 rounded border mb-1 ${diaHorario.pagado || (empleadoActivo.metricas && empleadoActivo.metricas.diasAuditados?.includes(dStr)) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                                                  {diaHorario.entrada || '--:--'} a {diaHorario.salida || '--:--'}
-                                                </div>
-                                             )}
-
-                                             {limpiezasGuardadas && limpiezasGuardadas.length > 0 && (
-                                                <div className="flex flex-col gap-1 mt-2 border-t border-dashed border-slate-200 pt-1.5">
-                                                   {limpiezasGuardadas.map((limp, idx) => (
-                                                     <div key={idx} className={`flex items-center justify-between px-1.5 py-1 rounded text-[8px] font-black uppercase tracking-wider ${limp.status === 'cumplio' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                                                       <span className="truncate max-w-[80px] text-left" title={limp.area}>{limp.area}</span>
-                                                       {limp.status === 'cumplio' ? '✅' : '❌'}
-                                                     </div>
-                                                   ))}
-                                                </div>
-                                             )}
-                                         </td>
-                                       );
-                                   })}
-                                </tr>
-                              );
-                          })}
-                        </tbody>
-                      </table>
+                    {/* ✨ SECCIÓN 2: AUDITORÍA DE LIMPIEZA */}
+                    <div className="mb-8">
+                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Sparkles className="text-emerald-500 print:text-black"/> 2. Resultados de Limpieza (Candados Cerrados)</h4>
+                        {data.limpiezas.length === 0 ? (
+                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No se encontraron limpiezas evaluadas y cerradas en este periodo.</p>
+                        ) : (
+                            <div className="flex flex-wrap gap-3">
+                                {data.limpiezas.map((limp, i) => (
+                                    <div key={i} className={`flex flex-col border rounded-xl p-3 shadow-sm min-w-[150px] ${limp.status === 'cumplio' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{limp.dia} {limp.fecha.split('-')[2]}</span>
+                                            {limp.status === 'cumplio' ? <CheckCircle2 size={16} className="text-emerald-600"/> : <XCircle size={16} className="text-red-600"/>}
+                                        </div>
+                                        <p className={`font-black text-sm uppercase ${limp.status === 'cumplio' ? 'text-emerald-800' : 'text-red-800'}`}>{limp.area}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
+                    {/* ⚠️ SECCIÓN 3: ANOMALÍAS Y DESCANSOS */}
+                    {data.anomalas.length > 0 && (
+                        <div>
+                            <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><AlertTriangle className="text-red-500 print:text-black"/> 3. Alertas: Checadas Anómalas y Descansos</h4>
+                            <div className="overflow-x-auto border border-red-100 rounded-2xl custom-scrollbar print:border-slate-300">
+                                <table className="w-full text-left border-collapse bg-red-50/30">
+                                    <thead className="bg-red-50 border-b border-red-100 print:bg-slate-100">
+                                        <tr>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Día / Fecha</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Motivo de Alerta</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Marcó Entrada</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest">Marcó Salida</th>
+                                            <th className="p-3 text-[10px] font-black text-red-800 uppercase tracking-widest text-right">Hrs Acumuladas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-red-50/50">
+                                        {data.anomalas.map((rec, i) => (
+                                            <tr key={i} className="hover:bg-red-50 transition print:text-sm">
+                                                <td className="p-3 font-bold text-red-900">{rec.dia} <span className="text-[10px] font-medium text-red-400 ml-1">{rec.fecha}</span></td>
+                                                <td className="p-3 font-black text-red-600 text-xs">{rec.motivo}</td>
+                                                <td className="p-3 font-black text-red-800">{rec.entrada}</td>
+                                                <td className="p-3 font-black text-red-800">{rec.salida}</td>
+                                                <td className="p-3 font-black text-red-900 text-right">{rec.horas}h</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            ))
+         )}
       </div>
 
       <style>{`

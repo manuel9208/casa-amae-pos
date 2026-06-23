@@ -6,7 +6,6 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
   const [datosProcesados, setDatosProcesados] = useState([]);
   const [cargando, setCargando] = useState(false);  
 
-  // Calcula los días del mes seleccionado
   const [year, month] = mesFiltro.split('-').map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
   const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
@@ -29,27 +28,30 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
 
         cortes.forEach(corte => {
           const datosCorte = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;  
-          datosCorte.forEach(emp => {
-            // 👇 MODIFICACIÓN APLICADA AQUÍ: Solo el 'Administrador Global' es excluido del histórico
+          
+          const listaLimpios = Array.isArray(datosCorte) ? datosCorte : (datosCorte.recibos || []);
+
+          listaLimpios.forEach(emp => {
             if (emp.nombre === 'Administrador Global') return;  
             
-            if (!consolidados[emp.id]) {
-              consolidados[emp.id] = {
-                id: emp.id,
-                nombre: emp.nombre,
+            const empIdReal = emp.id || emp.empleado_id;
+
+            if (!consolidados[empIdReal]) {
+              consolidados[empIdReal] = {
+                id: empIdReal,
+                nombre: emp.nombre_completo || emp.nombre,
                 rol: emp.rol,
                 horario: {},
                 limpiezaDetalle: {}
               };
             }  
-            // FUSIONAR HORARIOS
-            consolidados[emp.id].horario = { ...consolidados[emp.id].horario, ...(emp.horario || {}) };  
             
-            // FUSIONAR LIMPIEZA DETALLADA
+            consolidados[empIdReal].horario = { ...consolidados[empIdReal].horario, ...(emp.horario || {}) };  
+            
             if (emp.limpieza && emp.limpieza.detalle) {
               Object.keys(emp.limpieza.detalle).forEach(diaKey => {
                 if (diaKey.startsWith(mesFiltro)) {
-                  consolidados[emp.id].limpiezaDetalle[diaKey] = emp.limpieza.detalle[diaKey];
+                  consolidados[empIdReal].limpiezaDetalle[diaKey] = emp.limpieza.detalle[diaKey];
                 }
               });
             }
@@ -97,10 +99,10 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
         </div>
       ) : datosProcesados.length === 0 ? (
         <div className="bg-slate-50 p-12 rounded-[40px] text-center border-2 border-dashed border-slate-200">
-          <Calendar size={64} className="mx-auto text-slate-300 mb-4" />
+          <Calendar size={64} className="mx-auto text-slate-300 mb-4 opacity-50" />
           <h3 className="text-2xl font-black text-slate-600">Mes sin registros</h3>
           <p className="text-slate-500 font-medium mt-2 max-w-md mx-auto">
-            No se encontraron cortes de nómina ni limpiezas guardadas para {mesFiltro}.
+            No se encontraron cortes de nómina congelados para {mesFiltro}.
           </p>
         </div>
       ) : (
@@ -135,19 +137,19 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
                       
                       return (
                         <td key={d.fechaStr} className="p-3 border-l border-slate-100 text-center align-top">  
-                          {/* 1. HORARIOS */}
+                          {/* HORARIOS */}
                           {!diaHorario || !diaHorario.activo ? (
                             <div className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest p-2 rounded-lg border border-slate-200 mb-2">
                               Descanso
                             </div>
                           ) : (
                             <div className={`text-[11px] font-black uppercase tracking-widest p-2 rounded-lg border mb-2 ${diaHorario.pagado ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                              {diaHorario.entrada} - {diaHorario.salida}
-                              {diaHorario.pagado && <span className="block text-[8px] opacity-70 mt-0.5">✅ Pagado</span>}
+                              {diaHorario.entrada} a {diaHorario.salida}
+                              {diaHorario.pagado && <span className="block text-[8px] opacity-70 mt-0.5">✅ Nómina Pagada</span>}
                             </div>
                           )}  
                           
-                          {/* 2. LIMPIEZAS */}
+                          {/* LIMPIEZAS */}
                           {limpiezasDelDia && limpiezasDelDia.length > 0 && (
                             <div className="flex flex-col gap-1 mt-2 border-t border-dashed border-slate-200 pt-2">
                               <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-center gap-1"><Sparkles size={10}/> Auditoría Limpieza</span>
