@@ -3,7 +3,7 @@ import { Save, User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Scale, Cof
 
 const diasSemanaMap = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-// 👇 Utilidad para asegurar que los inputs de fecha siempre reciban "YYYY-MM-DD"
+// Utilidad para asegurar que los inputs de fecha siempre reciban "YYYY-MM-DD"
 const formatoFechaSeguro = (fechaStr) => {
   if (!fechaStr) return '';
   try {
@@ -20,13 +20,11 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   // ==========================================
   // ESTADO: REGLAS GLOBALES (BONOS Y LEYES)
   // ==========================================
-  const [configGlobal, setConfigGlobal] = useState({});
+  // 🛡️ CORRECCIÓN ESLINT: Se eliminó 'configGlobal' porque ya no se usa, la lectura es directa.
   const [reglasNomina, setReglasNomina] = useState({
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
     bono_puntualidad_eventos_activo: false, bono_puntualidad_eventos_monto: 0, puntualidad_eventos_tolerancia_minutos: 15, puntualidad_eventos_retardos_permitidos: 0,
-    // 👇 Recuperamos el estado del bono estricto
     bono_puntualidad_estricta_activo: false, bono_puntualidad_estricta_monto: 0, puntualidad_estricta_limite_minutos_semana: 15,
-    
     descuento_descanso_activo: true, 
     prima_dominical_activa: true,
     retencion_isr_activa: false, porcentaje_isr: 0,
@@ -39,8 +37,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [empleadoEditId, setEmpleadoEditId] = useState('');
   const [prestacionesEmp, setPrestacionesEmp] = useState({ 
     sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
-    fecha_ingreso: '', fecha_nacimiento: '', // 🎂 Añadido fecha_nacimiento
-    nombre_completo: '', generar_nomina: true,
+    fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: true,
     dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12,
     limite_platillos: 1, limite_bebidas: 1,
     prestamos: [], bonos_recurrentes: []
@@ -53,7 +50,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         const res = await fetch(`${apiUrl}/configuracion`);
         if (res.ok) {
           const data = await res.json();
-          setConfigGlobal(data);
           const matriz = typeof data.matriz_limpieza === 'string' ? JSON.parse(data.matriz_limpieza || '{}') : (data.matriz_limpieza || {});
           if (matriz.reglas_nomina) {
             setReglasNomina(prev => ({ ...prev, ...matriz.reglas_nomina }));
@@ -74,8 +70,14 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         if (typeof presParsed.dia_descanso === 'string' && presParsed.dia_descanso !== 'Ninguno') descansosArray = [presParsed.dia_descanso];
 
         setPrestacionesEmp({
-          sueldo_base: presParsed.sueldo_base || 0, tipo_sueldo: presParsed.tipo_sueldo || 'Semanal', banco: presParsed.banco || '', cuenta: presParsed.cuenta || '',
-          rfc: presParsed.rfc || '', curp: presParsed.curp || '', nss: presParsed.nss || '', telefono: presParsed.telefono || emp.telefono || '',
+          sueldo_base: presParsed.sueldo_base || 0, 
+          tipo_sueldo: presParsed.tipo_sueldo || 'Semanal', 
+          banco: presParsed.banco || '', 
+          cuenta: presParsed.cuenta || '',
+          rfc: presParsed.rfc || '', 
+          curp: presParsed.curp || '', 
+          nss: presParsed.nss || '', 
+          telefono: presParsed.telefono || emp.telefono || '',
           correo: presParsed.correo || '', 
           fecha_ingreso: formatoFechaSeguro(presParsed.fecha_ingreso), 
           fecha_nacimiento: formatoFechaSeguro(presParsed.fecha_nacimiento), 
@@ -91,7 +93,11 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         });
       }
     } else {
-      setPrestacionesEmp({ sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: true, dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] });
+      setPrestacionesEmp({ 
+        sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
+        fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: true, dias_descanso: [], 
+        prima_vacacional: 25, dias_vacaciones_disponibles: 12, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] 
+      });
     }
   }, [empleadoEditId, usuariosDB]);
 
@@ -133,19 +139,31 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     setPrestacionesEmp(prev => ({ ...prev, bonos_recurrentes: prev.bonos_recurrentes.filter(b => b.id !== id) }));
   };
 
+  // 🛡️ CORRECCIÓN: Rescatar la matriz de la BD antes de guardar para no borrar las áreas de limpieza
   const guardarReglasGlobales = async (e) => {
     e.preventDefault(); 
     setIsSubmitting(true);
     try {
-      const matrizActual = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
+      const resConfig = await fetch(`${apiUrl}/configuracion`);
+      let matrizActual = {};
+      
+      if (resConfig.ok) {
+        const dataConfig = await resConfig.json();
+        matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
+      }
+      
       matrizActual.reglas_nomina = reglasNomina;
       
       const formData = new FormData(); 
       formData.append('matriz_limpieza', JSON.stringify(matrizActual));
       
       const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-      if (res.ok) showAlert('Éxito', 'Las políticas laborales y bonos se guardaron correctamente.', 'success');
-    } catch(e) { showAlert('Error', 'Fallo de conexión.', 'error'); }
+      if (res.ok) {
+        showAlert('Éxito', 'Las políticas laborales y bonos se guardaron correctamente en la BD.', 'success');
+      }
+    } catch(e) { 
+      showAlert('Error', 'Fallo de conexión al guardar políticas.', 'error'); 
+    }
     setIsSubmitting(false);
   };
 
@@ -164,8 +182,13 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
       const res = await fetch(`${apiUrl}/usuarios/${empleadoEditId}/prestaciones`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prestaciones: payload })
       });
-      if (res.ok) { showAlert('Éxito', 'Ficha del empleado guardada correctamente.', 'success'); refrescarDatos(); }
-    } catch(e) { showAlert('Error', 'Fallo de conexión.', 'error'); }
+      if (res.ok) { 
+        showAlert('Éxito', 'Ficha del empleado guardada correctamente.', 'success'); 
+        refrescarDatos(); 
+      }
+    } catch(e) { 
+      showAlert('Error', 'Fallo de conexión.', 'error'); 
+    }
     setIsSubmitting(false);
   };
 
@@ -265,8 +288,14 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             </div>
             {reglasNomina.bono_limpieza_activo && (
               <div className="grid grid-cols-2 gap-4 animate-in fade-in">
-                <div><label className="text-xs font-bold text-slate-500">Monto del Bono ($)</label><input type="number" value={reglasNomina.bono_limpieza_monto} onChange={e => setReglasNomina({...reglasNomina, bono_limpieza_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-emerald-500" /></div>
-                <div><label className="text-xs font-bold text-slate-500">Fallas Perdonadas</label><input type="number" value={reglasNomina.limpieza_omisiones_permitidas} onChange={e => setReglasNomina({...reglasNomina, limpieza_omisiones_permitidas: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-emerald-500" /></div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Monto del Bono ($)</label>
+                  <input type="number" value={reglasNomina.bono_limpieza_monto} onChange={e => setReglasNomina({...reglasNomina, bono_limpieza_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Fallas Perdonadas</label>
+                  <input type="number" value={reglasNomina.limpieza_omisiones_permitidas} onChange={e => setReglasNomina({...reglasNomina, limpieza_omisiones_permitidas: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-emerald-500" />
+                </div>
               </div>
             )}
           </div>
@@ -282,14 +311,23 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             <p className="text-[10px] text-slate-500 mb-4 font-bold uppercase tracking-wider">Castiga por la CANTIDAD de veces que llegó tarde.</p>
             {reglasNomina.bono_puntualidad_eventos_activo && (
               <div className="grid grid-cols-3 gap-4 animate-in fade-in">
-                <div><label className="text-xs font-bold text-slate-500">Monto ($)</label><input type="number" value={reglasNomina.bono_puntualidad_eventos_monto} onChange={e => setReglasNomina({...reglasNomina, bono_puntualidad_eventos_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" /></div>
-                <div><label className="text-xs font-bold text-slate-500">Tolerancia (Min)</label><input type="number" value={reglasNomina.puntualidad_eventos_tolerancia_minutos} onChange={e => setReglasNomina({...reglasNomina, puntualidad_eventos_tolerancia_minutos: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" /></div>
-                <div><label className="text-xs font-bold text-slate-500">Tardanzas Permitidas</label><input type="number" value={reglasNomina.puntualidad_eventos_retardos_permitidos} onChange={e => setReglasNomina({...reglasNomina, puntualidad_eventos_retardos_permitidos: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" /></div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Monto ($)</label>
+                  <input type="number" value={reglasNomina.bono_puntualidad_eventos_monto} onChange={e => setReglasNomina({...reglasNomina, bono_puntualidad_eventos_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Tolerancia (Min)</label>
+                  <input type="number" value={reglasNomina.puntualidad_eventos_tolerancia_minutos} onChange={e => setReglasNomina({...reglasNomina, puntualidad_eventos_tolerancia_minutos: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Tardanzas Permitidas</label>
+                  <input type="number" value={reglasNomina.puntualidad_eventos_retardos_permitidos} onChange={e => setReglasNomina({...reglasNomina, puntualidad_eventos_retardos_permitidos: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500" />
+                </div>
               </div>
             )}
           </div>
 
-          {/* 👇 RE-INYECCIÓN: BONO 3: PUNTUALIDAD ESTRICTA */}
+          {/* BONO 3: PUNTUALIDAD ESTRICTA */}
           <div className={`p-5 rounded-2xl border-2 transition-all ${reglasNomina.bono_puntualidad_estricta_activo ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between items-center mb-4">
               <h4 className="font-black text-slate-800 flex items-center gap-2"><AlertTriangle className="text-orange-500" size={18}/> Bono Puntualidad Estricta</h4>
@@ -300,8 +338,14 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             <p className="text-[10px] text-slate-500 mb-4 font-bold uppercase tracking-wider">Suma todos los minutos tarde de la semana.</p>
             {reglasNomina.bono_puntualidad_estricta_activo && (
               <div className="grid grid-cols-2 gap-4 animate-in fade-in">
-                <div><label className="text-xs font-bold text-slate-500">Monto del Bono ($)</label><input type="number" value={reglasNomina.bono_puntualidad_estricta_monto} onChange={e => setReglasNomina({...reglasNomina, bono_puntualidad_estricta_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" /></div>
-                <div><label className="text-xs font-bold text-slate-500">Límite Global Semanal (Minutos)</label><input type="number" value={reglasNomina.puntualidad_estricta_limite_minutos_semana} onChange={e => setReglasNomina({...reglasNomina, puntualidad_estricta_limite_minutos_semana: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" /></div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Monto del Bono ($)</label>
+                  <input type="number" value={reglasNomina.bono_puntualidad_estricta_monto} onChange={e => setReglasNomina({...reglasNomina, bono_puntualidad_estricta_monto: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-500">Límite Global Semanal (Minutos)</label>
+                  <input type="number" value={reglasNomina.puntualidad_estricta_limite_minutos_semana} onChange={e => setReglasNomina({...reglasNomina, puntualidad_estricta_limite_minutos_semana: Number(e.target.value)})} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-orange-500" />
+                </div>
               </div>
             )}
           </div>
@@ -338,7 +382,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
               <input type="checkbox" checked={prestacionesEmp.generar_nomina} onChange={(e) => setPrestacionesEmp({...prestacionesEmp, generar_nomina: e.target.checked})} className="w-6 h-6 accent-blue-600 rounded-md cursor-pointer" />
             </div>
 
-            {/* SUELDO Y FRECUENCIA EXPANDIDA */}
+            {/* SUELDO Y FRECUENCIA */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase">Sueldo Base ($)</label>
@@ -359,7 +403,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
               </div>
             </div>
 
-            {/* 👇 RE-INYECCIÓN Y MEJORA: ANTIGÜEDAD, VACACIONES Y CUMPLEAÑOS */}
+            {/* ANTIGÜEDAD Y VACACIONES */}
             <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
                <h4 className="font-black text-emerald-900 flex items-center gap-2 mb-3 text-sm"><CalendarDays size={16}/> Fechas Importantes y Vacaciones</h4>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -416,9 +460,18 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                          <button type="button" onClick={() => eliminarPrestamo(p.id)} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
                          <input type="text" placeholder="Concepto (Ej. Préstamo Personal)" value={p.concepto} onChange={e => actualizarPrestamo(p.id, 'concepto', e.target.value)} className="w-[90%] text-sm font-black text-slate-800 outline-none border-b border-dashed border-slate-200 pb-1 mb-2" />
                          <div className="grid grid-cols-3 gap-2 mt-2">
-                            <div><label className="text-[9px] font-black text-slate-400 uppercase">Monto Total</label><input type="number" disabled={!p.activo} placeholder="$0.00" value={p.monto_total || ''} onChange={e => actualizarPrestamo(p.id, 'monto_total', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" /></div>
-                            <div><label className="text-[9px] font-black text-rose-500 uppercase">Descontar x Nómina</label><input type="number" disabled={!p.activo} placeholder="$0.00" value={p.descuento_por_nomina || ''} onChange={e => actualizarPrestamo(p.id, 'descuento_por_nomina', Number(e.target.value))} className="w-full bg-rose-50 p-1.5 rounded text-xs font-bold outline-none border border-rose-200 text-center text-rose-700" /></div>
-                            <div><label className="text-[9px] font-black text-slate-400 uppercase">Saldo Restante</label><input type="number" disabled placeholder="Auto" value={p.saldo_restante} className="w-full bg-slate-100 p-1.5 rounded text-xs font-bold outline-none border border-slate-200 text-center text-slate-500 cursor-not-allowed" /></div>
+                            <div>
+                              <label className="text-[9px] font-black text-slate-400 uppercase">Monto Total</label>
+                              <input type="number" disabled={!p.activo} placeholder="$0.00" value={p.monto_total || ''} onChange={e => actualizarPrestamo(p.id, 'monto_total', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-rose-500 uppercase">Descontar x Nómina</label>
+                              <input type="number" disabled={!p.activo} placeholder="$0.00" value={p.descuento_por_nomina || ''} onChange={e => actualizarPrestamo(p.id, 'descuento_por_nomina', Number(e.target.value))} className="w-full bg-rose-50 p-1.5 rounded text-xs font-bold outline-none border border-rose-200 text-center text-rose-700" />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-slate-400 uppercase">Saldo Restante</label>
+                              <input type="number" disabled placeholder="Auto" value={p.saldo_restante} className="w-full bg-slate-100 p-1.5 rounded text-xs font-bold outline-none border border-slate-200 text-center text-slate-500 cursor-not-allowed" />
+                            </div>
                          </div>
                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
                            <input type="checkbox" checked={p.activo} onChange={e => actualizarPrestamo(p.id, 'activo', e.target.checked)} className="w-3 h-3 accent-rose-500"/>
@@ -451,9 +504,18 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                            <input type="text" placeholder="Motivo (Ej. Apoyo Transporte)" value={b.concepto} onChange={e => actualizarBonoRecurrente(b.id, 'concepto', e.target.value)} className="flex-1 text-sm font-black text-slate-800 outline-none border-b border-dashed border-slate-200 pb-1" />
                          </div>
                          <div className="grid grid-cols-3 gap-2 mt-2">
-                            <div><label className="text-[9px] font-black text-slate-400 uppercase">Monto Fijo</label><input type="number" placeholder="$0.00" value={b.monto || ''} onChange={e => actualizarBonoRecurrente(b.id, 'monto', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" /></div>
-                            <div><label className="text-[9px] font-black text-purple-500 uppercase">Válido Desde</label><input type="date" value={b.fecha_inicio} onChange={e => actualizarBonoRecurrente(b.id, 'fecha_inicio', e.target.value)} className="w-full bg-purple-50 p-1 rounded text-[10px] font-bold outline-none border border-purple-200 text-purple-700 text-center" /></div>
-                            <div><label className="text-[9px] font-black text-purple-500 uppercase">Válido Hasta</label><input type="date" value={b.fecha_fin} onChange={e => actualizarBonoRecurrente(b.id, 'fecha_fin', e.target.value)} className="w-full bg-purple-50 p-1 rounded text-[10px] font-bold outline-none border border-purple-200 text-purple-700 text-center" /></div>
+                            <div>
+                              <label className="text-[9px] font-black text-slate-400 uppercase">Monto Fijo</label>
+                              <input type="number" placeholder="$0.00" value={b.monto || ''} onChange={e => actualizarBonoRecurrente(b.id, 'monto', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-purple-500 uppercase">Válido Desde</label>
+                              <input type="date" value={b.fecha_inicio} onChange={e => actualizarBonoRecurrente(b.id, 'fecha_inicio', e.target.value)} className="w-full bg-purple-50 p-1 rounded text-[10px] font-bold outline-none border border-purple-200 text-purple-700 text-center" />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-purple-500 uppercase">Válido Hasta</label>
+                              <input type="date" value={b.fecha_fin} onChange={e => actualizarBonoRecurrente(b.id, 'fecha_fin', e.target.value)} className="w-full bg-purple-50 p-1 rounded text-[10px] font-bold outline-none border border-purple-200 text-purple-700 text-center" />
+                            </div>
                          </div>
                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
                            <input type="checkbox" checked={b.activo} onChange={e => actualizarBonoRecurrente(b.id, 'activo', e.target.checked)} className="w-3 h-3 accent-purple-500"/>
@@ -468,8 +530,14 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             <div className="border-t border-slate-200 my-4"></div>
 
             <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl">
-              <div><label className="text-[10px] font-black text-slate-500 uppercase">Nombre Completo Legal</label><input type="text" value={prestacionesEmp.nombre_completo} onChange={e => setPrestacionesEmp({...prestacionesEmp, nombre_completo: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" /></div>
-              <div><label className="text-[10px] font-black text-slate-500 uppercase">RFC</label><input type="text" value={prestacionesEmp.rfc} onChange={e => setPrestacionesEmp({...prestacionesEmp, rfc: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" /></div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Nombre Completo Legal</label>
+                <input type="text" value={prestacionesEmp.nombre_completo} onChange={e => setPrestacionesEmp({...prestacionesEmp, nombre_completo: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">RFC</label>
+                <input type="text" value={prestacionesEmp.rfc} onChange={e => setPrestacionesEmp({...prestacionesEmp, rfc: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" />
+              </div>
             </div>
 
             <div>

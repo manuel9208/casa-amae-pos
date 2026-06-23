@@ -3,6 +3,7 @@ import { Calendar, Printer, FileText, Sparkles, AlertCircle } from 'lucide-react
 
 const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [reportes, setReportes] = useState({ asistenciasHoy: [], historialAsistencias: [], rendimientoCocina: [], cortesNomina: [] });
+  const [matrizLimpiezaGlobal, setMatrizLimpiezaGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
   const [periodo, setPeriodo] = useState('dia');
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
   const [filtroUsuario, setFiltroUsuario] = useState('Todos');  
@@ -15,8 +16,15 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         const data = await res.json();
         setReportes(data);
       }
+
+      // 🛡️ RECOLECTOR GLOBAL: Necesario para reconstruir los detalles de limpieza en cortes antiguos
+      const resConfig = await fetch(`${apiUrl}/configuracion`);
+      if (resConfig.ok) {
+         const configData = await resConfig.json();
+         setMatrizLimpiezaGlobal(typeof configData.matriz_limpieza === 'string' ? JSON.parse(configData.matriz_limpieza || '{}') : (configData.matriz_limpieza || {}));
+      }
     } catch (error) {
-      console.error("Error al cargar reportes de rendimiento", error);
+      console.error("Error al cargar reportes", error);
     }
   }, [apiUrl, periodo, fechaFiltro, filtroUsuario]);  
 
@@ -62,7 +70,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     if (!acc[key]) {
       acc[key] = { ...curr, fecha: fechaLimpia };
     } else {
-      const currentIn = new Date(acc[acc[key].id ? key : key].hora_entrada);
+      const currentIn = new Date(acc[key].hora_entrada);
       const newIn = new Date(curr.hora_entrada);
       if (newIn < currentIn) acc[key].hora_entrada = curr.hora_entrada;  
       
@@ -126,7 +134,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       let oficial = '--:--';
       let oficialSalida = '--:--';
       
-      const stringHoraCompleta = new Date(asistencia.fecha_entrada || asistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+      const stringHoraCompleta = new Date(asistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
       const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
       const minutosReales = hReal * 60 + mReal;
 
@@ -301,13 +309,13 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           </div>
         </div>
 
-        {/* CORTES Y LIMPIEZA */}
+        {/* 🛡️ REPORTE HISTÓRICO MATRICIAL DETALLADO */}
         <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
           <div className="flex items-center gap-3 mb-8">
             <div className="bg-teal-100 p-3 rounded-2xl text-teal-600"><Sparkles size={28}/></div>
             <div>
               <h3 className="text-2xl font-black text-slate-800 tracking-tight">Cumplimiento de Limpieza y Turnos</h3>
-              <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Cortes Históricos</p>
+              <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Cortes Históricos Detallados</p>
             </div>
           </div>  
 
@@ -320,72 +328,120 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             <div className="space-y-8">
               {cortesUnicos.map(corte => {
                 const datosRaw = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;
+                const metadata = datosRaw.metadata || corte.metadata;
                 const listaEmpleados = Array.isArray(datosRaw) ? datosRaw : (datosRaw.recibos || []);
 
                 const datosFiltrados = (filtroUsuario !== 'Todos' ? listaEmpleados.filter(d => String(d.id || d.empleado_id) === String(filtroUsuario)) : listaEmpleados)
                   .filter(emp => emp.nombre !== 'Administrador Global')
-                  .sort((a, b) => a.nombre.localeCompare(b.nombre));  
+                  // 🛡️ CORRECCIÓN ESLINT APLICADA AQUÍ: Se cambió "emp" por "a" y "b" para evitar el error de indefinido.
+                  .sort((a, b) => (a.nombre_completo || a.nombre).localeCompare(b.nombre_completo || b.nombre));  
 
                 if (datosFiltrados.length === 0) return null;  
+
+                // 🗓️ CONSTRUCCIÓN DEL CALENDARIO DINÁMICO DEL CORTE
+                let fechasDelCorte = new Set();
+                if (metadata && metadata.fecha_inicio && metadata.fecha_fin) {
+                   let curr = new Date(metadata.fecha_inicio + 'T12:00:00');
+                   const end = new Date(metadata.fecha_fin + 'T12:00:00');
+                   while(curr <= end) {
+                      fechasDelCorte.add(curr.toISOString().split('T')[0]);
+                      curr.setDate(curr.getDate() + 1);
+                   }
+                } else {
+                   listaEmpleados.forEach(emp => {
+                      if (emp.horario) Object.keys(emp.horario).forEach(k => fechasDelCorte.add(k));
+                      if (emp.limpieza && emp.limpieza.detalle) Object.keys(emp.limpieza.detalle).forEach(k => fechasDelCorte.add(k));
+                      if (emp.metricas && emp.metricas.diasAuditados) emp.metricas.diasAuditados.forEach(k => fechasDelCorte.add(k));
+                   });
+                }
+                
+                const diasCorte = Array.from(fechasDelCorte).sort();
+                if (diasCorte.length === 0) return null;
+                const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
                 return (
                   <div key={corte.id} className="border border-slate-200 rounded-[24px] overflow-hidden shadow-sm bg-white">
                     <div className="bg-slate-50 p-5 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 gap-2">
                       <p className="font-black text-slate-700 uppercase tracking-widest text-xs flex items-center gap-2">
-                        Corte Semana del: <span className="text-blue-600 text-sm bg-blue-100 px-2 py-0.5 rounded-md">{new Date(corte.fecha_corte).toLocaleDateString()}</span>
+                        Auditoría del: <span className="text-blue-600 text-sm bg-blue-100 px-2 py-0.5 rounded-md">{diasCorte[0]} al {diasCorte[diasCorte.length-1]}</span>
                       </p>
                       <p className="text-[10px] font-bold text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-200 shadow-sm">
-                        Emitido: {new Date(corte.fecha_creacion).toLocaleString()}
+                        Fecha de Emisión: {new Date(corte.fecha_creacion).toLocaleString()}
                       </p>
                     </div>
-                    <div className="w-full max-w-full overflow-x-auto">
-                      <table className="w-full text-left border-collapse min-w-[1000px]">
+                    <div className="w-full max-w-full overflow-x-auto custom-scrollbar pb-2">
+                      <table className="w-full text-left border-collapse min-w-max">
                         <thead>
                           <tr className="bg-white text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                            <th className="p-4 border-r border-slate-100 w-64">Empleado</th>
-                            <th className="p-4 border-r border-slate-100 text-center">Días Trabajados</th>
-                            <th className="p-4 border-r border-slate-100 text-center">Limpiezas ✅</th>
-                            <th className="p-4 border-r border-slate-100 text-center">Fallas ❌</th>
-                            <th className="p-4 text-center">Desempeño</th>
+                            <th className="p-4 border-r border-slate-100 w-48 sticky left-0 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20">Empleado</th>
+                            {diasCorte.map(dStr => {
+                               const dObj = new Date(dStr + 'T12:00:00');
+                               return (
+                                  <th key={dStr} className="p-3 text-center border-r border-slate-100 min-w-[140px]">
+                                     <div className="bg-slate-50 p-2 rounded-xl border border-slate-100 shadow-sm text-slate-600">
+                                       {dObj.getDate()} <span className="block text-[9px] mt-0.5">{diasNombres[dObj.getDay()]}</span>
+                                     </div>
+                                  </th>
+                               );
+                            })}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {datosFiltrados.map(emp => {
-                            const cumplidas = emp.limpieza?.cumplidas !== undefined ? emp.limpieza.cumplidas : (emp.metricas?.fallasLimpieza === 0 ? 1 : 0);
-                            const incumplidas = emp.limpieza?.incumplidas !== undefined ? emp.limpieza.incumplidas : (emp.metricas?.fallasLimpieza || 0);
-                            
-                            const totalL = Number(cumplidas) + Number(incumplidas);
-                            const porcentaje = totalL === 0 ? 0 : Math.round((Number(cumplidas) / totalL) * 100);  
-                            
-                            let badgeClase = 'bg-slate-100 text-slate-500 border-slate-200';
-                            if (totalL > 0) {
-                              if (porcentaje >= 90) badgeClase = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                              else if (porcentaje >= 50) badgeClase = 'bg-yellow-50 text-yellow-700 border-yellow-200';
-                              else badgeClase = 'bg-red-50 text-red-700 border-red-200';
-                            }  
+                              const empDB = usuariosDB.find(u => u.id === emp.id || u.id === emp.empleado_id) || {};
+                              let horarioReferencia = {};
+                              if (emp.horario) horarioReferencia = emp.horario;
+                              else if (empDB.horario_semanal) {
+                                 try { horarioReferencia = typeof empDB.horario_semanal === 'string' ? JSON.parse(empDB.horario_semanal) : empDB.horario_semanal; } catch(e){}
+                              }
 
-                            return (
-                              <tr key={emp.id || emp.empleado_id} className="hover:bg-slate-50 transition">
-                                <td className="p-4 border-r border-slate-50">
-                                  <p className="font-bold text-slate-700">{emp.nombre_completo || emp.nombre}</p>
-                                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{emp.rol}</p>
-                                </td>
-                                <td className="p-4 border-r border-slate-50 text-center font-black text-blue-600 text-xl">
-                                  {emp.dias_trabajados !== undefined ? emp.dias_trabajados : (emp.metricas?.diasProgramados || 0)} <span className="text-xs text-blue-300 font-bold">días</span>
-                                </td>
-                                <td className="p-4 border-r border-slate-50 text-center font-black text-emerald-500 text-xl">
-                                  {cumplidas}
-                                </td>
-                                <td className="p-4 border-r border-slate-50 text-center font-black text-red-400 text-xl">
-                                  {incumplidas}
-                                </td>
-                                <td className="p-4 text-center">
-                                  <span className={`px-4 py-2 rounded-xl text-sm font-black border shadow-sm ${badgeClase}`}>
-                                    {totalL === 0 ? 'Sin evaluar' : `${porcentaje}%`}
-                                  </span>
-                                </td>
-                              </tr>
-                            )
+                              return (
+                                <tr key={emp.id || emp.empleado_id} className="hover:bg-slate-50 transition group">
+                                   <td className="p-4 border-r border-slate-50 sticky left-0 bg-white z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)] group-hover:bg-slate-50">
+                                     <p className="font-bold text-slate-700 whitespace-nowrap">{emp.nombre_completo || emp.nombre}</p>
+                                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{emp.rol}</p>
+                                   </td>
+                                   {diasCorte.map(dStr => {
+                                       const diaHorario = horarioReferencia[dStr];
+                                       let limpiezasGuardadas = emp.limpieza && emp.limpieza.detalle ? emp.limpieza.detalle[dStr] : null;
+                                       
+                                       if (!limpiezasGuardadas && matrizLimpiezaGlobal.evaluaciones) {
+                                           limpiezasGuardadas = [];
+                                           Object.keys(matrizLimpiezaGlobal.evaluaciones).forEach(area => {
+                                               if (String(matrizLimpiezaGlobal.asignaciones?.[area]?.[dStr]) === String(emp.id || emp.empleado_id)) {
+                                                   limpiezasGuardadas.push({ area, status: matrizLimpiezaGlobal.evaluaciones[area][dStr] });
+                                               }
+                                           });
+                                           if (limpiezasGuardadas.length === 0) limpiezasGuardadas = null;
+                                       }
+
+                                       return (
+                                         <td key={dStr} className="p-3 border-r border-slate-50 text-center align-top">
+                                             {!diaHorario || !diaHorario.activo ? (
+                                                <div className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest p-1.5 rounded border border-slate-100 mb-1">
+                                                  Descanso
+                                                </div>
+                                             ) : (
+                                                <div className={`text-[10px] font-black uppercase tracking-widest p-1.5 rounded border mb-1 ${diaHorario.pagado || (emp.metricas && emp.metricas.diasAuditados?.includes(dStr)) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                                                  {diaHorario.entrada || '--:--'} a {diaHorario.salida || '--:--'}
+                                                </div>
+                                             )}
+
+                                             {limpiezasGuardadas && limpiezasGuardadas.length > 0 && (
+                                                <div className="flex flex-col gap-1 mt-2 border-t border-dashed border-slate-200 pt-1.5">
+                                                   {limpiezasGuardadas.map((limp, idx) => (
+                                                     <div key={idx} className={`flex items-center justify-between px-1.5 py-1 rounded text-[8px] font-black uppercase tracking-wider ${limp.status === 'cumplio' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                                                       <span className="truncate max-w-[80px] text-left" title={limp.area}>{limp.area}</span>
+                                                       {limp.status === 'cumplio' ? '✅' : '❌'}
+                                                     </div>
+                                                   ))}
+                                                </div>
+                                             )}
+                                         </td>
+                                       );
+                                   })}
+                                </tr>
+                              );
                           })}
                         </tbody>
                       </table>

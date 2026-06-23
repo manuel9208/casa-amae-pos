@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, 
-  ChefHat, PlusCircle, MapPin, TrendingDown, Bike, CreditCard, 
-  Banknote, Smartphone} from 'lucide-react';  
+  Store, Bike, Calculator, Smartphone} from 'lucide-react';  
 
 const formaterMoneda = (monto) => {
   return "$" + Number(monto).toFixed(2);
@@ -143,8 +142,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
   const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
 
-  let tPlatillos = 0, tExtras = 0, tEnvio = 0, tEfectivo = 0, tTarjeta = 0, tTransf = 0;
-  let dPlatillos = 0, dExtras = 0, dEnvio = 0, dEfectivo = 0, dTarjeta = 0, dTransf = 0;  
+  // 👇 LÓGICA DE SEPARACIÓN TOTAL (CAJA VS MOTOS) IDENTICA A LA VISTA DE CORTE
+  let lEfectivo = 0, lTarjeta = 0, lTransf = 0, lPlatillos = 0, lExtras = 0;
+  let dEfectivo = 0, dTarjeta = 0, dTransf = 0, dPlatillos = 0, dExtras = 0, dEnvio = 0;
+  let tPlatillos = 0, tExtras = 0, tEnvio = 0;
 
   pedidos.forEach(p => {
     if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
@@ -152,10 +153,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
     const isComedor = p.metodo_pago === 'Comida Personal';
     const isDomicilio = p.tipo_consumo === 'Domicilio';  
-
-    const costoEnvio = parseMoney(p.costo_envio);
-    tEnvio += costoEnvio;
-    if (isDomicilio) dEnvio += costoEnvio;  
 
     let efe=0, tar=0, tra=0;  
     if (p.metodo_pago === 'Efectivo') efe += parseMoney(p.total);
@@ -169,8 +166,9 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         if(x.metodo==='Transferencia') tra += parseMoney(x.monto);
       });
     }  
-    tEfectivo += efe; tTarjeta += tar; tTransf += tra;
-    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; }  
+    
+    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); } 
+    else { lEfectivo += efe; lTarjeta += tar; lTransf += tra; tEnvio += parseMoney(p.costo_envio); }
 
     let car = [];
     if (Array.isArray(p.carrito)) {
@@ -185,7 +183,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
       if(Array.isArray(i.extras)) {
         i.extras.forEach(e => {
           const eNameLower = (e.nombre || '').trim().toLowerCase();
-          // 👇 FIX FINANCIERO: Lógica idéntica al Reporte de Ventas para clasificar Extras Reales vs Base Modificada
           let isRealExtra = true;
           if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
               isRealExtra = false;
@@ -199,17 +196,13 @@ const VistaCortesHistorico = ({ apiUrl }) => {
       }  
       if (!isComedor) {
         const calcExtra = (exP * qty);
-        let rawPrice = parseMoney(i.precioFinal || i.precio_base || i.precio);
-        let calcBase = rawPrice - exP;
+        let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
         if (calcBase < 0) calcBase = 0;
         const calcPlat = (calcBase * qty);  
 
-        tExtras += calcExtra;
-        tPlatillos += calcPlat;  
-        if (isDomicilio) {
-          dExtras += calcExtra;
-          dPlatillos += calcPlat;
-        }
+        tExtras += calcExtra; tPlatillos += calcPlat;  
+        if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; } 
+        else { lExtras += calcExtra; lPlatillos += calcPlat; }
       }
     });
   });  
@@ -217,15 +210,14 @@ const VistaCortesHistorico = ({ apiUrl }) => {
   const fondoCaja = Number(corteEstatico.fondo_caja || corteEstatico.fondo_inicial || 0);
   const fondoRepartidor = Number(corteEstatico.fondo_repartidor || 0);
   const gastosCompras = Number(corteEstatico.total_gastos || 0);
-  const efectivoCajon = (fondoCaja + fondoRepartidor + tEfectivo) - gastosCompras;  
 
-  let pEnvios = { platillos: dPlatillos, extras: dExtras, envio: dEnvio, efectivo: dEfectivo, tarjeta: dTarjeta, transf: dTransf };  
-  if (corteEstatico.detalles_envio) {
-    const det = typeof corteEstatico.detalles_envio === 'string' ? JSON.parse(corteEstatico.detalles_envio) : corteEstatico.detalles_envio;
-    if (Object.keys(det).length > 0 && (det.platillos > 0 || det.envio > 0 || det.efectivo > 0 || det.tarjeta > 0)) {
-      pEnvios = det;
-    }
-  }  
+  // 👇 MATEMÁTICA PURA DE AUDITORÍA
+  const efectivoEsperadoCaja = (fondoCaja + lEfectivo) - gastosCompras;
+  const efectivoEsperadoMotos = (fondoRepartidor + dEfectivo);
+  const totalEfectivoFisico = efectivoEsperadoCaja + efectivoEsperadoMotos;
+  
+  const totalDigital = lTarjeta + lTransf + dTarjeta + dTransf;
+  const totalVentasGlobales = tPlatillos + tExtras + tEnvio;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -272,109 +264,123 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         <hr className="mt-4 border-slate-300" />
       </div>  
 
-      <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 mb-6 print:shadow-none print:border-none print:p-0">
-        <p className="text-slate-500 font-bold text-lg mb-4 print:text-sm">Origen de los Ingresos Totales</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center print:p-3 print:rounded-xl">
-            <div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Venta Platillos</p>
-              <p className="text-2xl font-black text-slate-700 print:text-lg">{formaterMoneda(tPlatillos)}</p>
-            </div>
-            <ChefHat size={32} className="text-slate-300 print:hidden"/>
+      {/* 🟢 SECCIÓN 1: CAJA PRINCIPAL */}
+      <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0 mb-6">
+        <div className="flex items-center gap-3 mb-6">
+            <div className="bg-slate-800 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Store size={24}/></div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest print:text-black">1. Caja Principal (Mostrador)</h3>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:p-3 print:rounded-xl">
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ventas (Mostrador)</p>
+            <p className="text-xl font-black text-slate-700 print:text-base">{formaterMoneda(lPlatillos + lExtras)}</p>
           </div>
-          <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 flex justify-between items-center print:bg-white print:p-3 print:rounded-xl">
-            <div>
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Extras</p>
-              <p className="text-2xl font-black text-emerald-700 print:text-lg">{formaterMoneda(tExtras)}</p>
-            </div>
-            <PlusCircle size={32} className="text-emerald-200 print:hidden"/>
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:p-3 print:rounded-xl">
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Fondo Inicial</p>
+            <p className="text-xl font-black text-slate-700 print:text-base">{formaterMoneda(fondoCaja)}</p>
           </div>
-          <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100 flex justify-between items-center print:bg-white print:p-3 print:rounded-xl">
-            <div>
-              <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1 print:text-slate-500">Cargos por Envío</p>
-              <p className="text-2xl font-black text-purple-700 print:text-lg">{formaterMoneda(tEnvio)}</p>
-            </div>
-            <MapPin size={32} className="text-purple-200 print:hidden"/>
+          <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
+            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Efectivo</p>
+            <p className="text-xl font-black text-emerald-700 print:text-base">+{formaterMoneda(lEfectivo)}</p>
+          </div>
+          <div className="bg-red-50 p-5 rounded-2xl border border-red-100 relative print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
+            <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1 print:text-slate-500">Gastos (Compras)</p>
+            <p className="text-xl font-black text-red-700 print:text-base">-{formaterMoneda(gastosCompras)}</p>
           </div>
         </div>
-
-        <div className="border-t border-slate-100 pt-8 mb-6 print:pt-4 print:mb-4"></div>
-        <p className="text-slate-500 font-bold text-lg mb-6 print:text-sm print:mb-3">Resumen por Método de Pago</p>  
-
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 print:mb-4">
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Fondo Inicial</p>
-            <p className="text-2xl font-black text-slate-700 print:text-base">{formaterMoneda(fondoCaja)}</p>
-          </div>
-          <div className="bg-emerald-50 p-6 rounded-3xl border border-emerald-100 print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2 print:text-slate-500">Efectivo Físico</p>
-            <p className="text-2xl font-black text-emerald-700 print:text-base">{formaterMoneda(tEfectivo)}</p>
-          </div>
-          <div className="bg-red-50 p-6 rounded-3xl border border-red-100 relative overflow-hidden group print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <div className="absolute top-2 right-2 text-red-200 print:hidden"><TrendingDown size={32}/></div>
-            <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-2 relative z-10 print:text-slate-500">Gastos (Compras)</p>
-            <p className="text-2xl font-black text-red-700 relative z-10 print:text-base">-{formaterMoneda(gastosCompras)}</p>
-          </div>
-          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 print:text-slate-500">Tarjetas</p>
-            <p className="text-2xl font-black text-blue-700 print:text-base">{formaterMoneda(tTarjeta)}</p>
-          </div>
-          <div className="bg-purple-50 p-6 rounded-3xl border border-purple-100 print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-2 print:text-slate-500">Transferencias</p>
-            <p className="text-2xl font-black text-purple-700 print:text-base">{formaterMoneda(tTransf)}</p>
-          </div>
-        </div>  
-
-        <div className="bg-emerald-600 p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-4 print:text-black print:rounded-xl">
-          <div>
-            <p className="text-emerald-200 font-black uppercase tracking-widest mb-1 text-sm print:text-slate-800">
-              Efectivo Físico en Cajón
-            </p>
-            <p className="text-[11px] font-bold text-emerald-100 opacity-80 uppercase tracking-wider print:text-slate-500">
-              (Fondo Caja + Fondo Reparto + Ventas Efec) - Gastos
-            </p>
-          </div>
-          <p className="text-6xl font-black mt-4 md:mt-0 print:text-3xl">
-            {formaterMoneda(efectivoCajon)}
-          </p>
+        <div className="bg-slate-800 p-6 rounded-2xl shadow-lg flex justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-3 print:text-black">
+          <div><p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-xs print:text-slate-800">Efectivo Físico en Cajón</p><p className="text-[10px] font-bold text-slate-400 uppercase print:text-slate-500">(Fondo + Ventas Efectivo) - Gastos</p></div>
+          <p className="text-4xl font-black print:text-2xl">{formaterMoneda(efectivoEsperadoCaja)}</p>
         </div>
-      </div>  
+      </div>
 
-      {(!cargando && pEnvios) && (
+      {/* 🛵 SECCIÓN 2: MOTOS Y LOGÍSTICA */}
+      {(!cargando) && (
         <div className="bg-indigo-50 p-6 md:p-8 rounded-[32px] shadow-sm border border-indigo-100 animate-in slide-in-from-bottom-6 mb-6 print:border-slate-400 print:bg-white">
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-indigo-600 text-white p-3 rounded-2xl shadow-sm print:bg-slate-200 print:text-black"><Bike size={24}/></div>
             <div>
-              <h3 className="text-2xl font-black text-indigo-900 tracking-tight print:text-black">Corte de Logística (Motos)</h3>
-              <p className="text-xs font-bold text-indigo-400/80 uppercase tracking-widest mt-0.5 print:text-slate-500">ESTAS CANTIDADES YA ESTÁN CONTEMPLADAS EN EL RESUMEN GENERAL</p>
+              <h3 className="text-2xl font-black text-indigo-900 tracking-tight print:text-black">2. Repartidores (Motos)</h3>
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm print:border-slate-300 print:shadow-none">
-              <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Venta Comida</p><p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(pEnvios.platillos + pEnvios.extras)}</p></div>
-              <ChefHat size={28} className="text-indigo-100 print:hidden"/>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white p-5 rounded-3xl border border-indigo-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none">
+              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Venta (Domicilio)</p>
+              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(dPlatillos + dExtras)}</p>
             </div>
-            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm print:border-slate-300 print:shadow-none">
-              <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Tarifas Cobradas</p><p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(pEnvios.envio)}</p></div>
-              <MapPin size={28} className="text-indigo-100 print:hidden"/>
+            <div className="bg-white p-5 rounded-3xl border border-indigo-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none">
+              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Envíos Cobrados</p>
+              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(dEnvio)}</p>
             </div>
-            <div className="bg-indigo-600 p-5 rounded-3xl border border-indigo-500 flex justify-between items-center shadow-md print:bg-white print:border-slate-300 print:shadow-none">
-              <div><p className="text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1 print:text-slate-500">Ingreso Efectivo</p><p className="text-2xl font-black text-white print:text-black">{formaterMoneda(pEnvios.efectivo)}</p></div>
-              <Banknote size={32} className="text-indigo-400 print:hidden"/>
+            <div className="bg-white p-5 rounded-3xl border border-indigo-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none">
+              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Fondo Repartidores</p>
+              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(fondoRepartidor)}</p>
             </div>
-            <div className="bg-white p-5 rounded-3xl border border-indigo-50 flex justify-between items-center shadow-sm print:border-slate-300 print:shadow-none">
-              <div><p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Pago Digital</p><p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(pEnvios.tarjeta + pEnvios.transf)}</p></div>
-              <div className="flex -space-x-2 print:hidden"><CreditCard size={24} className="text-indigo-200"/><Smartphone size={24} className="text-indigo-300"/></div>
+            <div className="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none print:bg-white">
+              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Efectivo</p>
+              <p className="text-xl font-black text-emerald-700 print:text-black">+{formaterMoneda(dEfectivo)}</p>
             </div>
+          </div>
+
+          <div className="bg-indigo-600 p-5 rounded-3xl border border-indigo-500 flex justify-between items-center shadow-md print:bg-white print:border-slate-300 print:shadow-none print:p-3">
+              <div>
+                <p className="text-indigo-200 font-black uppercase tracking-widest mb-1 text-xs print:text-slate-800">Efectivo Físico a Entregar por Motos</p>
+                <p className="text-[10px] font-bold text-indigo-300 uppercase print:text-slate-500">Fondo Repartidores + Pagos en Efectivo</p>
+              </div>
+              <p className="text-4xl font-black text-white print:text-2xl print:text-black">{formaterMoneda(efectivoEsperadoMotos)}</p>
           </div>
         </div>
       )}
 
+      {/* 💳 SECCIÓN 3: PAGOS DIGITALES Y CUADRE GLOBAL */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+         <div className="bg-blue-50/50 p-6 md:p-8 rounded-[32px] border border-blue-100 print:border-none print:p-0">
+            <div className="flex items-center gap-3 mb-6">
+                <div className="bg-blue-600 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Smartphone size={24}/></div>
+                <h3 className="text-xl font-black text-blue-900 uppercase tracking-widest print:text-black">3. Pagos Digitales</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
+                <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Tarjetas</p>
+                <p className="text-2xl font-black text-blue-900 print:text-black">{formaterMoneda(lTarjeta + dTarjeta)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
+                <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Transferencias</p>
+                <p className="text-2xl font-black text-purple-900 print:text-black">{formaterMoneda(lTransf + dTransf)}</p>
+              </div>
+            </div>
+         </div>
+
+         <div className="bg-emerald-50 p-6 md:p-8 rounded-[32px] border border-emerald-200 shadow-sm print:border-slate-400 print:p-4">
+            <div className="flex items-center gap-3 mb-6">
+                <div className="bg-emerald-600 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Calculator size={24}/></div>
+                <h3 className="text-xl font-black text-emerald-900 uppercase tracking-widest print:text-black">4. Gran Total (Cuadre)</h3>
+            </div>
+            <div className="space-y-4">
+               <div className="flex justify-between items-center border-b border-emerald-200 pb-3 print:border-slate-300">
+                  <span className="text-sm font-bold text-emerald-700 print:text-slate-600">Total Efectivo Físico Global:</span>
+                  <span className="text-xl font-black text-emerald-900 print:text-black">{formaterMoneda(totalEfectivoFisico)}</span>
+               </div>
+               <div className="flex justify-between items-center border-b border-emerald-200 pb-3 print:border-slate-300">
+                  <span className="text-sm font-bold text-emerald-700 print:text-slate-600">Total Pagos Digitales:</span>
+                  <span className="text-xl font-black text-emerald-900 print:text-black">{formaterMoneda(totalDigital)}</span>
+               </div>
+               <div className="flex justify-between items-end pt-2">
+                  <div>
+                    <span className="text-sm font-black text-emerald-800 uppercase tracking-widest print:text-black">Ventas Brutas Totales:</span>
+                    <p className="text-[10px] font-bold text-emerald-600 print:text-slate-500 mt-1">Suma de Platillos + Extras + Envíos</p>
+                  </div>
+                  <span className="text-4xl font-black text-emerald-600 print:text-black">{formaterMoneda(totalVentasGlobales)}</span>
+               </div>
+            </div>
+         </div>
+      </div>
+
       {cargando ? (
         <div className="text-center py-20 animate-pulse font-bold text-slate-500 print:hidden">Cargando transacciones históricas...</div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start mt-8">
           <div className="xl:col-span-2 bg-white rounded-[32px] print:rounded-none p-6 print:p-0 border border-slate-200 print:border-none shadow-sm print:shadow-none">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
@@ -392,7 +398,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     <th className="pb-3">Orden</th>
                     <th className="pb-3">Cliente / Identificador</th>
                     <th className="pb-3">Método</th>
-                    <th className="pb-3 text-center">Estado</th> {/* 👇 NUEVA COLUMNA ESTADO */}
+                    <th className="pb-3 text-center">Estado</th> 
                     <th className="pb-3 text-right">Monto</th>
                     <th className="pb-3 text-center print:hidden">Detalle</th>
                   </tr>
@@ -418,7 +424,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                             {p.metodo_pago}
                           </span>
                         </td>
-                        {/* 👇 FIX ESTADOS: Identificador visual rápido para el auditor */}
                         <td className="py-3.5 text-center">
                           <span className={`text-[10px] font-black px-2 py-0.5 rounded uppercase border ${
                             p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'Pagado' || p.estado_preparacion === 'Finalizado' 
