@@ -66,7 +66,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let currentDate = new Date(fechaInicio + 'T12:00:00');
         const endDate = new Date(fechaFin + 'T12:00:00');
 
-        // 👇 Escáner de Aniversario
         if (pres.fecha_ingreso) {
            const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
            if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
@@ -79,7 +78,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
           const esDomingo = currentDate.getDay() === 0;
 
-          // 👇 Escáner de Cumpleaños (Detecta si el cumpleaños cae en los días que estamos calculando)
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
              const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
              if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
@@ -87,8 +85,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
              }
           }
           
-          if (!hor[dateStr] || hor[dateStr].pagado !== true) { currentDate.setDate(currentDate.getDate() + 1); continue; }
-          if (hor[dateStr].nomina_pagada === true) { currentDate.setDate(currentDate.getDate() + 1); continue; }
+          if (!hor[dateStr] || hor[dateStr].activo !== true) { 
+            currentDate.setDate(currentDate.getDate() + 1); 
+            continue; 
+          }
+          if (hor[dateStr].nomina_pagada === true) { 
+            currentDate.setDate(currentDate.getDate() + 1); 
+            continue; 
+          }
 
           diasProgramados++;
 
@@ -110,12 +114,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
             if (hor[dateStr] && hor[dateStr].entrada) {
               const entradaOficial = hor[dateStr].entrada;
+              const salidaOficial = hor[dateStr].salida || '23:00';
               const [hOf, mOf] = entradaOficial.split(':').map(Number);
               const minOficiales = (hOf * 60) + mOf;
               
               const primeraAsistencia = asistenciasDelDia.sort((a,b) => new Date(a.hora_entrada) - new Date(b.hora_entrada))[0];
-              const realDate = new Date(primeraAsistencia.hora_entrada);
-              const minReales = (realDate.getHours() * 60) + realDate.getMinutes();
+              const stringHoraLocal = new Date(primeraAsistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+              const [hReal, mReal] = stringHoraLocal.split(':').map(Number);
+              const minReales = (hReal * 60) + mReal;
 
               const difMinutos = minReales - minOficiales;
 
@@ -125,12 +131,31 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                      eventosTarde++; 
                  }
               }
+
+              const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
+              const minsOficialesRequeridos = (hSalOf * 60 + mSalOf) - minOficiales;
+
+              let minsTrabajadosHoy = 0;
+              asistenciasDelDia.forEach(asist => {
+                 if (asist.hora_entrada && asist.hora_salida) {
+                    const diff = (new Date(asist.hora_salida) - new Date(asist.hora_entrada)) / 60000;
+                    if (diff > 0) minsTrabajadosHoy += diff;
+                 }
+              });
+
+              if (minsTrabajadosHoy > 0 && minsTrabajadosHoy < (minsOficialesRequeridos - 15)) {
+                 const hrsFaltantes = ((minsOficialesRequeridos - minsTrabajadosHoy) / 60).toFixed(2);
+                 alertasEmpleado.push({
+                    type: 'jornada_incompleta',
+                    fecha: dateStr,
+                    msg: `⏳ Jornada Incompleta el ${dateStr}: Trabajó ${(minsTrabajadosHoy / 60).toFixed(2)}h de ${(minsOficialesRequeridos / 60).toFixed(2)}h requeridas. Faltaron ${hrsFaltantes}h.`
+                 });
+              }
             }
           } else {
-            // Escáner de Faltas
             diasFaltaInjustificada++;
             alertasEmpleado.push({ tipo: 'falta', fecha: dateStr, msg: `⚠️ Falta detectada el ${dateStr}.` });
-            diasAuditados.push(dateStr); // Lo auditamos para bloquearlo y no volver a cobrarlo
+            diasAuditados.push(dateStr); 
           }
 
           for (const area of Object.keys(evaluacionesLimpieza)) {
@@ -146,7 +171,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;
         
-        // 👇 MOTOR MATEMÁTICO DE PRORRATEOS Y SUELDO DIARIO
         if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; } 
         else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * (diasProgramados * 8); } 
         else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; } 
@@ -158,17 +182,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         
         ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
 
-        // 👇 LEY 1/6: Descuento de Faltas Injustificadas
         if (diasFaltaInjustificada > 0) {
            let diasADescontar = diasFaltaInjustificada;
            if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
-              diasADescontar += (diasFaltaInjustificada * (1/6)); // Descuento proporcional del descanso
+              diasADescontar += (diasFaltaInjustificada * (1.0 / 6.0)); 
            }
            const montoDescuento = sueldoDiarioExacto * diasADescontar;
            egresosList.push({ concepto: `Faltas Injustificadas (${diasFaltaInjustificada}d) + Proporcional Descanso`, monto: montoDescuento });
         }
 
-        // 👇 LEY: Prima Dominical
         if (reglasNomina.prima_dominical_activa && domingosTrabajados > 0) {
            const montoDominical = (sueldoDiarioExacto * 0.25) * domingosTrabajados;
            ingresosList.push({ concepto: `Prima Dominical (25%) x${domingosTrabajados} domingos`, monto: montoDominical });
@@ -180,7 +202,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Prima Vacacional (${porcentajePrima}%) x${diasVacaciones}d`, monto: montoPrima });
         }
 
-        // 👇 BONOS DE PRODUCTIVIDAD (Solo si asistió)
         if (diasAsistidos > 0) {
           if (reglasNomina.bono_limpieza_activo && fallasLimpieza <= Number(reglasNomina.limpieza_omisiones_permitidas)) {
               ingresosList.push({ concepto: `Bono Limpieza (Fallas: ${fallasLimpieza})`, monto: Number(reglasNomina.bono_limpieza_monto) });
@@ -193,7 +214,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }
         }
 
-        // 👇 BONOS RECURRENTES Y DESCUENTOS TEMPORALES
         if (pres.bonos_recurrentes && pres.bonos_recurrentes.length > 0) {
             pres.bonos_recurrentes.forEach(b => {
                if (b.activo) {
@@ -208,7 +228,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             });
         }
 
-        // 👇 COBRO DE PRÉSTAMOS
         const prestamosAplicados = [];
         if (pres.prestamos && pres.prestamos.length > 0) {
             pres.prestamos.forEach(p => {
@@ -220,7 +239,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             });
         }
 
-        // 👇 RETENCIONES FISCALES LFT (ISR e IMSS)
         const subtotalParaImpuestos = ingresosList.reduce((acc, c) => acc + c.monto, 0) - egresosList.reduce((acc, c) => acc + c.monto, 0);
         if (subtotalParaImpuestos > 0) {
             if (reglasNomina.retencion_isr_activa && reglasNomina.porcentaje_isr > 0) {
@@ -291,12 +309,18 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     setPreNomina(arr);
   };
 
-  // 👇 ACCIONES RÁPIDAS (Inyecciones de Nómina)
   const justificarFalta = (idxEmp, fechaFalta) => {
     const p = preNomina[idxEmp];
     const montoReembolso = p.metricas.sueldoDiarioExacto * (reglasNomina.descuento_descanso_activo ? (1 + 1/6) : 1);
     agregarDinamico(idxEmp, 'ingreso', `Justificación Falta (${fechaFalta})`, montoReembolso.toFixed(2));
     showAlert("Falta Justificada", "Se ha añadido el reembolso proporcional a sus ingresos.", "success");
+  };
+
+  const penalizarJornadaIncompleta = (idxEmp, msgAlerta) => {
+    const p = preNomina[idxEmp];
+    const montoCastigo = p.metricas.sueldoDiarioExacto * 0.5;
+    agregarDinamico(idxEmp, 'egreso', `Sanción: Horas Incompletas`, montoCastigo.toFixed(2));
+    showAlert("Penalización Aplicada", "Se descontó el 50% del sueldo diario debido a jornada trunca.", "warning");
   };
 
   const accionRapidaAguinaldo = (idxEmp) => {
@@ -340,18 +364,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         });
 
         if (res.ok) {
-          // Bloquear días y Actualizar préstamos en paralelo
           await Promise.all(preNomina.map(async (p) => {
             const emp = usuariosDB.find(u => u.id === p.empleado_id);
             const horActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
             const presActual = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
             
-            // 1. Bloquear Horario
             const horNuevo = { ...horActual };
             p.metricas.diasAuditados.forEach(diaPagado => { if (!horNuevo[diaPagado]) horNuevo[diaPagado] = {}; horNuevo[diaPagado].nomina_pagada = true; });
             await fetch(`${apiUrl}/usuarios/${p.empleado_id}/horario`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: horNuevo }) });
 
-            // 2. Descontar Préstamos de la BD
             if (p.metricas.prestamosAplicados && p.metricas.prestamosAplicados.length > 0) {
                const nuevosPrestamos = presActual.prestamos.map(prestamo => {
                   const aplico = p.metricas.prestamosAplicados.find(pa => pa.id === prestamo.id);
@@ -394,7 +415,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       {preNomina.length > 0 && (
         <div className="space-y-8 animate-in fade-in">
           {preNomina.map((p, idxEmp) => (
-            <div key={p.empleado_id} className="bg-slate-50 p-6 rounded-3xl border border-slate-200 relative overflow-hidden">
+            <div key={p.empleado_id} className="bg-white p-6 rounded-3xl border border-slate-200 relative overflow-hidden shadow-sm">
               {p.neto <= 0 && <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>}
               
               <h4 className="text-xl font-black text-slate-800 flex justify-between items-center border-b border-slate-200 pb-3 mb-4">
@@ -402,64 +423,69 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <span className={`text-3xl font-black ${p.neto > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formaterMoneda(p.neto)}</span>
               </h4>
 
-              {/* 👇 PANEL DE ALERTAS ESCANEADAS */}
               {p.metricas.alertasEmpleado && p.metricas.alertasEmpleado.length > 0 && (
                 <div className="mb-6 space-y-2">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas del Sistema</p>
+                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas de Cumplimiento</p>
                    {p.metricas.alertasEmpleado.map((alerta, iAlt) => (
-                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                         <span>{alerta.msg}</span>
-                         {alerta.tipo === 'falta' && (
-                           <button onClick={() => justificarFalta(idxEmp, alerta.fecha)} className="bg-white px-3 py-1.5 rounded-lg text-xs hover:bg-red-100 transition shadow-sm border border-red-100">
-                             Justificar (Reembolsar)
-                           </button>
-                         )}
+                      <div key={iAlt} className={`p-3 rounded-xl flex items-center justify-between text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'jornada_incompleta' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                         <span className="max-w-[75%]">{alerta.msg}</span>
+                         <div className="flex gap-2">
+                           {alerta.tipo === 'falta' && (
+                             <button onClick={() => justificarFalta(idxEmp, alerta.fecha)} className="bg-white px-3 py-1.5 rounded-lg text-xs hover:bg-red-100 transition shadow-sm border border-red-100 font-black">
+                               Justificar
+                             </button>
+                           )}
+                           {alerta.tipo === 'jornada_incompleta' && (
+                             <button onClick={() => penalizarJornadaIncompleta(idxEmp, alerta.msg)} className="bg-orange-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-orange-700 transition shadow-sm font-black">
+                               Aplicar Descuento
+                             </button>
+                           )}
+                         </div>
                       </div>
                    ))}
                 </div>
               )}
 
-              {/* 👇 BOTONES RÁPIDOS DE INYECCIÓN DE LEY */}
               <div className="flex flex-wrap gap-2 mb-6">
-                <button onClick={() => accionRapidaHorasExtras(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-blue-500 hover:text-blue-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Clock size={14}/> + Horas Extras</button>
-                <button onClick={() => accionRapidaFestivo(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-orange-500 hover:text-orange-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Sun size={14}/> + Día Festivo Trabajado</button>
-                <button onClick={() => accionRapidaAguinaldo(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-purple-500 hover:text-purple-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Gift size={14}/> + Aguinaldo LFT</button>
-                <button onClick={() => accionRapidaPropinas(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Banknote size={14}/> + Propinas Tarjeta</button>
-                <button onClick={() => accionRapidaCumpleanos(idxEmp)} className="bg-white border border-slate-200 text-slate-600 hover:border-pink-500 hover:text-pink-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Cake size={14}/> + Bono Cumpleaños</button>
+                <button onClick={() => accionRapidaHorasExtras(idxEmp)} className="bg-slate-50 border border-slate-200 text-slate-600 hover:border-blue-500 hover:text-blue-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Clock size={14}/> + Horas Extras</button>
+                <button onClick={() => accionRapidaFestivo(idxEmp)} className="bg-slate-50 border border-slate-200 text-slate-600 hover:border-orange-500 hover:text-orange-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Sun size={14}/> + Día Festivo Trabajado</button>
+                <button onClick={() => accionRapidaAguinaldo(idxEmp)} className="bg-slate-50 border border-slate-200 text-slate-600 hover:border-purple-500 hover:text-purple-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Gift size={14}/> + Aguinaldo LFT</button>
+                <button onClick={() => accionRapidaPropinas(idxEmp)} className="bg-slate-50 border border-slate-200 text-slate-600 hover:border-emerald-500 hover:text-emerald-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Banknote size={14}/> + Propinas Tarjeta</button>
+                <button onClick={() => accionRapidaCumpleanos(idxEmp)} className="bg-slate-50 border border-slate-200 text-slate-600 hover:border-pink-500 hover:text-pink-600 px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-1"><Cake size={14}/> + Bono Cumpleaños</button>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-                <div className="bg-white p-2 rounded-xl text-center shadow-sm border border-slate-100"><p className="text-[10px] font-bold text-slate-400">Días Ordinarios</p><p className="font-black text-slate-700">{p.metricas.diasProgramados}</p></div>
-                <div className="bg-white p-2 rounded-xl text-center shadow-sm border border-slate-100"><p className="text-[10px] font-bold text-slate-400">Sueldo Base Diario</p><p className="font-black text-blue-600">{formaterMoneda(p.metricas.sueldoDiarioExacto)}</p></div>
-                <div className="bg-white p-2 rounded-xl text-center shadow-sm border border-slate-100"><p className="text-[10px] font-bold text-slate-400">Eventos Tarde</p><p className="font-black text-amber-600">{p.metricas.eventosTarde}</p></div>
-                <div className="bg-white p-2 rounded-xl text-center shadow-sm border border-slate-100"><p className="text-[10px] font-bold text-slate-400">Total Mins Tarde</p><p className="font-black text-red-500">{p.metricas.minutosTardeTotales} min</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Días Planificados</p><p className="font-black text-slate-700 text-lg">{p.metricas.diasProgramados}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Pago Diario Exacto</p><p className="font-black text-blue-600 text-lg">{formaterMoneda(p.metricas.sueldoDiarioExacto)}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Eventos Tarde</p><p className="font-black text-amber-600 text-lg">{p.metricas.eventosTarde}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Minutos Tarde</p><p className="font-black text-red-500 text-lg">{p.metricas.minutosTardeTotales} min</p></div>
               </div>
 
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div>
-                  <h5 className="font-black text-emerald-600 mb-3 flex items-center justify-between border-b border-emerald-100 pb-2">Ingresos (+)<button onClick={() => agregarDinamico(idxEmp, 'ingreso')} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
+                  <h5 className="font-black text-emerald-600 mb-3 flex items-center justify-between border-b border-emerald-100 pb-2 text-xs uppercase tracking-wider">Percepciones (+)<button onClick={() => agregarDinamico(idxEmp, 'ingreso')} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
                   <ul className="text-sm font-bold text-slate-600 space-y-2 mb-4">
-                    {p.ingresos.map((ing, i) => <li key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 shadow-sm"><span className="w-2/3 truncate pr-2" title={ing.concepto}>{ing.concepto}</span><span className="text-emerald-600">{formaterMoneda(ing.monto)}</span></li>)}
+                    {p.ingresos.map((ing, i) => <li key={i} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 shadow-sm"><span className="w-2/3 truncate pr-2 text-xs uppercase" title={ing.concepto}>{ing.concepto}</span><span className="text-emerald-600">{formaterMoneda(ing.monto)}</span></li>)}
                   </ul>
                   {p.nuevos_ingresos.map((ni, iItem) => (
                     <div key={iItem} className="flex gap-2 mt-2 items-center animate-in slide-in-from-left">
-                      <input type="text" placeholder="Concepto (Ej. Bono extra)" value={ni.concepto} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-bold outline-none focus:border-emerald-500" />
-                      <input type="number" placeholder="$" value={ni.monto || ''} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'monto', e.target.value)} className="w-24 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-black text-emerald-700 outline-none text-center focus:border-emerald-500" />
+                      <input type="text" placeholder="Concepto (Ej. Premio)" value={ni.concepto} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-bold outline-none" />
+                      <input type="number" placeholder="$" value={ni.monto || ''} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'monto', e.target.value)} className="w-24 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-black text-emerald-700 text-center" />
                       <button onClick={() => eliminarDinamico(idxEmp, 'ingreso', iItem)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}
                 </div>
 
                 <div>
-                  <h5 className="font-black text-red-500 mb-3 flex items-center justify-between border-b border-red-100 pb-2">Egresos / Retenciones (-)<button onClick={() => agregarDinamico(idxEmp, 'egreso')} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
-                  {p.egresos.length === 0 && p.nuevos_egresos.length === 0 && <p className="text-xs text-slate-400 italic bg-white p-3 rounded-lg border border-slate-100 text-center">No hay deducciones.</p>}
+                  <h5 className="font-black text-red-500 mb-3 flex items-center justify-between border-b border-red-100 pb-2 text-xs uppercase tracking-wider">Deducciones / Retenciones (-)<button onClick={() => agregarDinamico(idxEmp, 'egreso')} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
+                  {p.egresos.length === 0 && p.nuevos_egresos.length === 0 && <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-lg border border-slate-100 text-center font-medium">No hay deducciones aplicadas.</p>}
                   <ul className="text-sm font-bold text-slate-600 space-y-2 mb-4">
-                     {p.egresos.map((eg, i) => <li key={i} className="flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 shadow-sm"><span className="w-2/3 truncate pr-2 text-red-800" title={eg.concepto}>{eg.concepto}</span><span className="text-red-500">-{formaterMoneda(eg.monto)}</span></li>)}
+                     {p.egresos.map((eg, i) => <li key={i} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 shadow-sm"><span className="w-2/3 truncate pr-2 text-xs uppercase text-red-800" title={eg.concepto}>{eg.concepto}</span><span className="text-red-500">-{formaterMoneda(eg.monto)}</span></li>)}
                   </ul>
                   {p.nuevos_egresos.map((ne, iItem) => (
                     <div key={iItem} className="flex gap-2 mt-2 items-center animate-in slide-in-from-left">
-                      <input type="text" placeholder="Concepto (Ej. Préstamo)" value={ne.concepto} onChange={e => modificarDinamico(idxEmp, 'egreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-red-200 rounded-lg p-2 text-xs font-bold outline-none focus:border-red-500" />
-                      <input type="number" placeholder="$" value={ne.monto || ''} onChange={e => modificarDinamico(idxEmp, 'egreso', iItem, 'monto', e.target.value)} className="w-24 bg-white border border-red-200 rounded-lg p-2 text-xs font-black text-red-700 outline-none text-center focus:border-red-500" />
+                      <input type="text" placeholder="Concepto" value={ne.concepto} onChange={e => modificarDinamico(idxEmp, 'egreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-red-200 rounded-lg p-2 text-xs font-bold outline-none" />
+                      <input type="number" placeholder="$" value={ne.monto || ''} onChange={e => modificarDinamico(idxEmp, 'egreso', iItem, 'monto', e.target.value)} className="w-24 bg-white border border-red-200 rounded-lg p-2 text-xs font-black text-red-700 text-center" />
                       <button onClick={() => eliminarDinamico(idxEmp, 'egreso', iItem)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}

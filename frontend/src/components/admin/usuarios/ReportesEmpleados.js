@@ -24,7 +24,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     cargarReportes();
   }, [cargarReportes]);  
 
-  // 👇 MODIFICACIÓN APLICADA: Filtro global superior
   const empleadosVisibles = usuariosDB
     .filter(u => u.nombre !== 'Administrador Global')
     .sort((a, b) => a.nombre.localeCompare(b.nombre));  
@@ -44,7 +43,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
   const tituloPeriodo = getTituloFormateado();  
 
-  // 👇 RECUPERADO: Lógica de Cortes Únicos que se había perdido
   const cortesUnicos = [];
   const fechasCortesVistas = new Set();
   (reportes.cortesNomina || []).forEach(corte => {
@@ -55,9 +53,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     }
   });  
 
-  // Motor Inteligente: Agrupa múltiples checadas
   const historialAgrupado = Object.values((reportes.historialAsistencias || []).reduce((acc, curr) => {
-    // 👇 MODIFICACIÓN APLICADA: Filtro en el historial
     if (curr.nombre === 'Administrador Global') return acc;  
     
     const fechaLimpia = String(curr.fecha).split('T')[0];
@@ -66,7 +62,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     if (!acc[key]) {
       acc[key] = { ...curr, fecha: fechaLimpia };
     } else {
-      const currentIn = new Date(acc[key].hora_entrada);
+      const currentIn = new Date(acc[acc[key].id ? key : key].hora_entrada);
       const newIn = new Date(curr.hora_entrada);
       if (newIn < currentIn) acc[key].hora_entrada = curr.hora_entrada;  
       
@@ -92,6 +88,11 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     if (dateA !== dateB) return dateB - dateA;
     return a.nombre.localeCompare(b.nombre);
   });  
+
+  const horror12To24 = (time12) => {
+     if(!time12) return "00:00";
+     return time12;
+  };
 
   const calcularPreNomina = () => {
     let calculos = {};  
@@ -124,15 +125,16 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       let esRetardo = false;
       let oficial = '--:--';
       let oficialSalida = '--:--';
-      let realTime = new Date(asistencia.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});  
       
+      const stringHoraCompleta = new Date(asistencia.fecha_entrada || asistencia.hora_entrada).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+      const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
+      const minutosReales = hReal * 60 + mReal;
+
       if (turnoDia && turnoDia.activo && turnoDia.entrada) {
         oficial = turnoDia.entrada;
         oficialSalida = turnoDia.salida || '--:--';  
-        const [hOf, mOf] = turnoDia.entrada.split(':').map(Number);
+        const [hOf, mOf] = horror12To24(turnoDia.entrada).split(':').map(Number);
         const minutosOficiales = hOf * 60 + mOf;  
-        const realDate = new Date(asistencia.hora_entrada);
-        const minutosReales = realDate.getHours() * 60 + realDate.getMinutes();  
         
         if (minutosReales > (minutosOficiales + minutosTolerancia)) {
           esRetardo = true;
@@ -144,7 +146,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         fecha: dObj.toLocaleDateString('es-MX', {weekday: 'short', day: 'numeric', month: 'short'}),
         oficialEntrada: oficial,
         oficialSalida: oficialSalida,
-        real: realTime,
+        real: new Date(asistencia.hora_entrada).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
         esRetardo: esRetardo,
         tieneTurno: !!(turnoDia && turnoDia.activo)
       });
@@ -299,7 +301,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           </div>
         </div>
 
-        {/* 👇 WIDGET RECUPERADO: CORTES Y LIMPIEZA */}
+        {/* CORTES Y LIMPIEZA */}
         <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-sm border border-slate-200 lg:col-span-2 w-full max-w-full">
           <div className="flex items-center gap-3 mb-8">
             <div className="bg-teal-100 p-3 rounded-2xl text-teal-600"><Sparkles size={28}/></div>
@@ -317,17 +319,17 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           ) : (
             <div className="space-y-8">
               {cortesUnicos.map(corte => {
-                const datos = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;
-                
-                // 👇 MODIFICACIÓN APLICADA AQUÍ: Filtro de roles exclusivo para excluir al "Administrador Global"
-                const datosFiltrados = (filtroUsuario !== 'Todos' ? datos.filter(d => String(d.id) === String(filtroUsuario)) : datos)
+                const datosRaw = typeof corte.datos_corte === 'string' ? JSON.parse(corte.datos_corte) : corte.datos_corte;
+                const listaEmpleados = Array.isArray(datosRaw) ? datosRaw : (datosRaw.recibos || []);
+
+                const datosFiltrados = (filtroUsuario !== 'Todos' ? listaEmpleados.filter(d => String(d.id || d.empleado_id) === String(filtroUsuario)) : listaEmpleados)
                   .filter(emp => emp.nombre !== 'Administrador Global')
                   .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
                 if (datosFiltrados.length === 0) return null;  
 
                 return (
-                  <div key={corte.id} className="border border-slate-200 rounded-[24px] overflow-hidden shadow-sm">
+                  <div key={corte.id} className="border border-slate-200 rounded-[24px] overflow-hidden shadow-sm bg-white">
                     <div className="bg-slate-50 p-5 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 gap-2">
                       <p className="font-black text-slate-700 uppercase tracking-widest text-xs flex items-center gap-2">
                         Corte Semana del: <span className="text-blue-600 text-sm bg-blue-100 px-2 py-0.5 rounded-md">{new Date(corte.fecha_corte).toLocaleDateString()}</span>
@@ -349,8 +351,11 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {datosFiltrados.map(emp => {
-                            const totalL = (emp.limpieza?.cumplidas || 0) + (emp.limpieza?.incumplidas || 0);
-                            const porcentaje = totalL === 0 ? 0 : Math.round(((emp.limpieza?.cumplidas || 0) / totalL) * 100);  
+                            const cumplidas = emp.limpieza?.cumplidas !== undefined ? emp.limpieza.cumplidas : (emp.metricas?.fallasLimpieza === 0 ? 1 : 0);
+                            const incumplidas = emp.limpieza?.incumplidas !== undefined ? emp.limpieza.incumplidas : (emp.metricas?.fallasLimpieza || 0);
+                            
+                            const totalL = Number(cumplidas) + Number(incumplidas);
+                            const porcentaje = totalL === 0 ? 0 : Math.round((Number(cumplidas) / totalL) * 100);  
                             
                             let badgeClase = 'bg-slate-100 text-slate-500 border-slate-200';
                             if (totalL > 0) {
@@ -360,19 +365,19 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                             }  
 
                             return (
-                              <tr key={emp.id} className="hover:bg-slate-50 transition">
+                              <tr key={emp.id || emp.empleado_id} className="hover:bg-slate-50 transition">
                                 <td className="p-4 border-r border-slate-50">
-                                  <p className="font-bold text-slate-700">{emp.nombre}</p>
+                                  <p className="font-bold text-slate-700">{emp.nombre_completo || emp.nombre}</p>
                                   <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{emp.rol}</p>
                                 </td>
                                 <td className="p-4 border-r border-slate-50 text-center font-black text-blue-600 text-xl">
-                                  {emp.dias_trabajados} <span className="text-xs text-blue-300 font-bold">{emp.dias_trabajados === 1 ? 'día' : 'días'}</span>
+                                  {emp.dias_trabajados !== undefined ? emp.dias_trabajados : (emp.metricas?.diasProgramados || 0)} <span className="text-xs text-blue-300 font-bold">días</span>
                                 </td>
                                 <td className="p-4 border-r border-slate-50 text-center font-black text-emerald-500 text-xl">
-                                  {emp.limpieza?.cumplidas || 0}
+                                  {cumplidas}
                                 </td>
                                 <td className="p-4 border-r border-slate-50 text-center font-black text-red-400 text-xl">
-                                  {emp.limpieza?.incumplidas || 0}
+                                  {incumplidas}
                                 </td>
                                 <td className="p-4 text-center">
                                   <span className={`px-4 py-2 rounded-xl text-sm font-black border shadow-sm ${badgeClase}`}>
