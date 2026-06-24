@@ -21,6 +21,11 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
   const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();  
 
   const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;  
+  const strPrimerDiaMes = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+
+  // 👇 NUEVOS ESTADOS: Para proteger la información al cruzar meses en el corte
+  const [fechaDesde, setFechaDesde] = useState(strPrimerDiaMes);
+  const [fechaHasta, setFechaHasta] = useState(strHoy);
 
   const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
     const d = new Date(year, month, i + 1);
@@ -71,7 +76,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     });
   };  
 
-  // 👇 FUNCIÓN DEL MOTOR DE ASIGNACIÓN MASIVA INTELIGENTE
+  // FUNCIÓN DEL MOTOR DE ASIGNACIÓN MASIVA INTELIGENTE
   const aplicarAsignacionMasiva = () => {
     if (empleadosSeleccionados.length === 0) {
       return showAlert('Aviso', 'Selecciona al menos un empleado en el panel superior.', 'info');
@@ -139,10 +144,30 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     setIsSubmitting(false);
   };  
 
+  // 👇 NUEVO: Generador dinámico de rango de fechas para cruzar meses sin perder datos
+  const obtenerRangoFechas = (inicioStr, finStr) => {
+    const fechas = [];
+    let actual = new Date(inicioStr + 'T00:00:00');
+    const fin = new Date(finStr + 'T00:00:00');
+    while (actual <= fin) {
+      const yyyy = actual.getFullYear();
+      const mm = String(actual.getMonth() + 1).padStart(2, '0');
+      const dd = String(actual.getDate()).padStart(2, '0');
+      fechas.push(`${yyyy}-${mm}-${dd}`);
+      actual.setDate(actual.getDate() + 1);
+    }
+    return fechas;
+  };
+
   const realizarCorteNómina = async () => {
+    if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango de fechas para el corte.", "info");
+    if (fechaDesde > fechaHasta) return showAlert("Aviso", "La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'.", "warning");
+
+    const fechasRango = obtenerRangoFechas(fechaDesde, fechaHasta);
+
     showConfirm(
       "Corte y Bloqueo de Nómina",
-      "Se procesará el corte hasta el día de HOY. Los días laborados se marcarán como PAGADOS y se bloquearán para que ya no puedan ser modificados ni vueltos a pagar.",
+      `Se procesará el corte desde el ${fechaDesde} hasta el ${fechaHasta}. Los días laborados se marcarán como PAGADOS y se bloquearán para que ya no puedan ser modificados ni vueltos a pagar.`,
       async () => {
         setIsSubmitting(true);
         try {
@@ -153,12 +178,16 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
 
           const datosCorte = empleadosVisibles.map(emp => {
             const h = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-            const diasNuevosPagados = diasMes.filter(d => h[d.fechaStr]?.activo && !h[d.fechaStr]?.pagado && d.fechaStr <= strHoy).length;
+            
+            // 👇 CORRECCIÓN: Filtramos usando el rango de fechas para cruzar meses
+            const diasNuevosPagados = fechasRango.filter(fechaStr => h[fechaStr]?.activo && !h[fechaStr]?.pagado).length;
+            
             let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};  
 
             Object.keys(evaluaciones).forEach(area => {
               Object.keys(evaluaciones[area]).forEach(diaStr => {
-                if (diaStr <= strHoy && String(matriz.asignaciones?.[area]?.[diaStr]) === String(emp.id)) {
+                // 👇 CORRECCIÓN: Buscamos entre el rango exacto solicitado
+                if (diaStr >= fechaDesde && diaStr <= fechaHasta && String(matriz.asignaciones?.[area]?.[diaStr]) === String(emp.id)) {
                   const status = evaluaciones[area][diaStr];
                   if (status === 'cumplio') limpiezasCumplidas++;
                   if (status === 'no_cumplio') limpiezasIncumplidas++;
@@ -184,17 +213,18 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             await Promise.all(empleadosVisibles.map(emp => {
               const hActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
               const hNuevo = { ...hActual };
-              diasMes.forEach(d => {
-                if (d.fechaStr <= strHoy) {
-                  if (!hNuevo[d.fechaStr]) hNuevo[d.fechaStr] = { activo: false };
-                  hNuevo[d.fechaStr].pagado = true;
-                }
+              
+              // 👇 CORRECCIÓN: Bloqueamos los días exactos del rango cruzado
+              fechasRango.forEach(fechaStr => {
+                if (!hNuevo[fechaStr]) hNuevo[fechaStr] = { activo: false };
+                hNuevo[fechaStr].pagado = true;
               });
+
               return fetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: hNuevo })
               });
             }));
-            showAlert("✅ Corte Procesado", "Los días hasta HOY han sido pagados y bloqueados exitosamente.", "success");
+            showAlert("✅ Corte Procesado", `Las horas comprendidas entre ${fechaDesde} y ${fechaHasta} han sido pagadas y bloqueadas exitosamente.`, "success");
             setHorariosTemp({}); refrescarDatos();
           }
         } catch (e) {}
@@ -281,7 +311,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>
       )}  
 
-      {/* 👇 NUEVO: PANEL DE ASIGNACIÓN MASIVA INTELIGENTE */}
       <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden">
         
         {/* Selección de Empleados */}
@@ -348,7 +377,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>
       </div>
 
-      {/* ENCABEZADO DEL MES Y GUARDAR */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-purple-50 p-6 rounded-[24px] border border-purple-100 gap-4 w-full max-w-full">
         <div className="flex items-center gap-4 text-purple-700">
           <div className="bg-purple-500 text-white p-3 rounded-2xl shadow-md"><Calendar size={28} /></div>
@@ -357,7 +385,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         <button disabled={isSubmitting} onClick={guardarHorarios} className="w-full md:w-auto bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-2xl font-black shadow-lg shadow-purple-500/30 transition flex items-center justify-center gap-2 active:scale-95"><Save size={20} /> Guardar Cambios</button>
       </div>  
 
-      {/* TABLA DE HORARIOS (INTACTA) */}
       <div className="overflow-x-auto bg-white rounded-[24px] border border-slate-200 shadow-sm custom-scrollbar w-full max-w-full">
         <table className="w-full text-left border-collapse min-w-max">
           <thead>
@@ -391,7 +418,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                       return (
                         <td key={d.fechaStr} className="p-3 border-l border-slate-100 text-center bg-amber-50">
                           <div className="flex flex-col items-center justify-center bg-amber-100 rounded-xl p-3 border border-amber-200 h-[84px] shadow-inner">
-                            <Palmtree size={16} className="text-amber-500 mb-1" />
+                            <Palmtree size={16} className="text-amber-50 mb-1" />
                             <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest text-center">Vacaciones</span>
                           </div>
                         </td>
@@ -430,9 +457,35 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </table>
       </div>  
 
-      <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full max-w-full">
-        <div><h3 className="text-xl font-black text-white flex items-center gap-2"><History className="text-emerald-400" /> Corte de Horarios hasta HOY</h3><p className="text-slate-400 text-xs mt-1 font-medium max-w-xl">Extraerá las horas trabajadas desde el inicio de mes hasta el día actual. <span className="text-emerald-300 font-bold">Los días anteriores se bloquearán 🔒 y ya no podrán ser pagados dos veces.</span></p></div>
-        <button onClick={realizarCorteNómina} disabled={isSubmitting} className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-8 py-4 rounded-2xl font-black transition active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"><History size={18} /> Efectuar Corte Parcial</button>
+      {/* 👇 PANEL DE CORTE DE NÓMINA ACTUALIZADO (RANGO DE FECHAS CRUZADAS) */}
+      <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 w-full max-w-full mt-8">
+        <div>
+          <h3 className="text-xl font-black text-white flex items-center gap-2">
+            <History className="text-emerald-400" /> Corte de Horarios
+          </h3>
+          <p className="text-slate-400 text-xs mt-1 font-medium max-w-xl">
+            Extraerá las horas trabajadas en el rango seleccionado. <span className="text-emerald-300 font-bold">Los días procesados se bloquearán 🔒 y ya no podrán ser pagados dos veces.</span>
+          </p>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
+           {/* Selectores de fecha para el cruce de meses */}
+           <div className="flex items-center justify-between gap-2 bg-slate-800 p-2.5 rounded-2xl w-full sm:w-auto border border-slate-700">
+             <div className="flex flex-col">
+               <label className="text-[9px] text-slate-400 font-black uppercase ml-1 mb-0.5">Desde</label>
+               <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="bg-transparent text-white font-bold text-xs outline-none cursor-pointer" />
+             </div>
+             <span className="text-slate-600 font-black">-</span>
+             <div className="flex flex-col">
+               <label className="text-[9px] text-slate-400 font-black uppercase ml-1 mb-0.5">Hasta</label>
+               <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="bg-transparent text-white font-bold text-xs outline-none cursor-pointer" />
+             </div>
+           </div>
+
+           <button onClick={realizarCorteNómina} disabled={isSubmitting || !fechaDesde || !fechaHasta} className="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-6 py-4 rounded-2xl font-black transition active:scale-95 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 whitespace-nowrap">
+             <History size={18} /> Efectuar Corte Parcial
+           </button>
+        </div>
       </div>
     </div>
   );

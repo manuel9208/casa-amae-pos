@@ -1,9 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';  
 
 export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
-  const [vistaActiva, setVistaActiva] = useState('mesas');
+  // ==========================================
+  // 1. ESTADOS DE INTERFAZ Y NAVEGACIÓN
+  // ==========================================
+  const [vistaActiva, setVistaActiva] = useState('por_confirmar');
   const [subVistaHistorial, setSubVistaHistorial] = useState('activos');  
+  const [isCajaBloqueada, setIsCajaBloqueada] = useState(true);
+  const [operadorActual, setOperadorActual] = useState(user);  
 
+  // ==========================================
+  // 2. ESTADOS DE DATOS (BASE DE DATOS)
+  // ==========================================
   const [pedidos, setPedidos] = useState([]);
   const [mesas, setMesas] = useState([]);
   const [productos, setProductos] = useState([]);
@@ -14,9 +22,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [insumosDB, setInsumosDB] = useState([]);
   const [gastosDia, setGastosDia] = useState([]);  
 
-  const [isCajaBloqueada, setIsCajaBloqueada] = useState(true);
-  const [operadorActual, setOperadorActual] = useState(user);  
-
+  // ==========================================
+  // 3. ESTADOS DE MODALES Y OPERATIVIDAD
+  // ==========================================
   const [modalPago, setModalPago] = useState(null);
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modalResolver, setModalResolver] = useState(null);
@@ -33,24 +41,20 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [alertaCaja, setAlertaCaja] = useState(null);
   const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
   const [alertaCobroExtra, setAlertaCobroExtra] = useState(null);  
-
+  const [modalAsistencia, setModalAsistencia] = useState(null);  
   const [modalIdentificar, setModalIdentificar] = useState(false);
   const [pasoIdentificar, setPasoIdentificar] = useState(1);
   const [telClienteNuevo, setTelClienteNuevo] = useState('');
   const [datosNuevoCliente, setDatosNuevoCliente] = useState({ 
-    nombre: '', 
-    apellido: '', 
-    correo: '', 
-    fecha_nacimiento: '', 
-    nip: '', 
-    direccion: '' 
+    nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' 
   });  
-
   const [modalPuntoVenta, setModalPuntoVenta] = useState(false);
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);  
-  const [modalAsistencia, setModalAsistencia] = useState(null);  
 
+  // ==========================================
+  // 4. CONFIGURACIÓN INICIAL Y FONDOS
+  // ==========================================
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const hoyStr = new Date().toISOString().split('T')[0];  
 
@@ -71,18 +75,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     localStorage.setItem(`fondo_rep_${user?.id}_${hoyStr}`, val);
   };  
 
+  // ==========================================
+  // 5. EFECTOS Y CARGA DE DATOS
+  // ==========================================
   const cargarDataDinamica = useCallback(async () => {
     try {
       const t = new Date().getTime();
       const [
-        resPed, 
-        resMesas, 
-        resInsumos, 
-        resGastos, 
-        resProd, 
-        resClas, 
-        resIng, 
-        resUsu
+        resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu
       ] = await Promise.all([
         fetch(`${apiUrl}/pedidos/hoy?t=${t}`),
         fetch(`${apiUrl}/mesas?t=${t}`),
@@ -118,7 +118,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const dataUsu = await resUsu.json();
       setEmpleadosPOS(Array.isArray(dataUsu) ? dataUsu : []);
 
-    } catch (error) {}
+    } catch (error) {
+      console.error("Error cargando data dinámica:", error);
+    }
   }, [apiUrl]);  
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       try {
         const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
         const data = await res.json();
-        if(data && !data.error) {
+        if (data && !data.error) {
           setConfigGlobal(prev => {
             if (JSON.stringify(prev) !== JSON.stringify(data)) return data;
             return prev;
@@ -135,8 +137,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             setIsCajaBloqueada(false);
           }
         }
-      } catch (error) {}
+      } catch (error) {
+        console.error("Error cargando configuración:", error);
+      }
     };  
+
     cargarConfig();
     cargarDataDinamica();  
     
@@ -149,6 +154,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     };
   }, [apiUrl, cargarDataDinamica]);  
 
+  // Auto-bloqueo por inactividad
   useEffect(() => {
     if (!configGlobal) return;
     const isBloqueoGlobalOn = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
@@ -156,15 +162,19 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     
     let timeout;
     const segundosLimite = configGlobal.bloqueo_caja_segundos || 30;
+    
     const reiniciarTemporizador = () => {
       clearTimeout(timeout);
-      if (!isCajaBloqueada) timeout = setTimeout(() => setIsCajaBloqueada(true), segundosLimite * 1000);
+      if (!isCajaBloqueada) {
+        timeout = setTimeout(() => setIsCajaBloqueada(true), segundosLimite * 1000);
+      }
     };  
     
     window.addEventListener('mousemove', reiniciarTemporizador);
     window.addEventListener('keydown', reiniciarTemporizador);
     window.addEventListener('touchstart', reiniciarTemporizador);
     window.addEventListener('click', reiniciarTemporizador);
+    
     reiniciarTemporizador();  
     
     return () => {
@@ -176,12 +186,17 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     };
   }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia]);  
 
+  // ==========================================
+  // 6. FUNCIONES OPERATIVAS
+  // ==========================================
   const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => { 
     setAlertaCaja({ titulo, mensaje, tipo }); 
     setTimeout(() => setAlertaCaja(null), 4000); 
   };
 
-  const cerrarCajaYSalir = async () => { onLogout(); };
+  const cerrarCajaYSalir = async () => { 
+    onLogout(); 
+  };
 
   const iniciarTurno = (e) => { 
     e.preventDefault(); 
@@ -192,7 +207,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const lanzarImpresion = (pedido) => { 
     setTicketImprimir(pedido); 
-    setTimeout(() => { window.print(); setTicketImprimir(null); }, 500); 
+    setTimeout(() => { 
+      window.print(); 
+      setTicketImprimir(null); 
+    }, 500); 
   };  
 
   const toggleEstadoNegocio = async () => {
@@ -200,53 +218,75 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const nuevoEstado = !configGlobal.negocio_abierto;
       const formData = new FormData();
       formData.append('negocio_abierto', nuevoEstado ? 'true' : 'false');
+      
       const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-      if (res.ok) setConfigGlobal({ ...configGlobal, negocio_abierto: nuevoEstado });
-    } catch (e) { console.error(e); }
+      if (res.ok) {
+        setConfigGlobal({ ...configGlobal, negocio_abierto: nuevoEstado });
+      }
+    } catch (e) { 
+      console.error(e); 
+    }
   };  
 
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
-    if (isSubmitting) return; setIsSubmitting(true);
-    let estadoFinal; let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
     
-    if (estadoRechazo) estadoFinal = estadoRechazo;
-    else if (esPostPago) { estadoFinal = 'Pagado'; metodoPagoFinal = 'Por Cobrar'; }
-    else {
-      if (['Entregado', 'Listo', 'En Camino'].includes(modalPago.estado_preparacion)) estadoFinal = 'Entregado';
-      else if (['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion)) estadoFinal = 'Pagado';
-      else estadoFinal = modalPago.estado_preparacion;
+    let estadoFinal; 
+    let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
+    
+    if (estadoRechazo) {
+      estadoFinal = estadoRechazo;
+    } else if (esPostPago) { 
+      estadoFinal = 'Pagado'; 
+      metodoPagoFinal = 'Por Cobrar'; 
+    } else {
+      if (['Entregado', 'Listo', 'En Camino'].includes(modalPago.estado_preparacion)) {
+        estadoFinal = 'Entregado';
+      } else if (['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion)) {
+        estadoFinal = 'Pagado';
+      } else {
+        estadoFinal = modalPago.estado_preparacion;
+      }
     }
     
     try {
       const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal };
-      if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
+      
+      if (pagosMixtos) {
+        payload.pagos_mixtos = pagosMixtos;
+      }
+      
       if (estadoFinal === 'Entregado' || estadoFinal === 'Finalizado') {
         const carritoActual = typeof modalPago.carrito === 'string' ? JSON.parse(modalPago.carrito) : (modalPago.carrito || []);
         payload.carrito = carritoActual.map(item => ({ ...item, estado: 'Finalizado' }));
-        
-        // COMENTADO PARA EVITAR LIBERACIÓN AUTOMÁTICA AL PAGAR
-        /* if (modalPago.mesa) {
-           const tableObj = mesas.find(m => String(m.numero) === String(modalPago.mesa));
-           if (tableObj) {
-               fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
-                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-                 body: JSON.stringify({ estado: 'disponible' }) 
-               }).catch(()=>{});
-           }
-        } */
       }
-      const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      
+      const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
+      });
+      
       if (res.ok) {
-        if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) lanzarImpresion(modalPago);
-        setModalPago(null); setMontoRecibido(''); await cargarDataDinamica();
+        if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) {
+          lanzarImpresion(modalPago);
+        }
+        setModalPago(null); 
+        setMontoRecibido(''); 
+        await cargarDataDinamica();
       }
-    } catch (error) { mostrarAlertaCaja('Error', 'Problema al procesar.', 'error'); }
+    } catch (error) { 
+      mostrarAlertaCaja('Error', 'Problema al procesar el pago.', 'error'); 
+    }
+    
     setIsSubmitting(false);
   };  
 
-  // INTERCEPTOR DE SEGURIDAD COCINA
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado) => {
-    if(isSubmitting) return; setIsSubmitting(true);
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
+    
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
     const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);  
     
@@ -257,25 +297,33 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     try {
       let payload = { estado_preparacion: estadoSeguro };  
+      
       if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
         payload.metodo_pago = 'Efectivo';
       }
       
-      await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      await fetch(`${apiUrl}/pedidos/${idReal}/estado`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
+      });
       
-      // SOLO SE LIBERA AUTOMÁTICAMENTE SI SE CANCELA
       if (estadoSeguro === 'Cancelado' && pedidoFull?.mesa) {
          const tableObj = mesas.find(m => String(m.numero) === String(pedidoFull.mesa));
          if (tableObj) {
-            fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
-               method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+            await fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
+               method: 'PUT', 
+               headers: { 'Content-Type': 'application/json' }, 
                body: JSON.stringify({ estado: 'disponible' }) 
             }).catch(()=>{});
          }
       }
 
       await cargarDataDinamica();
-    } catch (error) { console.error("Error al actualizar"); }
+    } catch (error) { 
+      console.error("Error al actualizar el estado del pedido:", error); 
+    }
+    
     setIsSubmitting(false);
   };
 
@@ -283,53 +331,61 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     await actualizarEstadoPedido(id, 'Pagado');
   };
 
-  // 👇 FIX MATEMÁTICA Y SINCRONIZACIÓN DE ENVÍOS A DOMICILIO
   const confirmarPedidoDomicilio = async (pedidoModificado) => {
-    if (isSubmitting) return; setIsSubmitting(true);
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
+    
     try {
         const oldPedido = pedidos.find(p => p.id === pedidoModificado.id);
+        
         if (oldPedido) {
-            // Extraemos el costo anterior por si ya tenía uno (evita sumar 2 veces)
             const oldEnvio = Number(oldPedido.costo_envio || 0);
             const newEnvio = Number(pedidoModificado.costo_envio || 0);
-            
-            // Re-calculamos el total real de la orden para blindar la matemática
             const baseTotal = Number(oldPedido.total) - oldEnvio;
             pedidoModificado.total = (baseTotal + newEnvio).toFixed(2);
         }
         
-        // Empujamos primero las finanzas (total y costo_envio)
         await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}`, { 
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify(pedidoModificado) 
         });
         
         setModalZonaEnvio(null);
-        // Luego lo formamos en la Cola de Cocina
         await actualizarEstadoPedido(pedidoModificado.id, 'Pagado');
-        await cargarDataDinamica(); // Refresco inmediato visual
+        await cargarDataDinamica(); 
     } catch(e) {
         console.error("Error al confirmar domicilio:", e);
     }
+    
     setIsSubmitting(false);
   };
 
   const limpiarAlerta = async (id) => {
-    if (isSubmitting) return; setIsSubmitting(true);
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
+    
     try {
         await fetch(`${apiUrl}/pedidos/${id}/alerta`, { 
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ alerta_cocina: null }) 
         });
+        
         const ped = pedidos.find(x => x.id === id);
-        if(ped) {
+        if (ped) {
           await fetch(`${apiUrl}/pedidos/${id}/estado`, { 
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+            method: 'PUT', 
+            headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({ estado_preparacion: ped.estado_preparacion }) 
           });
         }
+        
         await cargarDataDinamica();
-    } catch(e) {}
+    } catch(e) {
+      console.error(e);
+    }
+    
     setIsSubmitting(false);
   };
 
@@ -349,13 +405,17 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };
 
   const confirmarAgregarExtra = async (pedidoOriginal, itemIndex, extraObj) => {
-    if(isSubmitting) return; setIsSubmitting(true);
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
+    
     try {
       const items = typeof pedidoOriginal.carrito === 'string' ? JSON.parse(pedidoOriginal.carrito) : pedidoOriginal.carrito;
       const itemReal = items[itemIndex];
+      
       itemReal.extras = itemReal.extras || [];
       itemReal.extras.push(extraObj);
       itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precioExtra)).toFixed(2);
+      
       const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precioExtra)).toFixed(2);
       
       await fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, { 
@@ -369,23 +429,38 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       });
 
       setModalAgregarExtra(null);
-      setAlertaCobroExtra({ orden: pedidoOriginal.numero_pedido, platillo: itemReal.nombre, extra: extraObj.nombre, monto: extraObj.precioExtra });
+      setAlertaCobroExtra({ 
+        orden: pedidoOriginal.numero_pedido, 
+        platillo: itemReal.nombre, 
+        extra: extraObj.nombre, 
+        monto: extraObj.precioExtra 
+      });
       await cargarDataDinamica();
-    } catch(e) { console.error(e); }
+    } catch(e) { 
+      console.error(e); 
+    }
+    
     setIsSubmitting(false);
   };
 
   const registrarCompraRapida = async (payload) => {
-    if (isSubmitting) return; setIsSubmitting(true);
+    if (isSubmitting) return; 
+    setIsSubmitting(true);
+    
     try {
          await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, { 
-           method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+           method: 'PUT', 
+           headers: { 'Content-Type': 'application/json' }, 
            body: JSON.stringify(payload) 
          });
+         
          setModalCompraRapida(false);
          mostrarAlertaCaja("Compra Registrada", "El gasto se ha descontado de la caja", "success");
          await cargarDataDinamica();
-    } catch(e){}
+    } catch(e) {
+      console.error(e);
+    }
+    
     setIsSubmitting(false);
   };
 
@@ -409,7 +484,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         textoRespuesta = 'CAJA RESPONDE: Se canceló todo el pedido.';
         if (modalResolver.mesa) {
            const tableObj = mesas.find(m => String(m.numero) === String(modalResolver.mesa));
-           if (tableObj) fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'disponible' }) }).catch(()=>{});
+           if (tableObj) {
+             await fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, { 
+               method: 'PUT', 
+               headers: { 'Content-Type': 'application/json' }, 
+               body: JSON.stringify({ estado: 'disponible' }) 
+             }).catch(()=>{});
+           }
         }
       } else if (accionAlerta === 'quitar') {
         if (itemAfectadoIdx !== null && itemAfectadoIdx !== '') {
@@ -439,12 +520,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
 
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/alerta`, { 
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ alerta_cocina: textoRespuesta }) 
       });
       
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/estado`, { 
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify(payloadEstado) 
       });
       
@@ -453,6 +536,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     } catch(err) { 
       console.error(err); 
     }
+    
     setIsSubmitting(false);
   };  
 
@@ -461,6 +545,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       const pedidoRef = pedidos.find(p => p.id === id);
       let paqueteCompleto = { ...nuevosDatos };
+      
       if (pedidoRef) {
         const carritoArray = typeof pedidoRef.carrito === 'string' ? JSON.parse(pedidoRef.carrito) : (pedidoRef.carrito || []);
         paqueteCompleto = {
@@ -480,7 +565,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           costo_envio: nuevosDatos.costo_envio !== undefined ? nuevosDatos.costo_envio : pedidoRef.costo_envio
         };
       }
-      const res = await fetch(`${apiUrl}/pedidos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paqueteCompleto) });
+      
+      const res = await fetch(`${apiUrl}/pedidos/${id}`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(paqueteCompleto) 
+      });
+      
       if (res.ok) {
         if (pedidoRef && pedidoRef.cliente_id && nuevosDatos.direccion_entrega) {
           const dirLimpia = nuevosDatos.direccion_entrega.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
@@ -501,11 +592,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setModalEditarPedido(null);
         await cargarDataDinamica();
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+    }
     setIsSubmitting(false);
   };  
 
-  const abrirIdentificador = () => { setOrdenEditandoRapida(null); setModalPuntoVenta(true); };
+  const abrirIdentificador = () => { 
+    setOrdenEditandoRapida(null); 
+    setModalPuntoVenta(true); 
+  };
   
   const onGoToKioscoLocal = (cliente, orden) => { 
     setOrdenEditandoRapida(orden); 
@@ -513,120 +609,93 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setModalPuntoVenta(true); 
   };  
 
+  // ==========================================
+  // 7. CÁLCULO DE FILTROS DERIVADOS
+  // ==========================================
+  const pedidosPorConfirmar = pedidos.filter(p => {
+    if (p.estado_preparacion !== 'Pendiente') return false;
+    if (p.origen === 'Caja') return false;
+    return true;
+  });
+
+  const pendientesDePago = pedidos.filter(p => {
+    if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
+    const tipo = p.tipo_consumo || '';
+    const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
+    if (!noPagado) return false;
+    if (p.estado_preparacion === 'Pendiente' && p.origen === 'Caja') return true;
+    if (tipo === 'Local') return true;
+    if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && p.estado_preparacion === 'Listo') return true;
+    if (tipo === 'Domicilio' && p.estado_preparacion === 'Entregado') return true;
+    return false;
+  });
+
+  const listosParaEntregar = pedidos.filter(p => {
+    if (p.estado_preparacion !== 'Listo') return false;
+    const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
+    const tipo = p.tipo_consumo || '';
+    if (tipo === 'Domicilio') return true;
+    if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && noPagado) return false;
+    return true;
+  });
+
+  const pedidosEnReparto = pedidos.filter(p => 
+    p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino'
+  );
+
+  const mesasPagadas = pedidos.filter(p => 
+    p.tipo_consumo === 'Local' && 
+    p.estado_preparacion === 'Entregado' && 
+    p.metodo_pago !== 'Por Cobrar' && 
+    p.metodo_pago !== 'Pendiente' && 
+    p.estado_preparacion !== 'Cancelado' && 
+    p.estado_preparacion !== 'Finalizado'
+  );
+
+  const pedidosConAlerta = pedidos.filter(p => 
+    p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion)
+  );
+
+  // ==========================================
+  // 8. RETORNO DEL HOOK (Limpio y legible)
+  // ==========================================
   return {
-    vistaActiva, 
-    setVistaActiva, 
-    subVistaHistorial, 
-    setSubVistaHistorial, 
-    pedidos, 
-    mesas, 
-    catalogoIngredientes,
-    configGlobal, 
-    insumosDB, 
-    gastosDia, 
-    modalPago, 
-    setModalPago, 
-    montoRecibido, 
-    setMontoRecibido,
-    modalResolver, 
-    setModalResolver, 
-    itemAfectadoIdx, 
-    setItemAfectadoIdx, 
-    accionAlerta, 
-    setAccionAlerta,
-    ingredienteReemplazo, 
-    setIngredienteReemplazo, 
+    vistaActiva, setVistaActiva, 
+    subVistaHistorial, setSubVistaHistorial, 
+    pedidos, mesas, catalogoIngredientes, configGlobal, 
+    insumosDB, gastosDia, 
+    modalPago, setModalPago, montoRecibido, setMontoRecibido,
+    modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx, 
+    accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo, 
     ticketImprimir, 
-    modalZonaEnvio, 
-    setModalZonaEnvio,
-    modalVerDetalle, 
-    setModalVerDetalle, 
-    modalEditarPedido, 
-    setModalEditarPedido, 
-    modalCompraRapida,
-    setModalCompraRapida, 
-    insumoComprar, 
-    setInsumoComprar, 
-    paquetesComprados, 
-    setPaquetesComprados, 
-    alertaCaja,
-    setAlertaCaja, 
-    modalAgregarExtra, 
-    setModalAgregarExtra, 
-    alertaCobroExtra, 
-    setAlertaCobroExtra,
-    modalIdentificar, 
-    setModalIdentificar, 
-    pasoIdentificar, 
-    setPasoIdentificar, 
-    telClienteNuevo, 
-    setTelClienteNuevo, 
-    datosNuevoCliente, 
-    setDatosNuevoCliente,
+    modalZonaEnvio, setModalZonaEnvio,
+    modalVerDetalle, setModalVerDetalle, 
+    modalEditarPedido, setModalEditarPedido, 
+    modalCompraRapida, setModalCompraRapida, 
+    insumoComprar, setInsumoComprar, paquetesComprados, setPaquetesComprados, 
+    alertaCaja, setAlertaCaja, 
+    modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
+    modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar, 
+    telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
+    modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, 
+    productos, clasificaciones, empleadosPOS, 
+    isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
+    isSubmitting, 
+    fondoCaja, inputFondo, setInputFondo, 
+    apiUrl, cargarDataDinamica,
+    fondoRepartidor, actualizarFondoRepartidor,
+    modalAsistencia, setModalAsistencia,  
+    // Variables derivadas limpias
+    pedidosPorConfirmar, pendientesDePago, listosParaEntregar, 
+    pedidosEnReparto, mesasPagadas, pedidosConAlerta,
+    // Funciones
     buscarClienteParaPedido: () => {}, 
     registrarClienteParaPedido: () => {},
-    modalPuntoVenta, 
-    setModalPuntoVenta, 
-    ordenEditandoRapida, 
-    productos, 
-    clasificaciones,
-    empleadosPOS, 
-    isCajaBloqueada, 
-    setIsCajaBloqueada, 
-    operadorActual, 
-    setOperadorActual,
-    isSubmitting, 
-    fondoCaja, 
-    inputFondo, 
-    setInputFondo, 
-    apiUrl, 
-    cargarDataDinamica,
-    fondoRepartidor, 
-    actualizarFondoRepartidor,
-    modalAsistencia, 
-    setModalAsistencia,  
-    pedidosPorConfirmar: pedidos.filter(p => {
-      if (p.estado_preparacion !== 'Pendiente') return false;
-      if (p.origen === 'Caja') return false;
-      return true;
-    }),
-    pendientesDePago: pedidos.filter(p => {
-      if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
-      const tipo = p.tipo_consumo || '';
-      const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
-      if (!noPagado) return false;
-      if (p.estado_preparacion === 'Pendiente' && p.origen === 'Caja') return true;
-      if (tipo === 'Local') return true;
-      if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && p.estado_preparacion === 'Listo') return true;
-      if (tipo === 'Domicilio' && p.estado_preparacion === 'Entregado') return true;
-      return false;
-    }),
-    listosParaEntregar: pedidos.filter(p => {
-      if (p.estado_preparacion !== 'Listo') return false;
-      const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
-      const tipo = p.tipo_consumo || '';
-      if (tipo === 'Domicilio') return true;
-      if ((tipo === 'Para llevar' || tipo === 'Recoger' || tipo === 'Recoger en Local') && noPagado) return false;
-      return true;
-    }),
-    pedidosEnReparto: pedidos.filter(p => p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino'),
-    mesasPagadas: pedidos.filter(p => p.tipo_consumo === 'Local' && p.estado_preparacion === 'Entregado' && p.metodo_pago !== 'Por Cobrar' && p.metodo_pago !== 'Pendiente' && p.estado_preparacion !== 'Cancelado' && p.estado_preparacion !== 'Finalizado'),
-    pedidosConAlerta: pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion)),
-    toggleEstadoNegocio, 
-    cerrarCajaYSalir, 
-    iniciarTurno, 
-    lanzarImpresion, 
-    procesarPago, 
-    confirmarPedidoRecoger,
-    confirmarPedidoDomicilio, 
-    actualizarEstadoPedido, 
-    guardarEdicionPedido, 
-    limpiarAlerta, 
-    abrirModalResolver,
-    enviarRespuestaCocina, 
-    registrarCompraRapida, 
-    confirmarAgregarExtra, 
-    abrirIdentificador, 
+    toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno, 
+    lanzarImpresion, procesarPago, confirmarPedidoRecoger,
+    confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido, 
+    limpiarAlerta, abrirModalResolver, enviarRespuestaCocina, 
+    registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador, 
     onGoToKiosco: onGoToKioscoLocal
   };
 };

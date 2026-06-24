@@ -17,6 +17,11 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const mesNombre = hoy.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }).toUpperCase();  
 
   const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;  
+  const strPrimerDiaMes = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+
+  // 👇 NUEVOS ESTADOS: Rango de fechas para proteger información al cruzar meses
+  const [fechaDesde, setFechaDesde] = useState(strPrimerDiaMes);
+  const [fechaHasta, setFechaHasta] = useState(strHoy);
 
   const diasMes = Array.from({length: daysInMonth}, (_, i) => {
     const d = new Date(year, month, i + 1);
@@ -114,11 +119,31 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }));
   };  
 
-  // 🛡️ CORRECCIÓN CLAVE: Rescatar la matriz de la BD antes de cerrar el candado
+  // 👇 NUEVO: Función auxiliar para crear rango de fechas
+  const obtenerRangoFechas = (inicioStr, finStr) => {
+    const fechas = [];
+    let actual = new Date(inicioStr + 'T00:00:00');
+    const fin = new Date(finStr + 'T00:00:00');
+    while (actual <= fin) {
+      const yyyy = actual.getFullYear();
+      const mm = String(actual.getMonth() + 1).padStart(2, '0');
+      const dd = String(actual.getDate()).padStart(2, '0');
+      fechas.push(`${yyyy}-${mm}-${dd}`);
+      actual.setDate(actual.getDate() + 1);
+    }
+    return fechas;
+  };
+
+  // 👇 ACTUALIZADO: Cerrar auditoría de un rango exacto protegiendo los datos pasados
   const realizarCorteLimpieza = () => {
+    if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango de fechas para cerrar la auditoría.", "info");
+    if (fechaDesde > fechaHasta) return showAlert("Aviso", "La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'.", "warning");
+
+    const fechasRango = obtenerRangoFechas(fechaDesde, fechaHasta);
+
     showConfirm(
       "🔒 Corte de Limpieza Parcial", 
-      "Esto auditará y BLOQUEARÁ las áreas de limpieza desde el día 1 hasta el día de HOY. Las fechas pasadas ya no podrán ser evaluadas ni modificadas.", 
+      `Esto auditará y BLOQUEARÁ las áreas de limpieza desde el ${fechaDesde} hasta el ${fechaHasta}. Las fechas seleccionadas ya no podrán ser evaluadas ni modificadas.`, 
       async () => {
         setIsSubmitting(true);
         try {
@@ -129,8 +154,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
           }
 
-          const fechasPasadas = diasMes.filter(d => d.fechaStr <= strHoy).map(d => d.fechaStr);
-          const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasPasadas])];  
+          // 👇 Inyectamos exclusivamente el rango seleccionado a los días cerrados
+          const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasRango])];  
           
           const payload = { ...matrizActual, areas, asignaciones, evidencias, evaluaciones, dias_cerrados: nuevosDiasCerrados };
           const formData = new FormData();
@@ -139,7 +164,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
           if (res.ok) {
             setDiasCerrados(nuevosDiasCerrados);
-            showAlert("Auditoría Cerrada", "Las limpiezas hasta hoy han sido bloqueadas exitosamente.", "success");
+            showAlert("Auditoría Cerrada", `Las limpiezas entre ${fechaDesde} y ${fechaHasta} han sido bloqueadas exitosamente.`, "success");
           }
         } catch (error) { 
           showAlert("Error", "Fallo de conexión.", "error"); 
@@ -149,7 +174,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     );
   };  
 
-  // 🛡️ CORRECCIÓN CLAVE: Rescatar la matriz de la BD antes de guardar normal
   const guardarMatriz = async () => {
     setIsSubmitting(true);
     try {
@@ -308,19 +332,35 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         )}
       </div>  
 
+      {/* 👇 NUEVA ZONA INFERIOR CON LOS FILTROS DE FECHAS */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-6">
-        <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-          <div className="flex items-center gap-2 text-amber-700 bg-amber-50 px-5 py-3 rounded-2xl text-sm font-bold border border-amber-200 shadow-sm">
+        <div className="flex flex-col lg:flex-row items-center gap-4 w-full md:w-auto">
+          <div className="flex items-center gap-2 text-amber-700 bg-amber-50 px-5 py-3 rounded-2xl text-sm font-bold border border-amber-200 shadow-sm whitespace-nowrap">
             <AlertCircle size={18}/> ¡Guarda al asignar o evaluar!
           </div>
+          
           {areas.length > 0 && (
-            <button 
-              onClick={realizarCorteLimpieza} 
-              disabled={isSubmitting} 
-              className="text-sm font-bold flex items-center gap-2 px-5 py-3 rounded-2xl transition shadow-sm bg-white border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
-            >
-              <Lock size={18}/> Cerrar Auditoría (Hasta Hoy)
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+               <div className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200 w-full sm:w-auto">
+                 <div className="flex flex-col px-2">
+                   <label className="text-[9px] text-slate-400 font-black uppercase mb-0.5">Desde</label>
+                   <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="bg-transparent text-slate-700 font-bold text-xs outline-none cursor-pointer" />
+                 </div>
+                 <span className="text-slate-300 font-black">-</span>
+                 <div className="flex flex-col px-2">
+                   <label className="text-[9px] text-slate-400 font-black uppercase mb-0.5">Hasta</label>
+                   <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="bg-transparent text-slate-700 font-bold text-xs outline-none cursor-pointer" />
+                 </div>
+               </div>
+
+              <button 
+                onClick={realizarCorteLimpieza} 
+                disabled={isSubmitting || !fechaDesde || !fechaHasta} 
+                className="w-full sm:w-auto text-sm font-bold flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl transition shadow-sm bg-white border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer whitespace-nowrap active:scale-95 disabled:opacity-50"
+              >
+                <Lock size={18}/> Cerrar Auditoría
+              </button>
+            </div>
           )}
         </div>
         <button 
@@ -328,7 +368,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           disabled={isSubmitting || areas.length === 0} 
           className="w-full md:w-auto bg-slate-900 hover:bg-slate-800 text-teal-400 px-10 py-4 rounded-2xl font-black transition active:scale-95 shadow-xl shadow-slate-900/20 disabled:opacity-50 flex items-center justify-center gap-2 text-lg"
         >
-          <Save size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar Matriz'}
+          <Save size={24}/> {isSubmitting ? 'Guardando...' : 'Guardar'}
         </button>
       </div>
     </div>

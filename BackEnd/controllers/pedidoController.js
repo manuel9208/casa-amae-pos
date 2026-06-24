@@ -127,20 +127,15 @@ exports.crearPedido = async (req, res) => {
           }  
           
           if (lotesADescontar > 0) {
-            // 👇 SOLUCIÓN: MOTOR DE EXPLOSIÓN DE MATERIALES RECURSIVO (INFINITOS NIVELES)
             const recursiveQuery = `
               WITH RECURSIVE Explosion AS (
-                -- Caso Base: Elementos directos de la receta del platillo
                 SELECT
                   r.insumo_id,
                   r.sub_producto_id,
                   (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
                 FROM recetas r
                 WHERE r.producto_id = $2
-                
                 UNION ALL
-                
-                -- Paso Recursivo: Si hay sub-recetas anidadas, entra hasta encontrar insumos
                 SELECT
                   r.insumo_id,
                   r.sub_producto_id,
@@ -150,7 +145,6 @@ exports.crearPedido = async (req, res) => {
                 JOIN recetas r ON r.producto_id = p.id
                 WHERE e.sub_producto_id IS NOT NULL
               )
-              -- Actualización directa sumando todos los requerimientos crudos de la cascada
               UPDATE insumos
               SET stock_actual = stock_actual - calc.total_descontar
               FROM (
@@ -232,13 +226,23 @@ exports.actualizarEstado = async (req, res) => {
   const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;  
   
   try {
-    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa, chef_id FROM pedidos WHERE id = $1', [id]);
+    // 👇 Añadimos tipo_consumo y metodo_pago a la consulta para hacer la validación de Barra
+    const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa, chef_id, tipo_consumo, metodo_pago FROM pedidos WHERE id = $1', [id]);
     if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
     
     const pedidoPrevio = prevRes.rows[0];  
     
+    let estadoReal = estado_preparacion;
+    const metodoPagoAct = metodo_pago !== undefined ? metodo_pago : pedidoPrevio.metodo_pago;
+    const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto'].includes(metodoPagoAct);
+
+    // 👇 SOLUCIÓN DE REGLA BARRA: Si es local, no usaron mesa, está pagado y se sirve -> pasa directo a Finalizado
+    if (estadoReal === 'Entregado' && pedidoPrevio.tipo_consumo === 'Local' && !pedidoPrevio.mesa && isPagadoDinero) {
+      estadoReal = 'Finalizado';
+    }
+
     let updateFields = ['estado_preparacion = $1'];
-    let params = [estado_preparacion];
+    let params = [estadoReal];
     let queryIndex = 2;  
     
     if (chef_id !== undefined) { updateFields.push(`chef_id = $${queryIndex}`); params.push(chef_id); queryIndex++; }
@@ -253,20 +257,21 @@ exports.actualizarEstado = async (req, res) => {
       updateFields.push(`costo_envio = $${queryIndex}`); params.push(finalEnvio); queryIndex++;
     }  
     
-    if (estado_preparacion === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion = CURRENT_TIMESTAMP`); }
-    if (estado_preparacion === 'Listo') { updateFields.push(`tiempo_listo = CURRENT_TIMESTAMP`); }
-    if (estado_preparacion === 'En Camino') { updateFields.push(`tiempo_salida_reparto = CURRENT_TIMESTAMP`); }
-    if (estado_preparacion === 'Entregado') { updateFields.push(`tiempo_entregado = CURRENT_TIMESTAMP`); }  
+    if (estadoReal === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion = CURRENT_TIMESTAMP`); }
+    if (estadoReal === 'Listo') { updateFields.push(`tiempo_listo = CURRENT_TIMESTAMP`); }
+    if (estadoReal === 'En Camino') { updateFields.push(`tiempo_salida_reparto = CURRENT_TIMESTAMP`); }
+    if (estadoReal === 'Entregado' || estadoReal === 'Finalizado') { updateFields.push(`tiempo_entregado = CURRENT_TIMESTAMP`); }  
     
     params.push(id);
     const result = await db.query(`UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = $${queryIndex} RETURNING *`, params);
     const pedidoActual = result.rows[0];  
     
     if (pedidoPrevio.mesa) {
-      const isPagadoDinero = (pedidoActual.metodo_pago === 'Efectivo' || pedidoActual.metodo_pago === 'Tarjeta' || pedidoActual.metodo_pago === 'Transferencia' || pedidoActual.metodo_pago === 'Mixto');  
-      if (estado_preparacion === 'Cancelado' || estado_preparacion === 'Finalizado' || (estado_preparacion === 'Entregado' && isPagadoDinero)) {
+      // 👇 SOLUCIÓN DE REGLA FANTASMA: 
+      // Se eliminó (estadoReal === 'Entregado' && isPagadoDinero). Ahora la mesa SÓLO se libera al 'Finalizar' o 'Cancelar'.
+      if (estadoReal === 'Cancelado' || estadoReal === 'Finalizado') {
         await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
-      } else if (estado_preparacion === 'Entregado' && !isPagadoDinero) {
+      } else if (estadoReal === 'Entregado' && !isPagadoDinero) {
         await db.query("UPDATE mesas SET estado = 'Por Pagar' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
       } else {
         await db.query("UPDATE mesas SET estado = 'Ocupada' WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
@@ -275,7 +280,7 @@ exports.actualizarEstado = async (req, res) => {
     
     if (pedidoActual.cliente_id) {
       const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
-      const ahoraEstaPagado = (estado_preparacion === 'Pagado' || estado_preparacion === 'Entregado' || estado_preparacion === 'Finalizado');  
+      const ahoraEstaPagado = (estadoReal === 'Pagado' || estadoReal === 'Entregado' || estadoReal === 'Finalizado');  
       
       if (!yaEstabaPagado && ahoraEstaPagado) {
         try {
@@ -306,14 +311,14 @@ exports.actualizarEstado = async (req, res) => {
         } catch(e) { console.log('Error abonando puntos:', e.message); }
       }  
       
-      if (estado_preparacion === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
+      if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
         if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0) {
           await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
         }
       }
     }  
     
-    if (estado_preparacion === 'Listo') {
+    if (estadoReal === 'Listo') {
       try {
         const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id, nombre_negocio FROM configuracion WHERE id = 1');
         const config = configRes.rows[0];  
@@ -348,15 +353,15 @@ exports.actualizarEstado = async (req, res) => {
       } catch (errWA) { console.error("Fallo en WhatsApp:", errWA.message); }
     }  
     
-    if (estado_preparacion === 'Pagado' || estado_preparacion === 'Por Confirmar') {
+    if (estadoReal === 'Pagado' || estadoReal === 'Por Confirmar') {
       notificarStaff(['chef', 'cocinero', 'cocina', 'ayudante_cocina'], '👨🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
-    } else if (estado_preparacion === 'Preparando') {
+    } else if (estadoReal === 'Preparando') {
       notificarCliente(pedidoActual.cliente_id, '¡En el fuego! 🔥', `El chef ya está preparando tu orden #${pedidoActual.numero_pedido}.`);
       notificarStaff(['cajero', 'admin'], 'Preparando Orden', `Cocina comenzó a preparar la orden #${pedidoActual.numero_pedido}.`);
-    } else if (estado_preparacion === 'Listo') {
+    } else if (estadoReal === 'Listo') {
       notificarCliente(pedidoActual.cliente_id, '¡Tu comida está lista! 🍔', `Tu orden #${pedidoActual.numero_pedido} está lista para entregar.`);
       notificarStaff(['cajero', 'admin'], 'Orden Lista ✅', `Cocina terminó la orden #${pedidoActual.numero_pedido}.`);
-    } else if (estado_preparacion === 'En Camino') {
+    } else if (estadoReal === 'En Camino') {
       notificarCliente(pedidoActual.cliente_id, '¡Orden en Camino! 🛵', 'El repartidor ya va hacia tu domicilio con tu pedido.');
     }  
     
