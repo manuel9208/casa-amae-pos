@@ -2,7 +2,16 @@ import React from 'react';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
-const ReciboNomina = ({ recibo }) => {
+const getImageUrl = (url) => {
+  if (!url) return '';
+  if (url.includes('cloudinary.com')) {
+    const parts = url.split('res.cloudinary.com/');
+    return `https://res.cloudinary.com/${parts[1]}`;
+  }
+  return url;
+};
+
+const ReciboNomina = ({ recibo, configGlobal = {} }) => {
   if (!recibo) return null;
 
   const metadata = recibo.metadata || {};
@@ -13,100 +22,93 @@ const ReciboNomina = ({ recibo }) => {
 
   const totalIngresos = recibo.total_ingresos || 0;
   const totalEgresos = recibo.total_egresos || 0;
+  
+  const todosIngresos = [...ingresosBase, ...adicionalesIngresos];
+  const todosEgresos = [...egresosBase, ...adicionalesEgresos];
+  
+  const nombreNegocio = configGlobal.nombre_negocio || 'Mi Restaurante';
+  
+  // Fecha actual para el pie de página
+  const hoy = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
   return (
-    <div id="seccion-a-imprimir-recibo" className="w-[320px] p-4 bg-white text-black font-mono text-sm leading-tight mx-auto print:block">
-      
-      {/* CABECERA DEL RECIBO */}
-      <div className="text-center mb-4">
-        {/* Aquí puedes inyectar un <img src={logo} /> en el futuro si lo deseas */}
-        <h2 className="font-black text-xl mb-1 uppercase tracking-widest">Recibo de Nómina</h2>
-        <p className="text-xs font-bold border-b border-dashed border-black pb-2 mb-2">Comprobante de Pago</p>
-        <p className="text-[10px] font-bold tracking-widest uppercase">Periodo de Pago:</p>
-        <p className="text-xs font-black">{metadata.fecha_inicio} al {metadata.fecha_fin}</p>
-      </div>
-
-      {/* DATOS DEL EMPLEADO */}
-      <div className="mb-4 text-xs border-b border-dashed border-black pb-3 space-y-1">
-        <p><strong className="uppercase">Empleado:</strong> {recibo.nombre_completo || recibo.nombre}</p>
-        <p><strong className="uppercase">Puesto:</strong> <span className="uppercase">{recibo.rol}</span></p>
-        {recibo.datos_banco?.rfc && <p><strong className="uppercase">RFC:</strong> {recibo.datos_banco.rfc}</p>}
-        {recibo.datos_banco?.nss && <p><strong className="uppercase">NSS:</strong> {recibo.datos_banco.nss}</p>}
-      </div>
-
-      {/* SECCIÓN DE INGRESOS */}
-      <div className="mb-2">
-        <p className="font-black uppercase tracking-wider mb-2 text-[11px]">Percepciones (+)</p>
-        {ingresosBase.map((ing, i) => (
-          <div key={`ing-${i}`} className="flex justify-between text-xs mb-1">
-            <span className="w-2/3 pr-2 uppercase text-[10px] leading-snug">{ing.concepto}</span>
-            <span className="w-1/3 text-right font-bold">{formaterMoneda(ing.monto)}</span>
+    <div id="seccion-a-imprimir-recibo" className="w-full max-w-4xl mx-auto p-8 bg-white text-black font-sans text-[11px] md:text-xs print:block">
+       
+       {/* HEADER CON LOGO A LA DERECHA */}
+       <div className="flex justify-between items-start mb-8">
+          <div className="flex-1">
+             {/* Espacio reservado para info de la sucursal si en un futuro se requiere */}
           </div>
-        ))}
-        {adicionalesIngresos.map((ing, i) => (
-          <div key={`adin-${i}`} className="flex justify-between text-xs mb-1">
-            <span className="w-2/3 pr-2 uppercase text-[10px] leading-snug">{ing.concepto}</span>
-            <span className="w-1/3 text-right font-bold">{formaterMoneda(ing.monto)}</span>
+          <div className="flex-shrink-0 text-right">
+             {configGlobal.logo_url ? (
+                <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="h-14 md:h-16 object-contain" />
+             ) : (
+                <h2 className="text-2xl font-black text-blue-600 tracking-tighter uppercase">{nombreNegocio}</h2>
+             )}
           </div>
-        ))}
-      </div>
+       </div>
 
-      {/* SECCIÓN DE DEDUCCIONES */}
-      {(egresosBase.length > 0 || adicionalesEgresos.length > 0) && (
-        <div className="mb-4 mt-3 border-t border-dotted border-gray-400 pt-2">
-          <p className="font-black uppercase tracking-wider mb-2 text-[11px]">Deducciones (-)</p>
-          {egresosBase.map((eg, i) => (
-            <div key={`eg-${i}`} className="flex justify-between text-xs mb-1">
-              <span className="w-2/3 pr-2 uppercase text-[10px] leading-snug">{eg.concepto}</span>
-              <span className="w-1/3 text-right font-bold">{formaterMoneda(eg.monto)}</span>
-            </div>
-          ))}
-          {adicionalesEgresos.map((eg, i) => (
-            <div key={`adeg-${i}`} className="flex justify-between text-xs mb-1">
-              <span className="w-2/3 pr-2 uppercase text-[10px] leading-snug">{eg.concepto}</span>
-              <span className="w-1/3 text-right font-bold">{formaterMoneda(eg.monto)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+       {/* INFORMACIÓN DE LA TRANSACCIÓN Y EMPLEADO */}
+       <div className="mb-4 uppercase leading-relaxed">
+          <p>FECHA DE EMISIÓN: {hoy}</p>
+          <br/>
+          <p className="mb-1">
+             RECIBÍ DE <strong>{nombreNegocio}</strong> LA CANTIDAD DE <strong>{formaterMoneda(recibo.neto)}</strong> POR CONCEPTO DE MI SUELDO CORRESPONDIENTE AL PERIODO DEL <strong>{metadata.fecha_inicio}</strong> AL <strong>{metadata.fecha_fin}</strong> COMO SIGUE:
+          </p>
+          {recibo.datos_banco?.cuenta && <p>NUM. DE CUENTA: {recibo.datos_banco.cuenta}</p>}
+          {(recibo.datos_banco?.banco || recibo.datos_banco?.institucion) && <p>BANCO: {recibo.datos_banco.banco || recibo.datos_banco.institucion}</p>}
+       </div>
 
-      {/* TOTALES */}
-      <div className="border-t-2 border-black pt-2 mb-6 mt-4">
-        <div className="flex justify-between text-xs mb-1 text-gray-700">
-          <span className="uppercase text-[10px]">Suma Percepciones:</span>
-          <span>{formaterMoneda(totalIngresos)}</span>
-        </div>
-        <div className="flex justify-between text-xs mb-2 pb-2 border-b border-dotted border-gray-400 text-gray-700">
-          <span className="uppercase text-[10px]">Suma Deducciones:</span>
-          <span>{formaterMoneda(totalEgresos)}</span>
-        </div>
-        <div className="flex justify-between font-black text-lg items-end mt-2">
-          <span className="uppercase text-sm">Neto a Pagar:</span>
-          <span>{formaterMoneda(recibo.neto)}</span>
-        </div>
-      </div>
+       {/* TABLA DE DESGLOSE ESTILO COPPEL */}
+       <div className="border border-black mb-8">
+          <table className="w-full text-left border-collapse">
+             <thead className="border-b border-black">
+                <tr>
+                   <th className="p-2 font-normal w-1/2"></th>
+                   <th className="p-2 font-normal text-right w-1/4">Ingresos</th>
+                   <th className="p-2 font-normal text-right w-1/4">Egresos</th>
+                </tr>
+             </thead>
+             <tbody>
+                {todosIngresos.map((ing, i) => (
+                   <tr key={`ing-${i}`}>
+                      <td className="p-1 px-2 uppercase">{ing.concepto}</td>
+                      <td className="p-1 px-2 text-right">{formaterMoneda(ing.monto)}</td>
+                      <td className="p-1 px-2 text-right"></td>
+                   </tr>
+                ))}
+                {todosEgresos.map((eg, i) => (
+                   <tr key={`eg-${i}`}>
+                      <td className="p-1 px-2 uppercase">- {eg.concepto}</td>
+                      <td className="p-1 px-2 text-right"></td>
+                      <td className="p-1 px-2 text-right">{formaterMoneda(eg.monto)}</td>
+                   </tr>
+                ))}
+             </tbody>
+             <tfoot className="border-t border-black">
+                <tr>
+                   <td className="p-2 uppercase">TOTALES</td>
+                   <td className="p-2 text-right">{formaterMoneda(totalIngresos)}</td>
+                   <td className="p-2 text-right">{formaterMoneda(totalEgresos)}</td>
+                </tr>
+                <tr>
+                   <td className="p-2 uppercase">A PAGAR</td>
+                   <td className="p-2 text-right">{formaterMoneda(recibo.neto)}</td>
+                   <td className="p-2 text-right"></td>
+                </tr>
+             </tfoot>
+          </table>
+       </div>
 
-      {/* INFORMACIÓN DE PAGO */}
-      {recibo.datos_banco?.banco && (
-        <div className="mt-2 text-[10px] text-center bg-gray-100 p-3 rounded-lg border border-gray-300">
-          <p className="uppercase font-black mb-1 tracking-widest text-[9px]">Método: Transferencia / Depósito</p>
-          <p><strong>Banco:</strong> {recibo.datos_banco.banco}</p>
-          <p><strong>Cuenta/CLABE:</strong> {recibo.datos_banco.cuenta}</p>
-        </div>
-      )}
+       {/* PIE DE PÁGINA (DATOS LEGALES DEL TRABAJADOR) */}
+       <div className="uppercase leading-relaxed">
+          <p>CULIACÁN SIN {hoy}</p>
+          <p>{recibo.nombre_completo || recibo.nombre}</p>
+          {recibo.datos_banco?.nss && <p>NSS: {recibo.datos_banco.nss}</p>}
+          {recibo.datos_banco?.rfc && <p>RFC: {recibo.datos_banco.rfc}</p>}
+          {recibo.datos_banco?.curp && <p>CURP: {recibo.datos_banco.curp}</p>}
+       </div>
 
-      {/* FIRMA DE CONFORMIDAD */}
-      <div className="text-center mt-20 mb-4">
-        <div className="border-t border-black w-4/5 mx-auto mb-1"></div>
-        <p className="text-[10px] font-black uppercase tracking-widest">Firma del Empleado</p>
-        <p className="text-[8px] mt-2 leading-tight text-gray-600 text-justify px-2">
-          Recibí a mi entera satisfacción la cantidad arriba mencionada, cubriendo el pago de mis servicios durante el periodo indicado. No reservándome acción ni derecho alguno que ejercer en contra de la empresa.
-        </p>
-      </div>
-      
-      <p className="text-[9px] text-center italic mt-4 text-gray-500">
-        Generado el {new Date().toLocaleString('es-MX', { timeZone: 'America/Mazatlan' })}
-      </p>
     </div>
   );
 };

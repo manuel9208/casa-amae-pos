@@ -62,13 +62,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let diasVacaciones = 0;
         let diasDescanso = 0;
         let domingosTrabajados = 0;
-        let horasTrabajadasTotales = 0; // 👈 NUEVO: Clave para cálculos "Por Hora" y sueldos auditados
+        let horasTrabajadasTotales = 0; 
         const diasAuditados = [];
         const alertasEmpleado = [];
 
         let fallasLimpieza = 0;
         let eventosTarde = 0; 
-        let minutosTardeTotales = 0; 
+        let minutesTardeTotales = 0; 
         let diasFaltaInjustificada = 0;
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
@@ -77,7 +77,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (pres.fecha_ingreso) {
            const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
            if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
-               alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, msg: `🎉 Aniversario de trabajo detectado (Ingresó en ${fIng.getFullYear()}). Recuerda revisar sus vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
+               // 👇 CORRECCIÓN 1: Se reemplazó dateStr indefinido por la lectura directa de currentDate
+               alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, fecha: currentDate.toISOString().split('T')[0], msg: `🎉 Aniversario de trabajo detectado (Ingresó en ${fIng.getFullYear()}). Recuerda revisar sus vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
            }
         }
 
@@ -89,7 +90,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
              const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
              if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
-                 alertasEmpleado.push({ tipo: 'cumpleaños', idUnico: `cumple-${dateStr}`, msg: `🎂 ¡Cumpleaños detectado el ${dateStr}! ¿Deseas agregarle un bono festivo?`, resuelta: false, estadoAuditoria: 'aprobado' });
+                 alertasEmpleado.push({ tipo: 'cumpleaños', idUnico: `cumple-${dateStr}`, fecha: dateStr, msg: `🎂 ¡Cumpleaños detectado! ¿Deseas agregarle un bono festivo?`, resuelta: false, estadoAuditoria: 'aprobado' });
              }
           }
 
@@ -153,7 +154,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);
               let outTime, olvidoSalida = false, turnoActivo = false;
               
-              // 👇 SINCRO DE LÓGICA DE CORTE INFINITO (>24h)
               if (tieneNullSalida) {
                   if (dateStr === hoyStr) {
                       outTime = new Date().getTime();
@@ -186,11 +186,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   const minReales = (hReal * 60) + mReal;
                   if (minReales > (minOficiales + minTolEntrada)) {
                       eventosTarde++;
-                      minutosTardeTotales += (minReales - minOficiales);
+                      minutesTardeTotales += (minReales - minOficiales);
                   }
               }
 
-              // 👇 SINCRO DE AGRUPACIÓN DE ANOMALÍAS Y HORAS AUDITADAS
               let motivosAnomalia = [];
               let requiereAuditoria = false;
 
@@ -221,7 +220,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   }
               }
 
-              // 👇 EXTRACCIÓN DE LAS HORAS DEL MODAL
               let horasFinalesAprobadas = diffHrs; 
               let estadoAudParsed = { estado: 'pendiente' };
               if (auditoriaDia['auditoria_turno']) {
@@ -230,12 +228,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               }
 
               if (estadoAudParsed.estado === 'rechazado') {
-                  horasFinalesAprobadas = 0; // Día penalizado al 100%
+                  horasFinalesAprobadas = 0; 
               } else if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
-                  horasFinalesAprobadas = estadoAudParsed.horasAprobadas; // El Gerente decidió
+                  horasFinalesAprobadas = estadoAudParsed.horasAprobadas; 
               }
 
-              // Cálculos para botones financieros rápidos
               let hrsExt = 0;
               let hrsFaltantes = 0;
               if (entradaOficial && salidaOficial) {
@@ -269,7 +266,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               if (esDomingo) domingosTrabajados++;
 
           } else {
-              // LÓGICA SINCRO: Faltas reales
               const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
               if (esDiaLaboral && isPastOrToday) {
                   let estadoFaltaParsed = { estado: 'pendiente' };
@@ -284,13 +280,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                           tipo: 'falta', 
                           idUnico: `falta-${dateStr}`, 
                           fecha: dateStr, 
-                          msg: `⚠️ Falta Injustificada el ${dateStr}.`, 
+                          msg: `⚠️ Falta Injustificada.`, 
                           estadoAuditoria: estadoFaltaParsed.estado, 
-                          resuelta: estadoFaltaParsed.estado === 'rechazado' // Rechazarla = Sancionar
+                          resuelta: estadoFaltaParsed.estado === 'rechazado'
                       });
                       diasAuditados.push(dateStr); 
                   } else {
-                      diasProgramados++; // Falta justificada cuenta para el sueldo base
+                      diasProgramados++; 
                       horasTrabajadasTotales += 8;
                       diasAuditados.push(dateStr);
                   }
@@ -310,11 +306,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;
         
-        // 👇 CÁLCULO DE NÓMINA DINÁMICO
         if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; } 
         else if (pres.tipo_sueldo === 'Por Hora') { 
-            sueldoDiarioExacto = sueldoBase * 8; // Mantenemos la ref 8hrs para el valor diario
-            ingresoSueldo = sueldoBase * horasTrabajadasTotales; // Aquí brilla la Auditoría
+            sueldoDiarioExacto = sueldoBase * 8; 
+            ingresoSueldo = sueldoBase * horasTrabajadasTotales; 
         } 
         else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; } 
         else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = (sueldoBase / 15) * diasProgramados; } 
@@ -356,8 +351,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           if (reglasNomina.bono_puntualidad_eventos_activo && eventosTarde <= Number(reglasNomina.puntualidad_eventos_retardos_permitidos)) {
               ingresosList.push({ concepto: `Bono Punt. Clásica (Tardanzas: ${eventosTarde})`, monto: Number(reglasNomina.bono_puntualidad_eventos_monto) });
           }
-          if (reglasNomina.bono_puntualidad_estricta_activo && minutosTardeTotales <= Number(reglasNomina.puntualidad_estricta_limite_minutos_semana)) {
-              ingresosList.push({ concepto: `Bono Punt. Estricta (Mins Tarde: ${minutosTardeTotales})`, monto: Number(reglasNomina.bono_puntualidad_estricta_monto) });
+          if (reglasNomina.bono_puntualidad_estricta_activo && minutesTardeTotales <= Number(reglasNomina.puntualidad_estricta_limite_minutos_semana)) {
+              ingresosList.push({ concepto: `Bono Punt. Estricta (Mins Tarde: ${minutesTardeTotales})`, monto: Number(reglasNomina.bono_puntualidad_estricta_monto) });
           }
         }
 
@@ -406,7 +401,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         calculos.push({
           empleado_id: emp.id, nombre: emp.nombre, nombre_completo: pres.nombre_completo || emp.nombre, rol: emp.rol, telefono: pres.telefono || emp.telefono,
           datos_banco: { banco: pres.banco, cuenta: pres.cuenta, rfc: pres.rfc, nss: pres.nss },
-          metricas: { diasProgramados, diasAsistidos, eventosTarde, minutosTardeTotales, fallasLimpieza, diasAuditados, diasVacaciones, diasDescanso, sueldoDiarioExacto, prestamosAplicados, alertasEmpleado, fechaIngresoBase: pres.fecha_ingreso, horasExtrasAcumulables: 0 },
+          metricas: { diasProgramados, diasAsistidos, eventosTarde, minutosTardeTotales: minutesTardeTotales, fallasLimpieza, diasAuditados, diasVacaciones, diasDescanso, sueldoDiarioExacto, prestamosAplicados, alertasEmpleado, fechaIngresoBase: pres.fecha_ingreso, horasExtrasAcumulables: 0 },
           ingresos: ingresosList,
           egresos: egresosList, 
           nuevos_ingresos: [], 
@@ -499,6 +494,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const acumularHorasExtrasABanco = (idxEmp, alerta) => {
      const arr = [...preNomina];
      arr[idxEmp].metricas.horasExtrasAcumulables += alerta.hrsExt;
+     // 👇 CORRECCIÓN 2: Se mapeó idUnico a la propiedad alerta.idUnico que está en scope
      resolverAlerta(idxEmp, alerta.idUnico);
      showAlert("Horas Acumuladas", `Las horas se sumarán a su Banco de Horas al finalizar la nómina.`, "success");
   };
@@ -636,11 +632,23 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas de Cumplimiento Operativo</p>
                    {p.metricas.alertasEmpleado.map((alerta, iAlt) => (
                       <div key={iAlt} className={`p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'auditoria_turno' ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                         <span className="flex-1 text-xs md:text-sm">{alerta.msg}</span>
+                         
+                         <span className="flex-1 text-xs md:text-sm flex flex-wrap items-center gap-2">
+                            {alerta.fecha && (
+                              <span className="bg-white/80 border border-slate-300 text-slate-700 px-2 py-0.5 rounded-lg text-[10px] font-black shadow-sm">
+                                 {alerta.fecha}
+                              </span>
+                            )}
+                            <span className="font-bold">{alerta.msg}</span>
+                            {alerta.tipo === 'auditoria_turno' && (
+                              <span className="text-[10px] text-slate-500 font-bold uppercase bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                 ⏱️ Turno: {Number(alerta.hrsAuditadas || 0).toFixed(2)} hrs
+                              </span>
+                            )}
+                         </span>
                          
                          <div className="flex flex-col md:flex-row gap-2 md:items-center shrink-0">
                            
-                           {/* ETIQUETAS DE AUDITORIA PREVIA */}
                            {alerta.estadoAuditoria === 'aprobado' ? (
                              <span className="bg-emerald-100 text-emerald-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-emerald-200 text-center">
                                ✅ Auditado {alerta.hrsAuditadas !== undefined && `(${alerta.hrsAuditadas}h)`}
@@ -655,21 +663,18 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                              </span>
                            )}
 
-                           {/* BOTONES DE FALTAS */}
                            {alerta.tipo === 'falta' && (
                              <button disabled={alerta.resuelta} onClick={() => justificarFalta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'}`}>
                                {alerta.resuelta ? '❌ Sanción Firme' : 'Justificar Falta'}
                              </button>
                            )}
 
-                           {/* BOTONES DE JORNADA INCOMPLETA */}
                            {alerta.tipo === 'auditoria_turno' && alerta.hrsFaltantes > 0 && (
                              <button disabled={alerta.resuelta} onClick={() => penalizarJornadaIncompleta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-red-600 text-white hover:bg-red-700'}`}>
                                {alerta.resuelta ? '✅ Aplicado' : 'Cobrar Descuento'}
                              </button>
                            )}
 
-                           {/* BOTONES DE HORAS EXTRAS */}
                            {alerta.tipo === 'auditoria_turno' && alerta.hrsExt > 0 && (
                              <>
                                 <button disabled={alerta.resuelta} onClick={() => pagarHorasExtrasEnEfectivo(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'hidden' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}>
@@ -702,10 +707,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Minutos Tarde</p><p className="font-black text-red-500 text-lg">{p.metricas.minutosTardeTotales} min</p></div>
               </div>
 
-              {/* MÓDULO EDITABLE DE DEDUCCIONES Y PERCEPCIONES */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 
-                {/* INGRESOS */}
                 <div>
                   <h5 className="font-black text-emerald-600 mb-3 flex items-center justify-between border-b border-emerald-100 pb-2 text-xs uppercase tracking-wider">Percepciones (+)<button onClick={() => agregarDinamico(idxEmp, 'ingreso')} className="text-emerald-500 hover:text-emerald-700 bg-emerald-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
                   <div className="space-y-2 mb-4">
@@ -726,14 +729,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   </div>
                   {p.nuevos_ingresos.map((ni, iItem) => (
                     <div key={iItem} className="flex gap-2 mt-2 items-center animate-in slide-in-from-left">
-                      <input type="text" placeholder="Concepto (Ej. Premio)" value={ni.concepto} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-bold outline-none" />
+                      <input type="text" placeholder="Concepto" value={ni.concepto} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'concepto', e.target.value)} className="flex-1 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-bold outline-none" />
                       <input type="number" placeholder="$" value={ni.monto || ''} onChange={e => modificarDinamico(idxEmp, 'ingreso', iItem, 'monto', e.target.value)} className="w-24 bg-white border border-emerald-200 rounded-lg p-2 text-xs font-black text-emerald-700 text-center" />
                       <button onClick={() => eliminarDinamico(idxEmp, 'ingreso', iItem)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
                     </div>
                   ))}
                 </div>
 
-                {/* EGRESOS */}
                 <div>
                   <h5 className="font-black text-red-500 mb-3 flex items-center justify-between border-b border-red-100 pb-2 text-xs uppercase tracking-wider">Deducciones / Retenciones (-)<button onClick={() => agregarDinamico(idxEmp, 'egreso')} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded-md"><PlusCircle size={16}/></button></h5>
                   {p.egresos.length === 0 && p.nuevos_egresos.length === 0 && <p className="text-xs text-slate-400 italic bg-slate-50 p-3 rounded-lg border border-slate-100 text-center font-medium">No hay deducciones aplicadas.</p>}
@@ -767,7 +769,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ))}
 
           <button onClick={guardarCorteNomina} disabled={isSubmitting} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black text-xl py-6 rounded-2xl shadow-xl flex justify-center items-center gap-3 transition transform active:scale-95 disabled:opacity-50 mt-8">
-            <CheckCircle2 size={28} /> Aprobar, Bloquear Días y Finalizar Nómina
+            <CheckCircle2 size={28} /> ...Aprobar, Bloquear Días y Finalizar Nómina
           </button>
         </div>
       )}

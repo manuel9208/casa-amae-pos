@@ -9,6 +9,9 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
   const [cargando, setCargando] = useState(true);
   const [reciboPrint, setReciboPrint] = useState(null);
   
+  // 👇 NUEVO ESTADO: Para capturar el logo y nombre de la sucursal activa
+  const [configGlobal, setConfigGlobal] = useState({});
+
   // ESTADOS PARA LOS MENÚS DESPLEGABLES
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroPeriodo, setFiltroPeriodo] = useState('');
@@ -21,6 +24,16 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
     const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
     return `${datos.metadata?.fecha_inicio} al ${datos.metadata?.fecha_fin}`;
   }))];
+
+  // 👇 NUEVO: Cargar configuración global para obtener el logo de marca blanca
+  useEffect(() => {
+    fetch(`${apiUrl}/configuracion`)
+      .then(res => res.json())
+      .then(data => {
+        if (data) setConfigGlobal(data);
+      })
+      .catch(() => {});
+  }, [apiUrl]);
 
   // CARGAR HISTORIAL DE NÓMINAS
   const cargarHistorico = useCallback(async () => {
@@ -75,7 +88,6 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
 
     // 2. Filtrar por Empleado (Si seleccionó uno)
     if (filtroEmpleado) {
-      // Revisa si el empleado seleccionado existe dentro de esta nómina
       const tieneAlEmpleado = recibos.some(r => String(r.empleado_id) === String(filtroEmpleado));
       if (!tieneAlEmpleado) return false;
     }
@@ -123,7 +135,6 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
           </select>
         </div>
 
-        {/* Botón para limpiar filtros */}
         {(filtroEmpleado || filtroPeriodo) && (
           <div className="flex items-end">
             <button 
@@ -161,7 +172,6 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
             const recibos = datos.recibos || [];
             const metadata = datos.metadata || {};
             
-            // Si hay un empleado seleccionado, Ocultamos los demás recibos de ese periodo
             const recibosAMostrar = filtroEmpleado 
                 ? recibos.filter(r => String(r.empleado_id) === String(filtroEmpleado))
                 : recibos;
@@ -182,7 +192,6 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                   {recibosAMostrar.map((r, i) => (
                     <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition">
                       <div className="mb-4">
-                        {/* 👇 FIX: Mostramos el nombre completo legal si existe, si no el nombre corto */}
                         <p className="font-black text-slate-800 text-lg leading-tight mb-1">{r.nombre_completo || r.nombre}</p>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">{r.rol}</p>
                         <p className="text-3xl font-black text-emerald-600">{formaterMoneda(r.neto)}</p>
@@ -201,8 +210,19 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
 
       {/* ÁREA OCULTA PARA IMPRESIÓN */}
       <div className="hidden print:block">
-         {reciboPrint && <ReciboNomina recibo={reciboPrint} />}
+         {/* 👇 SE INYECTÓ LA PROP DE CONFIG_GLOBAL PARA LOGO */}
+         {reciboPrint && <ReciboNomina recibo={reciboPrint} configGlobal={configGlobal} />}
       </div>
+
+      {/* 👇 NUEVO: AISLADOR DE IMPRESIÓN PARA OCULTAR LA APP WEB EN EL TICKET */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #seccion-a-imprimir-recibo, #seccion-a-imprimir-recibo * { visibility: visible; }
+          #seccion-a-imprimir-recibo { position: absolute; left: 0; top: 0; width: 100%; }
+          .print\\:hidden { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 };
