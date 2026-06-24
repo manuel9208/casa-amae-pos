@@ -6,9 +6,12 @@ const TopNavCaja = ({
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
   mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia 
 }) => {
-  const isAdmin = user?.rol === 'admin';
-  const canCorte = isAdmin || user?.permisos?.corte_caja === true;
-  const canCompras = isAdmin || user?.permisos?.compras_rapidas === true;
+  // 👇 CORRECCIÓN: Restringimos el "Modo Dios" exclusivamente al Admin Global. 
+  // Todos los demás (incluso los de rol 'admin') deben respetar sus checkboxes.
+  const isGlobalAdmin = user?.usuario === 'admin';
+  const canCorte = isGlobalAdmin || user?.permisos?.corte_caja === true;
+  const canCompras = isGlobalAdmin || user?.permisos?.compras_rapidas === true;
+  
   const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
   const canVerCocina = isCocinaCajaActiva && ['admin', 'gerente', 'jefe', 'cocina', 'ayudante_cocina', 'cajero'].includes(user?.rol);
 

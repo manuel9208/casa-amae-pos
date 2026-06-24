@@ -13,14 +13,22 @@ const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
 
 const App = () => {
+  // ==========================================
+  // ESTADOS PRINCIPALES DE SESIÓN
+  // ==========================================
   const [usuarioActivo, setUsuarioActivo] = useState(null);
   const [clienteActivo, setClienteActivo] = useState(null);
   const [modoInvitado, setModoInvitado] = useState(false);
   const [vistaAdmin, setVistaAdmin] = useState('panel');
   const [vistaTV, setVistaTV] = useState(false);
   
-  const [destinoPortal, setDestinoPortal] = useState(null); 
+  // 👇 NUEVOS ESTADOS: Para control dinámico de pantallas y persistencia F5
+  const [entornoActivo, setEntornoActivo] = useState(null);
+  const [segundaSesionActiva, setSegundaSesionActiva] = useState(false);
 
+  // ==========================================
+  // ESTADOS DE FORMULARIOS Y LOGIN
+  // ==========================================
   const [telefono, setTelefono] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -36,6 +44,9 @@ const App = () => {
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b'
   });
 
+  // ==========================================
+  // HELPERS VISUALES
+  // ==========================================
   const getImageUrl = (url) => {
     if (!url) return '';
     const strUrl = String(url).trim();
@@ -49,25 +60,63 @@ const App = () => {
     return `${baseUrl}${strUrl.startsWith('/') ? '' : '/'}${strUrl}`;
   };
 
-  const iniciarSesionPersistente = (tipo, data) => {
+  const iniciarSesionPersistente = (tipo, data, segundaSesion = false) => {
     const expiracion = new Date().getTime() + (8 * 60 * 60 * 1000);
-    localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion }));
-    if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
-    if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
+    
+    // Guardamos la sesión inyectando el estado de duplicidad
+    localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion, segundaSesion }));
+    
+    if (tipo === 'empleado') { 
+      setUsuarioActivo(data); 
+      setSegundaSesionActiva(segundaSesion);
+      
+      // Si es una segunda sesión, la forzamos directamente al portal pasivo de empleados
+      if (segundaSesion) {
+        setEntornoActivo('portal');
+        localStorage.setItem('pos_entorno_activo', 'portal');
+      }
+      suscribirANotificaciones(data.id, null); 
+    }
+    if (tipo === 'cliente') { 
+      setClienteActivo(data); 
+      suscribirANotificaciones(null, data.id); 
+    }
   };
 
+  // ==========================================
+  // LIFECYCLE (EFECTOS DE ARRANQUE)
+  // ==========================================
   useEffect(() => {
-    if (!localStorage.getItem('pos_device_id')) localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
+    if (!localStorage.getItem('pos_device_id')) {
+      localStorage.setItem('pos_device_id', Math.random().toString(36).substring(2, 15));
+    }
+    
     const sesionGuardada = localStorage.getItem('pos_sesion');
     if (sesionGuardada) {
       try {
-        const { tipo, data, expiracion } = JSON.parse(sesionGuardada);
+        const { tipo, data, expiracion, segundaSesion } = JSON.parse(sesionGuardada);
         if (new Date().getTime() < expiracion) {
-          if (tipo === 'empleado') { setUsuarioActivo(data); suscribirANotificaciones(data.id, null); }
-          if (tipo === 'cliente') { setClienteActivo(data); suscribirANotificaciones(null, data.id); }
-        } else { localStorage.removeItem('pos_sesion'); }
+          if (tipo === 'empleado') { 
+            setUsuarioActivo(data); 
+            setSegundaSesionActiva(segundaSesion || false);
+            suscribirANotificaciones(data.id, null); 
+          }
+          if (tipo === 'cliente') { 
+            setClienteActivo(data); 
+            suscribirANotificaciones(null, data.id); 
+          }
+        } else { 
+          localStorage.removeItem('pos_sesion'); 
+        }
       } catch(e) {}
     }
+
+    // Rescatamos el entorno activo en el que estaba trabajando
+    const entornoGuardado = localStorage.getItem('pos_entorno_activo');
+    if (entornoGuardado) {
+      setEntornoActivo(entornoGuardado);
+    }
+
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => {
       if(data) {
         setConfigGlobal(data);
@@ -82,25 +131,21 @@ const App = () => {
         }
       }
     }).catch(()=>{});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 👇 NUEVO EFECTO: Escuchador de Sockets en tiempo real para cambios de permisos/eliminaciones
+  // Escuchador de Sockets en tiempo real para cambios de permisos/eliminaciones
   useEffect(() => {
     const socket = io(baseUrl);
 
     socket.on('usuario_actualizado', (usuarioEditado) => {
       setUsuarioActivo((prevUsuario) => {
-        // Verificamos si el usuario que estamos usando es el que acaban de actualizar en el backend
         if (prevUsuario && prevUsuario.id === usuarioEditado.id) {
-          // Actualizamos la sesión persistente en el navegador
           const sesionGuardada = localStorage.getItem('pos_sesion');
           if (sesionGuardada) {
             const parsed = JSON.parse(sesionGuardada);
             parsed.data = usuarioEditado;
             localStorage.setItem('pos_sesion', JSON.stringify(parsed));
           }
-          // Devolvemos el nuevo usuario para que React actualice toda la interfaz instantáneamente
           return usuarioEditado;
         }
         return prevUsuario;
@@ -109,20 +154,32 @@ const App = () => {
 
     socket.on('usuario_eliminado', (idEliminado) => {
       setUsuarioActivo((prevUsuario) => {
-        // Verificamos si el Admin acaba de borrarnos de la base de datos
         if (prevUsuario && prevUsuario.id === parseInt(idEliminado)) {
           localStorage.removeItem('pos_sesion');
-          setTimeout(() => window.location.reload(), 100); // Forzamos expulsión inmediata y recarga
+          localStorage.removeItem('pos_entorno_activo');
+          setTimeout(() => window.location.reload(), 100);
           return null;
         }
         return prevUsuario;
       });
     });
 
-    // Limpieza de conexión al desmontar
     return () => socket.disconnect();
-  }, []); // 👈 SOLUCIÓN: Arreglo vacío, baseUrl es externa y no cambiará
+  }, []);
 
+  // Enrutamiento automático instantáneo para perfiles fijos o restringidos
+  useEffect(() => {
+    if (usuarioActivo) {
+      if (usuarioActivo.rol === 'ayudante_cocina' || segundaSesionActiva) {
+        setEntornoActivo('portal');
+        localStorage.setItem('pos_entorno_activo', 'portal');
+      }
+    }
+  }, [usuarioActivo, segundaSesionActiva]);
+
+  // ==========================================
+  // MANEJADORES DE LOGUEO Y REGISTRO
+  // ==========================================
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
     if (telefono === '0000000000') { setVistaTV(true); return; }
@@ -171,7 +228,7 @@ const App = () => {
       if (res.ok) {
         setEmpleadoFase2(null);
         setPassword('');
-        iniciarSesionPersistente('empleado', data.usuario || data.data || data);
+        iniciarSesionPersistente('empleado', data.usuario || data.data || data, data.segunda_sesion || false);
       }
       else { setError(data.error || 'Contraseña incorrecta.'); }
     } catch (err) { setError('Error de conexión.'); }
@@ -180,16 +237,20 @@ const App = () => {
   const cerrarSesion = async () => {
     if (usuarioActivo) {
       try {
+        const dispositivo_id = localStorage.getItem('pos_device_id');
         await fetch(`${apiUrl}/logout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario_id: usuarioActivo.id })
+          body: JSON.stringify({ usuario_id: usuarioActivo.id, dispositivo_id })
         });
       } catch (error) {}
     }
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false);
-    setTelefono(''); setPassword(''); setEmpleadoFase2(null); setDestinoPortal(null);
+    setTelefono(''); setPassword(''); setEmpleadoFase2(null); 
+    setEntornoActivo(null); setSegundaSesionActiva(false);
+    
     localStorage.removeItem('pos_sesion');
+    localStorage.removeItem('pos_entorno_activo');
   };
 
   const inyectarEstilos = () => {
@@ -222,40 +283,82 @@ const App = () => {
 
   if (vistaTV) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={() => setVistaTV(false)} /></div></>;
 
+  // ==========================================
+  // RENDERIZADO DE CAPA DE EMPLEADOS
+  // ==========================================
   if (usuarioActivo) {
     if (usuarioActivo.rol === 'tv') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><PantallaTV onLogout={cerrarSesion} /></div></>;
 
-    const rolesConDobleAcceso = ['cajero', 'cocina', 'repartidor', 'gerente', 'jefe'];
-    const rolesSoloPortal = ['ayudante_cocina'];
+    // EXCEPCIÓN DIRECTA: El Admin Global entra directo a su panel
+    if (usuarioActivo.usuario === 'admin') {
+      if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
+      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
+    }
 
-    if (!destinoPortal && rolesConDobleAcceso.includes(usuarioActivo.rol)) {
+    if (!entornoActivo) {
+      const opcionesMenu = [];
+      const perms = usuarioActivo.permisos || {};
+
+      // 👇 CORRECCIÓN: Los roles admin, gerente y jefe ahora están estrictamente obligados a tener su checkbox palomeado.
+      
+      // 1. Botón de Administración
+      if (['admin', 'gerente'].includes(usuarioActivo.rol) && perms.pantalla_admin === true) {
+        opcionesMenu.push({ id: 'admin', nombre: 'Panel de Administración', emoji: '👑', color: 'bg-purple-600 hover:bg-purple-700' });
+      }
+      
+      // 2. Botón de Caja
+      if (usuarioActivo.rol === 'cajero' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_caja === true)) {
+        opcionesMenu.push({ id: 'caja', nombre: 'Caja Principal (POS)', emoji: '💵', color: 'bg-blue-600 hover:bg-blue-700' });
+      }
+      
+      // 3. Botón de Cocina
+      if (usuarioActivo.rol === 'cocina' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_cocina === true)) {
+        opcionesMenu.push({ id: 'cocina', nombre: 'Cocina (KDS)', emoji: '👨‍🍳', color: 'bg-orange-600 hover:bg-orange-700' });
+      }
+      
+      // 4. Botón de Repartidor
+      if (usuarioActivo.rol === 'repartidor' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_repartidor === true)) {
+        opcionesMenu.push({ id: 'repartidor', nombre: 'Logística de Reparto', emoji: '🛵', color: 'bg-indigo-500 hover:bg-indigo-600' });
+      }
+      
+      // 5. Botón de Portal (Siempre disponible)
+      opcionesMenu.push({ id: 'portal', nombre: 'Mi Portal (Empleado)', emoji: '👤', color: 'bg-emerald-500 hover:bg-emerald-600' });
+
       return (
         <>
           <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
           <div className="tema-cliente min-h-screen flex items-center justify-center p-4">
-            <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-2xl w-full text-center border relative overflow-hidden">
+            <div className="bg-white p-10 rounded-[40px] shadow-2xl max-w-4xl w-full text-center border relative overflow-hidden">
               <h2 className="text-4xl font-black text-slate-800 mb-2">¡Hola, {usuarioActivo.nombre}!</h2>
               <p className="text-slate-500 font-bold mb-10 text-lg">¿A dónde deseas ingresar hoy?</p>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <button onClick={() => setDestinoPortal('trabajo')} className="bg-blue-600 hover:bg-blue-700 text-white p-10 rounded-[32px] font-black text-xl shadow-xl transition active:scale-95 flex flex-col items-center gap-4 group">
-                  <span className="text-5xl group-hover:scale-110 transition-transform">💼</span> Mi Área de Trabajo
-                </button>
-                <button onClick={() => setDestinoPortal('portal')} className="bg-emerald-500 hover:bg-emerald-600 text-white p-10 rounded-[32px] font-black text-xl shadow-xl transition active:scale-95 flex flex-col items-center gap-4 group">
-                  <span className="text-5xl group-hover:scale-110 transition-transform">👤</span> Mi Portal (Empleado)
-                </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {opcionesMenu.map(op => (
+                  <button 
+                    key={op.id} 
+                    onClick={() => {
+                      setEntornoActivo(op.id);
+                      localStorage.setItem('pos_entorno_activo', op.id);
+                    }} 
+                    className={`${op.color} text-white p-8 rounded-[32px] font-black text-lg shadow-xl transition active:scale-95 flex flex-col items-center justify-center gap-4 group text-center min-h-[160px]`}
+                  >
+                    <span className="text-5xl group-hover:scale-110 transition-transform">{op.emoji}</span>
+                    {op.nombre}
+                  </button>
+                ))}
               </div>
 
-              <button onClick={cerrarSesion} className="mt-12 px-6 py-3 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 font-bold transition-colors">Cerrar Sesión</button>
+              <button onClick={cerrarSesion} className="mt-12 px-6 py-3 rounded-full bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500 font-bold transition-colors">
+                Cerrar Sesión
+              </button>
             </div>
           </div>
         </>
       );
     }
 
-    const destinoFinal = destinoPortal || (rolesSoloPortal.includes(usuarioActivo.rol) ? 'portal' : 'trabajo');
-
-    if (destinoFinal === 'portal') {
+    // RENDERIZADO DEL ENTORNO SELECCIONADO
+    if (entornoActivo === 'portal') {
       return (
         <>
           <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
@@ -264,22 +367,24 @@ const App = () => {
               user={usuarioActivo}
               apiUrl={apiUrl}
               onLogout={cerrarSesion}
-              onVolver={rolesConDobleAcceso.includes(usuarioActivo.rol) ? () => setDestinoPortal(null) : null}
+              onVolver={(!segundaSesionActiva && usuarioActivo.rol !== 'ayudante_cocina') ? () => {
+                setEntornoActivo(null);
+                localStorage.removeItem('pos_entorno_activo');
+              } : null}
             />
           </div>
         </>
       );
     }
 
-    if (usuarioActivo.rol === 'admin') {
+    if (entornoActivo === 'admin') {
       if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={cerrarSesion} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
     }
-    if (usuarioActivo.rol === 'cajero') {
-      return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => {}} /></>;
-    }
-    if (usuarioActivo.rol === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
-    if (usuarioActivo.rol === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
+    
+    if (entornoActivo === 'caja') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={cerrarSesion} onGoToKiosco={() => {}} /></>;
+    if (entornoActivo === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={cerrarSesion} /></>;
+    if (entornoActivo === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={cerrarSesion} /></>;
   }
 
   if (clienteActivo || modoInvitado) return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={cerrarSesion} /></div></>;

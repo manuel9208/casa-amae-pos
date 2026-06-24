@@ -47,7 +47,6 @@ const upload = multer({ storage: storage });
 // ==========================================
 router.get('/configuracion', configCtrl.obtenerConfiguracion);
 router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
-// 👇 NUEVA RUTA PARA SUBIR EVIDENCIAS DIRECTO A CLOUDINARY
 router.post('/configuracion/evidencia', upload.any(), configCtrl.subirEvidenciaLimpieza);
 
 // ==========================================
@@ -97,6 +96,8 @@ router.put('/usuarios/:id/prestaciones', usuarioCtrl.actualizarPrestaciones);
 router.put('/usuarios/:id/horario', usuarioCtrl.actualizarHorario);
 router.post('/usuarios/corte-nomina', usuarioCtrl.guardarCorteNomina);
 router.post('/usuarios/asistencia', usuarioCtrl.registrarAsistencia);
+// 👇 NUEVA RUTA PARA EL BOTÓN DE RESCATE REMOTO DE SESIONES (Desvinculación)
+router.post('/usuarios/:id/forzar-logout', authCtrl.forzarLogout);
 
 // ==========================================
 // MENSAJES INTERNOS (ENCARGOS)

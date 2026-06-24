@@ -11,11 +11,14 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [periodo, setPeriodo] = useState('semana');
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroUsuario, setFiltroUsuario] = useState('Todos');
-  const [refreshToggle, setRefreshToggle] = useState(false); // 👈 Forzador de renderizado para UI instantánea
+  const [refreshToggle, setRefreshToggle] = useState(false); 
   
   // Configuraciones de Tolerancia
   const [minutosTolerancia, setMinutosTolerancia] = useState(15); 
   const [toleranciaSalida, setToleranciaSalida] = useState(30);   
+
+  // 👇 NUEVO ESTADO: Modal de Ajuste de Horas para Auditoría
+  const [modalAjuste, setModalAjuste] = useState({ isOpen: false, empId: null, fecha: '', tipo: '', horasDetectadas: 0, horasFinales: 0 });
 
   const cargarReportes = useCallback(async () => {
     try {
@@ -78,7 +81,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   };
 
   // 🛡️ ACCIÓN DE AUDITORÍA (Guardado directo a Base de Datos)
-  const guardarAuditoria = async (empId, fecha, tipo, decision) => {
+  const guardarAuditoria = async (empId, fecha, tipo, decisionPayload) => {
     try {
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
@@ -88,7 +91,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         if (!horActual[fecha]) horActual[fecha] = {};
         if (!horActual[fecha].auditoria) horActual[fecha].auditoria = {};
         
-        horActual[fecha].auditoria[tipo] = decision;
+        horActual[fecha].auditoria[tipo] = decisionPayload;
 
         const res = await fetch(`${apiUrl}/usuarios/${empId}/horario`, {
             method: 'PUT',
@@ -97,7 +100,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         });
 
         if (res.ok) {
-            // Mutación local segura para reflejar el cambio al instante sin recargar la página entera
             emp.horario_semanal = JSON.stringify(horActual); 
             setRefreshToggle(!refreshToggle);
         }
@@ -169,20 +171,27 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     limiteSalidaTime = dateLimit.getTime();
                 }
 
+                const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);
+
+                // 👇 FIX DEL CONTADOR INFINITO (>24h)
                 if (tieneNullSalida) {
                     if (fechaStr === hoyStr) {
                         outTime = new Date().getTime();
                         turnoActivo = true;
                     } else {
                         olvidoSalida = true;
-                        outTime = limiteSalidaTime || minEntrada.getTime(); 
+                        outTime = limiteSalidaTime || maxOchoHoras; 
                     }
                 } else {
-                    if (limiteSalidaTime && maxSalida.getTime() > limiteSalidaTime) {
+                    outTime = maxSalida.getTime();
+                    // Si la diferencia entre entrada y salida reportada es más de 24 horas, es un olvido cruzado
+                    if ((outTime - minEntrada.getTime()) > (24 * 3600000)) {
                         olvidoSalida = true;
-                        outTime = limiteSalidaTime; 
-                    } else {
-                        outTime = maxSalida.getTime();
+                        outTime = limiteSalidaTime || maxOchoHoras;
+                    } else if (limiteSalidaTime && outTime > (limiteSalidaTime + (4 * 3600000))) {
+                        // Si checó salida muchísimo tiempo después del límite, lo consideramos olvido/anomalía
+                        olvidoSalida = true;
+                        outTime = limiteSalidaTime;
                     }
                 }
 
@@ -220,73 +229,74 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
                 };
 
-                // Si olvidó checar, es una anomalía para auditar
+                // 👇 NUEVA LÓGICA: FUSIÓN DE ANOMALÍAS E INDEPENDENCIA DE TABLAS
+                let motivosAnomalia = [];
+                let requiereAuditoria = false;
+
                 if (olvidoSalida) {
-                    anomalas.push({
-                        ...record,
-                        tipo: 'olvido_salida',
-                        motivo: `Olvidó checar salida. Se recortó a su límite de ${confDia.salida || 'jornada'} + ${toleranciaSalida}min.`,
-                        estadoAuditoria: auditoriaDia['olvido_salida']
-                    });
+                    motivosAnomalia.push(`Olvidó checar salida (Topado a ${confDia.salida ? confDia.salida + ' + Tol.' : '8h'})`);
                 }
 
-                // Clasificación Oficial VS Anomalías
                 if (!esDiaLaboral) {
-                    anomalas.push({ 
-                        ...record, 
-                        tipo: 'anomalia_descanso',
-                        motivo: esDescanso ? 'Checó en su Día de Descanso Oficial.' : 'Checó en un Día Inactivo.',
-                        estadoAuditoria: auditoriaDia['anomalia_descanso']
-                    });
+                    // Checó en día inactivo o descanso
+                    requiereAuditoria = true;
+                    motivosAnomalia.push(esDescanso ? 'Trabajó en su Día de Descanso.' : 'Trabajó en un Día Inactivo.');
                 } else {
-                    let anomaloPorHorario = false;
+                    // Es día oficial y SÍ asistió -> Va a la Tabla de Arriba indiscutiblemente
+                    oficiales.push(record);
+
+                    // Verificamos si tiene errores de horario (Anomalías de día laboral)
                     if (confDia.entrada) {
                         if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
-                            anomaloPorHorario = true;
-                        }
-                    }
-
-                    if (anomaloPorHorario) {
-                        anomalas.push({ 
-                            ...record, 
-                            tipo: 'anomalia_horario',
-                            motivo: `Totalmente fuera del rango de su turno (${confDia.entrada}).`,
-                            estadoAuditoria: auditoriaDia['anomalia_horario']
-                        });
-                    } else {
-                        // Si está en día laboral oficial y rango de horas correcto, validamos Jornadas Truncas u Horas Extras
-                        oficiales.push(record);
-
-                        if (confDia.salida) {
+                            requiereAuditoria = true;
+                            motivosAnomalia.push(`Fuera de rango del turno (${confDia.entrada})`);
+                        } else if (confDia.salida) {
                             const [hSalOf, mSalOf] = confDia.salida.split(':').map(Number);
                             let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
                             if (minsOficiales < 0) minsOficiales += 24 * 60;
                             
                             const minsTrabajados = diffHrs * 60;
 
-                            // Alerta Jornada Incompleta
                             if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
+                                requiereAuditoria = true;
                                 const hrsFaltantes = ((minsOficiales - minsTrabajados) / 60).toFixed(2);
-                                anomalas.push({
-                                    ...record,
-                                    tipo: 'jornada_incompleta',
-                                    motivo: `Jornada Incompleta: Faltaron ${hrsFaltantes}h de su turno oficial.`,
-                                    estadoAuditoria: auditoriaDia['jornada_incompleta']
-                                });
+                                motivosAnomalia.push(`Jornada Incompleta (Faltaron ${hrsFaltantes}h)`);
                             }
-
-                            // Alerta Horas Extras
                             if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
+                                requiereAuditoria = true;
                                 const hrsExtra = ((minsTrabajados - minsOficiales) / 60).toFixed(2);
-                                anomalas.push({
-                                    ...record,
-                                    tipo: 'horas_extras',
-                                    motivo: `Tiempo Extra Detectado: Se quedó ${hrsExtra}h más de su hora oficial.`,
-                                    estadoAuditoria: auditoriaDia['horas_extras']
-                                });
+                                motivosAnomalia.push(`Tiempo Extra (+${hrsExtra}h)`);
                             }
                         }
                     }
+                }
+
+                // Si se juntó al menos un motivo o hubo olvido, empujamos UNA SOLA FILA a la auditoría
+                if (olvidoSalida || requiereAuditoria) {
+                    anomalas.push({
+                        ...record,
+                        tipo: 'auditoria_turno', // Clave única agrupada
+                        motivo: motivosAnomalia.join(' | '),
+                        estadoAuditoria: auditoriaDia['auditoria_turno']
+                    });
+                }
+
+            } else {
+                // 👇 LÓGICA DE FALTAS: Si es día laboral oficial, la fecha es estrictamente anterior a hoy, y NO hay checada
+                const isPast = fechaStr < hoyStr;
+                if (esDiaLaboral && isPast) {
+                    const record = {
+                        fecha: fechaStr, dia: nombreDia, entrada: '--:--', salida: '--:--', horas: '0.00',
+                        turnoActivo: false, olvidoSalida: false, esRetardo: false,
+                        oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
+                    };
+                    // Solo lo empuja a la tabla de anomalías (Tabla de Abajo) como Falta
+                    anomalas.push({
+                        ...record,
+                        tipo: 'falta',
+                        motivo: `Falta Injustificada. No se registraron checadas en su turno oficial.`,
+                        estadoAuditoria: auditoriaDia['falta']
+                    });
                 }
             }
 
@@ -295,12 +305,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             const asigs = matrizLimpiezaGlobal.asignaciones || {};
             Object.keys(evals).forEach(area => {
                 if (String(asigs[area]?.[fechaStr]) === String(emp.id)) {
-                    limpiezas.push({
-                        fecha: fechaStr,
-                        dia: nombreDia,
-                        area: area,
-                        status: evals[area][fechaStr]
-                    });
+                    limpiezas.push({ fecha: fechaStr, dia: nombreDia, area: area, status: evals[area][fechaStr] });
                 }
             });
         });
@@ -311,6 +316,33 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
   const datosCompletos = procesarDashboard();
   const datosFiltrados = filtroUsuario === 'Todos' ? datosCompletos : datosCompletos.filter(d => String(d.emp.id) === String(filtroUsuario));
+
+  // 👇 FUNCIÓN PARA EL MODAL INTELIGENTE DE AUDITORÍA
+  const manejarClickAprobar = (empId, rec) => {
+    if (rec.tipo === 'falta') {
+        // Las faltas se justifican directamente, no ocupan ajuste de horas numéricas
+        guardarAuditoria(empId, rec.fecha, rec.tipo, JSON.stringify({ estado: 'aprobado' }));
+    } else {
+        // Abrimos el modal inteligente para ajustar el tiempo extra / olvidado / agrupado
+        setModalAjuste({
+            isOpen: true,
+            empId,
+            fecha: rec.fecha,
+            tipo: rec.tipo, // 'auditoria_turno'
+            horasDetectadas: rec.horas,
+            horasFinales: rec.horas
+        });
+    }
+  };
+
+  const confirmarModalAjuste = () => {
+    const payload = JSON.stringify({ 
+        estado: 'aprobado', 
+        horasAprobadas: Number(modalAjuste.horasFinales) 
+    });
+    guardarAuditoria(modalAjuste.empId, modalAjuste.fecha, modalAjuste.tipo, payload);
+    setModalAjuste({ ...modalAjuste, isOpen: false });
+  };
 
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
@@ -388,7 +420,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                             <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Turno Asignado</th>
                                             <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Marcó Entrada</th>
                                             <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Marcó Salida</th>
-                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Hrs Acumuladas</th>
+                                            <th className="p-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Hrs Detectadas</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -450,31 +482,52 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-red-50/50">
-                                        {data.anomalas.map((rec, i) => (
-                                            <tr key={i} className="hover:bg-red-50 transition print:text-sm">
-                                                <td className="p-3 font-bold text-red-900">{rec.dia} <span className="text-[10px] font-medium text-red-400 ml-1">{rec.fecha}</span></td>
-                                                <td className="p-3 font-black text-red-600 text-xs">{rec.motivo}</td>
-                                                <td className="p-3 font-black text-red-800">{rec.entrada}</td>
-                                                <td className="p-3 font-black text-red-800">
-                                                    {rec.olvidoSalida ? <span className="text-[10px] uppercase text-orange-600">⚠️ {rec.salida}</span> : rec.salida}
-                                                </td>
-                                                <td className="p-3 font-black text-red-900 text-right">{rec.horas}h</td>
-                                                
-                                                {/* BOTONES DE DECISIÓN DEL GERENTE */}
-                                                <td className="p-3 text-center print:hidden">
-                                                    {rec.estadoAuditoria === 'aprobado' ? (
-                                                        <span className="text-emerald-700 font-black text-[10px] uppercase tracking-widest bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200">✅ Aprobado</span>
-                                                    ) : rec.estadoAuditoria === 'rechazado' ? (
-                                                        <span className="text-red-700 font-black text-[10px] uppercase tracking-widest bg-red-100 px-3 py-1.5 rounded-lg border border-red-200">❌ Rechazado</span>
-                                                    ) : (
-                                                        <div className="flex justify-center gap-1.5">
-                                                            <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, 'aprobado')} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider">Aprobar</button>
-                                                            <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, 'rechazado')} className="bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider">Rechazar</button>
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {data.anomalas.map((rec, i) => {
+                                            
+                                            // Extraer lógica del estado parseado para saber si hay horas auditadas
+                                            let estadoParsed = null;
+                                            try {
+                                                estadoParsed = JSON.parse(rec.estadoAuditoria);
+                                            } catch(e) {
+                                                estadoParsed = { estado: rec.estadoAuditoria };
+                                            }
+                                            
+                                            const statusAprobacion = estadoParsed?.estado || 'pendiente';
+                                            const hrsAprobadas = estadoParsed?.horasAprobadas;
+
+                                            return (
+                                                <tr key={i} className="hover:bg-red-50 transition print:text-sm">
+                                                    <td className="p-3 font-bold text-red-900 w-32 shrink-0">{rec.dia} <span className="text-[10px] font-medium text-red-400 block">{rec.fecha}</span></td>
+                                                    <td className="p-3 font-black text-red-600 text-xs leading-snug">{rec.motivo}</td>
+                                                    <td className="p-3 font-black text-red-800 w-24">{rec.entrada}</td>
+                                                    <td className="p-3 font-black text-red-800 w-28">
+                                                        {rec.olvidoSalida ? <span className="text-[10px] uppercase text-orange-600">⚠️ {rec.salida}</span> : rec.salida}
+                                                    </td>
+                                                    <td className="p-3 font-black text-red-900 text-right w-20">{rec.horas}h</td>
+                                                    
+                                                    {/* BOTONES DE DECISIÓN DEL GERENTE */}
+                                                    <td className="p-3 text-center print:hidden w-40">
+                                                        {statusAprobacion === 'aprobado' ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-emerald-700 font-black text-[10px] uppercase tracking-widest bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm w-full">
+                                                                    ✅ Aprobado
+                                                                </span>
+                                                                {hrsAprobadas !== undefined && (
+                                                                    <span className="text-[9px] font-bold text-emerald-800 mt-1 bg-emerald-50 px-2 py-0.5 rounded w-full">Por {hrsAprobadas}h</span>
+                                                                )}
+                                                            </div>
+                                                        ) : statusAprobacion === 'rechazado' ? (
+                                                            <span className="text-red-700 font-black text-[10px] uppercase tracking-widest bg-red-100 px-3 py-1.5 rounded-lg border border-red-200 shadow-sm block w-full">❌ Rechazado</span>
+                                                        ) : (
+                                                            <div className="flex flex-col xl:flex-row justify-center gap-1.5">
+                                                                <button onClick={() => manejarClickAprobar(data.emp.id, rec)} className="flex-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Aprobar</button>
+                                                                <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, JSON.stringify({ estado: 'rechazado' }))} className="flex-1 bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Rechazar</button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -485,6 +538,48 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             ))
          )}
       </div>
+
+      {/* 👇 MODAL INTELIGENTE DE AJUSTE DE HORAS */}
+      {modalAjuste.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 flex flex-col items-center text-center border border-slate-200">
+            <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 shadow-inner">
+               <Clock size={32} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 mb-2">Ajuste de Horas</h3>
+            <p className="text-sm font-medium text-slate-500 mb-6 px-2 leading-relaxed">
+              El sistema detectó <b>{modalAjuste.horasDetectadas} horas</b> registradas en este turno anómalo. ¿Cuántas horas <u>reales</u> vas a autorizar para el cálculo de su pago?
+            </p>
+            
+            <div className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-8">
+              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 block">Horas a Aprobar</label>
+              <input 
+                 type="number" 
+                 step="0.01"
+                 min="0"
+                 value={modalAjuste.horasFinales} 
+                 onChange={e => setModalAjuste({...modalAjuste, horasFinales: e.target.value})}
+                 className="w-full bg-white border border-slate-300 rounded-xl p-3 text-2xl font-black text-center text-slate-800 outline-none focus:border-blue-500 focus:ring-2 ring-blue-200 transition-all shadow-sm"
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              <button 
+                onClick={() => setModalAjuste({ ...modalAjuste, isOpen: false })} 
+                className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-black uppercase tracking-wider text-xs rounded-xl hover:bg-slate-200 transition"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmarModalAjuste} 
+                className="flex-1 py-3.5 bg-blue-600 text-white font-black uppercase tracking-wider text-xs rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition active:scale-95"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @media print {

@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Trash2, Edit } from 'lucide-react';  
+import { Trash2, Edit, LogOut, Search, Filter } from 'lucide-react';  
 
 const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, user }) => {
+  // ==========================================
+  // ESTADOS DE EDICIÓN DE USUARIO
+  // ==========================================
   const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
   const [uNombre, setUNombre] = useState('');
   const [uUser, setUUser] = useState('');
@@ -10,22 +13,27 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
   const [uRol, setURol] = useState('admin');
   const [uPin, setUPin] = useState('');  
 
-  // 👇 1. Añadimos promociones y mesas a los estados por defecto
+  // Estados para Filtros de Búsqueda
+  const [filtroTexto, setFiltroTexto] = useState('');
+  const [filtroRol, setFiltroRol] = useState('');
+
+  // Añadidas las llaves de acceso a Pantallas
   const [uPermisos, setUPermisos] = useState({
+    pantalla_admin: true, pantalla_caja: true, pantalla_cocina: true, pantalla_repartidor: true,
     menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false,
     corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false
   });  
 
-  // 👇 NUEVO: Escudo de seguridad para evitar corrupción del estado de permisos (string vs objeto)
+  // Escudo de seguridad para evitar corrupción del estado de permisos
   const asegurarObjeto = (permisos) => {
     let permsFinales = {
+      pantalla_admin: false, pantalla_caja: false, pantalla_cocina: false, pantalla_repartidor: false,
       menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false
     };
 
     if (!permisos) return permsFinales;
     
-    // Si la BD devolvió un string (texto) en lugar de JSON, lo reparamos
     if (typeof permisos === 'string') {
       try {
         const parseado = JSON.parse(permisos);
@@ -35,10 +43,12 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       }
     }
     
-    // Si ya es un objeto, lo combinamos por seguridad
     return { ...permsFinales, ...permisos };
   };
 
+  // ==========================================
+  // MANEJO DE FORMULARIO
+  // ==========================================
   const prepararEdicionUsuario = (u) => {
     setEditandoUsuarioId(u.id);
     setUNombre(u.nombre);
@@ -47,8 +57,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setUTelefono(u.telefono || '');
     setUPin(u.pin || '');
     setURol(u.rol);
-    
-    // 👇 SOLUCIÓN A LOS CHECKBOXES: Limpiamos los datos antes de inyectarlos al estado
     setUPermisos(asegurarObjeto(u.permisos));  
   };  
 
@@ -59,11 +67,10 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setUPass(''); 
     setUTelefono(''); 
     setUPin(''); 
-    
-    // Si es admin global el rol por defecto vuelve a admin, sino a gerente
     setURol(isGlobalAdmin ? 'admin' : 'gerente');
     
     setUPermisos({
+      pantalla_admin: true, pantalla_caja: true, pantalla_cocina: true, pantalla_repartidor: true,
       menu: true, inventario: true, catalogos: true, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false
     });
@@ -74,11 +81,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     setURol(nuevoRol);  
 
     let perms = {
+      pantalla_admin: false, pantalla_caja: false, pantalla_cocina: false, pantalla_repartidor: false,
       menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
       corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false
     };  
 
-    // Autogeneramos datos si es TV o Ayudante
     if (nuevoRol === 'tv') {
       const uniqueId = Math.floor(1000 + Math.random() * 9000);
       setUNombre(`Pantalla TV ${uniqueId}`);
@@ -95,11 +102,24 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
       setUPin('');
     } 
 
+    // Pre-cargamos llaves de pantalla según el rol
     if (nuevoRol === 'admin') {
+      perms.pantalla_admin = true; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = true;
       perms.menu = true; perms.inventario = true; perms.catalogos = true; perms.promociones = true; perms.mesas = true;
-    } else if (nuevoRol === 'gerente' || nuevoRol === 'jefe') {
+    } else if (nuevoRol === 'gerente') {
+      perms.pantalla_admin = false; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
       perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true;
-    }  
+    } else if (nuevoRol === 'jefe') {
+      perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
+      perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true;
+    } else if (nuevoRol === 'cajero') {
+      perms.pantalla_caja = true; perms.corte_caja = true;
+    } else if (nuevoRol === 'cocina') {
+      perms.pantalla_cocina = true;
+    } else if (nuevoRol === 'repartidor') {
+      perms.pantalla_repartidor = true;
+    }
+
     setUPermisos(perms);
   };  
 
@@ -154,20 +174,75 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     });
   };  
 
-  // 👇 REGLAS DE NEGOCIO DE VISIBILIDAD
+  // Función para forzar cierre de sesión remoto
+  const cerrarSesionRemota = (u) => {
+    showConfirm("Cerrar Sesión Remota", `¿Estás seguro de forzar el cierre de sesión de ${u.nombre}? Esto lo expulsará de cualquier equipo donde haya dejado su cuenta abierta.`, async () => {
+      try {
+        const res = await fetch(`${apiUrl}/usuarios/${u.id}/forzar-logout`, { method: 'POST' });
+        if (res.ok) {
+          showAlert("Sesión Cerrada", `Se cerraron todas las sesiones activas de ${u.nombre}.`, "success");
+        } else {
+          showAlert("Error", "No se pudo procesar la solicitud.", "error");
+        }
+      } catch(e) {
+        showAlert("Error", "Error de conexión.", "error");
+      }
+    });
+  };
+
+  // ==========================================
+  // REGLAS DE NEGOCIO Y VISIBILIDAD DE BLOQUES
+  // ==========================================
   const isGlobalAdmin = user?.usuario === 'admin';
 
+  // Lógica de visualización de Bloques de Permisos en Cascada
+  const showPantallasBlock = ['admin', 'gerente', 'jefe'].includes(uRol);
+  const showPOSBlock = (showPantallasBlock && uPermisos.pantalla_caja) || ['cajero', 'cocina', 'gerente', 'jefe'].includes(uRol);
+  const showWebBlock = ['admin', 'gerente'].includes(uRol) && uPermisos.pantalla_admin;
+
+  // 👇 NUEVO: Diccionario para ordenar la plantilla por jerarquía de rol
+  const ordenRoles = {
+    admin: 1,
+    gerente: 2,
+    jefe: 3,
+    cajero: 4,
+    cocina: 5,
+    repartidor: 6,
+    ayudante_cocina: 7,
+    tv: 8
+  };
+
+  // Lógica de filtrado y ordenamiento para la tabla visual
   const plantillaVisible = usuariosDB.filter(u => {
-    if (u.nombre === 'Administrador Global') return false; // Nunca mostramos al root original
+    if (u.nombre === 'Administrador Global') return false;
     
-    // Si quien está usando el sistema NO es el admin global, entonces no puede ver ni editar a otros admins
+    // Un gerente no puede ver a los admins
     if (!isGlobalAdmin && u.rol === 'admin') return false;
+
+    // Filtros de búsqueda (Nombre, Usuario, Teléfono y Rol)
+    if (filtroRol && u.rol !== filtroRol) return false;
+    if (filtroTexto) {
+      const txt = filtroTexto.toLowerCase();
+      const nom = (u.nombre || '').toLowerCase();
+      const usu = (u.usuario || '').toLowerCase();
+      const tel = (u.telefono || '').toString();
+      if (!nom.includes(txt) && !usu.includes(txt) && !tel.includes(txt)) {
+        return false;
+      }
+    }
     
     return true;
+  }).sort((a, b) => {
+    // 👇 Aplicamos el orden jerárquico
+    const prioridadA = ordenRoles[a.rol] || 99;
+    const prioridadB = ordenRoles[b.rol] || 99;
+    return prioridadA - prioridadB;
   });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in slide-in-from-bottom-4">
+      
+      {/* ======================= COLUMNA IZQUIERDA: FORMULARIO ======================= */}
       <div className="lg:col-span-1">
         <form onSubmit={guardarUsuario} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 space-y-5 sticky top-8">
           <h3 className="text-xl font-bold mb-4 text-slate-700">{editandoUsuarioId ? '✏️ Editar Empleado' : '➕ Nuevo Empleado'}</h3>  
@@ -199,7 +274,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
           <div>
             <label className="text-xs font-bold text-slate-400 block mb-1">Puesto o Rol asignado</label>
             <select value={uRol} onChange={handleRolChange} className="w-full p-3 bg-slate-100 border border-slate-300 rounded-xl outline-none font-black text-slate-800 cursor-pointer shadow-sm">
-              {/* 👇 REGLA DE NEGOCIO: Solo el Admin Global puede crear nuevos admins */}
               {isGlobalAdmin && (
                 <option value="admin">Administrador (Acceso Web Personalizable)</option>
               )}
@@ -213,12 +287,42 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             </select>
           </div>  
 
-          {/* PERMISOS ESPECIALES DE POS (CAJA) */}
-          {['gerente', 'jefe', 'cajero', 'cocina'].includes(uRol) && (
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <p className="text-xs font-black text-slate-500 mb-2 uppercase tracking-widest">Permisos de Autorización (POS)</p>  
+          {/* BLOQUE: ACCESO A PANTALLAS (La llave de las puertas) */}
+          {showPantallasBlock && (
+            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 space-y-3 animate-in fade-in">
+              <p className="text-xs font-black text-indigo-600 mb-2 uppercase tracking-widest">Acceso a Pantallas</p>
+              
+              {/* Jefe de turno no puede ver la opción de acceder al panel Admin */}
+              {['admin', 'gerente'].includes(uRol) && (
+                <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={uPermisos.pantalla_admin === true} onChange={e => setUPermisos({...uPermisos, pantalla_admin: e.target.checked})} className="accent-indigo-600 w-5 h-5" />
+                  🖥️ Panel de Administración (Web)
+                </label>
+              )}
+              
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
-                <input type="checkbox" checked={uPermisos.corte_caja === true} onChange={e => setUPermisos({...uPermisos, corte_caja: e.target.checked})} className="accent-blue-500 w-5 h-5" />
+                <input type="checkbox" checked={uPermisos.pantalla_caja === true} onChange={e => setUPermisos({...uPermisos, pantalla_caja: e.target.checked})} className="accent-indigo-600 w-5 h-5" />
+                💵 Caja Principal (POS)
+              </label>
+              
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.pantalla_cocina === true} onChange={e => setUPermisos({...uPermisos, pantalla_cocina: e.target.checked})} className="accent-indigo-600 w-5 h-5" />
+                👨‍🍳 Cocina (KDS)
+              </label>
+              
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.pantalla_repartidor === true} onChange={e => setUPermisos({...uPermisos, pantalla_repartidor: e.target.checked})} className="accent-indigo-600 w-5 h-5" />
+                🛵 Logística de Reparto
+              </label>
+            </div>
+          )}
+
+          {/* PERMISOS ESPECIALES DE POS (CAJA) */}
+          {showPOSBlock && (
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 space-y-3 animate-in fade-in">
+              <p className="text-xs font-black text-blue-600 mb-2 uppercase tracking-widest">Permisos Operativos (POS)</p>  
+              <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={uPermisos.corte_caja === true} onChange={e => setUPermisos({...uPermisos, corte_caja: e.target.checked})} className="accent-blue-600 w-5 h-5" />
                 Puede realizar el Corte de Caja
               </label>  
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
@@ -233,8 +337,8 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
           )}  
 
           {/* PERMISOS DE ACCESO WEB (MÓDULOS DEL ADMIN) */}
-          {uRol === 'admin' && (
-            <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3">
+          {showWebBlock && (
+            <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3 animate-in fade-in">
               <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Módulos (Acceso Web)</p>
               <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                 <input type="checkbox" checked={uPermisos.finanzas === true} onChange={e => setUPermisos({...uPermisos, finanzas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Finanzas y Reportes
@@ -279,9 +383,45 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         </form>
       </div>  
 
+      {/* ======================= COLUMNA DERECHA: PLANTILLA ======================= */}
       <div className="lg:col-span-2">
         <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200">
-          <h3 className="text-xl font-bold mb-4 text-slate-700">Plantilla Registrada</h3>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <h3 className="text-xl font-bold text-slate-700">Plantilla Registrada</h3>
+            
+            {/* Filtros de Búsqueda */}
+            <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Buscar empleado..." 
+                  value={filtroTexto}
+                  onChange={(e) => setFiltroTexto(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-600 focus:border-blue-400"
+                />
+              </div>
+              <div className="relative w-full sm:w-40 shrink-0">
+                <Filter size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                <select 
+                  value={filtroRol} 
+                  onChange={(e) => setFiltroRol(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold text-slate-600 cursor-pointer focus:border-blue-400 appearance-none"
+                >
+                  <option value="">Todos los roles</option>
+                  <option value="admin">Administradores</option>
+                  <option value="gerente">Gerentes</option>
+                  <option value="jefe">Jefes de Turno</option>
+                  <option value="cajero">Cajeros</option>
+                  <option value="cocina">Cocineros</option>
+                  <option value="repartidor">Repartidores</option>
+                  <option value="ayudante_cocina">Ayudantes</option>
+                  <option value="tv">Pantallas TV</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
             {plantillaVisible.map(u => (
               <div key={u.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-2xl border transition gap-4 ${editandoUsuarioId === u.id ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
@@ -301,18 +441,30 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                     </span>
                   </p>  
                   <div className="mt-1 space-y-0.5 flex items-center gap-4 flex-wrap">
+                    <p className="text-sm text-slate-600 font-bold">Usuario: <span className="text-slate-800">{u.usuario}</span></p>
                     <p className="text-sm text-slate-600 font-bold">Tel: <span className="text-blue-600 font-black">{u.telefono || '--'}</span></p>
                     {u.pin && <p className="text-sm text-slate-600 font-bold">PIN: <span className="text-emerald-600 font-black tracking-widest">{u.pin}</span></p>}  
                   </div>
                 </div>  
+                
                 <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                  <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Edit size={20}/></button>
-                  <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-slate-100 flex justify-center"><Trash2 size={20}/></button>
+                  {/* Botón: Forzar Cierre de Sesión Remoto */}
+                  {u.rol !== 'tv' && (
+                    <button onClick={() => cerrarSesionRemota(u)} title={`Cerrar sesión remota de ${u.nombre}`} className="p-3 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition bg-white border border-slate-200 shadow-sm flex justify-center">
+                      <LogOut size={20}/>
+                    </button>
+                  )}
+                  <button onClick={() => prepararEdicionUsuario(u)} className="p-3 text-blue-500 hover:text-white hover:bg-blue-500 rounded-xl transition bg-white border border-slate-100 shadow-sm flex justify-center"><Edit size={20}/></button>
+                  <button onClick={() => eliminarUsuario(u.id)} className="p-3 text-red-500 hover:text-white hover:bg-red-500 rounded-xl transition bg-white border border-red-100 shadow-sm flex justify-center"><Trash2 size={20}/></button>
                 </div>
               </div>
             ))}  
+            
             {plantillaVisible.length === 0 && (
-              <p className="text-center text-slate-400 font-bold mt-10">No hay empleados registrados en tu plantilla.</p>
+              <div className="text-center text-slate-400 font-bold mt-10 p-10 border-2 border-dashed border-slate-200 rounded-3xl">
+                <Search size={40} className="mx-auto mb-3 opacity-20"/>
+                <p>No se encontraron empleados con esos filtros.</p>
+              </div>
             )}
           </div>
         </div>

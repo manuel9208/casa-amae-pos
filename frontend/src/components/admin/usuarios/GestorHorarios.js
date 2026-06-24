@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, History, Lock, Calendar, Clock, Palmtree, CheckCircle2, XCircle, Users, Sun, Moon, CheckSquare, Square } from 'lucide-react';  
+import { Save, History, Lock, Calendar, Clock, Palmtree, CheckCircle2, XCircle, Users, Sun, Moon, CheckSquare, Square, Filter, Store } from 'lucide-react';  
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];  
 
@@ -8,11 +8,14 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [horarioNegocio, setHorarioNegocio] = useState({});  
 
-  // 👇 ESTADOS PARA EL PANEL DE ASIGNACIÓN MASIVA
+  // ESTADOS PARA EL PANEL DE ASIGNACIÓN MASIVA
+  // 👇 NUEVO: Ahora el turno por defecto es el Horario Local Inteligente
+  const [turnoMasivo, setTurnoMasivo] = useState('local'); 
   const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
-  const [turnoMasivo, setTurnoMasivo] = useState('manana');
   const [entradaMasiva, setEntradaMasiva] = useState('08:00');
   const [salidaMasiva, setSalidaMasiva] = useState('16:00');
+  
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
 
   const hoy = new Date();
   const year = hoy.getFullYear();
@@ -23,7 +26,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
   const strHoy = `${year}-${String(month + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;  
   const strPrimerDiaMes = `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
-  // 👇 NUEVOS ESTADOS: Para proteger la información al cruzar meses en el corte
   const [fechaDesde, setFechaDesde] = useState(strPrimerDiaMes);
   const [fechaHasta, setFechaHasta] = useState(strHoy);
 
@@ -51,12 +53,11 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       }).catch(()=>{});
   }, [apiUrl]);  
 
-  // Cambia automáticamente la hora sugerida al cambiar el turno masivo
   useEffect(() => {
     if (turnoMasivo === 'manana') {
       setEntradaMasiva('08:00');
       setSalidaMasiva('16:00');
-    } else {
+    } else if (turnoMasivo === 'tarde') {
       setEntradaMasiva('16:00');
       setSalidaMasiva('23:00');
     }
@@ -76,7 +77,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     });
   };  
 
-  // FUNCIÓN DEL MOTOR DE ASIGNACIÓN MASIVA INTELIGENTE
   const aplicarAsignacionMasiva = () => {
     if (empleadosSeleccionados.length === 0) {
       return showAlert('Aviso', 'Selecciona al menos un empleado en el panel superior.', 'info');
@@ -89,7 +89,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
 
-        // Extraer los días de descanso desde las prestaciones
         let diasDescanso = [];
         try {
           const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
@@ -100,22 +99,23 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         const horarioGuardado = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
 
         diasMes.forEach(d => {
-          const configDiaGlobal = horarioNegocio[d.nombreCompleto] || { activo: true };
+          const configDiaGlobal = horarioNegocio[d.nombreCompleto] || { activo: true, apertura: '08:00', cierre: '22:00' };
           const diaGuardado = horarioGuardado[d.fechaStr] || { pagado: false, vacaciones: false };
           const diaPrev = empPrev[d.fechaStr] || diaGuardado;
 
-          // Regla de Oro: Si el día ya está pagado o el empleado está de vacaciones, lo ignoramos
           if (diaPrev.pagado || diaPrev.vacaciones) return;
 
-          // Regla de Oro: Verificamos si es su día de descanso asignado en Nómina
           const esDescanso = diasDescanso.includes(d.nombreCompleto);
           const negocioAbierto = configDiaGlobal.activo !== false;
 
-          // Asignación inteligente
           if (!negocioAbierto || esDescanso) {
              empPrev[d.fechaStr] = { ...diaPrev, activo: false };
           } else {
-             empPrev[d.fechaStr] = { ...diaPrev, activo: true, entrada: entradaMasiva, salida: salidaMasiva };
+             // 👇 MAGIA AQUÍ: Inyectamos el horario exacto del negocio para ese día si está en modo 'local'
+             const horaEntradaFinal = turnoMasivo === 'local' ? (configDiaGlobal.apertura || '08:00') : entradaMasiva;
+             const horaSalidaFinal = turnoMasivo === 'local' ? (configDiaGlobal.cierre || '22:00') : salidaMasiva;
+
+             empPrev[d.fechaStr] = { ...diaPrev, activo: true, entrada: horaEntradaFinal, salida: horaSalidaFinal };
           }
         });
 
@@ -125,8 +125,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       return nuevosHorarios;
     });
 
-    showAlert('¡Asignación Lista!', 'Se ha llenado el calendario de los empleados seleccionados respetando sus días de descanso. Recuerda hacer clic en "Guardar Cambios" para confirmar.', 'success');
-    setEmpleadosSeleccionados([]); // Limpiamos la selección
+    showAlert('¡Asignación Lista!', 'Se ha llenado el calendario. Recuerda hacer clic en "Guardar Cambios" para confirmar.', 'success');
+    setEmpleadosSeleccionados([]); 
   };
 
   const guardarHorarios = async () => {
@@ -144,7 +144,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     setIsSubmitting(false);
   };  
 
-  // 👇 NUEVO: Generador dinámico de rango de fechas para cruzar meses sin perder datos
   const obtenerRangoFechas = (inicioStr, finStr) => {
     const fechas = [];
     let actual = new Date(inicioStr + 'T00:00:00');
@@ -179,14 +178,12 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           const datosCorte = empleadosVisibles.map(emp => {
             const h = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
             
-            // 👇 CORRECCIÓN: Filtramos usando el rango de fechas para cruzar meses
             const diasNuevosPagados = fechasRango.filter(fechaStr => h[fechaStr]?.activo && !h[fechaStr]?.pagado).length;
             
             let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};  
 
             Object.keys(evaluaciones).forEach(area => {
               Object.keys(evaluaciones[area]).forEach(diaStr => {
-                // 👇 CORRECCIÓN: Buscamos entre el rango exacto solicitado
                 if (diaStr >= fechaDesde && diaStr <= fechaHasta && String(matriz.asignaciones?.[area]?.[diaStr]) === String(emp.id)) {
                   const status = evaluaciones[area][diaStr];
                   if (status === 'cumplio') limpiezasCumplidas++;
@@ -214,7 +211,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
               const hActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
               const hNuevo = { ...hActual };
               
-              // 👇 CORRECCIÓN: Bloqueamos los días exactos del rango cruzado
               fechasRango.forEach(fechaStr => {
                 if (!hNuevo[fechaStr]) hNuevo[fechaStr] = { activo: false };
                 hNuevo[fechaStr].pagado = true;
@@ -261,6 +257,19 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     } catch(e) {}
     setIsSubmitting(false);
   };  
+
+  const rolesDisponibles = [...new Set(empleadosVisibles.map(e => e.rol))];
+  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) : empleadosVisibles;
+  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(e.id));
+
+  const toggleSeleccionMasiva = () => {
+    if (todosFiltradosSeleccionados) {
+      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => e.id === id)));
+    } else {
+      const nuevosIds = empleadosFiltrados.map(e => e.id);
+      setEmpleadosSeleccionados(prev => [...new Set([...prev, ...nuevosIds])]);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4">  
@@ -315,20 +324,37 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         
         {/* Selección de Empleados */}
         <div className="flex-1 w-full border-b xl:border-b-0 xl:border-r border-blue-200 pb-6 xl:pb-0 xl:pr-8">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
             <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Selección Múltiple</h3>
             <button 
-              onClick={() => {
-                if (empleadosSeleccionados.length === empleadosVisibles.length) setEmpleadosSeleccionados([]);
-                else setEmpleadosSeleccionados(empleadosVisibles.map(e => e.id));
-              }} 
-              className="text-xs font-bold text-blue-600 hover:text-blue-800 transition bg-white px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm"
+              onClick={toggleSeleccionMasiva} 
+              className="text-xs font-bold text-blue-600 hover:text-blue-800 transition bg-white px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm whitespace-nowrap"
             >
-              {empleadosSeleccionados.length === empleadosVisibles.length ? 'Desmarcar Todos' : 'Marcar Todos'}
+              {todosFiltradosSeleccionados ? `Desmarcar ${filtroRolMasivo ? filtroRolMasivo : 'Todos'}` : `Marcar ${filtroRolMasivo ? filtroRolMasivo : 'Todos'}`}
             </button>
           </div>
+
+          <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
+            <Filter size={14} className="text-blue-400 shrink-0 mr-1"/>
+            <button 
+              onClick={() => setFiltroRolMasivo('')} 
+              className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
+            >
+              Todos
+            </button>
+            {rolesDisponibles.map(rol => (
+              <button 
+                key={rol} 
+                onClick={() => setFiltroRolMasivo(rol)} 
+                className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-800'}`}
+              >
+                {rol}
+              </button>
+            ))}
+          </div>
+
           <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2">
-            {empleadosVisibles.map(emp => {
+            {empleadosFiltrados.map(emp => {
               const seleccionado = empleadosSeleccionados.includes(emp.id);
               return (
                 <button
@@ -340,39 +366,50 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                 </button>
               )
             })}
+            {empleadosFiltrados.length === 0 && (
+              <p className="text-xs font-bold text-slate-400 mt-2">No hay empleados con el rol "{filtroRolMasivo}".</p>
+            )}
           </div>
         </div>
 
         {/* Configuración de Turnos y Acción */}
         <div className="flex-1 w-full">
-          <div className="flex flex-col sm:flex-row gap-4 items-center">
+          <div className="flex flex-col lg:flex-row flex-wrap gap-4 items-center">
             
-            <div className="bg-white p-2 rounded-2xl flex w-full sm:w-auto border border-blue-200 shadow-sm">
-              <button onClick={() => setTurnoMasivo('manana')} className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition-all ${turnoMasivo === 'manana' ? 'bg-orange-100 text-orange-700' : 'text-slate-400 hover:bg-slate-50'}`}>
-                <Sun size={18}/> Mañana
+            {/* 👇 NUEVO: Panel de selección de horario con la opción "Horario Local" agregada */}
+            <div className="bg-white p-2 rounded-2xl flex flex-wrap w-full lg:w-auto border border-blue-200 shadow-sm">
+              <button onClick={() => setTurnoMasivo('local')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black transition-all ${turnoMasivo === 'local' ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <Store size={14}/> Horario Local
               </button>
-              <button onClick={() => setTurnoMasivo('tarde')} className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition-all ${turnoMasivo === 'tarde' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-50'}`}>
-                <Moon size={18}/> Tarde
+              <button onClick={() => setTurnoMasivo('manana')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black transition-all ${turnoMasivo === 'manana' ? 'bg-orange-100 text-orange-700' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <Sun size={14}/> Mañana
+              </button>
+              <button onClick={() => setTurnoMasivo('tarde')} className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black transition-all ${turnoMasivo === 'tarde' ? 'bg-indigo-100 text-indigo-700' : 'text-slate-400 hover:bg-slate-50'}`}>
+                <Moon size={14}/> Tarde
               </button>
             </div>
 
-            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-2xl border border-blue-200 shadow-sm w-full sm:w-auto justify-center">
+            {/* 👇 NUEVO: Si está en 'local', apagamos las cajitas para mostrar que será automático */}
+            <div className={`flex items-center gap-2 bg-white px-4 py-2 rounded-2xl border border-blue-200 shadow-sm w-full lg:w-auto justify-center transition-all ${turnoMasivo === 'local' ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
               <Clock size={16} className="text-slate-400" />
-              <input type="time" value={entradaMasiva} onChange={e => setEntradaMasiva(e.target.value)} className="w-20 font-black text-slate-700 outline-none" />
+              <input type="time" disabled={turnoMasivo === 'local'} value={turnoMasivo === 'local' ? '' : entradaMasiva} onChange={e => setEntradaMasiva(e.target.value)} className="w-20 font-black text-slate-700 outline-none bg-transparent" />
               <span className="text-slate-300 font-bold">-</span>
-              <input type="time" value={salidaMasiva} onChange={e => setSalidaMasiva(e.target.value)} className="w-20 font-black text-slate-700 outline-none" />
+              <input type="time" disabled={turnoMasivo === 'local'} value={turnoMasivo === 'local' ? '' : salidaMasiva} onChange={e => setSalidaMasiva(e.target.value)} className="w-20 font-black text-slate-700 outline-none bg-transparent" />
             </div>
 
             <button 
               onClick={aplicarAsignacionMasiva} 
               disabled={isSubmitting || empleadosSeleccionados.length === 0}
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black transition shadow-lg shadow-blue-500/30 active:scale-95 disabled:opacity-50 whitespace-nowrap"
+              className="w-full lg:w-auto flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-2xl font-black transition shadow-lg shadow-blue-500/30 active:scale-95 disabled:opacity-50 whitespace-nowrap"
             >
               Aplicar al Mes Completo
             </button>
           </div>
-          <p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest mt-4 flex items-center gap-1">
-            <CheckCircle2 size={12}/> Respetará automáticamente los días de descanso configurados en Nómina.
+          
+          <p className="text-[10px] font-bold uppercase tracking-widest mt-4 flex items-center gap-1 text-blue-600">
+            {turnoMasivo === 'local' 
+              ? <><CheckCircle2 size={12}/> Leerá y asignará automáticamente el horario diario configurado para tu negocio.</>
+              : <><CheckCircle2 size={12}/> Respetará automáticamente los días de descanso configurados en Nómina.</>}
           </p>
         </div>
       </div>
@@ -400,7 +437,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             </tr>
           </thead>
           <tbody>
-            {empleadosVisibles.map(emp => {
+            {empleadosFiltrados.map(emp => {
               const horarioGuardado = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
               return (
                 <tr key={emp.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors group">
@@ -457,7 +494,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </table>
       </div>  
 
-      {/* 👇 PANEL DE CORTE DE NÓMINA ACTUALIZADO (RANGO DE FECHAS CRUZADAS) */}
       <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 w-full max-w-full mt-8">
         <div>
           <h3 className="text-xl font-black text-white flex items-center gap-2">
@@ -469,7 +505,6 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>
         
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto">
-           {/* Selectores de fecha para el cruce de meses */}
            <div className="flex items-center justify-between gap-2 bg-slate-800 p-2.5 rounded-2xl w-full sm:w-auto border border-slate-700">
              <div className="flex flex-col">
                <label className="text-[9px] text-slate-400 font-black uppercase ml-1 mb-0.5">Desde</label>

@@ -62,6 +62,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let diasVacaciones = 0;
         let diasDescanso = 0;
         let domingosTrabajados = 0;
+        let horasTrabajadasTotales = 0; // 👈 NUEVO: Clave para cálculos "Por Hora" y sueldos auditados
         const diasAuditados = [];
         const alertasEmpleado = [];
 
@@ -99,35 +100,36 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
           const diaActivo = hor[dateStr]?.activo === true;
           const esDescanso = arrDescansos.includes(nombreDiaActual);
-          const auditoriaDia = hor[dateStr]?.auditoria || {}; // 👈 Leemos las decisiones del supervisor
-          const asistenciasDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));
+          const esDiaLaboral = diaActivo && !esDescanso;
+          const auditoriaDia = hor[dateStr]?.auditoria || {}; 
+          const checkinsDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));
 
-          if (diaActivo && !esDescanso && !hor[dateStr]?.vacaciones) {
+          if (esDiaLaboral && !hor[dateStr]?.vacaciones) {
               diasProgramados++;
           }
 
           if (hor[dateStr]?.vacaciones === true) {
-              if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); }
+              if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); horasTrabajadasTotales += 8; }
               currentDate.setDate(currentDate.getDate() + 1); 
               continue;
           }
 
-          if (esDescanso && asistenciasDelDia.length === 0) {
+          if (esDescanso && checkinsDelDia.length === 0) {
               if (diaActivo) { diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr); }
               currentDate.setDate(currentDate.getDate() + 1); 
               continue;
           }
 
-          if (asistenciasDelDia.length > 0) {
-              let minEntrada = new Date(asistenciasDelDia[0].hora_entrada);
-              let maxSalida = asistenciasDelDia[0].hora_salida ? new Date(asistenciasDelDia[0].hora_salida) : null;
-              let tieneNullSalida = !asistenciasDelDia[0].hora_salida;
+          if (checkinsDelDia.length > 0) {
+              let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
+              let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
+              let tieneNullSalida = !checkinsDelDia[0].hora_salida;
 
-              for (let i = 1; i < asistenciasDelDia.length; i++) {
-                  const inD = new Date(asistenciasDelDia[i].hora_entrada);
+              for (let i = 1; i < checkinsDelDia.length; i++) {
+                  const inD = new Date(checkinsDelDia[i].hora_entrada);
                   if (inD < minEntrada) minEntrada = inD;
-                  if (asistenciasDelDia[i].hora_salida) {
-                      const outD = new Date(asistenciasDelDia[i].hora_salida);
+                  if (checkinsDelDia[i].hora_salida) {
+                      const outD = new Date(checkinsDelDia[i].hora_salida);
                       if (!maxSalida || outD > maxSalida) maxSalida = outD;
                   } else {
                       tieneNullSalida = true;
@@ -148,131 +150,148 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   limiteSalidaTime = dateLimit.getTime();
               }
 
+              const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);
               let outTime, olvidoSalida = false, turnoActivo = false;
               
+              // 👇 SINCRO DE LÓGICA DE CORTE INFINITO (>24h)
               if (tieneNullSalida) {
                   if (dateStr === hoyStr) {
                       outTime = new Date().getTime();
                       turnoActivo = true;
                   } else {
                       olvidoSalida = true;
-                      outTime = limiteSalidaTime || minEntrada.getTime();
+                      outTime = limiteSalidaTime || maxOchoHoras;
                   }
               } else {
-                  if (limiteSalidaTime && maxSalida.getTime() > limiteSalidaTime) {
+                  outTime = maxSalida.getTime();
+                  if ((outTime - minEntrada.getTime()) > (24 * 3600000)) {
+                      olvidoSalida = true;
+                      outTime = limiteSalidaTime || maxOchoHoras;
+                  } else if (limiteSalidaTime && outTime > (limiteSalidaTime + (4 * 3600000))) {
                       olvidoSalida = true;
                       outTime = limiteSalidaTime;
-                  } else {
-                      outTime = maxSalida.getTime();
                   }
               }
 
               let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
               if (diffHrs < 0) diffHrs = 0;
 
-              if (olvidoSalida && auditoriaDia['olvido_salida'] !== 'rechazado') {
+              let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;
+              if (entradaOficial) {
+                  [hOfIn, mOfIn] = entradaOficial.split(':').map(Number);
+                  const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+                  [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
+                  
+                  const minOficiales = (hOfIn * 60) + mOfIn;
+                  const minReales = (hReal * 60) + mReal;
+                  if (minReales > (minOficiales + minTolEntrada)) {
+                      eventosTarde++;
+                      minutosTardeTotales += (minReales - minOficiales);
+                  }
+              }
+
+              // 👇 SINCRO DE AGRUPACIÓN DE ANOMALÍAS Y HORAS AUDITADAS
+              let motivosAnomalia = [];
+              let requiereAuditoria = false;
+
+              if (olvidoSalida) motivosAnomalia.push(`Olvidó checar salida.`);
+              if (!esDiaLaboral) {
+                  requiereAuditoria = true;
+                  motivosAnomalia.push(esDescanso ? 'Trabajó en su Descanso.' : 'Día Inactivo.');
+              } else {
+                  if (entradaOficial) {
+                      if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
+                          requiereAuditoria = true;
+                          motivosAnomalia.push(`Fuera de rango (${entradaOficial})`);
+                      } else if (salidaOficial) {
+                          const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
+                          let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
+                          if (minsOficiales < 0) minsOficiales += 24 * 60;
+                          
+                          const minsTrabajados = diffHrs * 60;
+                          if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
+                              requiereAuditoria = true;
+                              motivosAnomalia.push(`Jornada Incompleta`);
+                          }
+                          if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
+                              requiereAuditoria = true;
+                              motivosAnomalia.push(`Tiempo Extra`);
+                          }
+                      }
+                  }
+              }
+
+              // 👇 EXTRACCIÓN DE LAS HORAS DEL MODAL
+              let horasFinalesAprobadas = diffHrs; 
+              let estadoAudParsed = { estado: 'pendiente' };
+              if (auditoriaDia['auditoria_turno']) {
+                  try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } 
+                  catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
+              }
+
+              if (estadoAudParsed.estado === 'rechazado') {
+                  horasFinalesAprobadas = 0; // Día penalizado al 100%
+              } else if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
+                  horasFinalesAprobadas = estadoAudParsed.horasAprobadas; // El Gerente decidió
+              }
+
+              // Cálculos para botones financieros rápidos
+              let hrsExt = 0;
+              let hrsFaltantes = 0;
+              if (entradaOficial && salidaOficial) {
+                  const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
+                  const [hOfIn2, mOfIn2] = entradaOficial.split(':').map(Number);
+                  let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn2 * 60 + mOfIn2);
+                  if (minsOficiales < 0) minsOficiales += 24 * 60;
+                  const hrsOficiales = minsOficiales / 60;
+                  
+                  if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
+                  if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
+              }
+
+              if (olvidoSalida || requiereAuditoria) {
                   alertasEmpleado.push({
-                      tipo: 'olvido_salida',
-                      idUnico: `olvido-${dateStr}`,
+                      tipo: 'auditoria_turno',
+                      idUnico: `turno-${dateStr}`,
                       fecha: dateStr,
-                      msg: `⚠️ Olvidó checar salida el ${dateStr}. Topado al límite de ${salidaOficial}.`,
-                      estadoAuditoria: auditoriaDia['olvido_salida'] || 'pendiente',
-                      resuelta: false
+                      msg: motivosAnomalia.join(' | '),
+                      estadoAuditoria: estadoAudParsed.estado,
+                      resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado',
+                      hrsAuditadas: horasFinalesAprobadas,
+                      hrsExt: Number(hrsExt),
+                      hrsFaltantes: Number(hrsFaltantes)
                   });
               }
 
-              if (!diaActivo || esDescanso) {
-                  if (auditoriaDia['anomalia_descanso'] !== 'rechazado') {
-                      alertasEmpleado.push({
-                          tipo: 'anomalia_descanso',
-                          idUnico: `descanso-${dateStr}`,
-                          fecha: dateStr,
-                          msg: `🚨 Checó el ${dateStr} (Día inactivo o Descanso). Trabajó ${diffHrs.toFixed(2)}h.`,
-                          hrsExt: diffHrs,
-                          estadoAuditoria: auditoriaDia['anomalia_descanso'] || 'pendiente',
-                          resuelta: false
-                      });
-                  }
-              } else {
-                  const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-                  const [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
-                  const [hOfIn, mOfIn] = entradaOficial.split(':').map(Number);
-
-                  if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
-                      if (auditoriaDia['anomalia_horario'] !== 'rechazado') {
-                          alertasEmpleado.push({
-                              tipo: 'anomalia_horario',
-                              idUnico: `horario-${dateStr}`,
-                              fecha: dateStr,
-                              msg: `🚨 Checó a las ${stringHoraCompleta} (Turno de ${entradaOficial}). Fuera de rango.`,
-                              hrsExt: diffHrs,
-                              estadoAuditoria: auditoriaDia['anomalia_horario'] || 'pendiente',
-                              resuelta: false
-                          });
-                      }
-                  } else {
-                      const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
-                      let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
-                      if (minsOficiales < 0) minsOficiales += 24 * 60;
-
-                      const minsTrabajados = diffHrs * 60;
-                      
-                      // Validación Jornada Incompleta
-                      if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
-                          if (auditoriaDia['jornada_incompleta'] !== 'rechazado') {
-                              const hrsFaltantes = ((minsOficiales - minsTrabajados) / 60).toFixed(2);
-                              alertasEmpleado.push({
-                                  tipo: 'jornada_incompleta',
-                                  idUnico: `incompleta-${dateStr}`,
-                                  fecha: dateStr,
-                                  msg: `⏳ Jornada Incompleta el ${dateStr}: Faltaron ${hrsFaltantes}h.`,
-                                  hrsFaltantes: Number(hrsFaltantes),
-                                  estadoAuditoria: auditoriaDia['jornada_incompleta'] || 'pendiente',
-                                  resuelta: false
-                              });
-                          }
-                      }
-
-                      // Validación Horas Extras
-                      if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
-                          if (auditoriaDia['horas_extras'] !== 'rechazado') {
-                              const hrsExtra = ((minsTrabajados - minsOficiales) / 60).toFixed(2);
-                              alertasEmpleado.push({
-                                  tipo: 'horas_extras',
-                                  idUnico: `extra-${dateStr}`,
-                                  fecha: dateStr,
-                                  msg: `⏰ Tiempo Extra el ${dateStr}: Excedió su jornada por ${hrsExtra}h.`,
-                                  hrsExt: Number(hrsExtra),
-                                  estadoAuditoria: auditoriaDia['horas_extras'] || 'pendiente',
-                                  resuelta: false
-                              });
-                          }
-                      }
-
-                      if (minsTrabajados > 0) {
-                          const minR = (hReal * 60) + mReal;
-                          const minO = (hOfIn * 60) + mOfIn;
-                          if (minR > (minO + minTolEntrada)) {
-                              eventosTarde++;
-                              minutosTardeTotales += (minR - minO);
-                          }
-                      }
-                  }
-              }
-
+              horasTrabajadasTotales += horasFinalesAprobadas;
               diasAsistidos++;
               diasAuditados.push(dateStr);
               if (esDomingo) domingosTrabajados++;
 
           } else {
-              if (diaActivo && !esDescanso) {
-                  if (auditoriaDia['falta'] !== 'rechazado') {
+              // LÓGICA SINCRO: Faltas reales
+              const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
+              if (esDiaLaboral && isPastOrToday) {
+                  let estadoFaltaParsed = { estado: 'pendiente' };
+                  if (auditoriaDia['falta']) {
+                      try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } 
+                      catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
+                  }
+                  
+                  if (estadoFaltaParsed.estado !== 'aprobado') {
                       diasFaltaInjustificada++;
-                      alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada el ${dateStr}.`, estadoAuditoria: auditoriaDia['falta'] || 'pendiente', resuelta: false });
+                      alertasEmpleado.push({ 
+                          tipo: 'falta', 
+                          idUnico: `falta-${dateStr}`, 
+                          fecha: dateStr, 
+                          msg: `⚠️ Falta Injustificada el ${dateStr}.`, 
+                          estadoAuditoria: estadoFaltaParsed.estado, 
+                          resuelta: estadoFaltaParsed.estado === 'rechazado' // Rechazarla = Sancionar
+                      });
                       diasAuditados.push(dateStr); 
                   } else {
-                      // Falta rechazada en auditoría significa "Falta Perdonada"
-                      diasProgramados++;
+                      diasProgramados++; // Falta justificada cuenta para el sueldo base
+                      horasTrabajadasTotales += 8;
                       diasAuditados.push(dateStr);
                   }
               }
@@ -291,8 +310,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;
         
+        // 👇 CÁLCULO DE NÓMINA DINÁMICO
         if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; } 
-        else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * (diasProgramados * 8); } 
+        else if (pres.tipo_sueldo === 'Por Hora') { 
+            sueldoDiarioExacto = sueldoBase * 8; // Mantenemos la ref 8hrs para el valor diario
+            ingresoSueldo = sueldoBase * horasTrabajadasTotales; // Aquí brilla la Auditoría
+        } 
         else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; } 
         else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = (sueldoBase / 15) * diasProgramados; } 
         else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = sueldoBase / 30; ingresoSueldo = (sueldoBase / 30) * diasProgramados; }
@@ -300,7 +323,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const ingresosList = [];
         const egresosList = [];
         
-        ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
+        if (pres.tipo_sueldo === 'Por Hora') {
+            ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo });
+        } else {
+            ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
+        }
 
         if (diasFaltaInjustificada > 0) {
            let diasADescontar = diasFaltaInjustificada;
@@ -398,9 +425,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     setIsSubmitting(false);
   };
 
-  // ===============================================
-  // GESTOR EDITABLE DE INGRESOS Y EGRESOS
-  // ===============================================
   const recalcularNeto = (arr, idxEmp) => {
     const p = arr[idxEmp];
     const totInBase = p.ingresos.reduce((acc, c) => acc + (Number(c.monto) || 0), 0);
@@ -417,7 +441,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const modificarBase = (idxEmp, tipo, iItem, val) => {
     const arr = [...preNomina];
     const lista = tipo === 'ingreso' ? arr[idxEmp].ingresos : arr[idxEmp].egresos;
-    lista[iItem].monto = val; // Editable direct input
+    lista[iItem].monto = val;
     recalcularNeto(arr, idxEmp);
   };
 
@@ -442,9 +466,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     recalcularNeto(arr, idxEmp);
   };
 
-  // ===============================================
-  // MANEJADORES DE ALERTAS Y BOTONES FINANCIEROS
-  // ===============================================
   const resolverAlerta = (idxEmp, idUnico) => {
       const arr = [...preNomina];
       const alerta = arr[idxEmp].metricas.alertasEmpleado.find(a => a.idUnico === idUnico);
@@ -482,22 +503,16 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
      showAlert("Horas Acumuladas", `Las horas se sumarán a su Banco de Horas al finalizar la nómina.`, "success");
   };
 
-  // ===============================================
-  // BOTONES RÁPIDOS
-  // ===============================================
   const accionRapidaAguinaldo = (idxEmp) => {
      const p = preNomina[idxEmp];
-     let diasAguinaldo = 15; // LFT Mínimo (1 año o más)
+     let diasAguinaldo = 15; 
 
      if (p.metricas.fechaIngresoBase) {
         const fechaIngreso = new Date(p.metricas.fechaIngresoBase + 'T12:00:00');
         const hoy = new Date();
         const currentYear = hoy.getFullYear();
-        
-        // Calcular proporción dentro del año actual
         const inicioAnio = new Date(currentYear, 0, 1, 12, 0, 0); 
         const fechaCalculoInicio = fechaIngreso > inicioAnio ? fechaIngreso : inicioAnio;
-        
         const diffTiempo = hoy.getTime() - fechaCalculoInicio.getTime();
         const diasLaboradosEnAnio = Math.floor(diffTiempo / (1000 * 3600 * 24));
 
@@ -506,7 +521,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             showAlert("Aguinaldo Proporcional", `El empleado tiene ${diasLaboradosEnAnio} días laborados este año. Se calcularon ${diasAguinaldo.toFixed(2)} días proporcionales.`, "info");
         }
      }
-     
      const montoAguinaldo = p.metricas.sueldoDiarioExacto * diasAguinaldo;
      agregarDinamico(idxEmp, 'ingreso', `Aguinaldo Proporcional LFT (${diasAguinaldo.toFixed(2)} días)`, montoAguinaldo.toFixed(2));
   };
@@ -570,7 +584,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                });
             }
 
-            // 👇 Se suman las horas extras elegidas al banco de horas de su perfil
             let horasExtrasHistoricas = Number(presActual.horas_extras_acumuladas) || 0;
             horasExtrasHistoricas += p.metricas.horasExtrasAcumulables;
 
@@ -622,34 +635,42 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <div className="mb-6 space-y-2">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alertas de Cumplimiento Operativo</p>
                    {p.metricas.alertasEmpleado.map((alerta, iAlt) => (
-                      <div key={iAlt} className={`p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'horas_extras' ? 'bg-blue-50 text-blue-800 border-blue-200' : alerta.tipo === 'olvido_salida' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <div key={iAlt} className={`p-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-sm font-bold shadow-sm border ${alerta.tipo === 'aniversario' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : alerta.tipo === 'cumpleaños' ? 'bg-pink-50 text-pink-700 border-pink-200' : alerta.tipo === 'auditoria_turno' ? 'bg-blue-50 text-blue-800 border-blue-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                          <span className="flex-1 text-xs md:text-sm">{alerta.msg}</span>
                          
                          <div className="flex flex-col md:flex-row gap-2 md:items-center shrink-0">
                            
                            {/* ETIQUETAS DE AUDITORIA PREVIA */}
                            {alerta.estadoAuditoria === 'aprobado' ? (
-                             <span className="bg-emerald-100 text-emerald-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-emerald-200 text-center">✅ Auditado (Aprobado)</span>
+                             <span className="bg-emerald-100 text-emerald-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-emerald-200 text-center">
+                               ✅ Auditado {alerta.hrsAuditadas !== undefined && `(${alerta.hrsAuditadas}h)`}
+                             </span>
+                           ) : alerta.estadoAuditoria === 'rechazado' ? (
+                             <span className="bg-red-100 text-red-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-red-200 text-center">
+                               ❌ Sancionado / Rechazado
+                             </span>
                            ) : (
-                             <span className="bg-amber-100 text-amber-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-amber-200 text-center">⚠️ Pdte. Auditoría</span>
+                             <span className="bg-amber-100 text-amber-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-amber-200 text-center">
+                               ⚠️ Pdte. Auditoría
+                             </span>
                            )}
 
                            {/* BOTONES DE FALTAS */}
                            {alerta.tipo === 'falta' && (
                              <button disabled={alerta.resuelta} onClick={() => justificarFalta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'}`}>
-                               {alerta.resuelta ? '✅ Justificado' : 'Justificar Falta'}
+                               {alerta.resuelta ? '❌ Sanción Firme' : 'Justificar Falta'}
                              </button>
                            )}
 
                            {/* BOTONES DE JORNADA INCOMPLETA */}
-                           {alerta.tipo === 'jornada_incompleta' && (
+                           {alerta.tipo === 'auditoria_turno' && alerta.hrsFaltantes > 0 && (
                              <button disabled={alerta.resuelta} onClick={() => penalizarJornadaIncompleta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-red-600 text-white hover:bg-red-700'}`}>
                                {alerta.resuelta ? '✅ Aplicado' : 'Cobrar Descuento'}
                              </button>
                            )}
 
-                           {/* BOTONES DE HORAS EXTRAS / ANOMALIAS */}
-                           {(alerta.tipo === 'horas_extras' || alerta.tipo === 'anomalia_horario' || alerta.tipo === 'anomalia_descanso') && (
+                           {/* BOTONES DE HORAS EXTRAS */}
+                           {alerta.tipo === 'auditoria_turno' && alerta.hrsExt > 0 && (
                              <>
                                 <button disabled={alerta.resuelta} onClick={() => pagarHorasExtrasEnEfectivo(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'hidden' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}>
                                     Pagar Efectivo

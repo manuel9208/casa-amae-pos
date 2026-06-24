@@ -9,6 +9,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [isCajaBloqueada, setIsCajaBloqueada] = useState(true);
   const [operadorActual, setOperadorActual] = useState(user);  
 
+  // 👇 SOLUCIÓN TIEMPO REAL: Si App.js recibe nuevos permisos por Socket, actualizamos al Operador de la Caja al instante
+  useEffect(() => {
+    if (user) {
+      setOperadorActual(user);
+    }
+  }, [user]);
+
   // ==========================================
   // 2. ESTADOS DE DATOS (BASE DE DATOS)
   // ==========================================
