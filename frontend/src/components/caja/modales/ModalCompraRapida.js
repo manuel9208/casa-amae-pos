@@ -70,7 +70,20 @@ const ModalCompraRapida = ({
 
       {insumoComprar && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-          <form onSubmit={registrarCompraRapida} className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4">
+          
+          {/* 👇 CORRECCIÓN DEL BUG: PREVENIMOS EL REFRESH Y ARMAMOS EL PAYLOAD EXACTO */}
+          <form 
+            onSubmit={(e) => {
+                e.preventDefault();
+                registrarCompraRapida({
+                    insumo_id: insumoComprar.id,
+                    paquetes_comprados: paquetesComprados,
+                    nuevo_costo_paquete: insumoComprar.costo_presentacion,
+                    origen: 'Caja'
+                });
+            }} 
+            className="bg-white p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4"
+          >
             <h2 className="text-2xl font-black text-slate-800 mb-1">Ingresar Stock</h2>
             <p className="text-slate-500 font-bold mb-6 pb-4 border-b">
               Insumo: <span className="text-blue-600">{insumoComprar.nombre}</span> ({insumoComprar.cantidad_presentacion} {insumoComprar.unidad_medida})

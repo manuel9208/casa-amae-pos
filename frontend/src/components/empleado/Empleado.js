@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, Camera, CheckCircle2, Utensils, XCircle, Send, AlertTriangle, MessageSquare } from 'lucide-react';
+import io from 'socket.io-client'; // 👈 IMPORTACIÓN DE SOCKETS
+import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, Camera, CheckCircle2, Utensils, XCircle, Send, AlertTriangle, MessageSquare, DollarSign } from 'lucide-react';
 import VistaMensajesEmpleado from './VistaMensajesEmpleado';
+import VistaNominasEmpleado from './VistaNominasEmpleado'; // 👈 IMPORTACIÓN DE NÓMINA
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -15,25 +17,58 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const [diasSolicitados, setDiasSolicitados] = useState(0);
   const [vacacionesSeleccionadas, setVacacionesSeleccionadas] = useState([]);
   const [alertaUI, setAlertaUI] = useState(null);
+  
+  // 👇 TRIGGER PARA REFRESCAR LOS COMPONENTES HIJOS VÍA SOCKET
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const mostrarAlerta = (titulo, mensaje, tipo = 'info') => {
     setAlertaUI({ titulo, mensaje, tipo });
     setTimeout(() => setAlertaUI(null), 4000);
   };
 
+  // 👇 AISLAMOS LA FUNCIÓN PARA QUE PUEDA SER LLAMADA POR EL SOCKET
   useEffect(() => {
-    fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
-      const myData = data.find(u => u.id === user.id);
-      if (myData) setUserData(myData);
-    }).catch(()=>{});
+    const cargarDatosCentrales = () => {
+      fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
+        const myData = data.find(u => u.id === user.id);
+        if (myData) setUserData(myData);
+      }).catch(()=>{});
 
-    fetch(`${apiUrl}/configuracion`).then(r => r.json()).then(data => {
-      if (data) setConfigGlobal(data);
-    }).catch(()=>{});
+      fetch(`${apiUrl}/configuracion`).then(r => r.json()).then(data => {
+        if (data) setConfigGlobal(data);
+      }).catch(()=>{});
 
-    fetch(`${apiUrl}/pedidos/hoy`).then(r => r.json()).then(data => {
-      if (Array.isArray(data)) setPedidosHoy(data);
-    }).catch(()=>{});
+      fetch(`${apiUrl}/pedidos/hoy`).then(r => r.json()).then(data => {
+        if (Array.isArray(data)) setPedidosHoy(data);
+      }).catch(()=>{});
+    };
+
+    cargarDatosCentrales();
+  }, [apiUrl, user.id, refreshTrigger]); // 👈 Si refreshTrigger cambia, se actualiza la data
+
+  // 👇 CONEXIÓN A SOCKETS PARA ACTUALIZACIÓN EN VIVO
+  useEffect(() => {
+    if (!apiUrl) return;
+    const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
+
+    socket.on('nuevo_mensaje', (data) => {
+      // Si el mensaje viene vacío (broadcast) o si es para este empleado específicamente
+      if (!data || !data.empleado_id || String(data.empleado_id) === String(user.id)) {
+          mostrarAlerta("📩 Tienes un Aviso", "Haz recibido un nuevo encargo / aviso de la administración.", "success");
+          setRefreshTrigger(prev => prev + 1);
+      }
+    });
+
+    socket.on('configuracion_actualizada', () => {
+       setRefreshTrigger(prev => prev + 1);
+    });
+
+    socket.on('nomina_actualizada', () => {
+       mostrarAlerta("💰 Recibo de Pago", "Tu recibo de nómina ha sido publicado. Puedes consultarlo en 'Mis Recibos'.", "success");
+       setRefreshTrigger(prev => prev + 1);
+    });
+
+    return () => socket.disconnect();
   }, [apiUrl, user.id]);
 
   const hoy = new Date();
@@ -97,20 +132,17 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
     }
   });
 
-  // 👇 LÓGICA DE SUBIDA ACTUALIZADA: ENVÍA EL ARCHIVO FÍSICO DIRECTO AL BACKEND/CLOUDINARY
   const subirEvidencia = async (area, e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsSubmitting(true);
     
-    // Creamos un FormData nativo y empaquetamos la imagen
     const formData = new FormData();
-    formData.append('evidencia', file); // El archivo físico
+    formData.append('evidencia', file); 
     formData.append('area', area);
     formData.append('fecha', strHoy);
 
     try {
-      // Llamamos a la nueva ruta en el Backend
       const res = await fetch(`${apiUrl}/configuracion/evidencia`, { 
         method: 'POST', 
         body: formData 
@@ -118,7 +150,6 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
       
       if (res.ok) { 
         const data = await res.json();
-        // El servidor nos responde con la matriz actualizada que incluye la URL de Cloudinary
         setConfigGlobal(prev => ({ ...prev, matriz_limpieza: JSON.stringify(data.matriz) })); 
         mostrarAlerta("¡Éxito!", "Tu evidencia fue subida a la nube correctamente.", "success");
       } else {
@@ -193,7 +224,8 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
         </div>
       )}
 
-      <div className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md">
+      {/* NAVBAR SUPERIOR CON PRINT-HIDDEN */}
+      <div className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md print-hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             {onVolver && <button onClick={onVolver} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-full transition"><ArrowLeft size={20}/></button>}
@@ -208,14 +240,18 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
       </div>
 
       <div className="max-w-5xl mx-auto mt-8 px-4">
-        <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-200 mb-8 overflow-x-auto custom-scrollbar">
-          <button onClick={() => setVistaActiva('tareas')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'tareas' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Sparkles size={18}/> Mis Tareas (Hoy)</button>
+        
+        {/* TABS CON PRINT-HIDDEN */}
+        <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-200 mb-8 overflow-x-auto custom-scrollbar print-hidden">
+          <button onClick={() => setVistaActiva('tareas')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'tareas' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Sparkles size={18}/> Mis Tareas</button>
           <button onClick={() => setVistaActiva('horarios')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'horarios' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Calendar size={18}/> Mi Mes</button>
           <button onClick={() => setVistaActiva('vacaciones')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'vacaciones' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><Palmtree size={18}/> Vacaciones</button>
           <button onClick={() => setVistaActiva('mensajes')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'mensajes' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><MessageSquare size={18}/> Mis Avisos</button>
+          {/* 👇 NUEVA PESTAÑA: NÓMINA */}
+          <button onClick={() => setVistaActiva('nomina')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'nomina' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}><DollarSign size={18}/> Mis Recibos</button>
         </div>
 
-        <div className="bg-indigo-900 p-6 rounded-[32px] shadow-lg mb-8 text-white flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="bg-indigo-900 p-6 rounded-[32px] shadow-lg mb-8 text-white flex flex-col md:flex-row justify-between items-center gap-4 print-hidden">
           <div className="flex items-center gap-3">
             <div className="bg-indigo-800 p-3 rounded-2xl"><Utensils size={28} className="text-indigo-400"/></div>
             <div>
@@ -233,6 +269,7 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         </div>
 
+        {/* ======================= CONTENEDOR DE VISTAS ======================= */}
         {vistaActiva === 'tareas' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Sparkles className="text-teal-500"/> Zonas Asignadas a Mí (Hoy)</h3>
@@ -384,7 +421,15 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         )}
 
-        {vistaActiva === 'mensajes' && <VistaMensajesEmpleado user={userData} apiUrl={apiUrl} />}
+        {/* 👇 VISTA CONECTADA CON REFRESH POR SOCKETS (USAMOS KEY) */}
+        {vistaActiva === 'mensajes' && (
+          <VistaMensajesEmpleado key={refreshTrigger} user={userData} apiUrl={apiUrl} />
+        )}
+
+        {/* 👇 NUEVA VISTA CONECTADA CON REFRESH POR SOCKETS (USAMOS KEY) */}
+        {vistaActiva === 'nomina' && (
+          <VistaNominasEmpleado key={refreshTrigger} user={userData} apiUrl={apiUrl} />
+        )}
 
       </div>
     </div>

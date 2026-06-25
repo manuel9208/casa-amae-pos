@@ -1,15 +1,18 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle, Map, ChefHat, Bike } from 'lucide-react';
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle, Map, ChefHat, Bike, Utensils } from 'lucide-react';
 
 const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
-  mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia 
+  mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia,
+  setModalComedor // 👈 NUEVO PROP PARA ABRIR EL COMEDOR
 }) => {
-  // 👇 CORRECCIÓN: Restringimos el "Modo Dios" exclusivamente al Admin Global. 
-  // Todos los demás (incluso los de rol 'admin') deben respetar sus checkboxes.
+  // Identificamos al Admin Global
   const isGlobalAdmin = user?.usuario === 'admin';
-  const canCorte = isGlobalAdmin || user?.permisos?.corte_caja === true;
+  
+  // 🛡️ El corte de caja lo visualizan el Admin Global, y los roles 'admin' o 'gerente'.
+  const canCorte = isGlobalAdmin || ['admin', 'gerente'].includes(user?.rol); 
+  
   const canCompras = isGlobalAdmin || user?.permisos?.compras_rapidas === true;
   
   const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
@@ -41,12 +44,23 @@ const TopNavCaja = ({
           )}
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+          
+          {/* 👇 NUEVO BOTÓN DE ACCESO RÁPIDO AL COMEDOR PERSONAL */}
+          <button
+            onClick={() => setModalComedor(true)}
+            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-3 rounded-2xl font-black text-sm transition flex items-center gap-2 active:scale-95 border border-indigo-200"
+            title="Comida de Personal"
+          >
+            <Utensils size={18}/> <span className="hidden lg:inline">Comedor</span>
+          </button>
+
           <button
             onClick={abrirIdentificador}
             className="flex-1 md:flex-none bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-3 rounded-2xl font-black text-sm transition shadow-lg shadow-emerald-500/20 active:scale-95 flex items-center justify-center gap-2"
           >
             <PlusCircle size={20}/> Levantar Pedido
           </button>
+          
           {canCompras && (
             <button
               onClick={() => setModalCompraRapida(true)}
@@ -59,7 +73,6 @@ const TopNavCaja = ({
 
           <div className="hidden sm:flex items-center gap-3 pl-4 border-l border-slate-200 ml-2">
             
-            {/* 👇 MOSTRAR BOTONES DE PINES SOLO SI ESTÁ ACTIVADO */}
             {isAsistenciaPin && (
               <div className="flex flex-col gap-1 pr-3 border-r border-slate-200 mr-1">
                 <button onClick={() => setModalAsistencia('Entrada')} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-md transition active:scale-95 border border-emerald-100">

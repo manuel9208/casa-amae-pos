@@ -22,6 +22,8 @@ const notificacionCtrl = require('../controllers/notificacionController');
 const repartidorCtrl = require('../controllers/repartidorController');
 const corteCtrl = require('../controllers/corteController');
 const mensajeCtrl = require('../controllers/mensajeController');
+// 👇 NUEVO CONTROLADOR IMPORTADO
+const biometricoCtrl = require('../controllers/biometricoController');
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -96,7 +98,6 @@ router.put('/usuarios/:id/prestaciones', usuarioCtrl.actualizarPrestaciones);
 router.put('/usuarios/:id/horario', usuarioCtrl.actualizarHorario);
 router.post('/usuarios/corte-nomina', usuarioCtrl.guardarCorteNomina);
 router.post('/usuarios/asistencia', usuarioCtrl.registrarAsistencia);
-// 👇 NUEVA RUTA PARA EL BOTÓN DE RESCATE REMOTO DE SESIONES (Desvinculación)
 router.post('/usuarios/:id/forzar-logout', authCtrl.forzarLogout);
 
 // ==========================================
@@ -188,5 +189,13 @@ router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
 // ==========================================
 router.post('/cortes', corteCtrl.guardarCorte);              
 router.get('/cortes/historial', corteCtrl.obtenerHistorial);  
+
+// ==========================================
+// 📡 INTEGRACIÓN ZKTECO (BIOMÉTRICOS ADMS)
+// ==========================================
+// Nota: Usamos express.text() porque el checador físico envía texto crudo, no JSON.
+router.get('/iclock/cdata', biometricoCtrl.handshake);
+router.post('/iclock/cdata', express.text({ type: '*/*' }), biometricoCtrl.recibirDatos);
+router.get('/iclock/getrequest', biometricoCtrl.getComandos);
 
 module.exports = router;

@@ -10,7 +10,6 @@ import { useCajaCentral } from './caja/useCajaCentral';
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const c = useCajaCentral(user, onLogout, onGoToKiosco);  
 
-  // 👇 FIX DEL WARNING: Desestructuramos las variables para pasarlas al arreglo de dependencias
   const { apiUrl, cargarDataDinamica } = c;
 
   useEffect(() => {
@@ -26,7 +25,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     socket.on('pedido_eliminado', actualizarPantalla);
     
     return () => socket.disconnect();
-  }, [apiUrl, cargarDataDinamica]); // 👈 WARNING RESUELTO
+  }, [apiUrl, cargarDataDinamica]); 
 
   return (
     <>
@@ -46,6 +45,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           setModalCompraRapida={c.setModalCompraRapida} abrirIdentificador={c.abrirIdentificador}
           pedidosEnReparto={c.pedidosEnReparto}
           setModalAsistencia={c.setModalAsistencia}
+          setModalComedor={c.setModalComedor} /* 👇 AQUÍ ESTÁ EL PUENTE QUE FALTABA */
         />  
         <main className="flex-1 overflow-y-auto">
           <VistasCaja
@@ -91,6 +91,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           onGoToKiosco={c.onGoToKiosco} 
           modalAsistencia={c.modalAsistencia}
           setModalAsistencia={c.setModalAsistencia}
+          modalComedor={c.modalComedor} 
+          setModalComedor={c.setModalComedor} 
+          pedidos={c.pedidos}
         />
       </div>  
       <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />

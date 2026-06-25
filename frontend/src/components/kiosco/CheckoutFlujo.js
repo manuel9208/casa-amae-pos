@@ -78,10 +78,26 @@ const CheckoutFlujo = ({
     if (tipo === 'Domicilio') {
         setPantallaActual('aviso_domicilio'); 
     } else if (tipo === 'Recoger') {
-        if (!clienteActivo) setPasoTelefono(true);
+        if (!clienteActivo) setPantallaActual('pedir_nombre');
         else seleccionarPago('Pendiente', null, tipo);
-    } else if (tipo === 'Local' || tipo === 'Para llevar') {
-        setPantallaActual('pedir_nombre');
+    } else if (tipo === 'Local') {
+        if (esPersonalInterno) {
+            if (mesaQR) {
+                seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
+            } else if (mesasDisponibles.length > 0) {
+                setPantallaActual('asignar_mesa');
+            } else {
+                setPantallaActual('pago');
+            }
+        } else {
+            setPantallaActual('pedir_nombre');
+        }
+    } else if (tipo === 'Para llevar') {
+        if (esPersonalInterno) {
+            setPantallaActual('pago'); 
+        } else {
+            setPantallaActual('pedir_nombre');
+        }
     } else {
         seleccionarPago('Pendiente', null, tipo);
     }
@@ -98,10 +114,10 @@ const CheckoutFlujo = ({
         }
         else if (esPersonalInterno && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
         else seleccionarPago('Pendiente', null, 'Local');
-    } else if (tipoConsumo === 'Para llevar') {
-        // 👇 FIX: Obligamos a pedir el teléfono si es Para llevar y no tiene cuenta
+    } else if (['Para llevar', 'Recoger', 'Domicilio'].includes(tipoConsumo)) {
         if (!clienteActivo) setPasoTelefono(true);
-        else seleccionarPago('Pendiente', null, 'Para llevar'); 
+        else if (tipoConsumo === 'Domicilio') setPantallaActual('pago');
+        else seleccionarPago('Pendiente', null, tipoConsumo); 
     }
   };
 
@@ -119,7 +135,7 @@ const CheckoutFlujo = ({
             }
         }
         
-        if (!clienteActivo) { setPasoTelefono(true); return; }
+        if (!clienteActivo) { setPantallaActual('pedir_nombre'); return; }
     }
     setPantallaActual('pago');
   };
@@ -138,9 +154,8 @@ const CheckoutFlujo = ({
     let notaDireccion = direccionFinalConAviso;
     const tel = clienteActivo ? clienteActivo.telefono : telefonoRecoger;
 
-    // 👇 FIX: Imprimir el teléfono en el ticket si es Domicilio o Para Llevar
-    if (tipoReal === 'Recoger') notaDireccion = `PEDIDO POR TELÉFONO - CONTACTO: ${tel || ''}`;
-    else if (tipoReal === 'Domicilio' && tel) notaDireccion = `${direccionFinalConAviso} | TEL: ${tel}`;
+    if (tipoReal === 'Recoger') notaDireccion = `A NOMBRE DE: ${nombreOrden || 'SIN NOMBRE'} | TEL: ${tel || ''}`;
+    else if (tipoReal === 'Domicilio' && tel) notaDireccion = `${direccionFinalConAviso} | A NOMBRE DE: ${nombreOrden || 'SIN NOMBRE'} | TEL: ${tel}`;
     else if (tipoReal === 'Local' || tipoReal === 'Para llevar') {
         if (nombreOrden) notaDireccion = `A NOMBRE DE: ${nombreOrden}`;
         if (tipoReal === 'Para llevar' && tel) notaDireccion += ` | TEL: ${tel}`; 
@@ -206,7 +221,6 @@ const CheckoutFlujo = ({
            try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }
         
-        // Actualizamos directo en la BD
         if (idClienteAGuardar && tipoReal === 'Domicilio' && direccionFinalConAviso) {
             const dirLimpia = direccionFinalConAviso.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
             fetch(`${apiUrl}/clientes/${idClienteAGuardar}`, {
@@ -253,7 +267,9 @@ const CheckoutFlujo = ({
   const procesarTransferencia = () => { setContador(15); setPantallaActual('finalizado'); };
 
   const getBackRuta = () => {
-    if (tipoConsumo === 'Local' && esPersonalInterno && !mesaQR) return 'asignar_mesa';
+    if (tipoConsumo === 'Local' && esPersonalInterno && !mesaQR) {
+        return mesasDisponibles.length > 0 ? 'asignar_mesa' : 'consumo';
+    }
     if (tipoConsumo === 'Domicilio') return 'direccion';
     return 'consumo';
   };
@@ -268,6 +284,7 @@ const CheckoutFlujo = ({
   if (pasoTelefono || pantallaActual === 'pedir_nombre') {
     return (
       <PantallaRegistro 
+        pantallaActual={pantallaActual}  // 👇 AQUÍ ESTÁ LA LÍNEA QUE FALTABA
         pasoTelefono={pasoTelefono} setPasoTelefono={setPasoTelefono}
         tipoConsumo={tipoConsumo} isSubmitting={isSubmitting}
         telefonoRecoger={telefonoRecoger} setTelefonoRecoger={setTelefonoRecoger}

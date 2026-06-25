@@ -25,7 +25,7 @@ exports.login = async (req, res) => {
       const ahora = new Date();
       const hace8Horas = new Date(ahora.getTime() - (8 * 60 * 60 * 1000));
 
-      // 👇 NUEVO: Control Multi-Sesión Inteligente
+      // Control Multi-Sesión Inteligente
       let devices = [];
       if (user.ultimo_acceso && new Date(user.ultimo_acceso) > hace8Horas) {
         devices = (user.dispositivo_id || '').split(',').filter(Boolean);
@@ -47,7 +47,7 @@ exports.login = async (req, res) => {
         [devices.join(','), user.id]
       );
 
-      // 👇 REVISAMOS SI ESTÁ ACTIVADO EL LOGIN AUTOMÁTICO
+      // REVISAMOS SI ESTÁ ACTIVADO EL LOGIN AUTOMÁTICO
       const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
       const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
 
@@ -93,7 +93,7 @@ exports.logout = async (req, res) => {
       await db.query('UPDATE usuarios SET dispositivo_id = $1 WHERE id = $2', [devices.length > 0 ? devices.join(',') : null, usuario_id]);
     }
 
-    // 👇 REVISAMOS SI ESTÁ ACTIVADO EL LOGOUT AUTOMÁTICO
+    // REVISAMOS SI ESTÁ ACTIVADO EL LOGOUT AUTOMÁTICO
     const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
     const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
 
@@ -114,19 +114,29 @@ exports.logout = async (req, res) => {
   }
 };
 
-// 👇 NUEVA FUNCIÓN: Botón de Rescate Remoto (Desvincular Equipos)
 exports.forzarLogout = async (req, res) => {
   const { id } = req.params;
   try {
     await db.query('UPDATE usuarios SET dispositivo_id = NULL WHERE id = $1', [id]);
     
+    // 👇 MEJORA APLICADA: Si el administrador expulsa al empleado, también le cerramos su turno de asistencia para que no quede "colgado" ganando horas fantasma.
+    const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
+    const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
+    
+    if (isLoginActivo) {
+      await db.query(
+        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND hora_salida IS NULL',
+        [id]
+      );
+    }
+
     // Disparamos un evento por Socket para expulsar los dispositivos si estuvieran activos
     const io = req.app.get('io');
     if (io) {
       io.emit('usuario_eliminado', parseInt(id)); 
     }
 
-    res.json({ success: true, message: 'Sesiones remotas cerradas correctamente. El usuario ya puede iniciar sesión de nuevo.' });
+    res.json({ success: true, message: 'Sesiones remotas y turno de asistencia cerrados correctamente. El usuario ya puede iniciar sesión de nuevo.' });
   } catch (error) {
     res.status(500).json({ error: 'Error al forzar el cierre de sesión.' });
   }

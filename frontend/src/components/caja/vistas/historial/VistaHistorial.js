@@ -9,7 +9,7 @@ const VistaHistorial = ({
   limpiandoMesas,
   getTelefonoExtraido,
   renderBotonVerDetalle,
-  renderBotonEditar, // 👈 NUEVO PROP RECIBIDO
+  renderBotonEditar,
   configGlobal,
   lanzarImpresion
 }) => {
@@ -41,13 +41,28 @@ const VistaHistorial = ({
         ) : (
           pedidos.filter(p => subVistaHistorial === 'Entregado' ? (p.estado_preparacion === 'Entregado' || p.estado_preparacion === 'En Camino' || p.estado_preparacion === 'Finalizado') : p.estado_preparacion === subVistaHistorial).map(p => {
             let direccionPura = '';
+            let nombreMostrado = p.cliente_nombre || p.cliente?.nombre || '';
             const tel = getTelefonoExtraido(p);
             const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';  
             
             if (p.direccion_entrega) {
               const partes = p.direccion_entrega.split('|').map(x => x.trim());
-              direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+              
+              // 👇 EXTRACTOR INTELIGENTE DE NOMBRE
+              const nombrePart = partes.find(x => x.startsWith('A NOMBRE DE:'));
+              if (nombrePart && (!nombreMostrado || nombreMostrado.toLowerCase() === 'invitado')) {
+                  nombreMostrado = nombrePart.replace('A NOMBRE DE:', '').trim();
+              }
+
+              // 👇 LIMPIEZA DE DIRECCIÓN (Evita duplicados)
+              direccionPura = partes[0]
+                .replace(/TEL:\s*\d*/g, '')
+                .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger')
+                .replace(/A NOMBRE DE:\s*(.*)/g, '')
+                .trim();
             }  
+
+            nombreMostrado = nombreMostrado || 'Invitado';
             
             return (
               <div key={p.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -57,7 +72,16 @@ const VistaHistorial = ({
                     <span className="text-[10px] bg-slate-100 font-black px-2 py-1 rounded-md uppercase text-slate-500">{tipoLimpio}</span>
                   </div>  
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <p className="font-bold text-slate-600">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                    {/* 👇 NOMBRE LIMPIO EN CABECERA */}
+                    <p className="font-bold text-slate-700 text-lg">{nombreMostrado}</p>
+                    
+                    {/* 👇 DIRECCIÓN EN ETIQUETA INDEPENDIENTE */}
+                    {direccionPura && (
+                      <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
+                        📍 {direccionPura}
+                      </span>
+                    )}
+
                     {tel && (
                       <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-green-50 hover:text-green-700 transition-colors cursor-pointer">
                         <Phone size={10}/> {tel}
@@ -78,7 +102,6 @@ const VistaHistorial = ({
                   <div className="flex sm:flex-col gap-2 w-full sm:w-auto">
                     {renderBotonVerDetalle(p)}  
 
-                    {/* 👇 NUEVO: Mostrar botón de edición SOLO si está en Cola (Aún no se prepara) */}
                     {(p.estado_preparacion === 'Pagado' || p.estado_preparacion === 'Pendiente') && renderBotonEditar && renderBotonEditar(p)}
 
                     {configGlobal?.ticket_impresion_activa && (

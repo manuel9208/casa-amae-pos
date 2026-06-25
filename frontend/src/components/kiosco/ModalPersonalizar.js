@@ -6,7 +6,7 @@ const ModalPersonalizar = ({
   itemAEditar, setItemAEditar, 
   carrito, setCarrito, 
   catalogoIngredientes, clasificaciones,
-  configGlobal = {} // 👈 INYECTADO PARA LEER POLÍTICAS DE SUSTITUCIÓN DESDE LA BD
+  configGlobal = {} 
 }) => {
 
   const [cantidadProducto, setCantidadProducto] = useState(1);
@@ -16,7 +16,6 @@ const ModalPersonalizar = ({
   const [variacionesSeleccionadas, setVariacionesSeleccionadas] = useState({});
   const [gruposOpcionalesSeleccionados, setGruposOpcionalesSeleccionados] = useState({});
   
-  // 👇 NUEVOS ESTADOS PARA GESTIONAR LAS SUSTITUCIONES EN TIEMPO REAL
   const [ingredientesSustituidos, setIngredientesSustituidos] = useState({});
   const [ingredienteDesplegado, setIngredienteDesplegado] = useState(null);
 
@@ -57,7 +56,6 @@ const ModalPersonalizar = ({
              gruposOpcTemp[parts[0]].push({ nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] });
           }
         } 
-        // 👇 CARGAR SUSTITUCIONES PREVIAS SI ESTAMOS EDITANDO UN ITEM EN EL CARRITO
         else if (e.nombre.startsWith('🔄 Cambio: ')) {
           const parts = e.nombre.replace('🔄 Cambio: ', '').split(' x ');
           if (parts.length === 2) sustTemp[parts[0]] = { nuevoNombre: parts[1], precioCalculado: e.precioExtra };
@@ -137,7 +135,6 @@ const ModalPersonalizar = ({
     cerrarModal();
   };
 
-  // 👇 MOTOR MATEMÁTICO DE SUSTITUCIONES DINÁMICAS SINCRO BD
   const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
     let politicas = { activa: false, modalidad: 'proporcional', tarifa_fija: 0 };
     try {
@@ -151,7 +148,6 @@ const ModalPersonalizar = ({
     if (!politicas.activa) return 0;
     if (politicas.modalidad === 'fija') return Number(politicas.tarifa_fija || 0);
 
-    // Modalidad Diferencia Proporcional de Precios
     const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
     const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
 
@@ -164,7 +160,6 @@ const ModalPersonalizar = ({
 
   if (!productoEnEspera) return null;
 
-  // 👇 RE-CALCULO DEL TOTAL INYECTANDO EL VALOR DE LAS SUSTITUCIONES ELEGIDAS
   const totalPlatilloCalculado = (Number(productoEnEspera.precio_base) + 
     extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
     Object.values(variacionesSeleccionadas).reduce((s, v) => s + Number(v.precioExtra || 0), 0) +
@@ -222,16 +217,22 @@ const ModalPersonalizar = ({
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-      <div className="bg-white p-8 rounded-[40px] w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] border border-slate-100 relative">
+      <div className="bg-white p-6 md:p-8 rounded-[40px] w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] border border-slate-100 relative">
         
         {pasoPersonalizacion > 0 && (
-            <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-6 top-8 text-slate-400 hover:text-slate-800 font-black text-sm transition-colors z-10">
+            <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-6 top-6 md:top-8 text-slate-400 hover:text-slate-800 font-black text-sm transition-colors z-10">
               ⬅ Volver
             </button>
         )}
 
-        <h2 className="text-3xl font-black text-center mb-1 text-slate-800 mt-2">{productoEnEspera.nombre}</h2>
-        {productoEnEspera.descripcion && <p className="text-center text-slate-500 font-medium mb-4 px-2 text-sm italic leading-relaxed">"{productoEnEspera.descripcion}"</p>}
+        <h2 className="text-2xl md:text-3xl font-black text-center mb-2 text-slate-800 mt-2">{productoEnEspera.nombre}</h2>
+        {productoEnEspera.descripcion && (
+          <div className="bg-slate-50 border border-slate-100 p-3 md:p-4 rounded-2xl mb-4 shadow-sm mx-2">
+            <p className="text-slate-600 font-medium text-xs md:text-sm leading-relaxed text-center">
+              {productoEnEspera.descripcion}
+            </p>
+          </div>
+        )}
         
         <div className="flex justify-center gap-1.5 mb-6">
             {pasosWiz.map((_, i) => (
@@ -243,7 +244,7 @@ const ModalPersonalizar = ({
           
           {['tamaño', 'sabor', 'obligatorio', 'opcional'].includes(pasoActualObj.tipo) && (
              <div className="animate-in slide-in-from-right duration-200">
-                <p className="text-center text-slate-400 font-bold mb-2 uppercase tracking-widest text-xs">{pasoActualObj.titulo}</p>
+                <p className="text-center text-slate-400 font-bold mb-2 uppercase tracking-widest text-[10px] md:text-xs">{pasoActualObj.titulo}</p>
                 
                 {pasoActualObj.tipo === 'opcional' && (
                   <p className="text-center text-xs font-bold text-emerald-500 mb-4 border-b pb-4">
@@ -252,13 +253,13 @@ const ModalPersonalizar = ({
                 )}
                 {pasoActualObj.tipo !== 'opcional' && <div className="border-b pb-4 mb-4"></div>}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4">
                     {pasoActualObj.opciones.map((o, idx) => {
                         let estaSeleccionado = false;
                         if (pasoActualObj.tipo === 'opcional') {
                           estaSeleccionado = (gruposOpcionalesSeleccionados[pasoActualObj.categoria] || []).some(x => x.nombre === o.nombre);
                         } else {
-                          estaSeleccionado = variacionesSeleccionadas[pasoActualObj.id]?.nombre === o.nombre;
+                          estaSeleccionado = variacionesSeleccionadas[o.categoria || pasoActualObj.id]?.nombre === o.nombre;
                         }
 
                         const seleccionadosActuales = gruposOpcionalesSeleccionados[pasoActualObj.categoria] || [];
@@ -280,18 +281,18 @@ const ModalPersonalizar = ({
                                     }
                                     setGruposOpcionalesSeleccionados({ ...gruposOpcionalesSeleccionados, [pasoActualObj.categoria]: currentSelection });
                                   } else {
-                                    seleccionarVariacion(pasoActualObj.id, o);
+                                    seleccionarVariacion(o.categoria || pasoActualObj.id, o);
                                   }
                                 }} 
-                                className={`p-5 rounded-2xl border-2 transition-all font-bold flex flex-col items-center justify-center text-center relative ${disabled ? 'opacity-40 grayscale cursor-not-allowed' : ''} ${estaSeleccionado ? 'border-blue-600 bg-blue-600 text-white shadow-md scale-105' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50'}`}
+                                className={`p-4 md:p-5 rounded-2xl border-2 transition-all font-bold flex flex-col items-center justify-center text-center relative ${disabled ? 'opacity-40 grayscale cursor-not-allowed' : ''} ${estaSeleccionado ? 'border-blue-600 bg-blue-600 text-white shadow-md scale-105' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50'}`}
                             >
                                 {pasoActualObj.tipo === 'opcional' && (
                                    <div className="absolute top-2 left-2 opacity-60">
                                      {estaSeleccionado ? <CheckSquare size={16}/> : <Square size={16}/>}
                                    </div>
                                 )}
-                                <span className="text-lg leading-tight">{o.nombre}</span>
-                                {o.precioExtra > 0 && <span className={`text-xs mt-1 font-black uppercase tracking-wider ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
+                                <span className="text-sm md:text-lg leading-tight">{o.nombre}</span>
+                                {o.precioExtra > 0 && <span className={`text-[10px] md:text-xs mt-1 font-black uppercase tracking-wider ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
                             </button>
                         );
                     })}
@@ -299,10 +300,9 @@ const ModalPersonalizar = ({
              </div>
           )}
 
-          {/* 👇 INTEGRACIÓN DE SUSTITUCIONES RESPETANDO EL BOTÓN ORIGINAL DE "SOLO QUITAR" */}
           {pasoActualObj.tipo === 'quitar_ingredientes' && (
             <div className="animate-in slide-in-from-right duration-200 space-y-4">
-              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">¿Deseas quitar o cambiar un ingrediente?</p>
+              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-[10px] md:text-xs border-b pb-4">¿Deseas quitar o cambiar un ingrediente?</p>
               <div className="space-y-3">
                 {pasoActualObj.opciones.map((o, idx) => {
                   const isBaseQuitada = ingredientesRemovidos.includes(o.nombre);
@@ -310,7 +310,7 @@ const ModalPersonalizar = ({
                   const isSelectingSust = ingredienteDesplegado === o.nombre;
 
                   return (
-                    <div key={idx} className={`p-4 rounded-xl transition border ${isBaseQuitada ? 'bg-rose-50 border-rose-200' : isSustituida ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <div key={idx} className={`p-3 md:p-4 rounded-xl transition border ${isBaseQuitada ? 'bg-rose-50 border-rose-200' : isSustituida ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-emerald-50 border-emerald-200'}`}>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                             <span className={`font-bold text-sm ${isBaseQuitada ? 'line-through text-rose-500' : isSustituida ? 'text-blue-700' : 'text-emerald-700'}`}>
                                 {o.nombre} {isSustituida ? `(🔄 x ${isSustituida.nuevoNombre})` : ''}
@@ -347,7 +347,6 @@ const ModalPersonalizar = ({
                             </div>
                         </div>
 
-                        {/* SELECTOR DE EXTAS DISPONIBLES EN ESTA CATEGORÍA */}
                         {isSelectingSust && !isSustituida && !isBaseQuitada && (
                             <div className="mt-4 pt-4 border-t border-emerald-200/50 animate-in fade-in zoom-in-95">
                                 <p className="text-[10px] uppercase font-black text-slate-500 mb-3 tracking-widest">Elige el ingrediente de reemplazo:</p>
@@ -379,7 +378,7 @@ const ModalPersonalizar = ({
 
           {pasoActualObj.tipo === 'extras_notas' && (
             <div className="animate-in slide-in-from-right duration-200 space-y-6">
-              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-xs border-b pb-4">Añadir Extras (Opcional)</p>
+              <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-[10px] md:text-xs border-b pb-4">Añadir Extras (Opcional)</p>
               
               {(() => {
                 const categoriaItem = productoEnEspera.categoria || '';
@@ -403,8 +402,8 @@ const ModalPersonalizar = ({
                           <button key={idx} type="button" onClick={() => {
                             if (seleccionado) setExtrasAgregados(extrasAgregados.filter(e => e.nombre !== ex.nombre));
                             else setExtrasAgregados([...extrasAgregados, { nombre: ex.nombre, precioExtra: ex.precioExtra }]);
-                          }} className={`p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
-                            <span className="text-center leading-tight">{ex.nombre}</span>
+                          }} className={`p-3 md:p-4 rounded-xl font-bold text-sm transition border flex flex-col items-center gap-1 ${seleccionado ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm' : 'bg-white text-slate-600 border-slate-100 hover:border-slate-300'}`}>
+                            <span className="text-center leading-tight text-xs md:text-sm">{ex.nombre}</span>
                             <span className={seleccionado ? 'text-blue-500' : 'text-slate-400'}>{ex.precioExtra > 0 ? `+$${ex.precioExtra}` : 'Gratis'}</span>
                           </button>
                         )
@@ -417,49 +416,45 @@ const ModalPersonalizar = ({
 
               <div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 mt-4">Notas Generales</p>
-                <textarea value={notaEspecial} onChange={e => setNotaEspecial(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-20 shadow-inner" />
+                <textarea value={notaEspecial} onChange={e => setNotaEspecial(e.target.value)} placeholder="Instrucciones al chef..." className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 outline-none focus:border-blue-500 text-slate-700 font-bold resize-none h-20 shadow-inner text-sm md:text-base" />
               </div>
             </div>
           )}
 
         </div>
 
-        <div className="p-8 bg-white border-t border-slate-200 shrink-0">
+        {/* 👇 BARRA INFERIOR REESTRUCTURADA PARA DAR PROTAGONISMO A SIGUIENTE / AÑADIR */}
+        <div className="pt-4 md:pt-6 md:p-8 bg-white border-t border-slate-200 shrink-0">
           <div className="flex justify-between items-center mb-6">
             {pasoActualObj.tipo === 'extras_notas' ? (
                 <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
-                  <button type="button" onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">-</button>
-                  <span className="px-4 font-black text-xl">{cantidadProducto}</span>
-                  <button type="button" onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-5 py-3 text-slate-400 hover:text-slate-800 text-xl font-black transition">+</button>
+                  <button type="button" onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">-</button>
+                  <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
+                  <button type="button" onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
                 </div>
             ) : (
                 <div className="flex items-center">
-                    {['opcional', 'quitar_ingredientes'].includes(pasoActualObj.tipo) && (
-                       <button type="button" onClick={() => setPasoPersonalizacion(p => p + 1)} className="bg-emerald-500 text-white font-black px-6 py-3 rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition">
-                          Siguiente ➡
-                       </button>
-                    )}
+                    {/* Placeholder para mantener el justify-between del layout */}
                 </div>
             )}
 
             <div className="text-right">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Platillo</p>
-              <p className="text-4xl font-black text-blue-600">
+              <p className="text-3xl md:text-4xl font-black text-blue-600">
                 ${totalPlatilloCalculado.toFixed(2)}
               </p>
             </div>
           </div>
 
-          <div className="flex gap-4">
-            <button type="button" onClick={cerrarModal} className="flex-1 py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
+          <div className="flex gap-3 md:gap-4">
+            <button type="button" onClick={cerrarModal} className="flex-1 py-4 md:py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
             
-            {pasoActualObj.tipo === 'extras_notas' && (
+            {pasoActualObj.tipo === 'extras_notas' ? (
               <button type="button" onClick={() => {
                 const extrasFinales = [];
                 Object.values(variacionesSeleccionadas).forEach(v => extrasFinales.push({ nombre: `🔸 ${v.category || v.categoria}: ${v.nombre}`, precioExtra: v.precioExtra, tipo: 'grupo_obligatorio' }));
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));
                 
-                // 👇 ADJUNTAR LAS SUSTITUCIONES REALIZADAS AL HISTORIAL DE EXTRAS PARA COCINA Y TICKET
                 Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
                     extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculated || data.precioCalculado, tipo: 'sustitucion' });
                 });
@@ -511,8 +506,17 @@ const ModalPersonalizar = ({
                         cerrarModal();
                     }
                 }
-              }} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">
+              }} className="flex-[2] py-4 md:py-5 bg-emerald-500 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">
                 {itemAEditar ? 'Actualizar' : `Añadir (${cantidadProducto})`}
+              </button>
+            ) : (
+              <button 
+                type="button" 
+                onClick={() => setPasoPersonalizacion(p => p + 1)} 
+                disabled={pasoActualObj.tipo === 'obligatorio' && !variacionesSeleccionadas[pasoActualObj.opciones?.[0]?.categoria || pasoActualObj.id]}
+                className="flex-[2] py-4 md:py-5 bg-blue-600 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Siguiente ➡
               </button>
             )}
           </div>
@@ -521,25 +525,25 @@ const ModalPersonalizar = ({
         {/* MODAL PROMOCIÓN / UPSELL */}
         {promocionVigente && (
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4">
-            <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
-              <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                 <span className="text-5xl">🎁</span>
+            <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
+              <div className="bg-orange-100 text-orange-600 w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                 <span className="text-4xl md:text-5xl">🎁</span>
               </div>
-              <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Oferta Especial! 🔥</h2>
-              <p className="text-slate-500 font-medium mb-6">¿Te gustaría agregar esto a tu orden?</p>
+              <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2 leading-tight">¡Oferta Especial! 🔥</h2>
+              <p className="text-slate-500 font-medium mb-6 text-sm md:text-base">¿Te gustaría agregar esto a tu orden?</p>
               
-              <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-6 mb-8 transform hover:scale-105 transition">
+              <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-4 md:p-6 mb-8 transform hover:scale-105 transition">
                  {promocionVigente.oferta_imagen && (
-                    <img src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${(process.env.REACT_APP_API_URL || 'http://localhost:4000/api').replace('/api', '')}${promocionVigente.oferta_imagen}`} className="w-32 h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" alt="promo" />
+                    <img src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${(process.env.REACT_APP_API_URL || 'http://localhost:4000/api').replace('/api', '')}${promocionVigente.oferta_imagen}`} className="w-24 h-24 md:w-32 md:h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" alt="promo" />
                  )}
-                 <h3 className="font-black text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
-                 <p className="text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
+                 <h3 className="font-black text-xl md:text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
+                 <p className="text-base md:text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
                    {promocionVigente.tipo_descuento === 'porcentaje' ? `Llévalo con ${promocionVigente.valor_descuento}% de descuento` : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
                  </p>
               </div>
               
               <div className="flex flex-col gap-3">
-                <button type="button" onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
+                <button type="button" onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-lg md:text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
                 <button type="button" onClick={() => { setPromocionVigente(null); cerrarModal(); }} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
               </div>
             </div>

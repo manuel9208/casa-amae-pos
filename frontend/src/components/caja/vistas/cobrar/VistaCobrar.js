@@ -27,15 +27,31 @@ const VistaCobrar = ({
           {ordenesEnCaja.map(p => {
             let direccionPura = '';
             let notaCambio = null;
+            let nombreMostrado = p.cliente_nombre || p.cliente?.nombre || '';
             const tel = getTelefonoExtraido(p);
             const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';
 
             if (p.direccion_entrega) {
                const partes = p.direccion_entrega.split('|').map(x => x.trim());
-               direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+               
+               // 👇 EXTRACTOR INTELIGENTE DE NOMBRE
+               const nombrePart = partes.find(x => x.startsWith('A NOMBRE DE:'));
+               if (nombrePart && (!nombreMostrado || nombreMostrado.toLowerCase() === 'invitado')) {
+                   nombreMostrado = nombrePart.replace('A NOMBRE DE:', '').trim();
+               }
+
+               // 👇 LIMPIEZA DE DIRECCIÓN (quitamos el nombre para que no se repita abajo)
+               direccionPura = partes[0]
+                 .replace(/TEL:\s*\d*/g, '')
+                 .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger')
+                 .replace(/A NOMBRE DE:\s*(.*)/g, '')
+                 .trim();
+                 
                const cambioPart = partes.find(x => x.includes('Llevar cambio'));
                notaCambio = cambioPart ? cambioPart : null;
             }
+
+            nombreMostrado = nombreMostrado || 'Invitado';
 
             const esCuentaAbierta = p.metodo_pago === 'Por Cobrar';
             const isReparto = p.tipo_consumo === 'Domicilio' && p.estado_preparacion === 'En Camino';
@@ -51,7 +67,9 @@ const VistaCobrar = ({
               </div>
               
               <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                  {/* 👇 APLICAMOS EL NOMBRE EXTRAÍDO EN LETRAS GRANDES */}
+                  <p className="font-bold text-slate-700 text-xl">{nombreMostrado}</p>
+                  
                   {tel && (
                       <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-xs font-black text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer">
                           <Phone size={12}/> {tel}
@@ -97,7 +115,9 @@ const VistaCobrar = ({
 
               {p.tipo_consumo === 'Domicilio' && (direccionPura || notaCambio) && (
                 <div className="mb-4">
+                  {/* 👇 SI LA DIRECCIÓN PURA QUEDÓ VACÍA, ESTA LÍNEA NO SE MUESTRA */}
                   {direccionPura && <div className="text-xs font-bold text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">📍 {direccionPura}</div>}
+                  
                   {notaCambio && (
                     <div className="mt-2 bg-orange-100 border border-orange-200 text-orange-700 font-black px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
                       <AlertTriangle size={16}/> {notaCambio}

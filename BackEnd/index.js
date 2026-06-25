@@ -67,6 +67,11 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   console.warn("⚠️ Faltan las llaves VAPID en el archivo .env. Las notificaciones Push no funcionarán.");
 }
 
+// 👇 PUENTE BIOMÉTRICO (ZKTECO ADMS): Intercepta el checador y rutea el tráfico sin perder las huellas
+app.use('/iclock', (req, res) => {
+  res.redirect(307, `/api/iclock${req.url}`);
+});
+
 // Tus rutas de API
 app.use('/api', apiRoutes);
 

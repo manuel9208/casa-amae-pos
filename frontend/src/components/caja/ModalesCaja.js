@@ -11,6 +11,7 @@ import ModalVerDetalle from './modales/ModalVerDetalle';
 import ModalAperturaCaja from './modales/ModalAperturaCaja';
 import ModalPuntoVenta from './modales/ModalPuntoVenta';
 import ModalAsistencia from './modales/ModalAsistencia'; 
+import ModalComedor from './modales/ModalComedor'; // 👈 NUEVA IMPORTACIÓN
 
 const ModalesCaja = ({
   user, cargarDataDinamica, modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
@@ -23,7 +24,8 @@ const ModalesCaja = ({
   guardarEdicionPedido, isSubmitting, modalVerDetalle, setModalVerDetalle, modalIdentificar, setModalIdentificar, pasoIdentificar,
   setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente, buscarClienteParaPedido,
   registrarClienteParaPedido, onGoToKiosco, empleadosPOS, mesas,
-  modalAsistencia, setModalAsistencia 
+  modalAsistencia, setModalAsistencia,
+  modalComedor, setModalComedor, pedidos // 👈 NUEVOS PROPS RECIBIDOS
 }) => {
   return (
     <>
@@ -100,13 +102,21 @@ const ModalesCaja = ({
       
       <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />  
       
-      {/* 👇 AQUÍ LE PASAMOS EL GATILLO A CAJA TAMBIÉN */}
-      <ModalAsistencia 
-        modalAsistencia={modalAsistencia} 
-        setModalAsistencia={setModalAsistencia} 
+      <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} onSuccess={cargarDataDinamica} />
+
+      {/* 👇 NUEVO MODAL DE COMEDOR INYECTADO */}
+      <ModalComedor 
+        modalComedor={modalComedor} 
+        setModalComedor={setModalComedor} 
+        empleadosPOS={empleadosPOS} 
+        pedidos={pedidos} 
+        configGlobal={configGlobal} 
+        productos={productos} 
+        clasificaciones={clasificaciones} 
+        catalogoIngredientes={catalogoIngredientes} 
         apiUrl={apiUrl} 
-        setAlertaCaja={setAlertaCaja} 
-        onSuccess={cargarDataDinamica} 
+        refrescarDatosCaja={cargarDataDinamica} 
+        lanzarImpresion={lanzarImpresion} 
       />
     </>
   );

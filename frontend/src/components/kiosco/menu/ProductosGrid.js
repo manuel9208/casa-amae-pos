@@ -13,28 +13,31 @@ const ProductosGrid = ({ categoriaActiva, setCategoriaActiva, productosFiltrados
         </button>
       </div>
       
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pb-6 pr-2">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto pb-6 pr-2">
         {productosFiltrados.map((p) => {
-          const tieneOpciones = p.opciones?.length > 0;
           return (
             <button 
               key={p.id} 
               onClick={() => abrirModalProducto(p)} 
-              className="bg-white p-6 rounded-[30px] shadow-sm border border-gray-100 flex flex-col items-center active:scale-95 transition-transform hover:shadow-md hover:border-blue-200"
+              className="bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center active:scale-95 transition-transform hover:shadow-md hover:border-blue-200"
             >
               {p.imagen_url ? (
                 <img 
                   src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} 
                   alt={p.nombre} 
-                  className="w-28 h-28 object-cover rounded-2xl shadow-sm mb-4" 
+                  className="w-20 h-20 md:w-28 md:h-28 object-cover rounded-2xl shadow-sm mb-3 md:mb-4" 
                 />
               ) : (
-                <span className="text-6xl mb-4 bg-slate-50 w-28 h-28 flex items-center justify-center rounded-2xl">{p.emoji}</span>
+                <span className="text-5xl md:text-6xl mb-3 md:mb-4 bg-slate-50 w-20 h-20 md:w-28 md:h-28 flex items-center justify-center rounded-2xl">{p.emoji}</span>
               )}
-              <h3 className="text-xl font-bold text-center leading-tight text-slate-700">{p.nombre}</h3>
-              <span className={`mt-4 px-4 py-2 rounded-full font-black ${tieneOpciones ? 'bg-emerald-50 text-emerald-600 text-sm' : 'bg-slate-100 text-blue-600'}`}>
-                {tieneOpciones ? 'Personalizar' : `$${p.precio_base}`}
-              </span>
+              <h3 className="text-lg md:text-xl font-bold text-center leading-tight text-slate-700">{p.nombre}</h3>
+              
+              {/* 👇 INYECCIÓN DE LA DESCRIPCIÓN CON CORTE INTELIGENTE */}
+              {p.descripcion && (
+                <p className="text-xs md:text-sm text-slate-500 font-medium text-center mt-2 line-clamp-2 leading-snug">
+                  {p.descripcion}
+                </p>
+              )}
             </button>
           );
         })}

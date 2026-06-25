@@ -39,15 +39,17 @@ const PantallaRegistro = ({
     setIsSubmittingLocal(false);
   };
 
-  // 👇 FIX INTELIGENTE: Botón Atrás detecta el contexto para no botarte al inicio
+  // 👇 FIX INTELIGENTE: Botón Atrás desde el Teléfono
   const handleVolverTelefono = () => {
+    // Como ahora todos los flujos de invitado pasan por pedir nombre primero:
+    setPasoTelefono(false); 
+  };
+
+  // 👇 FIX INTELIGENTE: Botón Atrás desde Pedir Nombre
+  const handleVolverNombre = () => {
     if (tipoConsumo === 'Domicilio') {
-        setPasoTelefono(false);
         setPantallaActual('direccion');
-    } else if (tipoConsumo === 'Para llevar') {
-        setPasoTelefono(false); // Bajo el capó ya estaba en la vista "pedir_nombre"
     } else {
-        setPasoTelefono(false);
         setPantallaActual('consumo');
     }
   };
@@ -115,7 +117,7 @@ const PantallaRegistro = ({
     return (
       <div className="max-w-md mx-auto mt-10 text-center animate-in slide-in-from-bottom-4">
         <div className="flex justify-start mb-6">
-            <button disabled={isSubmitting} onClick={() => setPantallaActual('consumo')} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button>
+            <button disabled={isSubmitting} onClick={handleVolverNombre} className="bg-white px-6 py-3 rounded-full shadow-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 transition disabled:opacity-50">⬅ Atrás</button>
         </div>
         <span className="text-6xl block mb-6">👤</span>
         <h2 className="text-4xl font-black mb-4 texto-destacado">¿A nombre de quién?</h2>

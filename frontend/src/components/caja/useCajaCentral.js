@@ -9,7 +9,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [isCajaBloqueada, setIsCajaBloqueada] = useState(true);
   const [operadorActual, setOperadorActual] = useState(user);  
 
-  // 👇 SOLUCIÓN TIEMPO REAL: Si App.js recibe nuevos permisos por Socket, actualizamos al Operador de la Caja al instante
   useEffect(() => {
     if (user) {
       setOperadorActual(user);
@@ -58,6 +57,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [modalPuntoVenta, setModalPuntoVenta] = useState(false);
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);  
+  
+  // 👇 NUEVO ESTADO PARA EL COMEDOR AISLADO
+  const [modalComedor, setModalComedor] = useState(false);
 
   // ==========================================
   // 4. CONFIGURACIÓN INICIAL Y FONDOS
@@ -165,7 +167,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   useEffect(() => {
     if (!configGlobal) return;
     const isBloqueoGlobalOn = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
-    if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia) return;  
+    // 👇 FIX: Agregamos modalComedor a la lista de modales que evitan el bloqueo
+    if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia || modalComedor) return;  
     
     let timeout;
     const segundosLimite = configGlobal.bloqueo_caja_segundos || 30;
@@ -191,7 +194,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       window.removeEventListener('touchstart', reiniciarTemporizador);
       window.removeEventListener('click', reiniciarTemporizador);
     };
-  }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia]);  
+  }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia, modalComedor]);  
 
   // ==========================================
   // 6. FUNCIONES OPERATIVAS
@@ -664,7 +667,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   );
 
   // ==========================================
-  // 8. RETORNO DEL HOOK (Limpio y legible)
+  // 8. RETORNO DEL HOOK
   // ==========================================
   return {
     vistaActiva, setVistaActiva, 
@@ -685,6 +688,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar, 
     telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, 
+    modalComedor, setModalComedor, // 👈 NUEVO MODAL INYECTADO
     productos, clasificaciones, empleadosPOS, 
     isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
     isSubmitting, 
@@ -692,10 +696,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     apiUrl, cargarDataDinamica,
     fondoRepartidor, actualizarFondoRepartidor,
     modalAsistencia, setModalAsistencia,  
-    // Variables derivadas limpias
     pedidosPorConfirmar, pendientesDePago, listosParaEntregar, 
     pedidosEnReparto, mesasPagadas, pedidosConAlerta,
-    // Funciones
     buscarClienteParaPedido: () => {}, 
     registrarClienteParaPedido: () => {},
     toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno, 

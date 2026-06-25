@@ -28,13 +28,28 @@ const VistaMesasPagadas = ({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
           {mesasVisibles.map(p => {
             let direccionPura = '';
+            let nombreMostrado = p.cliente_nombre || p.cliente?.nombre || '';
             const tel = getTelefonoExtraido(p);
             const tipoLimpio = p.tipo_consumo || 'SIN ESPECIFICAR';  
             
             if (p.direccion_entrega) {
               const partes = p.direccion_entrega.split('|').map(x => x.trim());
-              direccionPura = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
+              
+              // 👇 EXTRACTOR INTELIGENTE DE NOMBRE
+              const nombrePart = partes.find(x => x.startsWith('A NOMBRE DE:'));
+              if (nombrePart && (!nombreMostrado || nombreMostrado.toLowerCase() === 'invitado')) {
+                  nombreMostrado = nombrePart.replace('A NOMBRE DE:', '').trim();
+              }
+
+              // 👇 LIMPIEZA DE DIRECCIÓN / NOTAS (Evita duplicar el nombre)
+              direccionPura = partes[0]
+                .replace(/TEL:\s*\d*/g, '')
+                .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger')
+                .replace(/A NOMBRE DE:\s*(.*)/g, '')
+                .trim();
             }  
+
+            nombreMostrado = nombreMostrado || 'Invitado';
             
             return (
               <div key={p.id} className="bg-emerald-50 p-8 rounded-[40px] shadow-sm border-2 border-emerald-200 flex flex-col hover:shadow-md transition">
@@ -45,7 +60,9 @@ const VistaMesasPagadas = ({
                   </span>
                 </div>  
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <p className="font-bold text-slate-700 text-xl">{direccionPura || p.cliente_nombre || p.cliente?.nombre || 'Invitado'}</p>
+                  {/* 👇 RENDEREADO DEL NOMBRE REAL EXTRAÍDO */}
+                  <p className="font-bold text-slate-700 text-xl">{nombreMostrado}</p>
+                  
                   {tel && (
                     <a href={`https://wa.me/52${tel.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" title="Abrir chat en WhatsApp" className="text-xs font-black text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-green-50 hover:text-green-700 hover:border-green-300 transition-colors cursor-pointer">
                       <Phone size={12}/> {tel}
@@ -58,6 +75,13 @@ const VistaMesasPagadas = ({
                   ) : (
                     <span className="text-xs font-black text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md flex items-center gap-1">
                       📍 LOCAL / BARRA
+                    </span>
+                  )}
+
+                  {/* 👇 RE-ACOMODO DE NOTAS ADICIONALES DE FORMA LIMPIA */}
+                  {direccionPura && (
+                    <span className="text-xs font-bold text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-md">
+                      📝 {direccionPura}
                     </span>
                   )}
                 </div>  
@@ -93,7 +117,7 @@ const VistaMesasPagadas = ({
                           body: JSON.stringify({
                             estado_preparacion: 'Finalizado',
                             carrito: nuevoCarrito
-                            // 👇 FIX: Quitamos la línea de "mesa: null" para que tu historial NO pierda la mesa
+                            // Con esto tu historial NO perderá el número de mesa asignado
                           })
                         });  
 
