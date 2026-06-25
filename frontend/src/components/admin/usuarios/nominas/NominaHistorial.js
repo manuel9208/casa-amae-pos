@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { History, Search, Printer, Trash2, Calendar, Users, Filter } from 'lucide-react';
+import { History, Printer, Trash2, Calendar, Users, Filter } from 'lucide-react';
 import ReciboNomina from './ReciboNomina'; 
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
@@ -9,7 +9,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
   const [cargando, setCargando] = useState(true);
   const [reciboPrint, setReciboPrint] = useState(null);
   
-  // 👇 NUEVO ESTADO: Para capturar el logo y nombre de la sucursal activa
+  // Para capturar el logo y nombre de la sucursal activa
   const [configGlobal, setConfigGlobal] = useState({});
 
   // ESTADOS PARA LOS MENÚS DESPLEGABLES
@@ -22,10 +22,11 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
   // Extraer los periodos únicos de nómina generados para armar el menú de fechas
   const periodosUnicos = [...new Set(historicoNominas.map(nomina => {
     const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
-    return `${datos.metadata?.fecha_inicio} al ${datos.metadata?.fecha_fin}`;
-  }))];
+    if (!datos?.metadata?.fecha_inicio || !datos?.metadata?.fecha_fin) return null;
+    return `${datos.metadata.fecha_inicio} al ${datos.metadata.fecha_fin}`;
+  }).filter(Boolean))];
 
-  // 👇 NUEVO: Cargar configuración global para obtener el logo de marca blanca
+  // Cargar configuración global para branding
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
       .then(res => res.json())
@@ -49,13 +50,26 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         });
         setHistoricoNominas(nominas.reverse());
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e); 
+    }
     setCargando(false);
   }, [apiUrl]);
 
   useEffect(() => {
     cargarHistorico();
   }, [cargarHistorico]);
+
+  // Lanzar la ventana nativa de impresión
+  useEffect(() => {
+    if (reciboPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setReciboPrint(null); 
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [reciboPrint]);
 
   // ELIMINAR UNA NÓMINA PASADA
   const eliminarNomina = (id) => {
@@ -72,21 +86,14 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
     });
   };
 
-  const lanzarImpresion = (recibo, metadata) => {
-    setReciboPrint({ ...recibo, metadata });
-    setTimeout(() => { window.print(); setReciboPrint(null); }, 500);
-  };
-
   // LÓGICA DE FILTRADO POR DESPLEGABLES
   const nominasFiltradas = historicoNominas.filter(nomina => {
     const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
     const recibos = datos.recibos || [];
     const periodoStr = `${datos.metadata?.fecha_inicio} al ${datos.metadata?.fecha_fin}`;
     
-    // 1. Filtrar por Periodo (Si seleccionó uno)
     if (filtroPeriodo && periodoStr !== filtroPeriodo) return false;
 
-    // 2. Filtrar por Empleado (Si seleccionó uno)
     if (filtroEmpleado) {
       const tieneAlEmpleado = recibos.some(r => String(r.empleado_id) === String(filtroEmpleado));
       if (!tieneAlEmpleado) return false;
@@ -96,8 +103,8 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
   });
 
   return (
-    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
-      <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 main-container-nomina">
+      <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4 print-hidden">
         <History className="text-blue-500" size={32}/>
         <div>
           <h3 className="text-2xl font-black text-slate-800">Historial de Nóminas</h3>
@@ -106,7 +113,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
       </div>
 
       {/* MENÚS DESPLEGABLES DE FILTRO */}
-      <div className="flex flex-col md:flex-row gap-4 mb-8 bg-slate-50 p-4 rounded-2xl border border-slate-100 animate-in slide-in-from-top-4">
+      <div className="flex flex-col md:flex-row gap-4 mb-8 bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-sm print-hidden">
         <div className="flex-1">
           <label className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={14}/> Empleado</label>
           <select 
@@ -149,24 +156,24 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
       </div>
 
       {cargando ? (
-        <div className="py-20 text-center flex flex-col items-center justify-center opacity-50">
-           <Search size={48} className="text-slate-400 mb-4 animate-pulse" />
+        <div className="py-20 text-center flex flex-col items-center justify-center opacity-50 print-hidden">
+           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-800 mx-auto mb-3"></div>
            <p className="font-black text-xl text-slate-500">Buscando registros...</p>
         </div>
       ) : historicoNominas.length === 0 ? (
-        <div className="py-20 text-center flex flex-col items-center justify-center">
+        <div className="py-20 text-center flex flex-col items-center justify-center print-hidden">
            <History size={64} className="text-slate-300 mb-4" />
            <p className="font-black text-2xl text-slate-800 mb-2">No hay historial</p>
            <p className="text-slate-500 font-medium">Aún no se han generado nóminas en este año.</p>
         </div>
       ) : nominasFiltradas.length === 0 ? (
-        <div className="py-20 text-center flex flex-col items-center justify-center animate-in zoom-in-95">
+        <div className="py-20 text-center flex flex-col items-center justify-center print-hidden">
            <Filter size={64} className="text-slate-300 mb-4" />
            <p className="font-black text-2xl text-slate-800 mb-2">Sin resultados</p>
            <p className="text-slate-500 font-medium">No hay recibos con esta combinación de filtros.</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6 print-hidden">
           {nominasFiltradas.map(nomina => {
             const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
             const recibos = datos.recibos || [];
@@ -177,7 +184,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                 : recibos;
 
             return (
-              <div key={nomina.id} className="bg-slate-50 p-6 rounded-3xl border border-slate-200 animate-in fade-in">
+              <div key={nomina.id} className="bg-slate-50 p-6 rounded-3xl border border-slate-200">
                 <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-4">
                   <div>
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={14}/> {new Date(nomina.fecha_creacion).toLocaleString()}</p>
@@ -196,7 +203,22 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">{r.rol}</p>
                         <p className="text-3xl font-black text-emerald-600">{formaterMoneda(r.neto)}</p>
                       </div>
-                      <button onClick={() => lanzarImpresion(r, metadata)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95">
+                      <button 
+                        onClick={() => {
+                          setReciboPrint({
+                            ...r,
+                            metadata: metadata,
+                            ingresos_base: r.ingresos_base || [],
+                            adicionales_ingresos: r.nuevos_ingresos || r.adicionales_ingresos || [],
+                            egresos_base: r.egresos_base || [],
+                            adicionales_egresos: r.nuevos_egresos || r.adicionales_egresos || [],
+                            total_ingresos: r.total_ingresos || r.ingresos || 0,
+                            total_egresos: r.total_egresos || r.egresos || 0,
+                            neto: r.neto || 0
+                          });
+                        }} 
+                        className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95"
+                      >
                         <Printer size={16}/> Imprimir Recibo
                       </button>
                     </div>
@@ -208,19 +230,86 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         </div>
       )}
 
-      {/* ÁREA OCULTA PARA IMPRESIÓN */}
-      <div className="hidden print:block">
-         {/* 👇 SE INYECTÓ LA PROP DE CONFIG_GLOBAL PARA LOGO */}
-         {reciboPrint && <ReciboNomina recibo={reciboPrint} configGlobal={configGlobal} />}
-      </div>
+      {/* ÁREA DE IMPRESIÓN EXCLUSIVA */}
+      {reciboPrint && (
+        <div className="print-receipt-wrapper">
+          <ReciboNomina recibo={reciboPrint} configGlobal={configGlobal} />
+        </div>
+      )}
 
-      {/* 👇 NUEVO: AISLADOR DE IMPRESIÓN PARA OCULTAR LA APP WEB EN EL TICKET */}
+      {/* 🛡️ BLINDAJE DE IMPRESIÓN PORTAL-CSS PERMANENTE */}
       <style>{`
+        @media screen {
+          .print-receipt-wrapper { display: none !important; }
+        }
+
         @media print {
-          body * { visibility: hidden; }
-          #seccion-a-imprimir-recibo, #seccion-a-imprimir-recibo * { visibility: visible; }
-          #seccion-a-imprimir-recibo { position: absolute; left: 0; top: 0; width: 100%; }
-          .print\\:hidden { display: none !important; }
+          /* 1. Apagamos de raíz todos los componentes interactivos y barras externas que puedan colarse */
+          header, nav, aside, footer, sidebar, button, .print-hidden, .screen-only,
+          [className*="header"], [className*="sidebar"], [className*="navbar"], [className*="topbar"],
+          #root > div > div:first-child {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            overflow: hidden !important;
+          }
+
+          /* 2. Reseteamos el lienzo a blanco absoluto */
+          html, body, #root, .main-container-nomina {
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            box-shadow: none !important;
+            border: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          /* 3. El contenedor toma posesión absoluta de las dimensiones físicas de la hoja */
+          .print-receipt-wrapper {
+            display: block !important;
+            visibility: visible !important;
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            padding: 10mm !important;
+            box-sizing: border-box !important;
+            background-color: #ffffff !important;
+            background: #ffffff !important;
+            z-index: 9999999 !important;
+          }
+
+          /* Forzamos visibilidad total del contenido interno */
+          .print-receipt-wrapper * {
+            visibility: visible !important;
+            color: #000000 !important;
+            opacity: 1 !important;
+          }
+
+          /* Bordes sólidos para la tabla */
+          .print-receipt-wrapper table {
+            display: table !important;
+            width: 100% !important;
+            border: 1px solid #000000 !important;
+            border-collapse: collapse !important;
+          }
+          .print-receipt-wrapper tr {
+            display: table-row !important;
+          }
+          .print-receipt-wrapper th,
+          .print-receipt-wrapper td {
+            display: table-cell !important;
+            border: 1px solid #000000 !important;
+            padding: 6px 10px !important;
+          }
+
+          @page {
+            size: auto;
+            margin: 0mm;
+          }
         }
       `}</style>
     </div>
