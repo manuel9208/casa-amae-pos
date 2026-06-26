@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingDown, Calendar, Search, History, Bike, AlertTriangle, Store, Calculator, Smartphone, Lock, CheckCircle2 } from 'lucide-react';  
+import { TrendingDown, Calendar, Search, History, Bike, Store, Calculator, Smartphone, Lock, CheckCircle2, User } from 'lucide-react';  
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
@@ -18,11 +18,8 @@ const getMazatlanDate = (dateString) => {
 };
 
 const VistaCorte = (props) => {
-  const {
-    totalGastos, fondoCaja, fondoRepartidor, user: userProp
-  } = props;  
+  const { totalGastos, fondoCaja, fondoRepartidor, user: userProp } = props;  
 
-  // 🛡️ INTELIGENCIA AUTÓNOMA: Si el componente padre (Caja.js) olvida mandarnos el usuario, lo extraemos de la memoria.
   let currentUser = userProp;
   if (!currentUser) {
     try {
@@ -36,13 +33,10 @@ const VistaCorte = (props) => {
   const [cargando, setCargando] = useState(false);
   const [pedidos, setPedidos] = useState([]);
   const [datosHistoricos, setDatosHistoricos] = useState(null);  
-
   const [efectivoManual, setEfectivoManual] = useState('');
   const [guardandoCorte, setGuardandoCorte] = useState(false);
-  
   const [fondoManual, setFondoManual] = useState(fondoCaja || '');
 
-  // 🛡️ AUTO-LLENADO DE FONDO INICIAL DESDE LA BASE DE DATOS
   useEffect(() => {
     if (fondoCaja !== undefined && fondoCaja !== null && fondoManual === '') {
       setFondoManual(fondoCaja);
@@ -51,7 +45,6 @@ const VistaCorte = (props) => {
     }
   }, [fondoCaja, datosHistoricos, fondoManual]);
 
-  // VALIDACIÓN DE ROLES ESTRICTA
   const isSuperAdmin = String(currentUser?.usuario || '').toLowerCase().trim() === 'admin';
   const rolUser = String(currentUser?.rol || '').toLowerCase().trim();
   const esAdminOGerente = isSuperAdmin || ['admin', 'gerente', 'administrador global'].includes(rolUser);
@@ -68,36 +61,27 @@ const VistaCorte = (props) => {
   useEffect(() => {
     const cargarDatos = async (esSilencioso = false) => {
       if (!esSilencioso) setCargando(true);
-      
       try {
         const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=dia&fecha=${fechaFiltro}`);
         if(resPed.ok) {
            let data = await resPed.json();
-           
            data = data.filter(p => {
               if (!p.fecha_creacion) return false;
               const { localDateStr } = getMazatlanDate(p.fecha_creacion);
               return localDateStr === fechaFiltro;
            });
-           
            setPedidos(data);
         }  
-
         const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
         if(resCorte.ok) setDatosHistoricos(await resCorte.json());
         else setDatosHistoricos(null);
-      } catch(e) { 
-        setDatosHistoricos(null); 
-      }
-      
+      } catch(e) { setDatosHistoricos(null); }
       if (!esSilencioso) setCargando(false);
     };
 
     cargarDatos(false); 
-    
     let int;
     if(esHoy) int = setInterval(() => cargarDatos(true), 3000); 
-    
     return () => clearInterval(int);
   }, [fechaFiltro, esHoy]);  
 
@@ -200,17 +184,17 @@ const VistaCorte = (props) => {
   const handleCierreCajaCiego = async (e) => {
     e.preventDefault();
     const efectivoNum = parseFloat(efectivoManual);
-    const fondoNum = parseFloat(fondoManual);
-    if (isNaN(efectivoNum) || efectivoNum < 0 || isNaN(fondoNum) || fondoNum < 0) {
-      alert("Por favor ingresa cantidades válidas.");
+    const fondoNum = esAdminOGerente ? parseFloat(fondoManual) : parseFloat(fondoCaja || datosHistoricos?.fondo_inicial || 0);
+    
+    if (isNaN(efectivoNum) || efectivoNum < 0) {
+      alert("Por favor ingresa una cantidad válida de efectivo.");
       return;
     }
 
     setGuardandoCorte(true);
     try {
       const res = await fetch(`${apiUrl}/cortes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha: hoyStr,
           usuario_id: currentUser?.id || null,
@@ -232,17 +216,13 @@ const VistaCorte = (props) => {
       });
 
       if (res.ok) {
-        if (props.onLogout) {
-          props.onLogout();
-        } else {
-          window.location.reload();
-        }
+        localStorage.removeItem(`fondo_caja_${currentUser?.id}_${hoyStr}`); // Romper caché del fondo
+        if (props.onLogout) props.onLogout();
+        else window.location.reload();
       } else {
         alert("Ocurrió un error al procesar el cierre. Inténtalo de nuevo.");
       }
-    } catch (error) {
-      console.error("Error en cierre a ciegas:", error);
-    }
+    } catch (error) {}
     setGuardandoCorte(false);
   };
 
@@ -253,13 +233,9 @@ const VistaCorte = (props) => {
   const efectivoEsperadoCaja = (pFondoCaja + mathHoy.lEfectivo) - pTotalGastos;
   const efectivoEsperadoMotos = (pFondoRepartidor + mathHoy.dEfectivo);
   const totalEfectivoFisico = efectivoEsperadoCaja + efectivoEsperadoMotos;
-  
   const totalDigital = mathHoy.lTarjeta + mathHoy.lTransf + mathHoy.dTarjeta + mathHoy.dTransf;
   const totalVentasGlobales = mathHoy.tPlatillos + mathHoy.tExtras + mathHoy.tEnvio;
 
-  // =========================================================================
-  // VISTA 1: RENDERIZADO EXCLUSIVO PARA CAJERO O JEFE DE TURNO (CORTE A CIEGAS)
-  // =========================================================================
   if (!esAdminOGerente) {
     return (
       <div className="animate-in fade-in pb-20 max-w-xl mx-auto px-4 mt-4 md:mt-8">
@@ -272,32 +248,15 @@ const VistaCorte = (props) => {
           <p className="text-[10px] bg-slate-900 text-white font-black uppercase tracking-widest px-3 py-1 rounded-md inline-block mt-2">
             Modalidad: Corte a Ciegas
           </p>
+          <p className="text-sm font-bold text-slate-600 mt-4 flex items-center justify-center gap-1">
+             <User size={16} className="text-indigo-500"/> Responsable: <span className="text-indigo-600 font-black">{currentUser?.nombre || currentUser?.usuario}</span>
+          </p>
 
-          <p className="text-slate-500 font-bold text-sm leading-relaxed mt-6 mb-8">
-            Por políticas de auditoría y seguridad, debes declarar el dinero con el que iniciaste y el que tienes actualmente en tu gaveta antes de concluir.
+          <p className="text-slate-500 font-bold text-sm leading-relaxed mt-4 mb-8">
+            Por políticas de auditoría y seguridad, debes declarar el dinero exacto que tienes físicamente en tu gaveta antes de poder concluir tu jornada laboral. El sistema utilizará el Fondo Inicial que declaraste al abrir la caja.
           </p>
 
           <form onSubmit={handleCierreCajaCiego} className="space-y-6 text-left">
-            <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
-                Fondo Inicial (Con el que abriste)
-              </label>
-              <div className="relative flex items-center">
-                <span className="absolute left-5 font-black text-3xl text-slate-400 select-none">$</span>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  min="0"
-                  required
-                  disabled={guardandoCorte}
-                  value={fondoManual}
-                  onChange={(e) => setFondoManual(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-white border-2 border-slate-200 rounded-2xl p-5 pl-10 text-center text-4xl font-black outline-none focus:border-indigo-500 transition-all text-slate-700 tracking-tight placeholder-slate-200"
-                />
-              </div>
-            </div>
-
             <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
               <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
                 Efectivo Físico Contado al Cierre
@@ -305,27 +264,13 @@ const VistaCorte = (props) => {
               <div className="relative flex items-center">
                 <span className="absolute left-5 font-black text-3xl text-slate-400 select-none">$</span>
                 <input 
-                  type="number" 
-                  step="0.01" 
-                  min="0"
-                  required
-                  disabled={guardandoCorte}
-                  value={efectivoManual}
-                  onChange={(e) => setEfectivoManual(e.target.value)}
-                  placeholder="0.00"
+                  type="number" step="0.01" min="0" required disabled={guardandoCorte}
+                  value={efectivoManual} onChange={(e) => setEfectivoManual(e.target.value)} placeholder="0.00"
                   className="w-full bg-white border-2 border-slate-200 rounded-2xl p-5 pl-10 text-center text-4xl font-black outline-none focus:border-indigo-500 transition-all text-slate-700 tracking-tight placeholder-slate-200"
                 />
               </div>
-              <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-wider mt-3">
-                No incluyas vouchers de tarjeta ni transferencias, únicamente billetes y monedas.
-              </p>
             </div>
-
-            <button
-              type="submit"
-              disabled={guardandoCorte || !efectivoManual || fondoManual === ''}
-              className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-40 disabled:bg-slate-300 disabled:shadow-none"
-            >
+            <button type="submit" disabled={guardandoCorte || !efectivoManual} className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-40">
               <CheckCircle2 size={22} /> {guardandoCorte ? "Asentando Cierre..." : "Efectuar Cierre y Salir"}
             </button>
           </form>
@@ -334,13 +279,15 @@ const VistaCorte = (props) => {
     );
   }
 
-  // =========================================================================
-  // VISTA 2: RENDERIZADO COMPLETO PARA OPERADORES DE ALTO RANGO (ADMIN/GERENTE)
-  // =========================================================================
   return (
     <div className="animate-in fade-in pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-        <h2 className="text-4xl font-black text-slate-800">Corte de Caja</h2>
+        <div>
+           <h2 className="text-4xl font-black text-slate-800">Corte de Caja</h2>
+           <p className="text-sm font-bold text-slate-500 mt-1 flex items-center gap-1">
+              <User size={14} className="text-blue-500" /> Auditor General: {currentUser?.nombre || currentUser?.usuario}
+           </p>
+        </div>
         <div className="flex items-center bg-white p-2 rounded-2xl shadow-sm border border-slate-200">
           <div className="bg-slate-100 p-2 rounded-xl text-slate-500 mr-2"><Calendar size={20} /></div>
           <input type="date" value={fechaFiltro} max={hoyStr} onChange={(e) => setFechaFiltro(e.target.value)} className="bg-transparent border-none outline-none font-bold text-slate-700 cursor-pointer" />
@@ -357,7 +304,6 @@ const VistaCorte = (props) => {
           <div className="animate-in slide-in-from-bottom-4">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest px-2 mb-3 flex items-center gap-3"><Store size={24}/> 1. Caja Principal (Mostrador)</h3>
-              {!esHoy && !datosHistoricos && <span className="text-[10px] text-amber-600 bg-amber-50 font-bold px-3 py-1 rounded-lg flex items-center gap-1 border border-amber-200"><AlertTriangle size={14}/> Fondo Incompleto en BD</span>}
             </div>  
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -370,14 +316,7 @@ const VistaCorte = (props) => {
                 {esHoy ? (
                    <div className="flex items-center text-2xl font-black text-slate-700 mt-0.5">
                       <span className="mr-1">$</span>
-                      <input 
-                        type="number" 
-                        min="0"
-                        step="0.01"
-                        value={fondoManual} 
-                        onChange={(e) => setFondoManual(e.target.value)} 
-                        className="w-full bg-transparent outline-none border-b-2 border-slate-300 focus:border-blue-500 transition-colors" 
-                      />
+                      <input type="number" min="0" step="0.01" value={fondoManual} onChange={(e) => setFondoManual(e.target.value)} className="w-full bg-transparent outline-none border-b-2 border-slate-300 focus:border-blue-500 transition-colors" />
                    </div>
                 ) : (
                    <p className="text-2xl font-black text-slate-700 mt-0.5">${pFondoCaja.toFixed(2)}</p>
@@ -410,9 +349,7 @@ const VistaCorte = (props) => {
           <div className="bg-indigo-50/50 p-6 md:p-10 rounded-[40px] shadow-sm border border-indigo-100 animate-in slide-in-from-bottom-6 mb-8">
             <div className="flex items-center gap-3 mb-6">
               <div className="bg-indigo-600 text-white p-3 rounded-2xl shadow-sm"><Bike size={24}/></div>
-              <div>
-                <h3 className="text-2xl font-black text-indigo-900 tracking-tight">2. Repartidores (Motos)</h3>
-              </div>
+              <h3 className="text-2xl font-black text-indigo-900 tracking-tight">2. Repartidores (Motos)</h3>
             </div>  
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

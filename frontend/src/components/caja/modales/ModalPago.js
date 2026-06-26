@@ -46,6 +46,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting }) => {
 
   if (!modalPago) return null;
 
+  // 👇 REGLA 3: Bloquear botón de anular si ya se sirvió la comida
+  const noSePuedeAnular = modalPago.estado_preparacion === 'Entregado' || modalPago.estado_preparacion === 'En Camino';
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in duration-200 max-h-screen overflow-y-auto">
@@ -116,7 +119,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting }) => {
                    <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="py-4 md:py-5 px-4 md:px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center justify-center gap-2" title="Mandar a cocina y cobrar al final"><ChefHat size={24}/> Cocinar (Cobro final)</button>
                 )}
 
-                <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50">Anular Pedido</button>
+                {!noSePuedeAnular && (
+                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50">Anular Pedido</button>
+                )}
             </div>
           </div>
         ) : modalPago.metodo_pago === 'Efectivo' ? (
@@ -138,7 +143,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting }) => {
               <button disabled={isSubmitting} onClick={cerrarModalPago} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center">Cancelar</button>
               
               <div className="flex gap-3 w-full">
-                 <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
+                 {!noSePuedeAnular && (
+                   <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
+                 )}
                  <button disabled={!montoRecibido || Number(montoRecibido) < Number(modalPago.total) || isSubmitting} onClick={() => procesarPago()} className="flex-1 py-4 md:py-5 bg-emerald-500 text-white font-black text-lg md:text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Procesando...' : 'Cobrar'}</button>
               </div>
             </div>
@@ -154,7 +161,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting }) => {
               <button disabled={isSubmitting} onClick={cerrarModalPago} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center">Cancelar</button>
               
               <div className="flex gap-3 w-full">
-                 <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
+                 {!noSePuedeAnular && (
+                   <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido"><XCircle size={24}/></button>
+                 )}
                  <button disabled={isSubmitting} onClick={() => procesarPago()} className="flex-1 py-4 md:py-5 bg-blue-600 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition flex items-center justify-center gap-2 disabled:opacity-50"><CheckCircle2 size={24}/> {isSubmitting ? 'Validando...' : 'Pago Validado'}</button>
               </div>
             </div>

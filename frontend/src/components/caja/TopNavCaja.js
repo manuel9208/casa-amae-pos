@@ -1,5 +1,5 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map } from 'lucide-react'; // 👈 FIX: Agregamos 'Map' de vuelta a las importaciones
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map } from 'lucide-react'; 
 
 const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
@@ -7,12 +7,8 @@ const TopNavCaja = ({
   mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia,
   setModalComedor
 }) => {
-  // Identificamos al Admin Global
   const isGlobalAdmin = user?.usuario === 'admin';
-  
-  // 🛡️ El botón de corte lo deben ver también el cajero y el jefe de turno para poder hacer su "Corte a Ciegas"
   const canCorte = isGlobalAdmin || ['admin', 'gerente', 'jefe', 'cajero'].includes(user?.rol); 
-  
   const canCompras = isGlobalAdmin || user?.permisos?.compras_rapidas === true;
   
   const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
@@ -70,7 +66,6 @@ const TopNavCaja = ({
           )}
 
           <div className="hidden sm:flex items-center gap-3 pl-4 border-l border-slate-200 ml-2">
-            
             {isAsistenciaPin && (
               <div className="flex flex-col gap-1 pr-3 border-r border-slate-200 mr-1">
                 <button onClick={() => setModalAsistencia('Entrada')} className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-1 rounded-md transition active:scale-95 border border-emerald-100">
@@ -106,9 +101,12 @@ const TopNavCaja = ({
           <button onClick={() => setVistaActiva('cobrar')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${vistaActiva === 'cobrar' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
             <ShoppingBag size={18}/> Cuentas / Cobrar {pendientesDePago.length > 0 && <span className="bg-white/30 px-1.5 rounded-md">{pendientesDePago.length}</span>}
           </button>
+
+          {/* 👇 FIX VISUAL: Cambiado el icono y texto de Mesas Pagadas a Mesas en Servicio */}
           <button onClick={() => setVistaActiva('mesas_pagadas')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-            <CheckCircle2 size={18}/> Mesas Pagadas {mesasPagadas.length > 0 && <span className="bg-white/30 px-1.5 rounded-md">{mesasPagadas.length}</span>}
+            <Utensils size={18}/> Mesas en Servicio {mesasPagadas.length > 0 && <span className="bg-white/30 px-1.5 rounded-md">{mesasPagadas.length}</span>}
           </button>
+
           <button onClick={() => setVistaActiva('entregas')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${vistaActiva === 'entregas' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
             <Monitor size={18}/> Entregas {listosParaEntregar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md">{listosParaEntregar.length}</span>}
           </button>

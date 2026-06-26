@@ -10,8 +10,8 @@ const MenuPrincipal = ({
   calcularSubtotal, descuentoPuntosDinero, descuentoPuntosPuntosFisicos, 
   cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
   
-  guardarEdicionDirecta, // 👇 Recibimos la nueva función
-  isSubmitting           // 👇 Recibimos el estado de carga
+  guardarEdicionDirecta, 
+  isSubmitting           
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
   const [inputCupon, setInputCupon] = useState('');
@@ -24,6 +24,24 @@ const MenuPrincipal = ({
   const cambiarCantidadCart = (idTicket, delta) => {
     setCarrito(carrito.map(item => {
       if (item.idTicket === idTicket) {
+        
+        // 👇 FIX DE CANTIDAD: Candado de Stock Estricto directo en el Carrito Lateral
+        if (delta > 0) {
+           const prodDB = productos.find(p => p.id === (item.id || item.producto_id));
+           if (prodDB) {
+               const isUsaStock = prodDB.usa_stock === true || String(prodDB.usa_stock) === 'true';
+               const stockActual = Number(prodDB.stock_preparado) || 0;
+               
+               if (isUsaStock) {
+                   const enCarrito = carrito.filter(i => (i.id || i.producto_id) === prodDB.id).reduce((s, i) => s + (i.cantidad || 1), 0);
+                   if (enCarrito >= stockActual) {
+                       alert(`Límite alcanzado. Solo hay ${stockActual} unidades disponibles de ${prodDB.nombre}.`);
+                       return item; // Rompe el map y no suma
+                   }
+               }
+           }
+        }
+
         const nuevaCant = (item.amount || item.cantidad || 1) + delta;
         return { ...item, cantidad: Math.max(1, nuevaCant) };
       }
@@ -36,8 +54,8 @@ const MenuPrincipal = ({
   };
 
   const editarItem = (item) => {
-    const productoOriginal = productos.find(p => p.id === item.id || p.nombre === item.nombre);
-    if (!productoOriginal) return alert("Este producto ya no existe.");
+    const productoOriginal = productos.find(p => p.id === (item.id || item.producto_id) || p.nombre === item.nombre);
+    if (!productoOriginal) return alert("Este producto ya no existe o se ocultó del menú.");
     setItemAEditar(item);
     setProductoEnEspera(productoOriginal);
   };
@@ -111,8 +129,8 @@ const MenuPrincipal = ({
         setModalNip={setModalNip} descuentoCuponDinero={descuentoCuponDinero} descuentoPuntosDinero={descuentoPuntosDinero} 
         calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual} 
         
-        guardarEdicionDirecta={guardarEdicionDirecta} // 👇 Pasamos el prop
-        isSubmitting={isSubmitting} // 👇 Pasamos el prop
+        guardarEdicionDirecta={guardarEdicionDirecta} 
+        isSubmitting={isSubmitting} 
       />
     </div>
   );

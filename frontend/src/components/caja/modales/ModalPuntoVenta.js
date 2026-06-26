@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { XCircle, ShoppingBag, Tag, CheckSquare, Square, Gift } from 'lucide-react';
+import { XCircle, ShoppingBag, Tag, CheckSquare, Square, Gift, Package } from 'lucide-react';
 
 const ModalPuntoVenta = ({
   modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
@@ -173,6 +173,7 @@ const ModalPuntoVenta = ({
     const nuevoItem = {
         idTicket: Date.now().toString() + '_promo',
         id: promocionVigente.producto_oferta_id,
+        producto_id: promocionVigente.producto_oferta_id,
         nombre: `[${categoriaUpsell}] ${promocionVigente.oferta_nombre}`,
         precioFinal: Math.max(0, precioFinal), 
         cantidad: 1,
@@ -268,7 +269,7 @@ const ModalPuntoVenta = ({
     }
 
     const paquete = {
-      cliente_id: clienteAsignado?.id || null, // Aseguramos usar cliente_id
+      cliente_id: clienteAsignado?.id || null, 
       tipo_consumo: tipoFinal, metodo_pago: pagoFinal,
       total: totalConEnvio,
       costo_envio: costoEnvioFinal,
@@ -290,9 +291,7 @@ const ModalPuntoVenta = ({
           const dirLimpia = stringDireccion.split(' | TEL:')[0].split(' | (Llevar')[0].replace(`A NOMBRE DE: ${nombreOrden} | `, '').trim();
           if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
             fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ direccion: dirLimpia })
+              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia })
             }).catch(() => {});
           }
         }
@@ -306,7 +305,10 @@ const ModalPuntoVenta = ({
           cerrarModalVenta();
           setTimeout(() => setModalPago(data), 100);
         }
-      } else alert('Error al guardar el pedido.');
+      } else {
+        const errData = await res.json();
+        alert(errData.error || 'Ocurrió un problema al guardar la orden.');
+      }
     } catch (e) { alert('Sin conexión.'); }
     setIsSubmitting(false);
   };
@@ -352,20 +354,14 @@ const ModalPuntoVenta = ({
 
      gruposObligatoriosList.forEach(g => {
         pasosWiz.push({ 
-           id: `grupo_obl_${g}`, 
-           tipo: 'grupo_obligatorio', 
-           titulo: `Elige: ${g} *`, 
-           categoria: g, 
+           id: `grupo_obl_${g}`, tipo: 'grupo_obligatorio', titulo: `Elige: ${g} *`, categoria: g, 
            opciones: (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' && o.categoria === g).sort((a, b) => a.nombre.localeCompare(b.nombre)) 
         });
      });
 
      gruposOpcionalesList.forEach(g => {
         pasosWiz.push({
-           id: `grupo_opc_${g}`,
-           tipo: 'grupo_opcional',
-           titulo: `Personaliza: ${g}`,
-           categoria: g,
+           id: `grupo_opc_${g}`, tipo: 'grupo_opcional', titulo: `Personaliza: ${g}`, categoria: g,
            limite: objGruposOpcionales[g].limite,
            opciones: objGruposOpcionales[g].opciones.sort((a, b) => a.nombre.localeCompare(b.nombre))
         });
@@ -455,8 +451,12 @@ const ModalPuntoVenta = ({
                     <h3 className="text-lg md:text-2xl font-black text-slate-800">{categoriaActiva}</h3>
                   </div>
                   <div className="p-4 md:p-6 grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto custom-scrollbar pb-10">
-                    {productosFiltrados.map(p => (
-                      <button key={p.id} onClick={() => abrirModalProducto(p)} className="bg-white rounded-3xl p-3 md:p-5 flex flex-col items-center text-center hover:shadow-xl transition-all border border-slate-100 group active:scale-95">
+                    {productosFiltrados.map(p => {
+                      const isUsaStock = p.usa_stock === true || p.usa_stock === 'true';
+                      const stockActual = Number(p.stock_preparado) || 0;
+
+                      return (
+                      <button key={p.id} onClick={() => abrirModalProducto(p)} className="bg-white rounded-3xl p-3 md:p-5 flex flex-col items-center text-center hover:shadow-xl transition-all border border-slate-100 group active:scale-95 relative overflow-hidden">
                         {p.imagen_url ? (
                            <div className="w-20 h-20 md:w-24 md:h-24 mb-3 md:mb-4 rounded-2xl overflow-hidden shadow-sm">
                              <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
@@ -465,10 +465,17 @@ const ModalPuntoVenta = ({
                            <span className="text-5xl md:text-6xl mb-3 md:mb-4 group-hover:scale-110 transition-transform drop-shadow-sm">{p.emoji}</span>
                         )}
                         <span className="font-black text-slate-800 leading-tight mb-2 text-sm md:text-base">{p.nombre}</span>
+                        
+                        {isUsaStock && (
+                            <div className={`mb-2 text-[10px] px-2 py-0.5 rounded-md font-black uppercase tracking-widest flex items-center gap-1 ${stockActual <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                               <Package size={12}/> Disp: {stockActual}
+                            </div>
+                        )}
+
                         {p.descripcion && <span className="text-xs text-slate-500 font-medium line-clamp-2 mb-2 leading-tight">{p.descripcion}</span>}
                         <span className="text-blue-600 font-black bg-blue-50 px-2 md:px-3 py-1 rounded-lg text-xs md:text-sm">${p.precio_base}</span>
                       </button>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )}
@@ -905,6 +912,7 @@ const ModalPuntoVenta = ({
 
                       const nuevoItem = {
                         idTicket: Date.now().toString(),
+                        id: productoEnEspera.id,
                         producto_id: productoEnEspera.id,
                         nombre: nombreCompleto,
                         categoria: productoEnEspera.categoria,
@@ -931,10 +939,15 @@ const ModalPuntoVenta = ({
                       Añadir ({cantidadProducto})
                     </button>
                   ) : (
+                    // 👇 FIX CANDADO OBLIGATORIO: Validando Tamaño, Sabor y Grupos
                     <button 
                       type="button" 
                       onClick={() => setPasoPersonalizacion(p => p + 1)} 
-                      disabled={pasoActualObj.tipo === 'grupo_obligatorio' && !gruposSeleccionados[pasoActualObj.categoria]}
+                      disabled={
+                        (pasoActualObj.tipo === 'grupo_obligatorio' && !gruposSeleccionados[pasoActualObj.categoria]) ||
+                        (pasoActualObj.tipo === 'tamaño' && !opcionSeleccionada) ||
+                        (pasoActualObj.tipo === 'sabor' && !saborSeleccionado)
+                      }
                       className="flex-[2] py-4 md:py-5 bg-blue-600 text-white font-black text-lg md:text-xl rounded-xl md:rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Siguiente ➡

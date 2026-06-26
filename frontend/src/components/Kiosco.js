@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import io from 'socket.io-client';
 import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
 import CheckoutFlujo from './kiosco/CheckoutFlujo';
@@ -80,7 +81,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
   }, []);
 
-  useEffect(() => { 
+  // 👇 FIX: Quitamos 'apiUrl' de las dependencias ya que es una constante global
+  const fetchCatalogoProductos = useCallback(() => {
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
       .then(data => {
@@ -88,6 +90,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         setProductos(arr.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0));
       })
       .catch(console.error); 
+  }, []);
+
+  useEffect(() => { 
+    fetchCatalogoProductos();
       
     fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
     fetch(`${apiUrl}/clasificaciones`).then(r => r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : [])).catch(console.error);
@@ -104,7 +110,19 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     const intervalConfig = setInterval(fetchConfig, 5000); 
     return () => clearInterval(intervalConfig);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchCatalogoProductos]);
+
+  // 👇 FIX: Quitamos 'baseUrl' de las dependencias ya que es una constante global
+  useEffect(() => {
+    if (!baseUrl || isOffline) return;
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    
+    socket.on('catalogo_actualizado', () => fetchCatalogoProductos());
+    socket.on('nuevo_pedido', () => fetchCatalogoProductos());
+    socket.on('pedido_actualizado', () => fetchCatalogoProductos());
+    
+    return () => socket.disconnect();
+  }, [fetchCatalogoProductos, isOffline]);
 
   useEffect(() => {
     if (clienteActivo && clienteActivo.id) {

@@ -423,18 +423,30 @@ const ModalPersonalizar = ({
 
         </div>
 
-        {/* 👇 BARRA INFERIOR REESTRUCTURADA PARA DAR PROTAGONISMO A SIGUIENTE / AÑADIR */}
         <div className="pt-4 md:pt-6 md:p-8 bg-white border-t border-slate-200 shrink-0">
           <div className="flex justify-between items-center mb-6">
             {pasoActualObj.tipo === 'extras_notas' ? (
                 <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
                   <button type="button" onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">-</button>
                   <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
-                  <button type="button" onClick={() => setCantidadProducto(cantidadProducto + 1)} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
+                  {/* 👇 FIX DE CANTIDAD: Candado para no superar el Stock Estricto en el Modal */}
+                  <button type="button" onClick={() => {
+                     const isUsaStock = productoEnEspera.usa_stock === true || productoEnEspera.usa_stock === 'true';
+                     const stockActual = Number(productoEnEspera.stock_preparado) || 0;
+                     
+                     if (isUsaStock) {
+                        const enCarrito = carrito.filter(i => (i.id || i.producto_id) === productoEnEspera.id).reduce((s, i) => s + (i.cantidad || 1), 0);
+                        if ((cantidadProducto + enCarrito) >= stockActual) {
+                            alert(`Límite alcanzado. Solo hay ${stockActual} unidades disponibles de este producto.`);
+                            return;
+                        }
+                     }
+                     setCantidadProducto(cantidadProducto + 1);
+                  }} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
                 </div>
             ) : (
                 <div className="flex items-center">
-                    {/* Placeholder para mantener el justify-between del layout */}
+                    {/* Placeholder */}
                 </div>
             )}
 
@@ -447,7 +459,7 @@ const ModalPersonalizar = ({
           </div>
 
           <div className="flex gap-3 md:gap-4">
-            <button type="button" onClick={cerrarModal} className="flex-1 py-4 md:py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200">Cancelar</button>
+            <button type="button" onClick={cerrarModal} className="flex-1 py-4 md:py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200 text-sm md:text-base">Cancelar</button>
             
             {pasoActualObj.tipo === 'extras_notas' ? (
               <button type="button" onClick={() => {
@@ -489,7 +501,7 @@ const ModalPersonalizar = ({
                 } else {
                     const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
                     const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
-                    const indexExistente = carrito.findIndex(item => item.id === nuevoItem.id && getExtrasStr(item.extras) === extrasStrNuevo && item.precioFinal === nuevoItem.precioFinal);
+                    const indexExistente = carrito.findIndex(item => (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) && getExtrasStr(item.extras) === extrasStrNuevo && item.precioFinal === nuevoItem.precioFinal);
 
                     if (indexExistente >= 0) {
                         const nuevoCarrito = [...carrito];

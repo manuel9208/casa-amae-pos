@@ -1,9 +1,6 @@
 const db = require('../config/db');
 const webpush = require('web-push');  
 
-// ==========================================
-// HELPERS PARA NOTIFICACIONES PUSH
-// ==========================================
 const notificarCliente = async (cliente_id, titulo, cuerpo) => {
   if(!cliente_id) return;
   try {
@@ -13,9 +10,7 @@ const notificarCliente = async (cliente_id, titulo, cuerpo) => {
       const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
       await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (cliente):", e.message));
     }
-  } catch(e) {
-    console.error("Error al notificar cliente:", e.message);
-  }
+  } catch(e) { console.error("Error al notificar cliente:", e.message); }
 };  
 
 const notificarStaff = async (rolesArray, titulo, cuerpo) => {
@@ -34,12 +29,9 @@ const notificarStaff = async (rolesArray, titulo, cuerpo) => {
       const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
       await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (staff):", e.message));
     }
-  } catch(e) {
-    console.error("Error al notificar staff:", e.message);
-  }
+  } catch(e) { console.error("Error al notificar staff:", e.message); }
 };
 
-// ==========================================  
 exports.obtenerPedidosHoy = async (req, res) => {
   try {
     const query = `
@@ -51,10 +43,7 @@ exports.obtenerPedidosHoy = async (req, res) => {
     `;
     const result = await db.query(query);
     res.json(result.rows);
-  } catch (error) {
-    console.error("Error al obtener pedidos:", error);
-    res.status(500).json({ error: 'Error al obtener pedidos' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Error al obtener pedidos' }); }
 };  
 
 const limpiarNulos = (obj) => {
@@ -69,7 +58,35 @@ exports.crearPedido = async (req, res) => {
   
   try {
     await db.query('BEGIN');  
-    
+
+    // 👇 FIX 1: Removido ALTER TABLE que causaba bloqueos y obligaba al usuario a dar doble clic.
+
+    // 👇 FIX 2: Pre-validación estricta y segura
+    if (carrito && carrito.length > 0) {
+        const cantRequerida = {};
+        for (const item of carrito) {
+            const pId = item.id || item.producto_id; 
+            if(pId) {
+               cantRequerida[pId] = (cantRequerida[pId] || 0) + (parseInt(item.cantidad) || 1);
+            }
+        }
+        
+        for (const [pId, cant] of Object.entries(cantRequerida)) {
+            const checkRes = await db.query('SELECT nombre, usa_stock, stock_preparado FROM productos WHERE id = $1', [pId]);
+            if (checkRes.rows.length > 0) {
+                const row = checkRes.rows[0];
+                // 👇 FIX BOLEANO: Parseo correcto que soporta base de datos
+                if (row.usa_stock === true || String(row.usa_stock) === 'true') {
+                    const stockActual = parseInt(row.stock_preparado) || 0;
+                    if (stockActual < cant) {
+                        await db.query('ROLLBACK');
+                        return res.status(400).json({ error: `Stock insuficiente para "${row.nombre}". Solo quedan ${stockActual} unidades.` });
+                    }
+                }
+            }
+        }
+    }
+
     const nroRes = await db.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
     const sigNumero = nroRes.rows[0].num;  
     
@@ -102,60 +119,72 @@ exports.crearPedido = async (req, res) => {
     }  
     
     if (carrito && carrito.length > 0) {
+      const cantDescontar = {};
       for (const item of carrito) {
-        const prodId = item.id;
-        const cantidadVendida = item.cantidad || 1;  
-        
-        const prodRes = await db.query('SELECT rendimiento, stock_preparado FROM productos WHERE id = $1', [prodId]);  
+          const pId = item.id || item.producto_id;
+          if(pId) cantDescontar[pId] = (cantDescontar[pId] || 0) + (parseInt(item.cantidad) || 1);
+      }
+
+      for (const [pId, cantidadVendida] of Object.entries(cantDescontar)) {
+        const prodRes = await db.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);  
         
         if (prodRes.rows.length > 0) {
-          const rendimiento = parseFloat(prodRes.rows[0].rendimiento) || 1;
-          let stock_preparado = parseInt(prodRes.rows[0].stock_preparado) || 0;
-          let lotesADescontar = 0;  
-          
-          if (rendimiento <= 1) {
-            lotesADescontar = cantidadVendida;
-          } else {
-            if (cantidadVendida <= stock_preparado) {
+          const row = prodRes.rows[0];
+          // 👇 FIX BOLEANO
+          const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
+          let stock_preparado = parseInt(row.stock_preparado) || 0;
+
+          if (isUsaStock) {
               stock_preparado -= cantidadVendida;
-            } else {
-              let falta = cantidadVendida - stock_preparado;
-              lotesADescontar = Math.ceil(falta / rendimiento);
-              stock_preparado = (lotesADescontar * rendimiento) - falta;
-            }
-            await db.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, prodId]);
-          }  
-          
-          if (lotesADescontar > 0) {
-            const recursiveQuery = `
-              WITH RECURSIVE Explosion AS (
-                SELECT
-                  r.insumo_id,
-                  r.sub_producto_id,
-                  (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
-                FROM recetas r
-                WHERE r.producto_id = $2
-                UNION ALL
-                SELECT
-                  r.insumo_id,
-                  r.sub_producto_id,
-                  ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
-                FROM Explosion e
-                JOIN productos p ON e.sub_producto_id = p.id
-                JOIN recetas r ON r.producto_id = p.id
-                WHERE e.sub_producto_id IS NOT NULL
-              )
-              UPDATE insumos
-              SET stock_actual = stock_actual - calc.total_descontar
-              FROM (
-                SELECT insumo_id, SUM(qty_factor) as total_descontar
-                FROM Explosion
-                WHERE insumo_id IS NOT NULL
-                GROUP BY insumo_id
-              ) calc
-              WHERE insumos.id = calc.insumo_id;
-            `;
-            await db.query(recursiveQuery, [lotesADescontar, prodId]);
+              let seAcabo = false;
+              
+              if (stock_preparado <= 0) {
+                  stock_preparado = 0;
+                  seAcabo = true;
+              }
+
+              if (seAcabo) {
+                  await db.query('UPDATE productos SET stock_preparado = $1, disponible = false WHERE id = $2', [stock_preparado, pId]);
+                  notificarStaff(['admin', 'gerente', 'cajero', 'chef'], '⚠️ Producto Agotado', `El platillo "${row.nombre}" se quedó sin stock y se ocultó del menú automáticamente.`);
+              } else {
+                  await db.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
+                  if (stock_preparado <= 3) {
+                      notificarStaff(['admin', 'gerente', 'cajero', 'chef'], '⚠️ Stock Bajo', `Atención: Solo quedan ${stock_preparado} unidades de "${row.nombre}".`);
+                  }
+              }
+          } else {
+              const rendimiento = parseFloat(row.rendimiento) || 1;
+              let lotesADescontar = 0;  
+              
+              if (rendimiento <= 1) {
+                lotesADescontar = cantidadVendida;
+              } else {
+                if (cantidadVendida <= stock_preparado) {
+                  stock_preparado -= cantidadVendida;
+                } else {
+                  let falta = cantidadVendida - stock_preparado;
+                  lotesADescontar = Math.ceil(falta / rendimiento);
+                  stock_preparado = (lotesADescontar * rendimiento) - falta;
+                }
+                await db.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
+              }  
+              
+              if (lotesADescontar > 0) {
+                const recursiveQuery = `
+                  WITH RECURSIVE Explosion AS (
+                    SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                    FROM recetas r WHERE r.producto_id = $2
+                    UNION ALL
+                    SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                    FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                    WHERE e.sub_producto_id IS NOT NULL
+                  )
+                  UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
+                    SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                  ) calc WHERE insumos.id = calc.insumo_id;
+                `;
+                await db.query(recursiveQuery, [lotesADescontar, pId]);
+              }
           }
         }
       }
@@ -223,10 +252,9 @@ exports.actualizarPedido = async (req, res) => {
 
 exports.actualizarEstado = async (req, res) => {
   const { id } = req.params;
-  const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos } = req.body;  
+  const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos, repartidor_id } = req.body;  
   
   try {
-    // 👇 Añadimos tipo_consumo y metodo_pago a la consulta para hacer la validación de Barra
     const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa, chef_id, tipo_consumo, metodo_pago FROM pedidos WHERE id = $1', [id]);
     if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
     
@@ -236,7 +264,6 @@ exports.actualizarEstado = async (req, res) => {
     const metodoPagoAct = metodo_pago !== undefined ? metodo_pago : pedidoPrevio.metodo_pago;
     const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto'].includes(metodoPagoAct);
 
-    // 👇 SOLUCIÓN DE REGLA BARRA: Si es local, no usaron mesa, está pagado y se sirve -> pasa directo a Finalizado
     if (estadoReal === 'Entregado' && pedidoPrevio.tipo_consumo === 'Local' && !pedidoPrevio.mesa && isPagadoDinero) {
       estadoReal = 'Finalizado';
     }
@@ -246,6 +273,7 @@ exports.actualizarEstado = async (req, res) => {
     let queryIndex = 2;  
     
     if (chef_id !== undefined) { updateFields.push(`chef_id = $${queryIndex}`); params.push(chef_id); queryIndex++; }
+    if (repartidor_id !== undefined) { updateFields.push(`repartidor_id = $${queryIndex}`); params.push(repartidor_id); queryIndex++; }
     if (carrito !== undefined) { updateFields.push(`carrito = $${queryIndex}`); params.push(typeof carrito === 'string' ? carrito : JSON.stringify(carrito)); queryIndex++; }
     if (metodo_pago !== undefined) { updateFields.push(`metodo_pago = $${queryIndex}`); params.push(metodo_pago); queryIndex++; }
     if (total !== undefined) { updateFields.push(`total = $${queryIndex}`); params.push(total); queryIndex++; }
@@ -267,8 +295,6 @@ exports.actualizarEstado = async (req, res) => {
     const pedidoActual = result.rows[0];  
     
     if (pedidoPrevio.mesa) {
-      // 👇 SOLUCIÓN DE REGLA FANTASMA: 
-      // Se eliminó (estadoReal === 'Entregado' && isPagadoDinero). Ahora la mesa SÓLO se libera al 'Finalizar' o 'Cancelar'.
       if (estadoReal === 'Cancelado' || estadoReal === 'Finalizado') {
         await db.query("UPDATE mesas SET estado = 'Libre', pedido_actual_id = NULL WHERE numero_mesa = $1", [pedidoPrevio.mesa]);
       } else if (estadoReal === 'Entregado' && !isPagadoDinero) {
@@ -278,7 +304,35 @@ exports.actualizarEstado = async (req, res) => {
       }
     }  
     
-    if (pedidoActual.cliente_id) {
+    // 👇 FIX: Restauración de Inventario Segura
+    if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
+      if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0 && pedidoPrevio.cliente_id) {
+        await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
+      }
+
+      const carritoRestaurar = typeof pedidoPrevio.carrito === 'string' ? JSON.parse(pedidoPrevio.carrito) : (pedidoPrevio.carrito || []);
+      if (carritoRestaurar.length > 0) {
+          const cantRestaurar = {};
+          for (const item of carritoRestaurar) {
+              const pId = item.id || item.producto_id;
+              if (pId) cantRestaurar[pId] = (cantRestaurar[pId] || 0) + (parseInt(item.cantidad) || 1);
+          }
+
+          for (const [pId, cant] of Object.entries(cantRestaurar)) {
+              const prodRes = await db.query('SELECT usa_stock FROM productos WHERE id = $1', [pId]);
+              if (prodRes.rows.length > 0) {
+                  // 👇 FIX BOLEANO: Parseo correcto para evitar fallos de re-encendido
+                  if (prodRes.rows[0].usa_stock === true || String(prodRes.rows[0].usa_stock) === 'true') {
+                      await db.query('UPDATE productos SET stock_preparado = stock_preparado + $1, disponible = true WHERE id = $2', [cant, pId]);
+                  } else {
+                      await db.query('UPDATE productos SET stock_preparado = stock_preparado + $1 WHERE id = $2', [cant, pId]);
+                  }
+              }
+          }
+      }
+    }
+
+    if (pedidoActual.cliente_id && estadoReal !== 'Cancelado') {
       const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
       const ahoraEstaPagado = (estadoReal === 'Pagado' || estadoReal === 'Entregado' || estadoReal === 'Finalizado');  
       
@@ -308,14 +362,8 @@ exports.actualizarEstado = async (req, res) => {
               if (puntosAGanar > 0) await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, pedidoActual.cliente_id]);
             }
           }
-        } catch(e) { console.log('Error abonando puntos:', e.message); }
+        } catch(e) {}
       }  
-      
-      if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
-        if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0) {
-          await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
-        }
-      }
     }  
     
     if (estadoReal === 'Listo') {
@@ -377,7 +425,6 @@ exports.actualizarAlerta = async (req, res) => {
     const result = await db.query('UPDATE pedidos SET alerta_cocina = $1 WHERE id = $2 RETURNING *', [req.body.alerta_cocina, req.params.id]);
     res.json(result.rows[0]);
   } catch (error) {
-    console.error("Error al actualizar alerta:", error);
     res.status(500).json({ error: 'Error al actualizar alerta' });
   }
 };

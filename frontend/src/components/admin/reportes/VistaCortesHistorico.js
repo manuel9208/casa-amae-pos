@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer, 
-  Store, Bike, Calculator, Smartphone} from 'lucide-react';  
+  Store, Bike, Calculator, Smartphone, User} from 'lucide-react';  
 
 const formaterMoneda = (monto) => {
   return "$" + Number(monto).toFixed(2);
 };
 
-// 👇 Utilidad para sincronizar la fecha exacta con el servidor de Mazatlán
 const getMazatlanDate = (dateString) => {
   if (!dateString) return {};
   const dateObj = new Date(dateString);
@@ -34,84 +33,61 @@ const VistaCortesHistorico = ({ apiUrl }) => {
   const [filtroMetodoPago, setFiltroMetodoPago] = useState('Todos');
   const [cargando, setCargando] = useState(false);
   const [pedidos, setPedidos] = useState([]);
-  const [corteEstatico, setCorteEstatico] = useState({ fondo_caja: 0, total_gastos: 0, fondo_repartidor: 0, detalles_envio: null });
+  const [usuarios, setUsuarios] = useState([]);
+  
+  // 👇 NUEVOS ESTADOS PARA MULTI-TURNOS
+  const [cortesDelDia, setCortesDelDia] = useState([]);
+  const [corteSeleccionadoId, setCorteSeleccionadoId] = useState('global');
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
+
+  // CARGAR USUARIOS PARA LOS NOMBRES DE REPARTIDORES
+  useEffect(() => {
+    fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
+      setUsuarios(Array.isArray(data) ? data : []);
+    }).catch(() => {});
+  }, [apiUrl]);
+
+  const getNombreEmpleado = (id) => {
+    const emp = usuarios.find(u => Number(u.id) === Number(id));
+    return emp ? emp.nombre : `Conductor #${id}`;
+  };
 
   const cargarPedidosHistoricos = useCallback(async () => {
     setCargando(true);
     try {
-      const isHoy = fechaFiltro === hoyStr;  
-
       const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`);
       if (resPed.ok) {
         let data = await resPed.json();
-        
-        // 👇 FIX FECHAS: Eliminamos las filtraciones del día anterior
         data = data.filter(p => {
           if (!p.fecha_creacion) return false;
           const { localDateStr, localMonthStr, localYearStr } = getMazatlanDate(p.fecha_creacion);
-
           if (periodo === 'dia') return localDateStr === fechaFiltro;
           if (periodo === 'mes') return localMonthStr === fechaFiltro.substring(0, 7);
           if (periodo === 'anio') return localYearStr === fechaFiltro.substring(0, 4);
           return true;
         });
-        
         setPedidos(data);
       }
 
-      let gastosEnVivoHoy = 0;
-      if (periodo === 'dia' && isHoy) {
-        try {
-          const rGastos = await fetch(`${apiUrl}/insumos/compras/hoy`);
-          if (rGastos.ok) {
-            const dGastos = await rGastos.json();
-            if (Array.isArray(dGastos)) {
-              gastosEnVivoHoy = dGastos.reduce((sum, g) => sum + Number(g.costo_total || 0), 0);
-            }
-          }
-        } catch(e) {}
-      }  
-
       if (periodo === 'dia') {
-        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
+        // 👇 FIX: Solicitamos 'completo=true' para traernos todos los turnos del día
+        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`);
         if (resCorte.ok) {
           const dataC = await resCorte.json();
-          setCorteEstatico({
-            fondo_caja: dataC.fondo_caja || dataC.fondo_inicial || 0,
-            total_gastos: isHoy ? gastosEnVivoHoy : (dataC.total_gastos || 0),
-            fondo_repartidor: dataC.fondo_repartidor || 0,
-            detalles_envio: typeof dataC.detalles_envio === 'string' ? JSON.parse(dataC.detalles_envio) : dataC.detalles_envio
-          });
+          const arrayCortes = Array.isArray(dataC) ? dataC.sort((a,b) => a.id - b.id) : [dataC];
+          setCortesDelDia(arrayCortes);
         } else {
-          setCorteEstatico({
-            fondo_caja: 0,
-            total_gastos: isHoy ? gastosEnVivoHoy : 0,
-            fondo_repartidor: 0,
-            detalles_envio: null
-          });
+          setCortesDelDia([]);
         }
       } else {
-        const resRep = await fetch(`${apiUrl}/reportes/ventas?tipo=${periodo}&fecha=${fechaFiltro}`);
-        if(resRep.ok) {
-          const repData = await resRep.json();
-          const gastosMesAnio = repData.resumen?.total_gastos || repData.resumen?.gastos_compras || repData.resumen?.gastos || 0;
-          setCorteEstatico({
-            fondo_caja: repData.resumen?.fondo_caja || 0,
-            total_gastos: gastosMesAnio,
-            fondo_repartidor: 0,
-            detalles_envio: null
-          });
-        } else {
-          setCorteEstatico({ fondo_caja: 0, total_gastos: 0, fondo_repartidor: 0, detalles_envio: null });
-        }
+         setCortesDelDia([]);
       }
+      setCorteSeleccionadoId('global');
     } catch (e) {
-      console.error("Error cargando histórico de auditoría", e);
     } finally {
       setCargando(false);
     }
-  }, [periodo, fechaFiltro, hoyStr, apiUrl]);  
+  }, [periodo, fechaFiltro, apiUrl]);  
 
   useEffect(() => {
     cargarPedidosHistoricos();
@@ -123,31 +99,45 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     return typeof carritoRaw === 'string' ? JSON.parse(carritoRaw) : carritoRaw;
   };  
 
-  const pedidosFiltrados = pedidos.filter(p => {
+  const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
+
+  // 👇 LÓGICA DE VIAJE EN EL TIEMPO: Filtramos los pedidos según las horas del turno seleccionado
+  const pedidosDelTurno = useMemo(() => {
+    if (corteSeleccionadoId === 'global' || cortesDelDia.length === 0) return pedidos;
+    
+    const index = cortesDelDia.findIndex(c => c.id === corteSeleccionadoId);
+    if (index === -1) return pedidos;
+    
+    const cAct = cortesDelDia[index];
+    const dStart = index > 0 ? new Date(cortesDelDia[index-1].fecha_creacion) : new Date(fechaFiltro + 'T00:00:00');
+    const dEnd = new Date(cAct.fecha_creacion);
+    
+    return pedidos.filter(p => {
+        const d = new Date(p.fecha_creacion);
+        return d > dStart && d <= dEnd;
+    });
+  }, [pedidos, corteSeleccionadoId, cortesDelDia, fechaFiltro]);
+
+  const pedidosTabla = pedidosDelTurno.filter(p => {
     if (filtroCliente.trim() !== '') {
       const termino = filtroCliente.toLowerCase();
-      
       let extraido = p.cliente_nombre || p.cliente?.nombre || '';
       if (!extraido && p.direccion_entrega) {
           extraido = p.direccion_entrega.split('|')[0].replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
       }
       const nombreCliente = String(extraido || 'Invitado').toLowerCase();
       const telCliente = String(p.cliente_telefono || p.telefono || '');
-      
       if (!nombreCliente.includes(termino) && !telCliente.includes(termino)) return false;
     }
     if (filtroMetodoPago !== 'Todos' && p.metodo_pago !== filtroMetodoPago) return false;
     return true;
   });  
 
-  const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
-
-  // 👇 LÓGICA DE SEPARACIÓN TOTAL (CAJA VS MOTOS) IDENTICA A LA VISTA DE CORTE
   let lEfectivo = 0, lTarjeta = 0, lTransf = 0, lPlatillos = 0, lExtras = 0;
   let dEfectivo = 0, dTarjeta = 0, dTransf = 0, dPlatillos = 0, dExtras = 0, dEnvio = 0;
   let tPlatillos = 0, tExtras = 0, tEnvio = 0;
 
-  pedidos.forEach(p => {
+  pedidosDelTurno.forEach(p => {
     if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
     if(['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) return;
 
@@ -171,11 +161,8 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     else { lEfectivo += efe; lTarjeta += tar; lTransf += tra; tEnvio += parseMoney(p.costo_envio); }
 
     let car = [];
-    if (Array.isArray(p.carrito)) {
-      car = p.carrito;
-    } else if (typeof p.carrito === 'string') {
-      try { car = JSON.parse(p.carrito); } catch(e) {}
-    }  
+    if (Array.isArray(p.carrito)) car = p.carrito;
+    else if (typeof p.carrito === 'string') { try { car = JSON.parse(p.carrito); } catch(e) {} }  
 
     car.forEach(i => {
       const qty = parseMoney(i.cantidad) || 1;
@@ -189,9 +176,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           } else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') {
               isRealExtra = false;
           }
-          if (isRealExtra) {
-              exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
-          }
+          if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
         });
       }  
       if (!isComedor) {
@@ -207,11 +192,35 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     });
   });  
 
-  const fondoCaja = Number(corteEstatico.fondo_caja || corteEstatico.fondo_inicial || 0);
-  const fondoRepartidor = Number(corteEstatico.fondo_repartidor || 0);
-  const gastosCompras = Number(corteEstatico.total_gastos || 0);
+  // 👇 LECTURA INTELIGENTE DE FONDOS (SUMA GLOBAL O FILTRO POR TURNO)
+  let fondoCaja = 0, fondoRepartidor = 0, gastosCompras = 0;
+  if (corteSeleccionadoId === 'global') {
+      fondoCaja = cortesDelDia.reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
+      fondoRepartidor = cortesDelDia.reduce((s, c) => s + Number(c.fondo_repartidor || 0), 0);
+      gastosCompras = cortesDelDia.reduce((s, c) => s + Number(c.total_gastos || 0), 0);
+  } else {
+      const cAct = cortesDelDia.find(c => c.id === corteSeleccionadoId);
+      if (cAct) {
+          fondoCaja = Number(cAct.fondo_inicial || 0);
+          fondoRepartidor = Number(cAct.fondo_repartidor || 0);
+          gastosCompras = Number(cAct.total_gastos || 0);
+      }
+  }
 
-  // 👇 MATEMÁTICA PURA DE AUDITORÍA
+  // DESGLOSE DE REPARTIDORES EN TIEMPO REAL
+  const repsData = {};
+  pedidosDelTurno.filter(p => p.tipo_consumo === 'Domicilio' && p.repartidor_id).forEach(p => {
+      const rId = p.repartidor_id;
+      if(!repsData[rId]) repsData[rId] = { nombre: getNombreEmpleado(rId), envios: 0, efectivo: 0, digital: 0 };
+      repsData[rId].envios++;
+      
+      // Contabilizamos el dinero real cobrado por ellos
+      if (!['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) {
+        if (['Efectivo', 'Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) repsData[rId].efectivo += parseMoney(p.total);
+        else if (p.metodo_pago !== 'Mixto') repsData[rId].digital += parseMoney(p.total);
+      }
+  });
+
   const efectivoEsperadoCaja = (fondoCaja + lEfectivo) - gastosCompras;
   const efectivoEsperadoMotos = (fondoRepartidor + dEfectivo);
   const totalEfectivoFisico = efectivoEsperadoCaja + efectivoEsperadoMotos;
@@ -236,7 +245,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         </div>
         <div>
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Fecha Referencia</label>
-          <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none text-sm" />
+          <input type="date" value={fechaFiltro} onChange={(e) => setFechaFiltro(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none text-sm cursor-pointer" />
         </div>
         <div>
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
@@ -258,9 +267,30 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         </div>
       </div>  
 
+      {/* 👇 PESTAÑAS MULTI-TURNO */}
+      {cortesDelDia.length > 1 && periodo === 'dia' && (
+        <div className="mb-6 flex gap-2 overflow-x-auto print:hidden bg-slate-100 p-2 rounded-2xl custom-scrollbar">
+          <button
+            onClick={() => setCorteSeleccionadoId('global')}
+            className={`px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${corteSeleccionadoId === 'global' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+          >
+            Día Completo (Global)
+          </button>
+          {cortesDelDia.map((c, i) => (
+            <button
+              key={c.id}
+              onClick={() => setCorteSeleccionadoId(c.id)}
+              className={`px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap flex items-center gap-2 ${corteSeleccionadoId === c.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
+            >
+              <User size={16}/> Turno {i+1}: {c.usuario_nombre || 'Cajero'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="hidden print:block text-center mb-6">
         <h1 className="text-2xl font-black text-slate-900">Reporte de Cortes y Auditoría</h1>
-        <p className="text-slate-500 font-bold">Fecha de referencia: {fechaFiltro} | Rango: {periodo.toUpperCase()}</p>
+        <p className="text-slate-500 font-bold">Fecha de referencia: {fechaFiltro} | Rango: {corteSeleccionadoId === 'global' ? 'DÍA COMPLETO' : 'TURNO ESPECÍFICO'}</p>
         <hr className="mt-4 border-slate-300" />
       </div>  
 
@@ -330,6 +360,31 @@ const VistaCortesHistorico = ({ apiUrl }) => {
               </div>
               <p className="text-4xl font-black text-white print:text-2xl print:text-black">{formaterMoneda(efectivoEsperadoMotos)}</p>
           </div>
+
+          {/* 👇 DESGLOSE INYECTADO: Qué entregó cada repartidor en este turno exacto */}
+          {Object.keys(repsData).length > 0 && (
+            <div className="mt-6 pt-6 border-t border-indigo-200 print:border-slate-300">
+              <p className="text-sm font-black text-indigo-900 uppercase tracking-widest mb-4 print:text-black">Desglose por Repartidor en este Turno</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                 {Object.values(repsData).map((r, i) => (
+                    <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 flex flex-col gap-2 print:border-slate-300 print:shadow-none">
+                       <p className="font-black text-slate-800 text-sm flex items-center justify-between">
+                         {r.nombre} 
+                         <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{r.envios} entregas</span>
+                       </p>
+                       <div className="flex justify-between items-center text-xs mt-1">
+                          <span className="font-bold text-slate-500">Efectivo Recaudado:</span>
+                          <span className="font-black text-pink-600">{formaterMoneda(r.efectivo)}</span>
+                       </div>
+                       <div className="flex justify-between items-center text-xs">
+                          <span className="font-bold text-slate-500">Pagado Línea/Tarjeta:</span>
+                          <span className="font-black text-blue-600">{formaterMoneda(r.digital)}</span>
+                       </div>
+                    </div>
+                 ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -377,6 +432,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
          </div>
       </div>
 
+      {/* 📜 SECCIÓN TABLA TICKETS */}
       {cargando ? (
         <div className="text-center py-20 animate-pulse font-bold text-slate-500 print:hidden">Cargando transacciones históricas...</div>
       ) : (
@@ -384,7 +440,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           <div className="xl:col-span-2 bg-white rounded-[32px] print:rounded-none p-6 print:p-0 border border-slate-200 print:border-none shadow-sm print:shadow-none">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                🧾 Órdenes Auditadas ({pedidosFiltrados.length})
+                🧾 Órdenes Auditadas ({pedidosTabla.length})
               </h3>
               <button onClick={() => window.print()} className="print:hidden flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-black shadow-md hover:bg-slate-700 transition active:scale-95">
                 <Printer size={16}/> Imprimir Reporte
@@ -404,7 +460,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 print:divide-slate-200">
-                  {pedidosFiltrados.map((p) => {
+                  {pedidosTabla.map((p) => {
                     let nombreMostrar = p.cliente_nombre || p.cliente?.nombre || '';
                     if (!nombreMostrar && p.direccion_entrega) {
                       const partes = p.direccion_entrega.split('|').map(x => x.trim());
@@ -442,7 +498,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                       </tr>
                     );
                   })}
-                  {pedidosFiltrados.length === 0 && (
+                  {pedidosTabla.length === 0 && (
                     <tr><td colSpan="6" className="text-center py-10 font-bold text-slate-400 text-sm">Ninguna orden coincide con los filtros en este rango temporal.</td></tr>
                   )}
                 </tbody>

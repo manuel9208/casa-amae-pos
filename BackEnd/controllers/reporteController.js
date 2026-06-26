@@ -48,7 +48,7 @@ exports.obtenerReporteVentas = async (req, res) => {
                   COALESCE(SUM(CASE WHEN e.sub_producto_id IS NOT NULL THEN 
                       (ec_sub.costo_empaques_batch / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1)) * e.qty_factor
                   ELSE 0 END), 0)
-              ) / COALESCE(NULLIF(MAX(p_root.rendimiento::numeric), 0), 1) -- 🌟 Aquí se divide el lote entre las piezas reales que rinde
+              ) / COALESCE(NULLIF(MAX(p_root.rendimiento::numeric), 0), 1)
               +
               COALESCE(MAX(ec_root.costo_empaques_batch), 0)
           ) as costo_base_crudo
@@ -139,7 +139,11 @@ exports.obtenerReporteVentas = async (req, res) => {
 
       carrito.forEach(item => {
          let baseName = item.nombre || 'Desconocido';
-         let cleanName = baseName.trim(); 
+         
+         // 🛡️ ESCUDO ANTI-CAMBIOS A FUTURO (REGEX)
+         // Esto extrae y elimina cualquier etiqueta de clasificación al inicio del string (Ej: "[Bebidas] Coca" -> "Coca")
+         // Garantiza unificación de productos en la tabla y match exacto con el diccionario de Recetas.
+         let cleanName = baseName.replace(/^\[.*?\]\s*/, '').trim(); 
 
          let pId = Number(item.id) || 0;
          if (pId === 0) {

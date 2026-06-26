@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import io from 'socket.io-client'; // 👈 NUEVO: Importamos Socket.io para el tiempo real
 import TopNavAdmin from './admin/TopNavAdmin';
 import AdminConfiguracion from './admin/AdminConfiguracion';
 import AdminUsuarios from './admin/AdminUsuarios';
@@ -11,7 +12,6 @@ import AdminReportes from './admin/AdminReportes';
 import AdminPromociones from './admin/AdminPromociones';
 import AdminMesas from './admin/AdminMesas';  
 
-// Centralizamos datos estáticos para no re-crearlos en cada render
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
   "🍔 Comida Rápida": ["🍔", "🍟", "🍕", "🌭", "🥪", "🌮", "🌯", "🥙", "🍖", "🍗", "🥓"],
@@ -25,7 +25,6 @@ const EMOJIS_POR_GIRO = {
 const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const [seccion, setSeccion] = useState('menu');  
 
-  // === 1. DATOS CENTRALES ===
   const [productos, setProductos] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
@@ -36,7 +35,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const baseUrl = apiUrl.replace('/api', '');  
 
-  // === 2. PERMISOS (Calculados centralmente) ===
   const isGlobalAdmin = user?.usuario === 'admin';
   const canViewMenu = isGlobalAdmin || user?.permisos?.menu !== false;
   const canViewInventario = isGlobalAdmin || user?.permisos?.inventario !== false;
@@ -45,12 +43,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewConfig = isGlobalAdmin || user?.permisos?.configuracion === true;
   const canViewClientes = isGlobalAdmin || user?.permisos?.clientes === true;
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true;
-  
-  // 👇 SOLUCIÓN: Se vinculan a los permisos individuales del empleado en lugar de ser fijos para el Admin Global
   const canViewPromociones = isGlobalAdmin || user?.permisos?.promociones === true;
   const canViewMesas = isGlobalAdmin || user?.permisos?.mesas === true;  
 
-  // === 3. MODAL GLOBAL REUTILIZABLE ===
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
   const showAlert = useCallback((titulo, mensaje, tipo = 'info') => {
@@ -65,7 +60,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     setModalUI(prev => ({ ...prev, isOpen: false }));
   }, []);  
 
-  // === 4. CARGA DE DATOS CENTRALIZADA ===
   const cargarDatos = useCallback(async () => {
     const fetchSeguro = async (ruta, setter) => {
       try {
@@ -96,7 +90,24 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);  
 
-  // Auto-refresh silencioso solo para el inventario de insumos
+  // 👇 NUEVO: EFECTO SOCKET.IO PARA ACTUALIZAR EN VIVO
+  useEffect(() => {
+    if (!baseUrl) return;
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    
+    const actualizarPantalla = () => {
+      cargarDatos();
+    };
+
+    // Escuchamos cuando entra un pedido y resta stock, o cuando alguien edita un producto
+    socket.on('nuevo_pedido', actualizarPantalla);
+    socket.on('pedido_actualizado', actualizarPantalla);
+    socket.on('pedido_eliminado', actualizarPantalla);
+    socket.on('catalogo_actualizado', actualizarPantalla);
+
+    return () => socket.disconnect();
+  }, [baseUrl, cargarDatos]);
+
   useEffect(() => {
     let intervalo;
     if (seccion === 'inventario' && canViewInventario) {
@@ -110,11 +121,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     return () => clearInterval(intervalo);
   }, [seccion, apiUrl, canViewInventario]);  
 
-  // Props comunes inyectadas a todos los componentes hijos
   const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };  
 
   return (
-    // Estructura de Flex Vertical (Columna) para acomodar la barra arriba
     <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
       <TopNavAdmin
         user={user}
@@ -169,7 +178,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           <AdminUsuarios
             {...commonProps}
             usuariosDB={usuariosDB}
-            user={user} /* 👈 NUEVA PROPIEDAD: Inyectamos el operador para propagar las reglas de acceso */
+            user={user}
           />
         )}  
         {seccion === 'clientes' && canViewClientes && (
@@ -184,7 +193,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             showAlert={showAlert}
           />
         )}  
-        {/* 👇 AQUÍ SE APLICÓ LA CORRECCIÓN: Pasamos configGlobal y setConfigGlobal */}
         {seccion === 'promociones' && canViewPromociones && (
           <AdminPromociones
             {...commonProps}
@@ -199,7 +207,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           />
         )}
       </main>  
-      {/* === MODAL GLOBAL REUTILIZABLE === */}
       {modalUI.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center">
