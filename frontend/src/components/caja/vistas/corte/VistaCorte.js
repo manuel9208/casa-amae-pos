@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TrendingDown, Calendar, Search, History, Bike, AlertTriangle, Store, Calculator, Smartphone } from 'lucide-react';  
+import { TrendingDown, Calendar, Search, History, Bike, AlertTriangle, Store, Calculator, Smartphone, Lock, CheckCircle2 } from 'lucide-react';  
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
@@ -19,14 +19,42 @@ const getMazatlanDate = (dateString) => {
 
 const VistaCorte = (props) => {
   const {
-    totalGastos, fondoCaja, fondoRepartidor, user
+    totalGastos, fondoCaja, fondoRepartidor, user: userProp
   } = props;  
 
-  const hoyStr = new Date().toLocaleDateString('en-CA');
+  // 🛡️ INTELIGENCIA AUTÓNOMA: Si el componente padre (Caja.js) olvida mandarnos el usuario, lo extraemos de la memoria.
+  let currentUser = userProp;
+  if (!currentUser) {
+    try {
+      const sessionData = localStorage.getItem('pos_sesion');
+      if (sessionData) currentUser = JSON.parse(sessionData).data;
+    } catch(e) {}
+  }
+
+  const hoyStr = new Date().toISOString().split('T')[0];
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [cargando, setCargando] = useState(false);
   const [pedidos, setPedidos] = useState([]);
   const [datosHistoricos, setDatosHistoricos] = useState(null);  
+
+  const [efectivoManual, setEfectivoManual] = useState('');
+  const [guardandoCorte, setGuardandoCorte] = useState(false);
+  
+  const [fondoManual, setFondoManual] = useState(fondoCaja || '');
+
+  // 🛡️ AUTO-LLENADO DE FONDO INICIAL DESDE LA BASE DE DATOS
+  useEffect(() => {
+    if (fondoCaja !== undefined && fondoCaja !== null && fondoManual === '') {
+      setFondoManual(fondoCaja);
+    } else if (datosHistoricos && datosHistoricos.fondo_inicial !== undefined && datosHistoricos.fondo_inicial !== null && fondoManual === '') {
+      setFondoManual(datosHistoricos.fondo_inicial);
+    }
+  }, [fondoCaja, datosHistoricos, fondoManual]);
+
+  // VALIDACIÓN DE ROLES ESTRICTA
+  const isSuperAdmin = String(currentUser?.usuario || '').toLowerCase().trim() === 'admin';
+  const rolUser = String(currentUser?.rol || '').toLowerCase().trim();
+  const esAdminOGerente = isSuperAdmin || ['admin', 'gerente', 'administrador global'].includes(rolUser);
 
   const [mathHoy, setMathHoy] = useState({
     lPlatillos: 0, lExtras: 0, lEfectivo: 0, lTarjeta: 0, lTransf: 0,
@@ -138,17 +166,16 @@ const VistaCorte = (props) => {
     });
   }, [pedidos]);  
 
-  // 👇 CORRECCIÓN DE DEPS: Se remueve 'apiUrl' del arreglo de dependencias para silenciar el warning de ESLint de forma limpia
   useEffect(() => {
-    if (esHoy) {
+    if (esHoy && esAdminOGerente) {
       const temporizadorSincronizacion = setTimeout(async () => {
         try {
           await fetch(`${apiUrl}/cortes`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               fecha: hoyStr,
-              usuario_id: user?.id || null,
-              fondo_inicial: fondoCaja || 0,
+              usuario_id: currentUser?.id || null,
+              fondo_inicial: Number(fondoManual) || 0, 
               fondo_repartidor: fondoRepartidor || 0,
               venta_platillos: mathHoy.tPlatillos,
               ingresos_extras: mathHoy.tExtras,
@@ -157,7 +184,7 @@ const VistaCorte = (props) => {
               total_tarjeta: mathHoy.lTarjeta + mathHoy.dTarjeta,
               total_transferencia: mathHoy.lTransf + mathHoy.dTransf,
               total_gastos: totalGastos,
-              efectivo_cajon: ((Number(fondoCaja) || 0) + (Number(fondoRepartidor)||0) + mathHoy.lEfectivo + mathHoy.dEfectivo) - (Number(totalGastos) || 0),
+              efectivo_cajon: ((Number(fondoManual) || 0) + (Number(fondoRepartidor)||0) + mathHoy.lEfectivo + mathHoy.dEfectivo) - (Number(totalGastos) || 0),
               detalles_envio: { 
                  platillos: mathHoy.dPlatillos, extras: mathHoy.dExtras, envio: mathHoy.dEnvio, 
                  efectivo: mathHoy.dEfectivo, tarjeta: mathHoy.dTarjeta, transf: mathHoy.dTransf 
@@ -168,9 +195,58 @@ const VistaCorte = (props) => {
       }, 3000);
       return () => clearTimeout(temporizadorSincronizacion);
     }
-  }, [esHoy, hoyStr, fondoCaja, mathHoy, totalGastos, fondoRepartidor, user]);  
+  }, [esHoy, hoyStr, fondoManual, mathHoy, totalGastos, fondoRepartidor, currentUser, esAdminOGerente]);  
 
-  const pFondoCaja = esHoy ? (Number(fondoCaja) || 0) : Number(datosHistoricos?.fondo_inicial || datosHistoricos?.fondo_caja || 0);
+  const handleCierreCajaCiego = async (e) => {
+    e.preventDefault();
+    const efectivoNum = parseFloat(efectivoManual);
+    const fondoNum = parseFloat(fondoManual);
+    if (isNaN(efectivoNum) || efectivoNum < 0 || isNaN(fondoNum) || fondoNum < 0) {
+      alert("Por favor ingresa cantidades válidas.");
+      return;
+    }
+
+    setGuardandoCorte(true);
+    try {
+      const res = await fetch(`${apiUrl}/cortes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fecha: hoyStr,
+          usuario_id: currentUser?.id || null,
+          fondo_inicial: fondoNum, 
+          fondo_repartidor: fondoRepartidor || 0,
+          venta_platillos: mathHoy.tPlatillos,
+          ingresos_extras: mathHoy.tExtras,
+          cargos_envio: mathHoy.tEnvio,
+          total_efectivo: mathHoy.lEfectivo + mathHoy.dEfectivo,
+          total_tarjeta: mathHoy.lTarjeta + mathHoy.dTarjeta,
+          total_transferencia: mathHoy.lTransf + mathHoy.dTransf,
+          total_gastos: totalGastos,
+          efectivo_cajon: efectivoNum, 
+          detalles_envio: { 
+             platillos: mathHoy.dPlatillos, extras: mathHoy.dExtras, envio: mathHoy.dEnvio, 
+             efectivo: mathHoy.dEfectivo, tarjeta: mathHoy.dTarjeta, transf: mathHoy.dTransf 
+          }
+        })
+      });
+
+      if (res.ok) {
+        if (props.onLogout) {
+          props.onLogout();
+        } else {
+          window.location.reload();
+        }
+      } else {
+        alert("Ocurrió un error al procesar el cierre. Inténtalo de nuevo.");
+      }
+    } catch (error) {
+      console.error("Error en cierre a ciegas:", error);
+    }
+    setGuardandoCorte(false);
+  };
+
+  const pFondoCaja = esHoy ? (Number(fondoManual) || 0) : Number(datosHistoricos?.fondo_inicial || datosHistoricos?.fondo_caja || 0);
   const pTotalGastos = esHoy ? (Number(totalGastos) || 0) : Number(datosHistoricos?.total_gastos || 0);
   const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : Number(datosHistoricos?.fondo_repartidor || 0);  
 
@@ -181,6 +257,86 @@ const VistaCorte = (props) => {
   const totalDigital = mathHoy.lTarjeta + mathHoy.lTransf + mathHoy.dTarjeta + mathHoy.dTransf;
   const totalVentasGlobales = mathHoy.tPlatillos + mathHoy.tExtras + mathHoy.tEnvio;
 
+  // =========================================================================
+  // VISTA 1: RENDERIZADO EXCLUSIVO PARA CAJERO O JEFE DE TURNO (CORTE A CIEGAS)
+  // =========================================================================
+  if (!esAdminOGerente) {
+    return (
+      <div className="animate-in fade-in pb-20 max-w-xl mx-auto px-4 mt-4 md:mt-8">
+        <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-xl border border-slate-200 text-center">
+          <div className="w-16 h-16 bg-amber-100 border border-amber-200 rounded-2xl flex items-center justify-center text-amber-600 mx-auto mb-6 shadow-sm">
+            <Lock size={32} />
+          </div>
+          
+          <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Cierre de Turno Obligatorio</h2>
+          <p className="text-[10px] bg-slate-900 text-white font-black uppercase tracking-widest px-3 py-1 rounded-md inline-block mt-2">
+            Modalidad: Corte a Ciegas
+          </p>
+
+          <p className="text-slate-500 font-bold text-sm leading-relaxed mt-6 mb-8">
+            Por políticas de auditoría y seguridad, debes declarar el dinero con el que iniciaste y el que tienes actualmente en tu gaveta antes de concluir.
+          </p>
+
+          <form onSubmit={handleCierreCajaCiego} className="space-y-6 text-left">
+            <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
+                Fondo Inicial (Con el que abriste)
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute left-5 font-black text-3xl text-slate-400 select-none">$</span>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0"
+                  required
+                  disabled={guardandoCorte}
+                  value={fondoManual}
+                  onChange={(e) => setFondoManual(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-white border-2 border-slate-200 rounded-2xl p-5 pl-10 text-center text-4xl font-black outline-none focus:border-indigo-500 transition-all text-slate-700 tracking-tight placeholder-slate-200"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
+              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
+                Efectivo Físico Contado al Cierre
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute left-5 font-black text-3xl text-slate-400 select-none">$</span>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  min="0"
+                  required
+                  disabled={guardandoCorte}
+                  value={efectivoManual}
+                  onChange={(e) => setEfectivoManual(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-white border-2 border-slate-200 rounded-2xl p-5 pl-10 text-center text-4xl font-black outline-none focus:border-indigo-500 transition-all text-slate-700 tracking-tight placeholder-slate-200"
+                />
+              </div>
+              <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-wider mt-3">
+                No incluyas vouchers de tarjeta ni transferencias, únicamente billetes y monedas.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={guardandoCorte || !efectivoManual || fondoManual === ''}
+              className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-40 disabled:bg-slate-300 disabled:shadow-none"
+            >
+              <CheckCircle2 size={22} /> {guardandoCorte ? "Asentando Cierre..." : "Efectuar Cierre y Salir"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // VISTA 2: RENDERIZADO COMPLETO PARA OPERADORES DE ALTO RANGO (ADMIN/GERENTE)
+  // =========================================================================
   return (
     <div className="animate-in fade-in pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
@@ -211,7 +367,21 @@ const VistaCorte = (props) => {
               </div>
               <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Fondo Inicial</p>
-                <p className="text-2xl font-black text-slate-700">${pFondoCaja.toFixed(2)}</p>
+                {esHoy ? (
+                   <div className="flex items-center text-2xl font-black text-slate-700 mt-0.5">
+                      <span className="mr-1">$</span>
+                      <input 
+                        type="number" 
+                        min="0"
+                        step="0.01"
+                        value={fondoManual} 
+                        onChange={(e) => setFondoManual(e.target.value)} 
+                        className="w-full bg-transparent outline-none border-b-2 border-slate-300 focus:border-blue-500 transition-colors" 
+                      />
+                   </div>
+                ) : (
+                   <p className="text-2xl font-black text-slate-700 mt-0.5">${pFondoCaja.toFixed(2)}</p>
+                )}
               </div>
               <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Ingresos Efectivo</p>

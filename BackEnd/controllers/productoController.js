@@ -1,4 +1,27 @@
 const db = require('../config/db');
+const cloudinary = require('cloudinary').v2; // 👈 NUEVA IMPORTACIÓN PARA EL TRATAMIENTO DE IMÁGENES
+
+// 👇 FUNCIÓN AUXILIAR: Extrae el public_id único de la URL de Cloudinary de forma segura
+const extraerPublicId = (url) => {
+  if (!url || !url.includes('cloudinary.com')) return null;
+  try {
+    const parts = url.split('/upload/');
+    if (parts.length < 2) return null;
+    const pathSinVersion = parts[1].replace(/^v\d+\//, '');
+    const publicId = pathSinVersion.substring(0, pathSinVersion.lastIndexOf('.'));
+    return publicId || pathSinVersion;
+  } catch (e) { return null; }
+};
+
+// 👇 FUNCIÓN AUXILIAR: Envía el comando de destrucción física del archivo a Cloudinary
+const borrarDeCloudinary = (urlVieja) => {
+  const publicId = extraerPublicId(urlVieja);
+  if (publicId) { 
+    cloudinary.uploader.destroy(publicId).catch(err => {
+      console.error("Error al destruir imagen en Cloudinary:", err);
+    }); 
+  }
+};
 
 exports.obtenerProductos = async (req, res) => { 
   try { 
@@ -10,13 +33,10 @@ exports.obtenerProductos = async (req, res) => {
 };
 
 exports.crearProducto = async (req, res) => {
-  // 👇 Recibimos la propiedad 'disponible' y 'genera_puntos'
   const { nombre, descripcion, precio_base, emoji, categoria, opciones, tiempo_preparacion, disponible, genera_puntos } = req.body; 
   
-  // CAMBIO CLOUDINARY: req.file.path
   const imagen_url = req.file ? req.file.path : null;
   
-  // Parseo de booleano (FormData envía strings)
   const isDisponible = disponible === undefined ? true : (disponible === 'true' || disponible === true);
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
 
@@ -34,17 +54,22 @@ exports.crearProducto = async (req, res) => {
 
 exports.actualizarProducto = async (req, res) => {
   const { id } = req.params; 
-  // 👇 Recibimos la propiedad 'disponible' y 'genera_puntos'
   const { nombre, descripcion, precio_base, emoji, categoria, opciones, tiempo_preparacion, disponible, genera_puntos } = req.body; 
   
-  // CAMBIO CLOUDINARY: req.file.path
   const imagen_url = req.file ? req.file.path : null;
   
-  // Parseo de booleano
   const isDisponible = disponible === undefined ? true : (disponible === 'true' || disponible === true);
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
 
   try { 
+    // 🛡️ ESCUDO DE PROTECCIÓN: Si el cliente está enviando una imagen nueva, borramos la vieja de Cloudinary primero
+    if (imagen_url) {
+      const prodActual = await db.query('SELECT imagen_url FROM productos WHERE id = $1', [id]);
+      if (prodActual.rows.length > 0 && prodActual.rows[0].imagen_url) {
+        borrarDeCloudinary(prodActual.rows[0].imagen_url);
+      }
+    }
+
     const result = await db.query(
       'UPDATE productos SET nombre=$1, descripcion=$2, precio_base=$3, emoji=$4, categoria=$5, opciones=$6, imagen_url=COALESCE($7, imagen_url), tiempo_preparacion=$8, disponible=$9, genera_puntos=$10 WHERE id=$11 RETURNING *', 
       [nombre, descripcion, precio_base, emoji, categoria, opciones, imagen_url, tiempo_preparacion || 15, isDisponible, isGeneraPuntos, id]
@@ -57,15 +82,21 @@ exports.actualizarProducto = async (req, res) => {
 };
 
 exports.eliminarProducto = async (req, res) => { 
+  const { id } = req.params;
   try { 
-    await db.query('DELETE FROM productos WHERE id = $1', [req.params.id]); 
+    // 🛡️ ESCUDO DE PROTECCIÓN: Antes de borrar el registro de PostgreSQL, obtenemos la URL y la purgamos de Cloudinary
+    const prodActual = await db.query('SELECT imagen_url FROM productos WHERE id = $1', [id]);
+    if (prodActual.rows.length > 0 && prodActual.rows[0].imagen_url) {
+      borrarDeCloudinary(prodActual.rows[0].imagen_url);
+    }
+
+    await db.query('DELETE FROM productos WHERE id = $1', [id]); 
     res.json({ success: true }); 
   } catch (error) { 
     res.status(500).json({ error: 'Error al eliminar producto' }); 
   } 
 };
 
-// ================= ACTUALIZAR RENDIMIENTO =================
 exports.actualizarRendimiento = async (req, res) => {
   try {
     const result = await db.query('UPDATE productos SET rendimiento=$1 WHERE id=$2 RETURNING *', [req.body.rendimiento, req.params.id]);

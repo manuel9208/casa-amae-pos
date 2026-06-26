@@ -1,24 +1,23 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, ShoppingCart, PlusCircle, Map, ChefHat, Bike, Utensils } from 'lucide-react';
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map } from 'lucide-react'; // 👈 FIX: Agregamos 'Map' de vuelta a las importaciones
 
 const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
   mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia,
-  setModalComedor // 👈 NUEVO PROP PARA ABRIR EL COMEDOR
+  setModalComedor
 }) => {
   // Identificamos al Admin Global
   const isGlobalAdmin = user?.usuario === 'admin';
   
-  // 🛡️ El corte de caja lo visualizan el Admin Global, y los roles 'admin' o 'gerente'.
-  const canCorte = isGlobalAdmin || ['admin', 'gerente'].includes(user?.rol); 
+  // 🛡️ El botón de corte lo deben ver también el cajero y el jefe de turno para poder hacer su "Corte a Ciegas"
+  const canCorte = isGlobalAdmin || ['admin', 'gerente', 'jefe', 'cajero'].includes(user?.rol); 
   
   const canCompras = isGlobalAdmin || user?.permisos?.compras_rapidas === true;
   
   const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
   const canVerCocina = isCocinaCajaActiva && ['admin', 'gerente', 'jefe', 'cocina', 'ayudante_cocina', 'cajero'].includes(user?.rol);
 
-  // 👇 VERIFICAR REGLA DE ASISTENCIA
   const isAsistenciaPin = configGlobal?.asistencia_pin_caja === undefined || configGlobal?.asistencia_pin_caja === true || String(configGlobal?.asistencia_pin_caja) === 'true';
 
   return (
@@ -45,7 +44,6 @@ const TopNavCaja = ({
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
           
-          {/* 👇 NUEVO BOTÓN DE ACCESO RÁPIDO AL COMEDOR PERSONAL */}
           <button
             onClick={() => setModalComedor(true)}
             className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-3 rounded-2xl font-black text-sm transition flex items-center gap-2 active:scale-95 border border-indigo-200"
@@ -67,7 +65,7 @@ const TopNavCaja = ({
               className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-3 rounded-2xl font-bold transition flex items-center gap-2 active:scale-95"
               title="Compras Rápidas de Insumos"
             >
-              <ShoppingCart size={20}/>
+              <ShoppingBag size={20}/>
             </button>
           )}
 
