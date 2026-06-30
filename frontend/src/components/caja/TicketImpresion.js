@@ -19,8 +19,12 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
         <p>Fecha: {new Date().toLocaleString()}</p>
         <p>Cliente: {ticketImprimir.cliente_nombre || 'Invitado'}</p>
         <p>Tipo: {ticketImprimir.tipo_consumo}</p>
-        {/* 👇 NUEVO: IMPRIMIR NÚMERO DE MESA SI EXISTE */}
         {ticketImprimir.mesa && <p className="font-bold">MESA: {ticketImprimir.mesa}</p>}
+        
+        {/* 👇 NUEVO: IMPRIMIR DIRECCIÓN Y NOTAS DE CAMBIO VISIBLES */}
+        {ticketImprimir.direccion_entrega && ticketImprimir.direccion_entrega !== 'Pendiente de dirección' && (
+          <p className="font-bold mt-1 text-[11px] leading-tight">DIR: {ticketImprimir.direccion_entrega}</p>
+        )}
       </div>
 
       <table className="w-full text-left mb-2 text-[10px] uppercase">

@@ -9,9 +9,9 @@ import ModalAgregarExtra from './modales/ModalAgregarExtra';
 import ModalZonaEnvio from './modales/ModalZonaEnvio';
 import ModalVerDetalle from './modales/ModalVerDetalle';
 import ModalAperturaCaja from './modales/ModalAperturaCaja';
-import ModalPuntoVenta from './modales/ModalPuntoVenta';
+import ModalPuntoVenta from './modales/PuntoDeVenta/PuntoDeVentaPrincipal';
 import ModalAsistencia from './modales/ModalAsistencia'; 
-import ModalComedor from './modales/ModalComedor'; // 👈 NUEVA IMPORTACIÓN
+import ModalComedor from './modales/ModalComedor'; 
 
 const ModalesCaja = ({
   user, cargarDataDinamica, modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
@@ -25,7 +25,7 @@ const ModalesCaja = ({
   setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente, buscarClienteParaPedido,
   registrarClienteParaPedido, onGoToKiosco, empleadosPOS, mesas,
   modalAsistencia, setModalAsistencia,
-  modalComedor, setModalComedor, pedidos // 👈 NUEVOS PROPS RECIBIDOS
+  modalComedor, setModalComedor, pedidos
 }) => {
   return (
     <>
@@ -96,7 +96,8 @@ const ModalesCaja = ({
       
       <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />
       
-      <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} />
+      {/* 👇 AQUÍ ESTÁ EL AJUSTE QUIRÚRGICO DE CONFIG GLOBAL */}
+      <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} configGlobal={configGlobal} />
       
       <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />
       
@@ -104,7 +105,6 @@ const ModalesCaja = ({
       
       <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} onSuccess={cargarDataDinamica} />
 
-      {/* 👇 NUEVO MODAL DE COMEDOR INYECTADO */}
       <ModalComedor 
         modalComedor={modalComedor} 
         setModalComedor={setModalComedor} 
