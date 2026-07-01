@@ -11,7 +11,8 @@ const LiquidacionRepartidoresPrincipal = ({
     fondosRepartidores,
     actualizarFondoRepartidor,
     fondoRepartidorGlobal,
-    liquidarPedidoRepartidor
+    liquidarPedidoRepartidor,
+    actualizarEstadoPedido // 👈 Recibido desde VistasCaja
 }) => {  
 
     const repartidoresActivos = (empleadosPOS || []).filter(emp => String(emp.rol).toLowerCase().includes('repart'));
@@ -34,10 +35,10 @@ const LiquidacionRepartidoresPrincipal = ({
 
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
     
-    // 👇 FIX 2 APLICADO: Ahora suma también los pedidos 'En Camino' al adeudo total esperado de efectivo
+    // 👇 FIX APLICADO: Solo las órdenes 'Pendientes' o 'Por Cobrar' se consideran como deuda física
     const pedidosEfectivoGlobal = pedidosEnReparto.filter(p => 
         ['Entregado', 'En Camino'].includes(p.estado_preparacion) && 
-        ['Pendiente', 'Por Cobrar', 'Efectivo'].includes(p.metodo_pago)
+        ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)
     );
     
     const deudaPedidosEfectivoGlobal = pedidosEfectivoGlobal.reduce((sum, p) => sum + parseMoney(p.total), 0);
@@ -83,7 +84,7 @@ const LiquidacionRepartidoresPrincipal = ({
                         <div className="bg-white border-2 border-slate-200 border-dashed p-12 rounded-[40px] text-center animate-in zoom-in-95">
                             <CheckCircle2 size={48} className="text-emerald-400 mx-auto mb-4 opacity-60"/>
                             <p className="text-xl font-bold text-slate-500">Ruta limpia y cobrada.</p>
-                            <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">No hay motociclistas con deudas activas.</p>
+                            <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">No hay motociclistas con deudas activas o viajes en proceso.</p>
                         </div>
                     ) : (
                         Object.entries(pedidosPorRepartidor).map(([repartidorId, listaPedidos]) => (
@@ -93,6 +94,7 @@ const LiquidacionRepartidoresPrincipal = ({
                                 listaPedidos={listaPedidos}
                                 getNombreRepartidor={getNombreRepartidor}
                                 liquidarPedidoRepartidor={liquidarPedidoRepartidor}
+                                actualizarEstadoPedido={actualizarEstadoPedido} // 👈 Pasado a la Tarjeta
                             />
                         ))
                     )}

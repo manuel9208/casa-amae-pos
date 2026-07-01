@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { Bike, MapPin, CheckCircle2, DollarSign, AlertTriangle } from 'lucide-react';  
+import { Bike, MapPin, CheckCircle2, DollarSign, AlertTriangle, PackageCheck } from 'lucide-react';  
 
 const TarjetaRepartidor = ({
     repartidorId,
     listaPedidos,
     getNombreRepartidor,
-    liquidarPedidoRepartidor
+    liquidarPedidoRepartidor,
+    actualizarEstadoPedido // 👈 Recibido para poder forzar la entrega si ya está pagado
 }) => {
-    // 👇 NUEVO ESTADO: Controla el modal elegante de confirmación
     const [pedidoAConfirmar, setPedidoAConfirmar] = useState(null);
 
+    // 👇 FIX APLICADO: Solo sumamos las deudas reales a la cartera del conductor
     const pedidosEfectivo = listaPedidos.filter(p => 
         ['Entregado', 'En Camino'].includes(p.estado_preparacion) && 
-        ['Pendiente', 'Por Cobrar', 'Efectivo'].includes(p.metodo_pago)
+        ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)
     );
     
     const totalDeudaRepartidor = pedidosEfectivo.reduce((sum, p) => sum + Number(p.total), 0);  
@@ -34,7 +35,8 @@ const TarjetaRepartidor = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mt-4">
                     {listaPedidos.map(p => {
-                        const esEfectivo = ['Pendiente', 'Por Cobrar', 'Efectivo'].includes(p.metodo_pago);
+                        // 👇 FIX VISUAL: Ahora es "esDeuda" en lugar de "esEfectivo"
+                        const esDeuda = ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago);
                         const estaEnRuta = p.estado_preparacion === 'En Camino';
 
                         return (
@@ -49,33 +51,48 @@ const TarjetaRepartidor = ({
                                             {p.cliente_nombre || 'Invitado'}
                                         </p>
                                     </div>
-                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest shrink-0 ${esEfectivo ? 'bg-orange-100 text-orange-700 border border-orange-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
-                                        {esEfectivo ? 'Efectivo' : 'Online'}
+                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest shrink-0 ${esDeuda ? 'bg-orange-100 text-orange-700 border border-orange-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                                        {esDeuda ? 'Efectivo (Cobrar)' : 'Pagado Online/Caja'}
                                     </span>
                                 </div>  
                                 
                                 <div className="flex justify-between items-center mb-4">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Monto:</span>
-                                    <span className={`text-xl md:text-2xl font-black ${esEfectivo ? 'text-pink-600' : 'text-slate-400 line-through'}`}>
+                                    <span className={`text-xl md:text-2xl font-black ${esDeuda ? 'text-pink-600' : 'text-emerald-500'}`}>
                                         ${p.total}
                                     </span>
                                 </div>  
 
-                                {/* 👇 FIX UX APLICADO: Dispara el modal elegante en lugar de window.confirm() */}
-                                {estaEnRuta ? (
-                                    <button
-                                        onClick={() => setPedidoAConfirmar({ ...p, enRuta: true })}
-                                        className="w-full bg-blue-500 hover:bg-blue-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/30"
-                                    >
-                                        <CheckCircle2 size={16}/> Liquidar Anticipado
-                                    </button>
+                                {/* 👇 FIX APLICADO: Lógica Inteligente de Botones según su Pago */}
+                                {esDeuda ? (
+                                    estaEnRuta ? (
+                                        <button
+                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: true })}
+                                            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/30"
+                                        >
+                                            <CheckCircle2 size={16}/> Liquidar Anticipado
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: false })}
+                                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30"
+                                        >
+                                            <CheckCircle2 size={16}/> Recibir Efectivo
+                                        </button>
+                                    )
                                 ) : (
-                                    <button
-                                        onClick={() => setPedidoAConfirmar({ ...p, enRuta: false })}
-                                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30"
-                                    >
-                                        <CheckCircle2 size={16}/> Recibir Efectivo
-                                    </button>
+                                    estaEnRuta ? (
+                                        <button
+                                            onClick={() => actualizarEstadoPedido(p.id, 'Entregado')}
+                                            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-slate-800/30"
+                                        >
+                                            <PackageCheck size={16}/> Forzar Entrega (Ya Pagado)
+                                        </button>
+                                    ) : (
+                                        <div className="w-full bg-slate-100 text-slate-400 font-black py-3 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center gap-1.5 border border-slate-200/60">
+                                            <CheckCircle2 size={16}/> Completado
+                                        </div>
+                                    )
                                 )}
                             </div>
                         );
@@ -83,7 +100,6 @@ const TarjetaRepartidor = ({
                 </div>
             </div>
 
-            {/* 👇 NUEVO MODAL ELEGANTE DE CONFIRMACIÓN */}
             {pedidoAConfirmar && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200 border border-slate-100">

@@ -13,7 +13,7 @@ const PasoIdentificarCliente = ({
     setDatosNuevoCliente,
     registrarClienteRapido,
     setNombreOrden,
-    setClienteAsignado // 👈 FIX APLICADO: Recibe la función de limpieza
+    setClienteAsignado
 }) => {  
 
     if (paso === 'identificar') {
@@ -52,14 +52,15 @@ const PasoIdentificarCliente = ({
                             {isSubmitting ? 'Buscando...' : 'Buscar Cliente'}
                         </button>
                     </form>  
-                    {/* 👇 FIX APLICADO: Asegura la limpieza total del cliente residual en memoria */}
+                    
                     <button
                         type="button"
                         onClick={(e) => { 
                             e.preventDefault();
                             if (setClienteAsignado) setClienteAsignado(null);
                             setTelefonoCliente('');
-                            setNombreOrden('Invitado'); 
+                            // 👇 FIX: Lo dejamos en blanco en lugar de 'Invitado' para obligar al cajero a escribir
+                            setNombreOrden(''); 
                             setPaso('menu'); 
                         }}
                         className="text-slate-400 hover:text-slate-600 font-bold text-xs md:text-sm underline mt-2 transition-colors p-2"

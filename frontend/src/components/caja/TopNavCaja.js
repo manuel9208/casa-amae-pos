@@ -1,21 +1,23 @@
 import React from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map, Maximize } from 'lucide-react';  
+import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map, Maximize, Trash2 } from 'lucide-react';  
 
 const TopNavCaja = ({
     user, onLogout, configGlobal, toggleEstadoNegocio,
     vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
     mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto, setModalAsistencia,
-    setModalComedor
+    setModalComedor, setModalMermas
 }) => {
     const isGlobalAdmin = user?.usuario === 'admin';
     const canCorte = isGlobalAdmin || ['admin', 'gerente', 'jefe', 'cajero'].includes(user?.rol);
     const canCompras = isGlobalAdmin || user?.permisos?.compras_rapidas === true;  
     
+    // 👇 NUEVA REGLA: Permiso para reportar mermas
+    const canMermas = isGlobalAdmin || user?.permisos?.reportar_mermas === true;
+    
     const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
     const canVerCocina = isCocinaCajaActiva && ['admin', 'gerente', 'jefe', 'cocina', 'ayudante_cocina', 'cajero'].includes(user?.rol);  
     const isAsistenciaPin = configGlobal?.asistencia_pin_caja === undefined || configGlobal?.asistencia_pin_caja === true || String(configGlobal?.asistencia_pin_caja) === 'true';  
 
-    // 👇 NUEVO: Función para alternar Pantalla Completa
     const toggleFullScreen = () => {
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen().catch(e => console.error("Error al intentar abrir pantalla completa", e));
@@ -83,10 +85,19 @@ const TopNavCaja = ({
                         </button>
                     )}  
 
+                    {/* 👇 NUEVO BOTÓN: Reporte de Mermas */}
+                    {canMermas && (
+                        <button
+                            onClick={() => setModalMermas(true)}
+                            className="bg-red-50 hover:bg-red-100 text-red-600 px-3 md:px-4 py-2.5 md:py-3 rounded-2xl font-bold transition-all flex items-center gap-2 active:scale-95 shrink-0"
+                            title="Reportar Merma de Inventario"
+                        >
+                            <Trash2 size={18} className="md:w-5 md:h-5"/>
+                        </button>
+                    )}
+
                     {/* Bloque de Usuario y Asistencia */}
                     <div className="flex items-center gap-3 pl-3 border-l border-slate-200 shrink-0">
-                        
-                        {/* 👇 NUEVO BOTÓN: Pantalla Completa */}
                         <button 
                             onClick={toggleFullScreen} 
                             className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2.5 md:p-3 rounded-2xl transition-all active:scale-95 hidden sm:block" 

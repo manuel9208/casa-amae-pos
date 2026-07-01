@@ -31,6 +31,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const [modalVerDetalle, setModalVerDetalle] = useState(null);
     const [modalEditarPedido, setModalEditarPedido] = useState(null);
     const [modalCompraRapida, setModalCompraRapida] = useState(false);
+    const [modalMermas, setModalMermas] = useState(false);
     const [insumoComprar, setInsumoComprar] = useState(null);
     const [paquetesComprados, setPaquetesComprados] = useState('');
     const [alertaCaja, setAlertaCaja] = useState(null);
@@ -145,7 +146,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     useEffect(() => {
         if (!configGlobal) return;
         const isBloqueoGlobalOn = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
-        if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia || modalComedor) return;
+        if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia || modalComedor || modalMermas) return;
 
         let timeout;
         const segundosLimite = configGlobal.bloqueo_caja_segundos || 30;
@@ -171,14 +172,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             window.removeEventListener('touchstart', reiniciarTemporizador);
             window.removeEventListener('click', reiniciarTemporizador);
         };
-    }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia, modalComedor, fondoCaja]);
+    }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia, modalComedor, modalMermas, fondoCaja]);
 
     const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => {
         setAlertaCaja({ titulo, mensaje, tipo });
         setTimeout(() => setAlertaCaja(null), 5000);
     };
 
-    // 👇 FIX APLICADO: La lógica de cierre inteligente ya está manejada de forma centralizada y segura en App.js
     const cerrarCajaYSalir = async () => {
         onLogout();
     };
@@ -278,19 +278,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const actualizarEstadoPedido = async (pedidoOId, nuevoEstado, extraData = {}) => {
         if (isSubmitting) return;
         setIsSubmitting(true);
+        
         const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
         const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);
 
         let estadoSeguro = nuevoEstado;
-        if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) estadoSeguro = 'Pagado';
+        if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
+            estadoSeguro = 'Pagado';
+        }
 
         try {
             let payload = { estado_preparacion: estadoSeguro, ...extraData };
+            
             if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
                 // Mantener 'Por Cobrar' si solo estamos sirviendo a la mesa
             } else if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
                 payload.metodo_pago = 'Efectivo';
             }
+            
             await fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
             });
@@ -299,7 +304,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setIsSubmitting(false);
     };
 
-    const confirmarPedidoRecoger = async (id) => await actualizarEstadoPedido(id, 'Pagado');
+    const confirmarPedidoRecoger = async (id) => {
+        await actualizarEstadoPedido(id, 'Pagado');
+    };
 
     const confirmarPedidoDomicilio = async (pedidoModificado) => {
         if (isSubmitting) return;
@@ -336,10 +343,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     const abrirModalResolver = (pedido) => {
         const alertaLimpia = pedido.alerta_cocina.replace(/\[IDX:[\d,]+\]\s*/g, '');
-        setAccionAlerta(''); setIngredienteReemplazo('');
+        setAccionAlerta(''); 
+        setIngredienteReemplazo('');
+        
         const match = pedido.alerta_cocina.match(/\[IDX:([\d,]+)\]/);
-        if (match) setItemAfectadoIdx(Number(match[1].split(',')[0]));
-        else setItemAfectadoIdx('');
+        if (match) {
+            setItemAfectadoIdx(Number(match[1].split(',')[0]));
+        } else {
+            setItemAfectadoIdx('');
+        }
+        
         setModalResolver({ ...pedido, alertaLimpia });
     };
 
@@ -349,6 +362,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         try {
             const items = typeof pedidoOriginal.carrito === 'string' ? JSON.parse(pedidoOriginal.carrito) : pedidoOriginal.carrito;
             const itemReal = items[itemIndex];
+            
             itemReal.extras = itemReal.extras || [];
             itemReal.extras.push({ nombre: extraObj.nombre, precioExtra: extraObj.precio_extra || extraObj.precioExtra || 0, tipo: 'extra' });
             itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
@@ -429,19 +443,29 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         try {
             const pedidoRef = pedidos.find(p => p.id === id);
             let paqueteCompleto = { ...nuevosDatos };
+            
             if (pedidoRef) {
                 const carritoArray = typeof pedidoRef.carrito === 'string' ? JSON.parse(pedidoRef.carrito) : (pedidoRef.carrito || []);
                 paqueteCompleto = {
-                    cliente_id: pedidoRef.cliente_id, cliente_nombre: pedidoRef.cliente_nombre, cliente_telefono: pedidoRef.cliente_telefono,
-                    tipo_consumo: nuevosDatos.tipo_consumo || pedidoRef.tipo_consumo, metodo_pago: pedidoRef.metodo_pago,
-                    origen: pedidoRef.origen, direccion_entrega: nuevosDatos.direccion_entrega !== undefined ? nuevosDatos.direccion_entrega : pedidoRef.direccion_entrega,
-                    estado_preparacion: nuevosDatos.estado_preparacion || pedidoRef.estado_preparacion, mesa: pedidoRef.mesa,
-                    carrito: carritoArray, total: nuevosDatos.total !== undefined ? nuevosDatos.total : pedidoRef.total,
-                    descuento_puntos: pedidoRef.descuento_puntos, cupon_codigo: pedidoRef.cupon_codigo,
+                    cliente_id: pedidoRef.cliente_id, 
+                    cliente_nombre: pedidoRef.cliente_nombre, 
+                    cliente_telefono: pedidoRef.cliente_telefono,
+                    tipo_consumo: nuevosDatos.tipo_consumo || pedidoRef.tipo_consumo, 
+                    metodo_pago: pedidoRef.metodo_pago,
+                    origen: pedidoRef.origen, 
+                    direccion_entrega: nuevosDatos.direccion_entrega !== undefined ? nuevosDatos.direccion_entrega : pedidoRef.direccion_entrega,
+                    estado_preparacion: nuevosDatos.estado_preparacion || pedidoRef.estado_preparacion, 
+                    mesa: pedidoRef.mesa,
+                    carrito: carritoArray, 
+                    total: nuevosDatos.total !== undefined ? nuevosDatos.total : pedidoRef.total,
+                    descuento_puntos: pedidoRef.descuento_puntos, 
+                    cupon_codigo: pedidoRef.cupon_codigo,
                     costo_envio: nuevosDatos.costo_envio !== undefined ? nuevosDatos.costo_envio : pedidoRef.costo_envio
                 };
             }
+            
             const res = await fetch(`${apiUrl}/pedidos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paqueteCompleto) });
+            
             if (res.ok) {
                 if (pedidoRef && pedidoRef.cliente_id && nuevosDatos.direccion_entrega) {
                     const dirLimpia = nuevosDatos.direccion_entrega.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
@@ -455,14 +479,23 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
                         }
                     } catch(e) {}
                 }
-                setModalEditarPedido(null); await cargarDataDinamica();
+                setModalEditarPedido(null); 
+                await cargarDataDinamica();
             }
         } catch (error) {}
         setIsSubmitting(false);
     };
 
-    const abrirIdentificador = () => { setOrdenEditandoRapida(null); setModalPuntoVenta(true); };
-    const onGoToKioscoLocal = (cliente, orden) => { setOrdenEditandoRapida(orden); setModalEditarPedido(null); setModalPuntoVenta(true); };
+    const abrirIdentificador = () => { 
+        setOrdenEditandoRapida(null); 
+        setModalPuntoVenta(true); 
+    };
+
+    const onGoToKioscoLocal = (cliente, orden) => { 
+        setOrdenEditandoRapida(orden); 
+        setModalEditarPedido(null); 
+        setModalPuntoVenta(true); 
+    };
 
     const forzarLiberacionMesas = async (arrayMesasOcupadas) => {
         setIsSubmitting(true);
@@ -515,7 +548,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja');
 
     const pendientesDePago = pedidos.filter(p => {
-        if (['Cancelado', 'Finalizado', 'Entregado'].includes(p.estado_preparacion)) return false;
+        if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
         if (p.tipo_consumo === 'Domicilio' && ['Listo', 'En Camino', 'Entregado'].includes(p.estado_preparacion)) return false;
         if (p.estado_preparacion === 'Pendiente') return false;
 
@@ -535,11 +568,12 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         p.estado_preparacion !== 'Finalizado'
     );
 
+    // 👇 FIX APLICADO: Solo las órdenes 'Por Cobrar' o 'Pendientes' aplican como deuda de repartidor
     const pedidosPorLiquidar = pedidos.filter(p =>
         p.tipo_consumo === 'Domicilio' &&
         (
             p.estado_preparacion === 'En Camino' ||
-            (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar', 'Efectivo'].includes(p.metodo_pago))
+            (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago))
         )
     );
 
@@ -553,7 +587,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo,
         ticketImprimir, modalZonaEnvio, setModalZonaEnvio,
         modalVerDetalle, setModalVerDetalle, modalEditarPedido, setModalEditarPedido,
-        modalCompraRapida, setModalCompraRapida, insumoComprar, setInsumoComprar,
+        modalCompraRapida, setModalCompraRapida,
+        modalMermas, setModalMermas,
+        insumoComprar, setInsumoComprar,
         paquetesComprados, setPaquetesComprados, alertaCaja, setAlertaCaja,
         modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
         modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,

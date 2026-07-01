@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('cloudinary').v2;  
+const cloudinary = require('cloudinary').v2;
 
 // Controladores
 const configCtrl = require('../controllers/configController');
@@ -22,27 +22,27 @@ const notificacionCtrl = require('../controllers/notificacionController');
 const repartidorCtrl = require('../controllers/repartidorController');
 const corteCtrl = require('../controllers/corteController');
 const mensajeCtrl = require('../controllers/mensajeController');
-// 👇 NUEVO CONTROLADOR IMPORTADO
 const biometricoCtrl = require('../controllers/biometricoController');
+const mermaCtrl = require('../controllers/mermaController'); // 👈 NUEVO CONTROLADOR IMPORTADO
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
 // ==========================================
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});  
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'pos_uploads',
-    resource_type: 'auto',
-    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov']
-  }
+    cloudinary: cloudinary,
+    params: {
+        folder: 'pos_uploads',
+        resource_type: 'auto',
+        allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov']
+    }
 });
-const upload = multer({ storage: storage });  
+const upload = multer({ storage: storage });
 
 // ==========================================
 // RUTAS DE CONFIGURACIÓN Y MARCA BLANCA
@@ -58,7 +58,7 @@ router.get('/cupones', configCtrl.obtenerCupones);
 router.post('/cupones', configCtrl.crearCupon);
 router.put('/cupones/:id/estado', configCtrl.actualizarCuponEstado);
 router.delete('/cupones/:id', configCtrl.eliminarCupon);
-router.post('/cupones/validar', configCtrl.validarCupon);  
+router.post('/cupones/validar', configCtrl.validarCupon);
 
 // ==========================================
 // PROMOCIONES Y UPSELLING
@@ -66,12 +66,12 @@ router.post('/cupones/validar', configCtrl.validarCupon);
 router.get('/promociones', promocionCtrl.obtenerPromociones);
 router.post('/promociones', promocionCtrl.crearPromocion);
 router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
-router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);  
+router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
 
 // ==========================================
 // NOTIFICACIONES PUSH
 // ==========================================
-router.post('/suscripciones', notificacionCtrl.guardarSuscripcion);  
+router.post('/suscripciones', notificacionCtrl.guardarSuscripcion);
 
 // ==========================================
 // AUTENTICACIÓN Y CLIENTES
@@ -83,7 +83,7 @@ router.post('/clientes/registro', clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
 router.get('/clientes', clienteCtrl.obtenerClientes);
 router.put('/clientes/:id', clienteCtrl.actualizarCliente);
-router.get('/clientes/reportes', clienteCtrl.obtenerReportes);  
+router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
 
 // ==========================================
 // USUARIOS (EMPLEADOS) Y RECURSOS HUMANOS
@@ -115,12 +115,12 @@ router.delete('/mensajes/:id', mensajeCtrl.eliminarMensaje);
 router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
 router.post('/clasificaciones', upload.single('imagen'), clasificacionCtrl.crearClasificacion);
 router.put('/clasificaciones/:id', upload.single('imagen'), clasificacionCtrl.actualizarClasificacion);
-router.delete('/clasificaciones/:id', clasificacionCtrl.eliminarClasificacion);  
+router.delete('/clasificaciones/:id', clasificacionCtrl.eliminarClasificacion);
 
 router.get('/ingredientes', ingredienteCtrl.obtenerIngredientes);
 router.post('/ingredientes', ingredienteCtrl.crearIngrediente);
 router.put('/ingredientes/:id', ingredienteCtrl.actualizarIngrediente);
-router.delete('/ingredientes/:id', ingredienteCtrl.eliminarIngrediente);  
+router.delete('/ingredientes/:id', ingredienteCtrl.eliminarIngrediente);
 
 // ==========================================
 // MENÚ (PRODUCTOS)
@@ -130,7 +130,7 @@ router.post('/productos', upload.single('imagen'), productoCtrl.crearProducto);
 router.put('/productos/:id', upload.single('imagen'), productoCtrl.actualizarProducto);
 router.delete('/productos/:id', productoCtrl.eliminarProducto);
 router.put('/productos/:id/rendimiento', productoCtrl.actualizarRendimiento);
-router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto);  
+router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto);
 
 // ==========================================
 // PEDIDOS Y FLUJO
@@ -141,7 +141,7 @@ router.post('/pedidos', pedidoCtrl.crearPedido);
 router.put('/pedidos/:id', pedidoCtrl.actualizarPedido);
 router.put('/pedidos/:id/estado', pedidoCtrl.actualizarEstado);
 router.put('/pedidos/:id/alerta', pedidoCtrl.actualizarAlerta);
-router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);  
+router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);
 
 // ==========================================
 // 🛵 MÓDULO DE REPARTO Y LOGÍSTICA
@@ -149,10 +149,10 @@ router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);
 router.get('/reparto/disponibles', repartidorCtrl.obtenerPedidosDisponiblesParaReparto);
 router.put('/reparto/tomar/:id', repartidorCtrl.tomarPedidoRepartidor);
 router.put('/reparto/entregar/:id', repartidorCtrl.entregarPedidoRepartidor);
-router.get('/reparto/mis-viajes/:repartidor_id', repartidorCtrl.obtenerMisViajesActivos);  
+router.get('/reparto/mis-viajes/:repartidor_id', repartidorCtrl.obtenerMisViajesActivos);
 router.get('/reparto/auditoria/repartidores', repartidorCtrl.obtenerRepartidoresAuditoria);
 router.get('/reparto/auditoria/pedidos/:repartidor_id', repartidorCtrl.obtenerPedidosAuditoria);
-router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);  
+router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);
 
 // ==========================================
 // INSUMOS Y RECETAS (Inventario)
@@ -163,17 +163,23 @@ router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo);
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
 router.put('/insumos/:id/reiniciar', insumoCtrl.reiniciarStock);
-router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);  
+router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);
 
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
-router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
+router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);
+
+// ==========================================
+// 👇 NUEVO: MERMAS Y DESPERDICIOS
+// ==========================================
+router.post('/mermas', mermaCtrl.registrarMerma);
+router.get('/mermas', mermaCtrl.obtenerMermas);
 
 // ==========================================
 // REPORTES Y ESTADÍSTICAS
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
-router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible); 
+router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);
 
 // ==========================================
 // GESTIÓN DE MESAS (MAPEO Y QR)
@@ -182,18 +188,17 @@ router.get('/mesas', mesaCtrl.obtenerMesas);
 router.post('/mesas', mesaCtrl.crearMesa);
 router.put('/mesas/posiciones', mesaCtrl.guardarPosiciones);
 router.put('/mesas/:id/estado', mesaCtrl.actualizarEstadoMesa);
-router.delete('/mesas/:id', mesaCtrl.eliminarMesa);  
+router.delete('/mesas/:id', mesaCtrl.eliminarMesa);
 
 // ==========================================
 // 💰 CORTES DE CAJA (HISTÓRICO)
 // ==========================================
-router.post('/cortes', corteCtrl.guardarCorte);              
-router.get('/cortes/historial', corteCtrl.obtenerHistorial);  
+router.post('/cortes', corteCtrl.guardarCorte);
+router.get('/cortes/historial', corteCtrl.obtenerHistorial);
 
 // ==========================================
 // 📡 INTEGRACIÓN ZKTECO (BIOMÉTRICOS ADMS)
 // ==========================================
-// Nota: Usamos express.text() porque el checador físico envía texto crudo, no JSON.
 router.get('/iclock/cdata', biometricoCtrl.handshake);
 router.post('/iclock/cdata', express.text({ type: '*/*' }), biometricoCtrl.recibirDatos);
 router.get('/iclock/getrequest', biometricoCtrl.getComandos);

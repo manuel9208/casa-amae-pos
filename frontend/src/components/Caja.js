@@ -5,23 +5,23 @@ import VistasCaja from './caja/VistasCaja';
 import ModalesCaja from './caja/ModalesCaja';
 import TicketImpresion from './caja/TicketImpresion';
 import PantallaBloqueo from './caja/PantallaBloqueo';
-import { useCajaCentral } from './caja/useCajaCentral';  
+import { useCajaCentral } from './caja/useCajaCentral';
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
-    const c = useCajaCentral(user, onLogout, onGoToKiosco);  
-    const { apiUrl, cargarDataDinamica } = c;  
+    const c = useCajaCentral(user, onLogout, onGoToKiosco);
+    const { apiUrl, cargarDataDinamica } = c;
 
     useEffect(() => {
         if (!apiUrl) return;
-        const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });  
+        const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
         const actualizarPantalla = () => {
             if (cargarDataDinamica) cargarDataDinamica();
-        };  
+        };
         socket.on('nuevo_pedido', actualizarPantalla);
         socket.on('pedido_actualizado', actualizarPantalla);
-        socket.on('pedido_eliminado', actualizarPantalla);  
+        socket.on('pedido_eliminado', actualizarPantalla);
         return () => socket.disconnect();
-    }, [apiUrl, cargarDataDinamica]);  
+    }, [apiUrl, cargarDataDinamica]);
 
     return (
         <>
@@ -41,25 +41,26 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
                     setModalCompraRapida={c.setModalCompraRapida} abrirIdentificador={c.abrirIdentificador}
                     pedidosEnReparto={c.pedidosPorLiquidar}
                     setModalAsistencia={c.setModalAsistencia}
-                    setModalComedor={c.setModalComedor} 
+                    setModalComedor={c.setModalComedor}
+                    
+                    /* 👇 FIX: PUENTE HACIA LA BARRA SUPERIOR PARA ABRIR EL MODAL */
+                    setModalMermas={c.setModalMermas} 
                 />
                 <main className="flex-1 overflow-y-auto">
                     <VistasCaja
                         user={c.operadorActual}
                         empleadosPOS={c.empleadosPOS}
-                        vistaActiva={c.vistaActiva} 
-                        setVistaActiva={c.setVistaActiva} /* 👇 SOLUCIÓN: FIX INYECTADO AQUÍ */
-                        subVistaHistorial={c.subVistaHistorial} 
+                        vistaActiva={c.vistaActiva}
+                        setVistaActiva={c.setVistaActiva}
+                        subVistaHistorial={c.subVistaHistorial}
                         setSubVistaHistorial={c.setSubVistaHistorial}
                         pedidos={c.pedidos} mesas={c.mesas} pedidosConAlerta={c.pedidosConAlerta} pedidosPorConfirmar={c.pedidosPorConfirmar}
                         pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas}
-                        
                         pedidosEnReparto={c.pedidosPorLiquidar}
                         fondosRepartidores={c.fondosRepartidores}
                         actualizarFondoRepartidor={c.actualizarFondoRepartidor}
                         fondoRepartidorGlobal={c.fondoRepartidorGlobal}
                         liquidarPedidoRepartidor={c.liquidarPedidoRepartidor}
-
                         fondoCaja={c.fondoCaja} configGlobal={c.configGlobal} gastosDia={c.gastosDia} abrirModalResolver={c.abrirModalResolver}
                         limpiarAlerta={c.limpiarAlerta} setModalPago={c.setModalPago} setMontoRecibido={c.setMontoRecibido}
                         actualizarEstadoPedido={c.actualizarEstadoPedido} confirmarPedidoRecoger={c.confirmarPedidoRecoger}
@@ -99,11 +100,15 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
                     modalComedor={c.modalComedor}
                     setModalComedor={c.setModalComedor}
                     pedidos={c.pedidos}
+                    
+                    /* 👇 FIX: PUENTE HACIA LOS MODALES PARA PODER CERRARLO */
+                    modalMermas={c.modalMermas}
+                    setModalMermas={c.setModalMermas}
                 />
             </div>
             <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />
         </>
     );
-};  
+};
 
 export default Caja;

@@ -22,7 +22,6 @@ const VistasCaja = (props) => {
 
     const [limpiandoMesas, setLimpiandoMesas] = useState(false);  
 
-    // 👇 SOLUCIÓN: ALERTA GIGANTE INTELIGENTE EN TIEMPO REAL
     const [mostrarAlertaKiosco, setMostrarAlertaKiosco] = useState(false);
     const [ultimoPedidoKiosco, setUltimoPedidoKiosco] = useState(null);
     const prevPendientesCount = useRef(pedidosPorConfirmar?.length || 0);
@@ -30,15 +29,13 @@ const VistasCaja = (props) => {
     useEffect(() => {
         const currentCount = pedidosPorConfirmar?.length || 0;
         
-        // Si la cantidad de pedidos pendientes aumenta (llegó uno nuevo) y no estamos ya en la pestaña de confirmación...
         if (currentCount > prevPendientesCount.current && vistaActiva !== 'confirmar') {
-            const nuevoPedido = pedidosPorConfirmar[0]; // Como vienen ordenados DESC, el 0 es el más nuevo
+            const nuevoPedido = pedidosPorConfirmar[0]; 
             if (nuevoPedido) {
                 setUltimoPedidoKiosco(nuevoPedido.numero_pedido);
             }
             setMostrarAlertaKiosco(true);
             
-            // Intentar reproducir sonido nativo
             try {
                 const audio = new Audio('/campana.mp3');
                 audio.play().catch(() => {});
@@ -221,7 +218,6 @@ const VistasCaja = (props) => {
     return (
         <div className="flex-1 flex flex-col h-full bg-slate-50 relative">
             
-            {/* 👇 NUEVA ALERTA GIGANTE TRANSLÚCIDA PARA PEDIDOS KIOSCO */}
             {mostrarAlertaKiosco && (
                 <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-300">
                     <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-xl w-full text-center border-4 border-emerald-500 animate-in zoom-in-95">
@@ -254,7 +250,6 @@ const VistasCaja = (props) => {
                 </div>
             )}
 
-            {/* ALERTAS DE COCINA (ROJAS) */}
             {props.pedidosConAlerta.length > 0 && (
                 <div className="w-full p-4 space-y-2 z-10 shrink-0">
                     {props.pedidosConAlerta.map(p => {
@@ -307,6 +302,9 @@ const VistasCaja = (props) => {
                         actualizarFondoRepartidor={actualizarFondoRepartidor}
                         fondoRepartidorGlobal={fondoRepartidorGlobal}
                         liquidarPedidoRepartidor={liquidarPedidoRepartidor}
+                        
+                        /* 👇 FIX: Enviamos la función a la tarjeta del repartidor */
+                        actualizarEstadoPedido={props.actualizarEstadoPedido} 
                     />
                 )}  
                 {vistaActiva === 'corte' && (

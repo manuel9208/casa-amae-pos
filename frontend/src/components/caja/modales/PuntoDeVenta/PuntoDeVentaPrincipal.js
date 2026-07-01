@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
 import FormularioConsumoRecoger from './FormularioConsumoRecoger';
 import MenuCategoriasYProductos from './MenuCategoriasYProductos';
 import AsistentePersonalizacion from './AsistentePersonalizacion';
-import CarritoDeOrden from './CarritoDeOrden';
 import ModalCuentaAbierta from './ModalCuentaAbierta';
 import OfertaUpselling from './OfertaUpselling';
 import PasoIdentificarCliente from './PasoIdentificarCliente';
@@ -17,9 +16,14 @@ const PuntoDeVentaPrincipal = ({
     setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas
 }) => {
     // ==========================================
-    // ESTADOS PRINCIPALES
+    // ESTADOS PRINCIPALES DE FLUJO
     // ==========================================
-    const [paso, setPaso] = useState('identificar');
+    const [paso, setPaso] = useState('identificar'); 
+    const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1); 
+    
+    // ==========================================
+    // ESTADOS DE DATOS
+    // ==========================================
     const [clienteAsignado, setClienteAsignado] = useState(null);
     const [telefonoCliente, setTelefonoCliente] = useState('');
     const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
@@ -43,12 +47,10 @@ const PuntoDeVentaPrincipal = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // ==========================================
-    // ESTADOS DE MODALES Y PROMOCIONES
+    // ESTADOS DE MODALES Y PUNTOS
     // ==========================================
     const [modalCuentaAbierta, setModalCuentaAbierta] = useState(false);
     const [promocionVigente, setPromocionVigente] = useState(null);
-
-    // ESTADOS PARA CANJE DE PUNTOS
     const [modalNip, setModalNip] = useState(false);
     const [nipInput, setNipInput] = useState('');
     const [errorNip, setErrorNip] = useState('');
@@ -89,35 +91,29 @@ const PuntoDeVentaPrincipal = ({
     useEffect(() => {
         if (ordenEditandoRapida && modalPuntoVenta) {
             setPaso('menu');
+            setPasoFlujoCaja(2); // Al editar, vamos directo al carrito
             
             if (ordenEditandoRapida.cliente_id) {
-                setClienteAsignado({ 
-                    id: ordenEditandoRapida.cliente_id, 
-                    nombre: ordenEditandoRapida.cliente_nombre 
-                });
+                setClienteAsignado({ id: ordenEditandoRapida.cliente_id, nombre: ordenEditandoRapida.cliente_nombre });
             } else {
                 setClienteAsignado(null);
             }
             
-            setNombreOrden(ordenEditandoRapida.cliente_nombre || 'Invitado');
+            // 👇 FIX: Forzamos a que si no hay un cliente real, el campo se quede en blanco en lugar de decir "Invitado"
+            setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
+            
             setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
             setMesaSeleccionada(ordenEditandoRapida.mesa || '');
             setZonaEnvioCosto(ordenEditandoRapida.costo_envio || '');
 
             let dirPura = ordenEditandoRapida.direccion_entrega || '';
-            if (dirPura.includes('|')) {
-                dirPura = dirPura.split('|')[0].trim();
-            }
+            if (dirPura.includes('|')) dirPura = dirPura.split('|')[0].trim();
             setNotaOpcional(dirPura !== 'Pendiente de dirección' ? dirPura : '');
 
             try {
-                const carArr = typeof ordenEditandoRapida.carrito === 'string' 
-                    ? JSON.parse(ordenEditandoRapida.carrito) 
-                    : ordenEditandoRapida.carrito;
+                const carArr = typeof ordenEditandoRapida.carrito === 'string' ? JSON.parse(ordenEditandoRapida.carrito) : ordenEditandoRapida.carrito;
                 setCarrito(carArr || []);
-            } catch (e) {
-                setCarrito([]);
-            }
+            } catch (e) { setCarrito([]); }
 
             if (ordenEditandoRapida.descuento_puntos && Number(ordenEditandoRapida.descuento_puntos) > 0) {
                 setDescuentoPuntosPuntosFisicos(Number(ordenEditandoRapida.descuento_puntos));
@@ -135,35 +131,24 @@ const PuntoDeVentaPrincipal = ({
         setCategoriaActiva(null);
         resetWizard();
         setCarrito([]);
-        setNombreOrden('');
-        setTipoConsumo('Local');
-        setNotaOpcional('');
-        setMesaSeleccionada('');
-        setZonaEnvioCosto('');
-        setCuponActivo(null);
-        setCuponInput('');
-        setDescuentoPuntosPuntosFisicos(0);
-        setDescuentoPuntosDinero(0);
-        
-        // 👇 FIX APLICADO: Vaciamos completamente los datos del cliente anterior de la memoria
-        setClienteAsignado(null);
-        setTelefonoCliente('');
-        setTelefonoOrdenRapida('');
+        setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional('');
+        setMesaSeleccionada(''); setZonaEnvioCosto('');
+        setCuponActivo(null); setCuponInput('');
+        setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);
+        setClienteAsignado(null); setTelefonoCliente(''); setTelefonoOrdenRapida('');
         setErrorMsg('');
         setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
 
+        setPasoFlujoCaja(1);
         setPaso('identificar');
         setModalPuntoVenta(false);
         if (onClose) onClose();
     };
 
     // ==========================================
-    // MATEMÁTICAS DEL CARRITO CON PUNTOS
+    // MATEMÁTICAS DEL CARRITO
     // ==========================================
-    const calcularSubtotal = () => {
-        return carrito.reduce((t, i) => t + ((Number(i.precioFinal) || 0) * (Number(i.cantidad) || 1)), 0);
-    };
-    
+    const calcularSubtotal = () => carrito.reduce((t, i) => t + ((Number(i.precioFinal) || 0) * (Number(i.cantidad) || 1)), 0);
     const subtotal = calcularSubtotal();
     
     useEffect(() => {
@@ -190,62 +175,47 @@ const PuntoDeVentaPrincipal = ({
     
     const esEdicion = !!ordenEditandoRapida;
     const yaPagado = esEdicion && !['Por Cobrar', 'Pendiente'].includes(ordenEditandoRapida.metodo_pago);
-    const montoOriginal = esEdicion ? Number(ordenEditandoRapida.total) : 0;
-    const diferencia = totalConEnvio - montoOriginal;
 
     // ==========================================
-    // CATÁLOGOS Y FILTROS
+    // CATÁLOGOS Y WIZARD
     // ==========================================
     const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
     const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
     
     const getPortadaCategoria = (catName) => {
         const clasifDB = clasificaciones.find(c => c.nombre === catName);
-        return { 
-            imagen_url: clasifDB?.imagen_url || null, 
-            emoji: clasifDB?.emoji || '🍽️' 
-        };
+        return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
     };
 
-    // ==========================================
-    // FUNCIONES DEL CARRITO Y WIZARD
-    // ==========================================
     const cambiarCantidadCart = (idTicket, delta) => {
         setCarrito(prev => prev.map(item => {
             if (item.idTicket === idTicket) {
+                const isUsaStock = item.usa_stock === true || String(item.usa_stock) === 'true';
+                const stockActual = Number(item.stock_preparado) || 0;
                 const newQty = (item.cantidad || 1) + delta;
+                if (isUsaStock && delta > 0 && newQty > stockActual) {
+                    alert(`¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`);
+                    return item;
+                }
                 return newQty > 0 ? { ...item, cantidad: newQty } : item;
             }
             return item;
         }));
     };
 
-    const quitarDelCarrito = (idTicket) => {
-        setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
-    };
+    const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
 
     const resetWizard = () => {
-        setProductoEnEspera(null); 
-        setPasoPersonalizacion(0); 
-        setOpcionSeleccionada(null);
-        setSaborSeleccionado(null); 
-        setGruposSeleccionados({}); 
-        setGruposOpcionalesSeleccionados({});
-        setIngredientesBase([]); 
-        setIngredientesSustituidos({}); 
-        setIngredienteDesplegado(null);
-        setExtrasSeleccionados([]); 
-        setNotaProducto(''); 
-        setCantidadProducto(1);
+        setProductoEnEspera(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
+        setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({}); setIngredientesBase([]); setIngredientesSustituidos({});
+        setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
     };
 
     const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
         if (!politicasSustUI.activa) return 0;
         if (politicasSustUI.modalidad === 'fija') return Number(politicasSustUI.tarifa_fija || 0);
-        
         const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
         const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
-        
         const diff = Number(ingNuevo?.precio_extra || 0) - Number(ingBase?.precio_extra || 0);
         return diff > 0 ? diff : 0;
     };
@@ -253,38 +223,44 @@ const PuntoDeVentaPrincipal = ({
     const evaluarUpsell = (prodId, catName) => {
         const promociones = configGlobal?.promociones || [];
         if (!Array.isArray(promociones)) return null;
-        
-        return promociones.find(p => 
-            p.activo && 
-            p.tipo === 'upselling' && 
-            (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName)
-        );
+        return promociones.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
 
     const handleTerminarPersonalizacion = (nuevoItem) => {
         setCarrito([...carrito, nuevoItem]);
         const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
-        if (promo) {
-            setPromocionVigente(promo);
-        }
+        if (promo) setPromocionVigente(promo);
         resetWizard();
     };
 
     const agregarUpsellAlCarrito = () => {
         let precioFinal = Number(promocionVigente.valor_descuento);
+        let precioBase = 0;
+        let destinoReal = 'Cocina';
+        let categoriaReal = 'General';
+        let tiempoPrep = 15;
+
+        const prodOrig = productos.find(p => p.id === promocionVigente.producto_oferta_id);
+        if (prodOrig) {
+            precioBase = Number(prodOrig.precio_base);
+            categoriaReal = prodOrig.categoria || 'General';
+            tiempoPrep = prodOrig.tiempo_preparacion || 15;
+            const clasifObj = clasificaciones.find(c => c.nombre === categoriaReal);
+            if (clasifObj) destinoReal = clasifObj.destino || 'Cocina';
+        }
+
         if (promocionVigente.tipo_descuento === 'porcentaje') {
-            let precioBase = 0;
-            const prodOrig = productos.find(p => p.id === promocionVigente.producto_oferta_id);
-            if (prodOrig) {
-                precioBase = Number(prodOrig.precio_base);
-            }
             precioFinal = precioBase - (precioBase * (precioFinal / 100));
         }
         
         const nuevoItem = {
             idTicket: Math.random().toString(36).substr(2, 9),
             id: promocionVigente.producto_oferta_id,
+            producto_id: promocionVigente.producto_oferta_id,
             nombre: promocionVigente.oferta_nombre,
+            categoria: categoriaReal,
+            destino: destinoReal, 
+            tiempo_preparacion: tiempoPrep,
             precioFinal: Math.max(0, precioFinal),
             cantidad: 1,
             extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }]
@@ -295,50 +271,39 @@ const PuntoDeVentaPrincipal = ({
     };
 
     // ==========================================
-    // IDENTIFICACIÓN DIRECTA DE CLIENTES Y PUNTOS
+    // LÓGICA DE CLIENTES Y PAGOS
     // ==========================================
     const buscarClienteRapido = async (e) => {
-        e.preventDefault(); 
-        setErrorMsg('');
+        e.preventDefault(); setErrorMsg('');
         if (telefonoCliente.length !== 10) return setErrorMsg('El celular debe tener 10 dígitos.');
         setIsSubmitting(true);
         try {
             const resCli = await fetch(`${apiUrl}/clientes`);
             const clientes = await resCli.json();
             const clienteEncontrado = clientes.find(c => c.telefono === telefonoCliente);
-
             if (clienteEncontrado) {
                 setClienteAsignado(clienteEncontrado);
                 setNombreOrden(clienteEncontrado.nombre);
                 setPaso('menu');
-            } else {
-                setPaso('registro');
-            }
+            } else setPaso('registro');
         } catch(err) { setErrorMsg('Error de conexión.'); }
         setIsSubmitting(false);
     };
 
     const registrarClienteRapido = async (e) => {
-        e.preventDefault(); 
-        setErrorMsg('');
+        e.preventDefault(); setErrorMsg('');
         if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
             return setErrorMsg('Nombre, Apellido y NIP son obligatorios.');
         }
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/clientes/registro`, { 
-                method: 'POST', 
-                headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({telefono: telefonoCliente, ...datosNuevoCliente}) 
-            });
+            const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telefonoCliente, ...datosNuevoCliente}) });
             const data = await res.json();
             if (res.ok) { 
                 setClienteAsignado(data.cliente || data); 
                 setNombreOrden((data.cliente || data).nombre); 
                 setPaso('menu'); 
-            } else {
-                setErrorMsg(data.error || 'Fallo al registrar cliente.');
-            }
+            } else setErrorMsg(data.error || 'Fallo al registrar cliente.');
         } catch(err) { setErrorMsg('Error de red al registrar.'); }
         setIsSubmitting(false);
     };
@@ -353,13 +318,10 @@ const PuntoDeVentaPrincipal = ({
                 body: JSON.stringify({ cliente_id: clienteAsignado.id, nip: nipInput })
             });
             if (res.ok) {
-                setModalNip(false);
-                setDescuentoPuntosPuntosFisicos(clienteAsignado.puntos);
-                setNipInput('');
-                setErrorNip('');
+                setModalNip(false); setDescuentoPuntosPuntosFisicos(clienteAsignado.puntos);
+                setNipInput(''); setErrorNip('');
             } else {
-                const data = await res.json();
-                setErrorNip(data.error || 'NIP Incorrecto.');
+                const data = await res.json(); setErrorNip(data.error || 'NIP Incorrecto.');
             }
         } catch (err) { setErrorNip('Error de red.'); }
         setIsSubmitting(false);
@@ -381,15 +343,10 @@ const PuntoDeVentaPrincipal = ({
                 
                 setCuponActivo(cup);
                 setMsgCupon({ texto: `¡Aplicado! -${cup.tipo === 'porcentaje' ? cup.valor + '%' : '$' + cup.valor}`, tipo: 'success' });
-            } else {
-                setMsgCupon({ texto: 'Error al cargar cupones.', tipo: 'error' });
-            }
+            } else setMsgCupon({ texto: 'Error al cargar cupones.', tipo: 'error' });
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
 
-    // ==========================================
-    // GENERACIÓN Y GUARDADO DE PEDIDO
-    // ==========================================
     const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
         if (carrito.length === 0 || isSubmitting) return;
         if (!nombreOrden.trim()) return alert("El nombre del cliente es obligatorio.");
@@ -398,51 +355,35 @@ const PuntoDeVentaPrincipal = ({
         const carritoExpandido = [];
         carrito.forEach(item => { 
             const qty = item.cantidad || 1; 
-            for(let i=0; i<qty; i++) {
-                carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); 
-            }
+            for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
         });
 
         let stringDireccion = notaOpcional;
-        let tipoFinal = tipoConsumo;
         let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
         const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
 
-        if (tipoConsumo === 'Domicilio' && stringDireccion === '') {
-            stringDireccion = 'Pendiente de dirección';
-        }
-        
-        if (nombreOrden) {
-            stringDireccion = `${stringDireccion} | A NOMBRE DE: ${nombreOrden}`;
-        }
+        if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
+        if (nombreOrden) stringDireccion = `${stringDireccion} | A NOMBRE DE: ${nombreOrden}`;
 
-        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
-            stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-        } else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) {
-            stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
-        } else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) {
-            stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-        }
+        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
 
         if (detallesCuentaAbierta) {
-            if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) {
-                stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
-            } else if (detallesCuentaAbierta.metodo) {
-                stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
-            }
+            if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
+            else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
         }
 
         let estadoInicial = 'Pendiente';
-        if (ordenEditandoRapida) {
-            estadoInicial = ordenEditandoRapida.estado_preparacion;
-        } else {
+        if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
+        else {
             if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
             else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
         }
 
         const paquete = {
             cliente_id: clienteAsignado?.id || null,
-            tipo_consumo: tipoFinal, 
+            tipo_consumo: tipoConsumo, 
             metodo_pago: pagoFinal,
             total: totalConEnvio, 
             costo_envio: costoEnvioFinal, 
@@ -450,7 +391,7 @@ const PuntoDeVentaPrincipal = ({
             origen: 'Caja', 
             direccion_entrega: stringDireccion, 
             estado_preparacion: estadoInicial,
-            mesa: tipoFinal === 'Local' ? (mesaSeleccionada || null) : null,
+            mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
             cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
             descuento_puntos: descuentoPuntosPuntosFisicos
         };
@@ -459,22 +400,13 @@ const PuntoDeVentaPrincipal = ({
         const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';
 
         try {
-            const res = await fetch(url, { 
-                method: metodoHttp, 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(paquete) 
-            });
-            
+            const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
             if (res.ok) {
                 const data = await res.json();
-                if (clienteAsignado?.id && tipoFinal === 'Domicilio' && stringDireccion) {
+                if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
                     const dirLimpia = notaOpcional.trim();
                     if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-                        fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { 
-                            method: 'PUT', 
-                            headers: { 'Content-Type': 'application/json' }, 
-                            body: JSON.stringify({ direccion: dirLimpia }) 
-                        }).catch(() => {});
+                        fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
                     }
                 }
                 refrescarDatosCaja();
@@ -486,12 +418,9 @@ const PuntoDeVentaPrincipal = ({
                     setTimeout(() => setModalPago(data), 100);
                 }
             } else {
-                const errData = await res.json(); 
-                alert(errData.error || 'Problema al guardar la orden.');
+                const errData = await res.json(); alert(errData.error || 'Problema al guardar la orden.');
             }
-        } catch (e) { 
-            alert('Sin conexión.'); 
-        }
+        } catch (e) { alert('Sin conexión.'); }
         setIsSubmitting(false);
     };
 
@@ -556,112 +485,286 @@ const PuntoDeVentaPrincipal = ({
 
     if (!modalPuntoVenta) return null;
 
+    // ==========================================
+    // RENDERIZADO VISUAL DEL STEPPER
+    // ==========================================
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
-            <div className="bg-slate-50 w-full max-w-7xl h-[95vh] rounded-3xl md:rounded-[36px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
-                <button onClick={cerrarModalVenta} className="absolute top-4 right-4 z-50 bg-white shadow-md hover:bg-red-100 text-slate-400 hover:text-red-500 p-2 rounded-full transition">
-                    <XCircle size={28} />
-                </button>
-
-                {paso === 'identificar' || paso === 'registro' ? (
-                    <PasoIdentificarCliente
-                        paso={paso} setPaso={setPaso}
-                        telefonoCliente={telefonoCliente} setTelefonoCliente={setTelefonoCliente}
-                        errorMsg={errorMsg} setErrorMsg={setErrorMsg}
-                        isSubmitting={isSubmitting} buscarClienteRapido={buscarClienteRapido}
-                        datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente}
-                        registrarClienteRapido={registrarClienteRapido}
-                        setNombreOrden={setNombreOrden}
-                        setClienteAsignado={setClienteAsignado} /* 👇 FIX: Pasamos el actualizador */
-                    />
-                ) : (
-                    <div className="flex flex-col lg:flex-row flex-1 overflow-hidden animate-in slide-in-from-right">
-                        {/* LADO IZQUIERDO: MENÚ */}
-                        <div className="flex-1 border-r border-slate-200 overflow-hidden flex flex-col">
-                            <MenuCategoriasYProductos
-                                categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva}
-                                categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
-                                getPortadaCategoria={getPortadaCategoria} abrirModalProducto={setProductoEnEspera}
-                            />
+            <div className="bg-slate-50 w-full max-w-4xl h-[90vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
+                
+                {/* ENCABEZADO GLOBAL */}
+                <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-blue-100 p-2 md:p-3 rounded-2xl text-blue-600">
+                            <ShoppingBag size={24} />
                         </div>
-
-                        {/* LADO DERECHO: ORDEN Y CARRITO */}
-                        <div className="w-full lg:w-[450px] bg-slate-50/50 flex flex-col h-full shrink-0">
-                            <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><ShoppingBag size={20} className="md:w-6 md:h-6" /></div>
-                                    <h3 className="text-lg md:text-2xl font-black text-slate-800 tracking-tight">Orden en Curso</h3>
-                                </div>
-                                <div className="space-y-2 md:space-y-3">
-                                    <div className="grid grid-cols-2 gap-2 p-1 bg-slate-200 rounded-xl">
-                                        {['Local', 'Para llevar', 'Domicilio', 'Recoger'].map(tipo => (
-                                            <button key={tipo} onClick={() => setTipoConsumo(tipo)} className={`py-1.5 md:py-2 px-1 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-wider transition shadow-sm ${tipoConsumo === tipo ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-800'}`}>
-                                                {tipo}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    
-                                    <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-white border rounded-xl p-2.5 md:p-3 text-xs md:text-sm font-bold outline-none transition-all shadow-sm ${['Domicilio', 'Recoger'].includes(tipoConsumo) && !clienteAsignado ? 'mb-2' : ''} ${!nombreOrden.trim() ? 'border-red-200 focus:border-red-400 placeholder-red-300 text-red-900' : 'border-slate-200 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`} />
-                                    
-                                    {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
-                                    {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} clienteAsignado={clienteAsignado} />}
-                                    {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} clienteAsignado={clienteAsignado} />}
-                                    {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} clienteAsignado={clienteAsignado} />}
-                                    
-                                    {/* Panel Visual de Puntos Integrado */}
-                                    {clienteAsignado && (
-                                        <div className="bg-indigo-50 border border-indigo-100 p-3 rounded-xl mb-3 flex justify-between items-center shadow-sm">
-                                            <div>
-                                                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-0.5">Puntos Cliente</p>
-                                                <p className="text-sm font-black text-indigo-700">{clienteAsignado.puntos || 0} pts</p>
-                                            </div>
-                                            {clienteAsignado.puntos > 0 && descuentoPuntosPuntosFisicos === 0 && (
-                                                <button onClick={() => setModalNip(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase shadow-sm hover:bg-indigo-700 transition">Canjear</button>
-                                            )}
-                                            {descuentoPuntosPuntosFisicos > 0 && (
-                                                <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-black uppercase shadow-sm hover:bg-red-200 transition">Quitar</button>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <div className="flex gap-2 items-center mt-2">
-                                        <div className="relative flex-1">
-                                            <Tag size={14} className="absolute left-2.5 top-3 md:top-3.5 text-slate-400" />
-                                            <input type="text" placeholder="Cupón de Descuento" value={cuponInput} onChange={(e) => { setCuponInput(e.target.value.toUpperCase()); setMsgCupon({texto:'', tipo:''}); }} className="w-full bg-white border border-slate-200 shadow-sm rounded-xl py-2.5 md:py-3 pl-8 pr-3 text-xs md:text-sm font-bold outline-none uppercase focus:border-blue-500 transition-all" disabled={cuponActivo !== null || isSubmitting} />
-                                        </div>
-                                        {!cuponActivo ? (
-                                            <button disabled={!cuponInput.trim() || isSubmitting} onClick={aplicarCupon} className="bg-slate-800 text-white px-4 md:px-5 py-2.5 md:py-3 rounded-xl font-bold text-[10px] md:text-xs uppercase hover:bg-slate-700 transition shadow-sm disabled:opacity-50">Aplicar</button>
-                                        ) : (
-                                            <button onClick={() => { setCuponActivo(null); setCuponInput(''); setMsgCupon({texto:'', tipo:''}); setDescuentoCuponDinero(0); }} className="bg-red-100 text-red-600 px-4 md:px-5 py-2.5 md:py-3 rounded-xl font-bold text-[10px] md:text-xs uppercase hover:bg-red-200 transition shadow-sm">Quitar</button>
-                                        )}
-                                    </div>
-                                    {msgCupon.texto && <p className={`text-[10px] md:text-xs font-bold ${msgCupon.tipo === 'success' ? 'text-emerald-500' : 'text-red-500'}`}>{msgCupon.texto}</p>}
-                                </div>
-                            </div>
-                            
-                            <CarritoDeOrden
-                                carrito={carrito}
-                                cambiarCantidadCart={cambiarCantidadCart}
-                                quitarDelCarrito={quitarDelCarrito}
-                                subtotal={subtotal}
-                                descuento={descuentoCuponDinero}
-                                cuponActivo={cuponActivo}
-                                zonaEnvioCosto={zonaEnvioCosto}
-                                yaPagado={yaPagado}
-                                montoOriginal={montoOriginal}
-                                diferencia={diferencia}
-                                totalConEnvio={totalConEnvio}
-                                isFormIncompleto={isFormIncompleto}
-                                generarPedidoBD={generarPedidoBD}
-                                isSubmitting={isSubmitting}
-                                abrirModalCuentaAbierta={() => setModalCuentaAbierta(true)}
-                                tipoConsumo={tipoConsumo} 
-                                descuentoPuntosDinero={descuentoPuntosDinero}
-                            />
+                        <div>
+                            <h3 className="text-xl md:text-3xl font-black text-slate-800 tracking-tight">
+                                {pasoFlujoCaja === 1 && '¿Qué se te antoja?'}
+                                {pasoFlujoCaja === 2 && 'Resumen de Orden'}
+                                {pasoFlujoCaja === 3 && 'Detalles de Entrega'}
+                            </h3>
+                            <p className="text-xs md:text-sm font-bold text-slate-500">
+                                {pasoFlujoCaja === 1 && 'Selecciona los platillos para el cliente.'}
+                                {pasoFlujoCaja === 2 && 'Verifica las cantidades y extras.'}
+                                {pasoFlujoCaja === 3 && 'Configura el envío y finaliza la venta.'}
+                            </p>
                         </div>
                     </div>
+                    <button onClick={cerrarModalVenta} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-3 md:p-4 rounded-full transition shadow-sm">
+                        <XCircle size={28} />
+                    </button>
+                </div>
+
+                {/* IDENTIFICACIÓN PREVIA */}
+                {paso === 'identificar' || paso === 'registro' ? (
+                    <PasoIdentificarCliente
+                        paso={paso} setPaso={setPaso} telefonoCliente={telefonoCliente} setTelefonoCliente={setTelefonoCliente}
+                        errorMsg={errorMsg} setErrorMsg={setErrorMsg} isSubmitting={isSubmitting} buscarClienteRapido={buscarClienteRapido}
+                        datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} registrarClienteRapido={registrarClienteRapido}
+                        
+                        // 👇 FIX: Interceptamos el texto 'Invitado' si se pulsa "Continuar como invitado"
+                        setNombreOrden={(nombre) => setNombreOrden(nombre === 'Invitado' ? '' : nombre)} 
+                        
+                        setClienteAsignado={setClienteAsignado} 
+                    />
+                ) : (
+                    <>
+                        {/* CUERPO CENTRAL DINÁMICO */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50/50">
+                            
+                            {/* PASO 1: MENÚ */}
+                            {pasoFlujoCaja === 1 && (
+                                <MenuCategoriasYProductos
+                                    categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva}
+                                    categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
+                                    getPortadaCategoria={getPortadaCategoria} abrirModalProducto={setProductoEnEspera}
+                                />
+                            )}
+
+                            {/* PASO 2: CARRITO GRANDE Y HERMOSO */}
+                            {pasoFlujoCaja === 2 && (
+                                <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
+                                    {carrito.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                                            <ShoppingBag size={80} className="mb-6 text-slate-300" />
+                                            <p className="text-2xl font-black text-slate-400">El carrito está vacío</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {carrito.map(item => (
+                                                <div key={item.idTicket} className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:shadow-md hover:border-blue-200">
+                                                    <div className="flex-1">
+                                                        <p className="font-black text-lg md:text-xl text-slate-800 leading-tight">
+                                                            {item.nombre}
+                                                        </p>
+                                                        {item.extras && item.extras.length > 0 && (
+                                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                                {item.extras.map((e, idx) => (
+                                                                    <span key={idx} className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide">
+                                                                        {e.nombre}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <p className="font-black text-blue-600 text-lg mt-2">
+                                                            ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
+                                                        </p>
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center gap-3 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
+                                                        <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
+                                                        <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
+                                                        <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-blue-600 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Plus size={20}/></button>
+                                                        <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                                                        <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50">
+                                                            <Trash2 size={20}/>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* PASO 3: LOGÍSTICA Y PAGOS */}
+                            {pasoFlujoCaja === 3 && (
+                                <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
+                                    
+                                    {/* Selector de Consumo */}
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4">1. Tipo de Servicio</label>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                            {[
+                                                { id: 'Local', icon: <Store size={20}/> },
+                                                { id: 'Para llevar', icon: <ShoppingBag size={20}/> },
+                                                { id: 'Domicilio', icon: <Bike size={20}/> },
+                                                { id: 'Recoger', icon: <Phone size={20}/> }
+                                            ].map(tipo => (
+                                                <button key={tipo.id} onClick={() => setTipoConsumo(tipo.id)} className={`p-4 rounded-2xl border-2 font-black flex flex-col items-center justify-center gap-2 transition-all ${tipoConsumo === tipo.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg scale-105' : 'bg-slate-50 text-slate-500 border-slate-100 hover:border-blue-300 hover:shadow-sm'}`}>
+                                                    {tipo.icon} <span className="text-[10px] md:text-xs uppercase tracking-widest">{tipo.id}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Formulario Dinámico */}
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
+                                        
+                                        <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`} />
+                                        
+                                        {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
+                                        {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} clienteAsignado={clienteAsignado} />}
+                                        {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} clienteAsignado={clienteAsignado} />}
+                                        {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} clienteAsignado={clienteAsignado} />}
+                                    </div>
+
+                                    {/* Descuentos y Puntos */}
+                                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+                                        <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
+                                        
+                                        {clienteAsignado && (
+                                            <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl flex justify-between items-center shadow-sm">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Puntos Disponibles</p>
+                                                    <p className="text-xl font-black text-indigo-800">{clienteAsignado.puntos || 0} pts</p>
+                                                </div>
+                                                {clienteAsignado.puntos > 0 && descuentoPuntosPuntosFisicos === 0 && (
+                                                    <button onClick={() => setModalNip(true)} className="bg-indigo-600 text-white px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md hover:bg-indigo-700 transition active:scale-95">Canjear</button>
+                                                )}
+                                                {descuentoPuntosPuntosFisicos > 0 && (
+                                                    <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl text-sm font-black uppercase shadow-sm hover:bg-red-200 transition active:scale-95">Quitar Puntos</button>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-3 items-center">
+                                            <div className="relative flex-1">
+                                                <Tag size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                                                <input type="text" placeholder="Ingresar Cupón" value={cuponInput} onChange={(e) => { setCuponInput(e.target.value.toUpperCase()); setMsgCupon({texto:'', tipo:''}); }} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 font-bold outline-none uppercase focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400" disabled={cuponActivo !== null || isSubmitting} />
+                                            </div>
+                                            {!cuponActivo ? (
+                                                <button disabled={!cuponInput.trim() || isSubmitting} onClick={aplicarCupon} className="bg-slate-800 text-white px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-700 transition shadow-md disabled:opacity-50">Aplicar</button>
+                                            ) : (
+                                                <button onClick={() => { setCuponActivo(null); setCuponInput(''); setMsgCupon({texto:'', tipo:''}); setDescuentoCuponDinero(0); }} className="bg-red-100 text-red-600 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-200 transition shadow-sm">Quitar</button>
+                                            )}
+                                        </div>
+                                        {msgCupon.texto && <p className={`text-xs font-bold px-2 ${msgCupon.tipo === 'error' ? 'text-red-500' : msgCupon.tipo === 'success' ? 'text-emerald-600' : 'text-slate-500'}`}>{msgCupon.texto}</p>}
+                                    </div>
+                                    <div className="pb-10"></div>
+                                </div>
+                            )}
+
+                        </div>
+
+                        {/* ========================================== */}
+                        {/* FOOTER FIJO (NAVEGACIÓN Y COBRO)          */}
+                        {/* ========================================== */}
+                        <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+                            
+                            {/* Desglose Matemático Superior */}
+                            {pasoFlujoCaja > 1 && (
+                                <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
+                                    <div className="flex gap-6">
+                                        <div>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Subtotal</p>
+                                            <p className="text-lg font-black text-slate-600">${subtotal.toFixed(2)}</p>
+                                        </div>
+                                        {descuentoCuponDinero > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Cupón</p>
+                                                <p className="text-lg font-black text-emerald-600">-${descuentoCuponDinero.toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                        {descuentoPuntosDinero > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Puntos</p>
+                                                <p className="text-lg font-black text-indigo-600">-${descuentoPuntosDinero.toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                        {zonaEnvioCosto !== '' && Number(zonaEnvioCosto) > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1">Envío</p>
+                                                <p className="text-lg font-black text-purple-600">+${Number(zonaEnvioCosto).toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-right ml-auto">
+                                        <p className="text-[10px] md:text-xs font-black text-slate-800 uppercase tracking-widest mb-1">{yaPagado ? 'Nuevo Total' : 'Total Final'}</p>
+                                        <p className="text-3xl md:text-5xl font-black text-slate-900 leading-none">${totalConEnvio.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Botoneras Inteligentes */}
+                            <div className="max-w-4xl mx-auto flex gap-3 md:gap-4">
+                                {pasoFlujoCaja === 1 && (
+                                    <button
+                                        disabled={carrito.length === 0}
+                                        onClick={() => setPasoFlujoCaja(2)}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                                    >
+                                        <ShoppingBag size={24}/> Ver Orden ({carrito.length}) <ArrowRight size={24}/>
+                                    </button>
+                                )}
+
+                                {pasoFlujoCaja === 2 && (
+                                    <>
+                                        <button onClick={() => setPasoFlujoCaja(1)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
+                                            <ArrowLeft size={20}/> Menú
+                                        </button>
+                                        <button onClick={() => setPasoFlujoCaja(3)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-3">
+                                            Siguiente Paso <ArrowRight size={24}/>
+                                        </button>
+                                    </>
+                                )}
+
+                                {pasoFlujoCaja === 3 && (
+                                    <>
+                                        <button onClick={() => setPasoFlujoCaja(2)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
+                                            <ArrowLeft size={20}/> Atrás
+                                        </button>
+
+                                        {yaPagado ? (
+                                            <button
+                                                disabled={isFormIncompleto || isSubmitting}
+                                                onClick={() => generarPedidoBD('Mandar a Cocina')}
+                                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 disabled:opacity-50"
+                                            >
+                                                Guardar Modificación
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => {
+                                                        if (tipoConsumo === 'Domicilio') setModalCuentaAbierta(true);
+                                                        else generarPedidoBD('Mandar a Cocina');
+                                                    }}
+                                                    className="flex-1 bg-orange-100 text-orange-600 hover:bg-orange-200 border-2 border-orange-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cuenta Abierta
+                                                </button>
+                                                
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => generarPedidoBD('Cobrar Ahora')}
+                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cobrar Ahora
+                                                </button>
+                                            </>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </>
                 )}
 
+                {/* MODALES EXTERNOS FLOTANTES (WIZARD, UPSELL, NIP) */}
                 <AsistentePersonalizacion
                     productoEnEspera={productoEnEspera}
                     pasosWiz={pasosWiz}
@@ -689,6 +792,7 @@ const PuntoDeVentaPrincipal = ({
                     cantidadProducto={cantidadProducto}
                     setCantidadProducto={setCantidadProducto}
                     catalogoIngredientes={catalogoIngredientes}
+                    clasificaciones={clasificaciones}
                     politicasSustUI={politicasSustUI}
                     calcularPrecioSustitucion={calcularPrecioSustitucion}
                     resetWizard={resetWizard}
@@ -714,7 +818,6 @@ const PuntoDeVentaPrincipal = ({
                     apiUrl={apiUrl}
                 />
 
-                {/* MODAL SEGURIDAD DE PUNTOS CLONADO DEL KIOSCO */}
                 {modalNip && (
                     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
                         <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95 border border-slate-200">
