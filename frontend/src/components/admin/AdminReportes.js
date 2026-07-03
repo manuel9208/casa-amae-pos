@@ -6,28 +6,31 @@ import TendenciasVentas from './reportes/TendenciasVentas';
 import ResumenFinanciero from './reportes/ResumenFinanciero';
 import TablaDesgloseVentas from './reportes/TablaDesgloseVentas';
 import VistaCortesHistorico from './reportes/VistaCortesHistorico';
-import ReporteCombustible from './reportes/ReporteCombustible'; // 🆕 NUEVO IMPORT
-import { BarChart3, History, Fuel } from 'lucide-react'; // 🆕 ICONO DE COMBUSTIBLE
+import ReporteCombustible from './reportes/ReporteCombustible'; 
+// 👇 NUEVOS IMPORT DE REPORTES
+import ReporteCompras from './reportes/ReporteCompras'; 
+import ReporteMermas from './reportes/ReporteMermas'; 
+import { BarChart3, History, Fuel, ShoppingCart, Trash2 } from 'lucide-react'; 
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
-  const [cargando, setCargando] = useState(true);
+  const [cargando, setCargando] = useState(true);  
   
-  // 🆕 Control de sub-módulos principal (Se agrega 'combustible')
-  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas', 'cortes', 'combustible'
-
+  // 🆕 Control de sub-módulos actualizado
+  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas', 'cortes', 'combustible', 'compras', 'mermas'
+  
   const [filtroActivo, setFiltroActivo] = useState('dia');
   const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [filtroClasificacion, setFiltroClasificacion] = useState('Todas');
-  const [filtroConsumo, setFiltroConsumo] = useState('Todos');
+  const [filtroConsumo, setFiltroConsumo] = useState('Todos');  
 
   useEffect(() => {
     fetch(`${apiUrl}/clasificaciones`)
       .then(res => res.json())
       .then(data => setClasificaciones(Array.isArray(data) ? data : []))
       .catch(e => console.error('Error cargando clasificaciones', e));
-  }, [apiUrl]);
+  }, [apiUrl]);  
 
   const cargarReporte = useCallback(async (tipo, fecha = '') => {
     setCargando(true);
@@ -44,17 +47,17 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     } finally {
       setCargando(false);
     }
-  }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo]);
+  }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo]);  
 
   useEffect(() => {
     if (vistaModulo === 'ventas') {
       cargarReporte(filtroActivo, fechaCustom);
     }
-  }, [cargarReporte, filtroActivo, fechaCustom, vistaModulo]);
+  }, [cargarReporte, filtroActivo, fechaCustom, vistaModulo]);  
 
   const formaterMoneda = (cantidad) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cantidad || 0);
-  };
+  };  
 
   const parseFechaSegura = (dateStr) => {
     if (!dateStr) return '';
@@ -65,52 +68,49 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     } catch (e) {
       return dateStr;
     }
-  };
+  };  
 
-  const handleImprimir = () => window.print();
+  const handleImprimir = () => window.print();  
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
+    <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">  
       
-      {/* 🆕 SELECTOR DE FLUJO DE TRABAJO (Estilo Apple Táctil) */}
+      {/* SELECTOR DE FLUJO DE TRABAJO */}
       <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden gap-4">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-          📊 Inteligencia del Negocio
+          📊 Finanzas
         </h2>
-        <div className="flex flex-wrap justify-center bg-slate-100 p-1 rounded-2xl w-full xl:w-auto">
-          <button 
-            onClick={() => setVistaModulo('ventas')} 
-            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <BarChart3 size={16}/> Reporte Ventas
+        <div className="flex flex-wrap justify-center bg-slate-100 p-1 rounded-2xl w-full xl:w-auto overflow-hidden">
+          <button onClick={() => setVistaModulo('ventas')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <BarChart3 size={16}/> Ventas
           </button>
-          <button 
-            onClick={() => setVistaModulo('cortes')} 
-            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'cortes' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <History size={16}/> Histórico de Cortes
+          <button onClick={() => setVistaModulo('cortes')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'cortes' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <History size={16}/> Cortes
           </button>
-          <button 
-            onClick={() => setVistaModulo('combustible')} 
-            className={`flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'combustible' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <Fuel size={16}/> Reporte Combustible
+          <button onClick={() => setVistaModulo('combustible')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'combustible' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Fuel size={16}/> Combustible
+          </button>
+          {/* 👇 NUEVOS BOTONES INYECTADOS */}
+          <button onClick={() => setVistaModulo('compras')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'compras' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <ShoppingCart size={16}/> Compras
+          </button>
+          <button onClick={() => setVistaModulo('mermas')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'mermas' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Trash2 size={16}/> Mermas
           </button>
         </div>
-      </div>
+      </div>  
 
       {/* RENDERIZADO CONDICIONAL DE VISTAS */}
       {vistaModulo === 'ventas' && (
         <>
-          <FiltrosVentas 
+          <FiltrosVentas
             filtroActivo={filtroActivo} setFiltroActivo={setFiltroActivo}
             fechaCustom={fechaCustom} setFechaCustom={setFechaCustom}
             clasificaciones={clasificaciones}
             filtroClasificacion={filtroClasificacion} setFiltroClasificacion={setFiltroClasificacion}
             filtroConsumo={filtroConsumo} setFiltroConsumo={setFiltroConsumo}
             cargando={cargando} reporte={reporte} handleImprimir={handleImprimir}
-          />
-
+          />  
           {cargando ? (
             <div className="flex flex-col justify-center items-center py-20 print:hidden animate-pulse">
               <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
@@ -126,18 +126,16 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
             </div>
           ) : null}
         </>
-      )}
+      )}  
 
-      {vistaModulo === 'cortes' && (
-        <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
-      )}
+      {vistaModulo === 'cortes' && <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />}  
+      {vistaModulo === 'combustible' && <ReporteCombustible apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
+      
+      {/* 👇 NUEVOS COMPONENTES RENDERIZADOS */}
+      {vistaModulo === 'compras' && <ReporteCompras apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
+      {vistaModulo === 'mermas' && <ReporteMermas apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
 
-      {/* 🆕 NUEVO MÓDULO */}
-      {vistaModulo === 'combustible' && (
-        <ReporteCombustible apiUrl={apiUrl} formaterMoneda={formaterMoneda} />
-      )}
     </div>
   );
-};
-
+};  
 export default AdminReportes;

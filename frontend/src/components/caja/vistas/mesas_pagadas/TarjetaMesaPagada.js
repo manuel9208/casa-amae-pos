@@ -11,13 +11,22 @@ const TarjetaMesaPagada = ({
 }) => {
     
     const pedidoAsociado = mesa;
-    // 👇 2. FIX DE TEXTO "MESA MESA"
     const numMesaPuro = String(pedidoAsociado.mesa || 'N/A').trim();
     const numeroMesaLabel = numMesaPuro.toLowerCase().startsWith('mesa') ? numMesaPuro : `Mesa ${numMesaPuro}`;
     
-    const cliente = pedidoAsociado.cliente_nombre || 'Invitado';
+    // 👇 FIX RUTA A: Extraemos el nombre del invitado si viene empaquetado
+    let clienteExtraido = pedidoAsociado.cliente_nombre || 'Invitado';
+    let direccionLimpia = pedidoAsociado.direccion_entrega || '';
+
+    if (direccionLimpia.includes('|')) {
+        const partes = direccionLimpia.split('|');
+        const parteNombre = partes.find(p => p.includes('A NOMBRE DE:'));
+        
+        if (parteNombre) {
+            clienteExtraido = parteNombre.replace('A NOMBRE DE:', '').trim();
+        }
+    }
     
-    // 👇 3. VALIDACIÓN DE PAGO
     const faltaPagar = ['Pendiente', 'Por Cobrar'].includes(pedidoAsociado.metodo_pago);
 
     return (
@@ -44,7 +53,8 @@ const TarjetaMesaPagada = ({
             {/* 2. DETALLES DEL CLIENTE / CONSUMO */}
             <div className="space-y-3 mb-6 flex-1">
                 <p className="text-sm font-black text-slate-700 flex items-center gap-2">
-                    <User size={16} className="text-slate-400" /> {cliente}
+                    {/* 👇 FIX: Nombre dinámico extraído y funcional */}
+                    <User size={16} className="text-slate-400" /> {clienteExtraido}
                 </p>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between items-center mt-2">
                     <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
@@ -63,7 +73,6 @@ const TarjetaMesaPagada = ({
                     {renderBotonEditar(pedidoAsociado)}
                 </div>
 
-                {/* 👇 3. BLOQUEO DINÁMICO DE LIMPIEZA HASTA QUE SE PAGUE */}
                 <button
                     disabled={isSubmitting || limpiandoMesas || faltaPagar}
                     onClick={() => liberarMesaMagicamente(pedidoAsociado.mesa, pedidoAsociado.id)}

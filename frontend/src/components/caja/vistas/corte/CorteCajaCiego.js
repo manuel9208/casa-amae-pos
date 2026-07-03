@@ -1,38 +1,49 @@
 import React from 'react';
-import { Lock, CheckCircle2, User } from 'lucide-react';
+import { Lock, CheckCircle2, User, Wallet } from 'lucide-react';  
 
 const CorteCajaCiego = ({
   handleCierreCajaCiego,
   efectivoManual,
   setEfectivoManual,
   guardandoCorte,
-  currentUser
+  currentUser,
+  fondoCaja
 }) => {
   return (
     <div className="animate-in fade-in pb-20 max-w-xl mx-auto px-4 mt-4 md:mt-8">
       <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-xl border border-slate-200 text-center">
+        
         {/* Candado de Seguridad de Auditoría */}
         <div className="w-16 h-16 bg-amber-100 border border-amber-200 rounded-2xl flex items-center justify-center text-amber-600 mx-auto mb-6 shadow-sm">
           <Lock size={32} />
-        </div>
+        </div>  
         
-        <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Cierre de Turno Obligatorio</h2>
+        <h2 className="text-2xl md:text-3xl font-black text-slate-800 tracking-tight">Cierre de Turno Obligatorio</h2>  
         
-        <div className="mt-2">
+        <div className="mt-2 mb-4">
           <span className="text-[10px] bg-slate-900 text-white font-black uppercase tracking-widest px-3 py-1 rounded-md inline-block">
             Modalidad: Corte a Ciegas
           </span>
-        </div>
-
+        </div>  
+        
         {/* Responsable del Turno */}
         <p className="text-sm font-bold text-slate-600 mt-4 flex items-center justify-center gap-1">
-           <User size={16} className="text-indigo-500"/> Responsable: <span className="text-indigo-600 font-black">{currentUser?.nombre || currentUser?.usuario}</span>
-        </p>
+          <User size={16} className="text-indigo-500"/> Responsable: <span className="text-indigo-600 font-black">{currentUser?.nombre || currentUser?.usuario}</span>
+        </p>  
 
-        <p className="text-slate-500 font-bold text-sm leading-relaxed mt-4 mb-8">
+        {/* 👇 NUEVO: Mostrar Fondo Inicial para claridad del cajero */}
+        <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-5 mt-6 mb-6 flex items-center justify-center gap-4 shadow-inner">
+          <Wallet className="text-emerald-500" size={28}/>
+          <div className="text-left">
+            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest leading-none mb-1">Fondo Inicial Registrado</p>
+            <p className="text-2xl font-black text-emerald-800 leading-none">${Number(fondoCaja || 0).toFixed(2)}</p>
+          </div>
+        </div>
+
+        <p className="text-slate-500 font-bold text-sm leading-relaxed mb-8">
           Por políticas de auditoría y seguridad, debes declarar el dinero exacto que tienes físicamente en tu gaveta antes de poder concluir tu jornada laboral. El sistema utilizará el Fondo Inicial que declaraste al abrir la caja para calcular el arqueo final.
-        </p>
-
+        </p>  
+        
         {/* Formulario de Entrada de Efectivo Físico */}
         <form onSubmit={handleCierreCajaCiego} className="space-y-6 text-left">
           <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100 shadow-inner">
@@ -41,33 +52,33 @@ const CorteCajaCiego = ({
             </label>
             <div className="relative flex items-center">
               <span className="absolute left-5 font-black text-3xl text-slate-400 select-none">$</span>
-              <input 
-                type="number" 
-                step="0.01" 
-                min="0" 
-                required 
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                required
                 disabled={guardandoCorte}
-                value={efectivoManual} 
-                onChange={(e) => setEfectivoManual(e.target.value)} 
+                value={efectivoManual}
+                onChange={(e) => setEfectivoManual(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-white border-2 border-slate-200 rounded-2xl p-5 pl-12 text-center text-4xl font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all text-slate-700 tracking-tight placeholder-slate-200 disabled:opacity-50"
               />
             </div>
-          </div>
-
+          </div>  
+          
           {/* Botón de Envío de Arqueo */}
-          <button 
-            type="submit" 
-            disabled={guardandoCorte || !efectivoManual} 
+          <button
+            type="submit"
+            disabled={guardandoCorte || !efectivoManual}
             className="w-full bg-slate-800 hover:bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-slate-800/20 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-40 disabled:scale-100"
           >
-            <CheckCircle2 size={22} /> 
+            <CheckCircle2 size={22} />
             {guardandoCorte ? "Asentando Cierre..." : "Efectuar Cierre y Salir"}
           </button>
         </form>
       </div>
     </div>
   );
-};
+};  
 
 export default CorteCajaCiego;

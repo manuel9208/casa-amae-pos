@@ -9,7 +9,7 @@ const AsistentePersonalizacion = ({
     ingredienteDesplegado, setIngredienteDesplegado, extrasSeleccionados, setExtrasSeleccionados,
     notaProducto, setNotaProducto, cantidadProducto, setCantidadProducto,
     catalogoIngredientes, politicasSustUI, calcularPrecioSustitucion, resetWizard, onTerminarPersonalizacion,
-    clasificaciones // 👈 Recibimos el catálogo de clasificaciones para cruzar los destinos
+    clasificaciones
 }) => {
     
     if (!productoEnEspera || !pasoActualObj) return null;
@@ -40,7 +40,6 @@ const AsistentePersonalizacion = ({
         let nombreCompleto = `[${productoEnEspera.categoria || 'General'}] ${productoEnEspera.nombre}`;
         if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
 
-        // 👇 FIX APLICADO: Buscamos la clasificación para extraer su verdadero Destino (Barra o Cocina)
         const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
         const destinoReal = clasifObj?.destino || 'Cocina';
 
@@ -50,7 +49,7 @@ const AsistentePersonalizacion = ({
             producto_id: productoEnEspera.id,
             nombre: nombreCompleto,
             categoria: productoEnEspera.categoria,
-            destino: destinoReal, // 👈 Se guarda exactamente hacia dónde va
+            destino: destinoReal, 
             tiempo_preparacion: productoEnEspera.tiempo_preparacion,
             precio_base: productoEnEspera.precio_base,
             precioFinal: precioIndividualCalculado,
@@ -74,6 +73,11 @@ const AsistentePersonalizacion = ({
             extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0)) * cantidadProducto).toFixed(2);
     };
 
+    const isSiguienteDisabled = 
+        (pasoActualObj?.tipo === 'tamaño' && !opcionSeleccionada) ||
+        (pasoActualObj?.tipo === 'sabor' && !saborSeleccionado) ||
+        (pasoActualObj?.tipo === 'grupo_obligatorio' && !gruposSeleccionados[pasoActualObj.categoria]);
+
     return (
         <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
             {pasoPersonalizacion > 0 && (
@@ -93,12 +97,7 @@ const AsistentePersonalizacion = ({
                             </p>
                         </div>
                     )}
-                    {/* BARRA DE PROGRESO */}
-                    <div className="flex justify-center gap-1.5 md:gap-2 mt-4">
-                        {pasosWiz.map((_, i) => (
-                            <div key={i} className={`h-1.5 md:h-2 rounded-full transition-all duration-300 ${i === pasoPersonalizacion ? 'w-6 md:w-8 bg-blue-600' : i < pasoPersonalizacion ? 'w-3 md:w-4 bg-emerald-500' : 'w-3 md:w-4 bg-slate-200'}`} />
-                        ))}
-                    </div>
+                    {/* 👇 FIX: Eliminada la barra de progreso de "pasitos" visuales */}
                 </div>
 
                 {/* CUERPO DEL WIZARD */}
@@ -282,8 +281,6 @@ const AsistentePersonalizacion = ({
                 {/* PIE DEL WIZARD (ACCIONES Y TOTALES) */}
                 <div className="p-6 md:p-8 bg-white border-t border-slate-200 shrink-0">
                     <div className="flex justify-between items-center mb-4 md:mb-6">
-                        
-                        {/* 👇 CANDADO DE STOCK EN CANTIDAD */}
                         {pasoActualObj.tipo === 'extras_notas' ? (
                             <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shadow-inner">
                                 <button onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-red-500 text-lg md:text-xl font-black transition">-</button>
@@ -298,7 +295,6 @@ const AsistentePersonalizacion = ({
                             </div>
                         ) : (
                             <div className="flex items-center">
-                                {/* Placeholder para mantener el layout */}
                             </div>
                         )}
                         
@@ -308,20 +304,26 @@ const AsistentePersonalizacion = ({
                         </div>
                     </div>
 
-                    {pasoPersonalizacion < pasosWiz.length - 1 ? (
-                        <button onClick={() => setPasoPersonalizacion(p => p + 1)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 md:py-5 rounded-xl shadow-lg transition text-lg md:text-xl active:scale-95">
-                            Siguiente Paso
+                    {/* 👇 FIX APLICADO: Botón de Cancelar SIEMPRE anclado en todos los pasos */}
+                    <div className="flex gap-2 md:gap-4">
+                        <button onClick={resetWizard} className="px-4 md:px-6 py-4 md:py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-sm md:text-base">
+                            Cancelar
                         </button>
-                    ) : (
-                        <div className="flex gap-2 md:gap-4">
-                            <button onClick={resetWizard} className="px-4 md:px-6 py-4 md:py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-sm md:text-base">
-                                Cancelar
+                        
+                        {pasoPersonalizacion < pasosWiz.length - 1 ? (
+                            <button 
+                                disabled={isSiguienteDisabled}
+                                onClick={() => setPasoPersonalizacion(p => p + 1)} 
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-black py-4 md:py-5 rounded-xl shadow-lg transition text-lg md:text-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Siguiente Paso
                             </button>
+                        ) : (
                             <button onClick={handleTerminarPersonalizacion} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 md:py-5 rounded-xl shadow-lg shadow-emerald-500/30 transition text-base md:text-xl active:scale-95">
                                 ✔ Agregar a Orden
                             </button>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

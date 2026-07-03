@@ -12,7 +12,7 @@ const LiquidacionRepartidoresPrincipal = ({
     actualizarFondoRepartidor,
     fondoRepartidorGlobal,
     liquidarPedidoRepartidor,
-    actualizarEstadoPedido // 👈 Recibido desde VistasCaja
+    actualizarEstadoPedido
 }) => {  
 
     const repartidoresActivos = (empleadosPOS || []).filter(emp => String(emp.rol).toLowerCase().includes('repart'));
@@ -35,7 +35,6 @@ const LiquidacionRepartidoresPrincipal = ({
 
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
     
-    // 👇 FIX APLICADO: Solo las órdenes 'Pendientes' o 'Por Cobrar' se consideran como deuda física
     const pedidosEfectivoGlobal = pedidosEnReparto.filter(p => 
         ['Entregado', 'En Camino'].includes(p.estado_preparacion) && 
         ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)
@@ -94,7 +93,10 @@ const LiquidacionRepartidoresPrincipal = ({
                                 listaPedidos={listaPedidos}
                                 getNombreRepartidor={getNombreRepartidor}
                                 liquidarPedidoRepartidor={liquidarPedidoRepartidor}
-                                actualizarEstadoPedido={actualizarEstadoPedido} // 👈 Pasado a la Tarjeta
+                                actualizarEstadoPedido={actualizarEstadoPedido}
+                                // 👇 FIX: Pasamos el fondo individual y el actualizador para el Modal de Liquidación Total
+                                fondoRepartidor={fondosRepartidores[repartidorId] || 0}
+                                actualizarFondoRepartidor={actualizarFondoRepartidor}
                             />
                         ))
                     )}

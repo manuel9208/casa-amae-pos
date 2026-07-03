@@ -15,14 +15,24 @@ const TarjetaPedidoConfirmar = ({
     const telefono = getTelefonoExtraido(pedido);
     const esDomicilio = pedido.tipo_consumo === 'Domicilio';  
 
+    // 👇 FIX RUTA A: Extraemos el nombre del invitado si viene empaquetado en la dirección
     let direccionLimpia = pedido.direccion_entrega || '';
+    let clienteExtraido = pedido.cliente_nombre || 'Invitado';
+
     if (direccionLimpia.includes('|')) {
-        direccionLimpia = direccionLimpia.split('|')[0]
+        const partes = direccionLimpia.split('|');
+        const parteNombre = partes.find(p => p.includes('A NOMBRE DE:'));
+        
+        if (parteNombre) {
+            clienteExtraido = parteNombre.replace('A NOMBRE DE:', '').trim();
+        }
+
+        direccionLimpia = partes[0]
             .replace(/TEL:\s*\d*/g, '')
             .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, '')
             .replace(/A NOMBRE DE:\s*(.*)/g, '')
             .trim();
-    }  
+    }   
 
     return (
         <div className="bg-white p-5 md:p-6 rounded-3xl border-2 border-amber-200 shadow-md flex flex-col justify-between transition-all hover:shadow-lg animate-in slide-in-from-bottom-4 relative overflow-hidden">  
@@ -54,9 +64,9 @@ const TarjetaPedidoConfirmar = ({
             <div className="space-y-3 mb-6 flex-1">
                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-2">
                     <p className="text-sm font-black text-slate-700 flex items-center gap-2">
-                        <User size={16} className="text-slate-400" /> {pedido.cliente_nombre || 'Invitado'}
+                        {/* 👇 FIX RUTA A: Imprimimos el cliente extraído dinámicamente */}
+                        <User size={16} className="text-slate-400" /> {clienteExtraido}
                     </p>  
-                    {/* 👇 FIX: Enlace directo a WhatsApp */}
                     {telefono && (
                         <a 
                             href={`https://wa.me/52${telefono.replace(/\D/g, '')}`} 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
@@ -16,6 +16,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(0);
   const [estaSincronizando, setEstaSincronizando] = useState(false);
 
+  // 👇 FIX: Estado para la alerta de notificación en tiempo real del Kiosco
+  const [alertaNotificacion, setAlertaNotificacion] = useState(null);
+
   // === 1. DATOS GLOBALES ===
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
@@ -30,6 +33,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   const [carrito, setCarrito] = useState([]); 
   const [pantallaActual, setPantallaActual] = useState('cargando'); 
   const [misPedidos, setMisPedidos] = useState([]);
+  const pedidosPreviosRef = useRef([]); // Ref para comparar cambios de estado
+  
   const [pedidoEditandoId, setPedidoEditandoId] = useState(null); 
   const [isSubmitting, setIsSubmitting] = useState(false); 
   
@@ -81,7 +86,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
   }, []);
 
-  // 👇 FIX: Quitamos 'apiUrl' de las dependencias ya que es una constante global
   const fetchCatalogoProductos = useCallback(() => {
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
@@ -112,17 +116,58 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCatalogoProductos]);
 
-  // 👇 FIX: Quitamos 'baseUrl' de las dependencias ya que es una constante global
+  const verificarMisPedidos = useCallback(async (esCargaInicial = false) => {
+    if (!clienteActivo || ordenExterna || !navigator.onLine) return;
+    try { 
+      const r = await fetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
+      const data = await r.json(); 
+      const nuevosPedidos = Array.isArray(data) ? data : [];
+      
+      // 👇 FIX: Lógica de Notificación Inteligente In-App
+      if (!esCargaInicial && pedidosPreviosRef.current.length > 0) {
+          nuevosPedidos.forEach(pedidoNuevo => {
+              const pedidoViejo = pedidosPreviosRef.current.find(p => p.id === pedidoNuevo.id);
+              if (pedidoViejo && pedidoViejo.estado_preparacion !== pedidoNuevo.estado_preparacion) {
+                  // Determinar el mensaje según el nuevo estado
+                  let msj = ''; let emj = '';
+                  if (pedidoNuevo.estado_preparacion === 'Preparando') { msj = '¡Tu pedido ya está en la cocina!'; emj = '🔥'; }
+                  else if (pedidoNuevo.estado_preparacion === 'Listo') { msj = '¡Tu pedido está listo!'; emj = '✅'; }
+                  else if (pedidoNuevo.estado_preparacion === 'En Camino') { msj = '¡Tu pedido va en camino!'; emj = '🛵'; }
+                  else if (pedidoNuevo.estado_preparacion === 'Entregado') { msj = '¡Pedido entregado! Disfrútalo.'; emj = '🍔'; }
+                  
+                  if (msj) {
+                      setAlertaNotificacion({ mensaje: msj, emoji: emj, orden: pedidoNuevo.numero_pedido });
+                      setTimeout(() => setAlertaNotificacion(null), 5000);
+                      try { new Audio('/campana.mp3').play().catch(()=>{}); } catch(e){}
+                  }
+              }
+          });
+      }
+
+      pedidosPreviosRef.current = nuevosPedidos;
+      setMisPedidos(nuevosPedidos); 
+
+      if (esCargaInicial) { 
+        if (nuevosPedidos.length > 0) setPantallaActual('mis_pedidos'); 
+        else setPantallaActual('menu'); 
+      } 
+    } catch (error) {}
+  }, [clienteActivo, ordenExterna]);
+
+  // 👇 FIX: Añadida la llamada a verificarMisPedidos cuando llega un Web-Socket
   useEffect(() => {
     if (!baseUrl || isOffline) return;
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
     
     socket.on('catalogo_actualizado', () => fetchCatalogoProductos());
     socket.on('nuevo_pedido', () => fetchCatalogoProductos());
-    socket.on('pedido_actualizado', () => fetchCatalogoProductos());
+    socket.on('pedido_actualizado', () => {
+        fetchCatalogoProductos();
+        if (clienteActivo) verificarMisPedidos(false);
+    });
     
     return () => socket.disconnect();
-  }, [fetchCatalogoProductos, isOffline]);
+  }, [fetchCatalogoProductos, isOffline, clienteActivo, verificarMisPedidos]);
 
   useEffect(() => {
     if (clienteActivo && clienteActivo.id) {
@@ -161,18 +206,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
 
   useEffect(() => {
     let intervaloPedidos;
-    const verificarMisPedidos = async (esCargaInicial = false) => {
-      if (!clienteActivo || ordenExterna || !navigator.onLine) return;
-      try { 
-        const r = await fetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
-        const data = await r.json(); 
-        setMisPedidos(Array.isArray(data) ? data : []); 
-        if (esCargaInicial) { 
-          if (data && data.length > 0) setPantallaActual('mis_pedidos'); 
-          else setPantallaActual('menu'); 
-        } 
-      } catch (error) {}
-    };
     if (clienteActivo && !ordenExterna) { 
       verificarMisPedidos(true); 
       intervaloPedidos = setInterval(() => verificarMisPedidos(false), 5000); 
@@ -180,8 +213,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       setPantallaActual('menu'); 
     }
     return () => clearInterval(intervaloPedidos);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteActivo, ordenExterna]);
+  }, [clienteActivo, ordenExterna, verificarMisPedidos]);
 
   const reiniciarKiosco = useCallback(() => {
     if(user && user.rol === 'cajero') { 
@@ -388,8 +420,21 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-8 relative">
+    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-8 relative overflow-hidden">
       
+      {/* 👇 FIX: TOAST DE NOTIFICACIÓN DE ESTADO EN TIEMPO REAL */}
+      {alertaNotificacion && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300">
+            <div className="bg-white border-2 border-emerald-500 rounded-full shadow-2xl px-8 py-4 flex items-center gap-4">
+                <span className="text-4xl animate-bounce">{alertaNotificacion.emoji}</span>
+                <div>
+                    <p className="font-black text-slate-800 tracking-tight text-lg">Orden #{alertaNotificacion.orden}</p>
+                    <p className="font-bold text-emerald-600">{alertaNotificacion.mensaje}</p>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* BANNER OFFLINE */}
       {isOffline && (
         <div className="bg-red-500 text-white text-center py-3 px-4 rounded-2xl mb-6 font-black flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top-4 shadow-lg shadow-red-500/30">

@@ -1,41 +1,68 @@
 import React, { useState } from 'react';
-import { Bike, MapPin, CheckCircle2, DollarSign, AlertTriangle, PackageCheck } from 'lucide-react';  
+import { Bike, MapPin, CheckCircle2, DollarSign, AlertTriangle, PackageCheck, Receipt } from 'lucide-react';  
 
 const TarjetaRepartidor = ({
     repartidorId,
     listaPedidos,
     getNombreRepartidor,
     liquidarPedidoRepartidor,
-    actualizarEstadoPedido // 👈 Recibido para poder forzar la entrega si ya está pagado
+    actualizarEstadoPedido,
+    fondoRepartidor,
+    actualizarFondoRepartidor
 }) => {
     const [pedidoAConfirmar, setPedidoAConfirmar] = useState(null);
+    const [modalLiquidarTodo, setModalLiquidarTodo] = useState(false);
 
-    // 👇 FIX APLICADO: Solo sumamos las deudas reales a la cartera del conductor
     const pedidosEfectivo = listaPedidos.filter(p => 
         ['Entregado', 'En Camino'].includes(p.estado_preparacion) && 
         ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)
     );
     
     const totalDeudaRepartidor = pedidosEfectivo.reduce((sum, p) => sum + Number(p.total), 0);  
+    const totalEfectivoFisico = totalDeudaRepartidor + Number(fondoRepartidor || 0);
+
+    // 👇 Función de Liquidación Masiva
+    const handleLiquidarTodo = () => {
+        const idsALiquidar = pedidosEfectivo.map(p => p.id);
+        if(idsALiquidar.length > 0) {
+            liquidarPedidoRepartidor(idsALiquidar);
+            actualizarFondoRepartidor(repartidorId, 0); // Vaciamos la feria del chofer
+            setModalLiquidarTodo(false);
+        }
+    };
 
     return (
         <>
             <div className="bg-white p-6 md:p-8 rounded-[36px] border border-slate-200 shadow-sm space-y-4 hover:shadow-md transition-shadow duration-300 animate-in slide-in-from-right-4 relative z-10">  
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100 gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-50 p-4 md:p-5 rounded-2xl border border-slate-100 gap-4">
                     <h3 className="font-black text-slate-800 text-lg md:text-xl flex items-center gap-2">
                         <div className="bg-pink-100 p-2 rounded-xl text-pink-600">
                             <Bike size={20}/>
                         </div>
                         {getNombreRepartidor(repartidorId)}
                     </h3>
-                    <span className="text-xs md:text-sm font-black bg-pink-100 text-pink-700 px-4 py-2 rounded-xl shadow-sm text-center">
-                        Debe Entregar: ${totalDeudaRepartidor.toFixed(2)}
-                    </span>
+                    <div className="flex items-center gap-3">
+                        <div className="text-right">
+                            <p className="text-[10px] font-black uppercase text-slate-400 mb-0.5">Deuda Fija</p>
+                            <p className="text-sm md:text-base font-black text-pink-600 leading-none">
+                                ${totalDeudaRepartidor.toFixed(2)}
+                            </p>
+                        </div>
+                        
+                        {/* 👇 FIX APLICADO: Botón Maestro de Liquidación Total */}
+                        {pedidosEfectivo.length > 0 && (
+                            <button
+                                onClick={() => setModalLiquidarTodo(true)}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs md:text-sm uppercase tracking-widest px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex items-center gap-2"
+                            >
+                                <Receipt size={16}/> Liquidar Ruta
+                            </button>
+                        )}
+                    </div>
                 </div>  
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mt-4">
                     {listaPedidos.map(p => {
-                        // 👇 FIX VISUAL: Ahora es "esDeuda" en lugar de "esEfectivo"
                         const esDeuda = ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago);
                         const estaEnRuta = p.estado_preparacion === 'En Camino';
 
@@ -63,7 +90,6 @@ const TarjetaRepartidor = ({
                                     </span>
                                 </div>  
 
-                                {/* 👇 FIX APLICADO: Lógica Inteligente de Botones según su Pago */}
                                 {esDeuda ? (
                                     estaEnRuta ? (
                                         <button
@@ -100,6 +126,53 @@ const TarjetaRepartidor = ({
                 </div>
             </div>
 
+            {/* 👇 FIX APLICADO: MODAL DE LIQUIDACIÓN TOTAL */}
+            {modalLiquidarTodo && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200 border border-slate-100">
+                        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6 shadow-inner">
+                            <Receipt size={40} />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Cierre de Ruta</h3>
+                        <p className="text-slate-500 font-medium mb-6 px-4">
+                            Recauda y cierra {pedidosEfectivo.length} pedidos de una sola vez.
+                        </p>
+
+                        <div className="bg-slate-50 w-full p-4 rounded-2xl border border-slate-200 mb-6 space-y-3">
+                            <div className="flex justify-between items-center text-sm font-bold text-slate-600 border-b border-slate-200 pb-2">
+                                <span>Órdenes (Deuda)</span>
+                                <span>${totalDeudaRepartidor.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm font-bold text-slate-600 border-b border-slate-200 pb-2">
+                                <span>Feria (Fondo Base)</span>
+                                <span>${Number(fondoRepartidor || 0).toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-lg font-black text-slate-900 pt-1">
+                                <span>Efectivo a Recibir</span>
+                                <span className="text-emerald-600">${totalEfectivoFisico.toFixed(2)}</span>
+                            </div>
+                        </div>
+
+                        <div className="flex w-full gap-3">
+                            <button
+                                onClick={() => setModalLiquidarTodo(false)}
+                                className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-black rounded-2xl transition-all active:scale-95"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={handleLiquidarTodo}
+                                className="flex-1 py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex justify-center items-center gap-2"
+                            >
+                                <CheckCircle2 size={20} />
+                                Recibir Efectivo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL DE LIQUIDACIÓN INDIVIDUAL */}
             {pedidoAConfirmar && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200 border border-slate-100">

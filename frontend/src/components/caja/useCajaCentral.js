@@ -254,20 +254,31 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setIsSubmitting(false);
     };
 
-    const liquidarPedidoRepartidor = async (pedidoId) => {
+    // 👇 FIX: Función rediseñada para aceptar un ID único o un Arreglo de IDs (Liquidación Masiva)
+    const liquidarPedidoRepartidor = async (pedidoIds) => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: 'Efectivo' })
-            });
-            if (res.ok) {
+            const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
+            
+            // Ejecutamos las llamadas en paralelo para máxima velocidad
+            const promesas = idsArray.map(id => 
+                fetch(`${apiUrl}/pedidos/${id}/estado`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: 'Efectivo' })
+                })
+            );
+            
+            const results = await Promise.all(promesas);
+            const todosOk = results.every(res => res.ok);
+
+            if (todosOk) {
                 await cargarDataDinamica();
-                mostrarAlertaCaja('Liquidación Exitosa', 'El efectivo se ha asentado correctamente en caja.', 'success');
+                mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el efectivo de ${idsArray.length} orden(es) en caja.`, 'success');
             } else {
-                mostrarAlertaCaja('Error', 'No se pudo liquidar la orden.', 'error');
+                mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar. Revisa tu red.', 'error');
+                await cargarDataDinamica();
             }
         } catch (error) {
             mostrarAlertaCaja('Error de Red', 'Problema de conexión.', 'error');
@@ -568,7 +579,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         p.estado_preparacion !== 'Finalizado'
     );
 
-    // 👇 FIX APLICADO: Solo las órdenes 'Por Cobrar' o 'Pendientes' aplican como deuda de repartidor
     const pedidosPorLiquidar = pedidos.filter(p =>
         p.tipo_consumo === 'Domicilio' &&
         (

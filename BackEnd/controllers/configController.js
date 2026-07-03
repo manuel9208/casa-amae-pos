@@ -19,14 +19,15 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // 👇 BLINDAJE: Añadimos la columna politicas_sustitucion automáticamente si no existe en la BD
     await db.query(`
-      ALTER TABLE configuracion 
+      ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS asistencia_pin_caja BOOLEAN DEFAULT true,
       ADD COLUMN IF NOT EXISTS asistencia_login BOOLEAN DEFAULT true,
       ADD COLUMN IF NOT EXISTS asistencia_huella BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS politicas_sustitucion JSONB DEFAULT '{}'::jsonb;
+      ADD COLUMN IF NOT EXISTS politicas_sustitucion JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS calendario_anual JSONB DEFAULT '{}'::jsonb,
+      ADD COLUMN IF NOT EXISTS limite_vacaciones_simultaneas INTEGER DEFAULT 2;
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -56,8 +57,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   } catch(e) {}
 
   const mergedBody = { ...configActual, ...req.body };
-  
-  // 👇 INYECCIÓN: Agregamos politicas_sustitucion a la desestructuración
+
   const {
     nombre_negocio, whatsapp, banco, cuenta, titular,
     color_primario, color_secundario, color_fondo,
@@ -75,7 +75,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
     cocina_en_caja_activa, horarios_semana,
     asistencia_pin_caja, asistencia_login, asistencia_huella,
-    politicas_sustitucion 
+    politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas
   } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
@@ -102,7 +102,6 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
   const isBloqueoCajaActivo = bloqueo_caja_activo === 'true' || bloqueo_caja_activo === true;
   const isCocinaCajaActiva = cocina_en_caja_activa === 'true' || cocina_en_caja_activa === true;
-
   const isAsistenciaPin = asistencia_pin_caja === undefined ? true : (asistencia_pin_caja === 'true' || asistencia_pin_caja === true);
   const isAsistenciaLogin = asistencia_login === undefined ? true : (asistencia_login === 'true' || asistencia_login === true);
   const isAsistenciaHuella = asistencia_huella === 'true' || asistencia_huella === true;
@@ -111,15 +110,30 @@ exports.actualizarConfiguracion = async (req, res) => {
   const limiteComedorSeguro = comedor_limite || 'ambos';
   const porcentajeSeguro = puntos_porcentaje !== undefined ? Number(puntos_porcentaje) : 10;
   const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
+  const limiteVacSeguro = limite_vacaciones_simultaneas !== undefined ? Number(limite_vacaciones_simultaneas) : 2;
 
-  // 👇 INYECCIÓN: Parseo seguro para asegurar que sea un JSONB válido en Postgres
-  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', horariosParsed = '{}', politicasParsed = '{}';
-  try { tarifasParsed = (tarifas_envio && tarifas_envio !== '') ? (typeof tarifas_envio === 'string' ? tarifas_envio : JSON.stringify(tarifas_envio)) : '[]'; } catch (e) {}
-  try { bebidasParsed = (comedor_clasif_bebidas && comedor_clasif_bebidas !== '') ? (typeof comedor_clasif_bebidas === 'string' ? comedor_clasif_bebidas : JSON.stringify(comedor_clasif_bebidas)) : '[]'; } catch (e) {}
-  try { platillosParsed = (comedor_clasif_platillos && comedor_clasif_platillos !== '') ? (typeof comedor_clasif_platillos === 'string' ? comedor_clasif_platillos : JSON.stringify(comedor_clasif_platillos)) : '[]'; } catch (e) {}
-  try { matrizParsed = (matriz_limpieza && matriz_limpieza !== '') ? (typeof matriz_limpieza === 'string' ? matriz_limpieza : JSON.stringify(matriz_limpieza)) : '{}'; } catch (e) {}
-  try { horariosParsed = (horarios_semana && horarios_semana !== '') ? (typeof horarios_semana === 'string' ? horarios_semana : JSON.stringify(horarios_semana)) : '{}'; } catch (e) {}
-  try { politicasParsed = (politicas_sustitucion && politicas_sustitucion !== '') ? (typeof politicas_sustitucion === 'string' ? politicas_sustitucion : JSON.stringify(politicas_sustitucion)) : '{}'; } catch (e) {}
+  // 👇 INYECCIÓN SEGURA: Convierte objetos o "[object Object]" a un JSON limpio sin romper SQL
+  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', horariosParsed = '{}', politicasParsed = '{}', calendarioParsed = '{}';
+  
+  try { tarifasParsed = (tarifas_envio && typeof tarifas_envio !== 'string') ? JSON.stringify(tarifas_envio) : (tarifas_envio || '[]'); } catch (e) {}
+  try { bebidasParsed = (comedor_clasif_bebidas && typeof comedor_clasif_bebidas !== 'string') ? JSON.stringify(comedor_clasif_bebidas) : (comedor_clasif_bebidas || '[]'); } catch (e) {}
+  try { platillosParsed = (comedor_clasif_platillos && typeof comedor_clasif_platillos !== 'string') ? JSON.stringify(comedor_clasif_platillos) : (comedor_clasif_platillos || '[]'); } catch (e) {}
+  try { matrizParsed = (matriz_limpieza && typeof matriz_limpieza !== 'string') ? JSON.stringify(matriz_limpieza) : (matriz_limpieza || '{}'); } catch (e) {}
+  try { horariosParsed = (horarios_semana && typeof horarios_semana !== 'string') ? JSON.stringify(horarios_semana) : (horarios_semana || '{}'); } catch (e) {}
+  try { politicasParsed = (politicas_sustitucion && typeof politicas_sustitucion !== 'string') ? JSON.stringify(politicas_sustitucion) : (politicas_sustitucion || '{}'); } catch (e) {}
+  
+  // PARSEO BLINDADO DEL CALENDARIO
+  try {
+    if (calendario_anual) {
+      if (typeof calendario_anual === 'object') {
+        calendarioParsed = JSON.stringify(calendario_anual);
+      } else if (calendario_anual === '[object Object]') {
+        calendarioParsed = '{}'; 
+      } else {
+        calendarioParsed = calendario_anual;
+      }
+    }
+  } catch (e) { calendarioParsed = '{}'; }
 
   try {
     await db.query(`
@@ -136,10 +150,11 @@ exports.actualizarConfiguracion = async (req, res) => {
         puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
         bloqueo_caja_activo, bloqueo_caja_segundos, comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
         cocina_en_caja_activa, horarios_semana,
-        asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion
+        asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion,
+        calendario_anual, limite_vacaciones_simultaneas
       )
       VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55
       )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
@@ -194,7 +209,9 @@ exports.actualizarConfiguracion = async (req, res) => {
         asistencia_pin_caja = EXCLUDED.asistencia_pin_caja,
         asistencia_login = EXCLUDED.asistencia_login,
         asistencia_huella = EXCLUDED.asistencia_huella,
-        politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb
+        politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb,
+        calendario_anual = EXCLUDED.calendario_anual::jsonb,
+        limite_vacaciones_simultaneas = EXCLUDED.limite_vacaciones_simultaneas
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -208,8 +225,12 @@ exports.actualizarConfiguracion = async (req, res) => {
       porcentajeSeguro, valorPesoSeguro, isPuntosActivos, isCanjeActivo,
       isBloqueoCajaActivo, segundosSeguros, limiteComedorSeguro, bebidasParsed, platillosParsed, matrizParsed,
       isCocinaCajaActiva, horariosParsed,
-      isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed // 👈 INYECTADO AQUÍ EN LA POSICIÓN 53
+      isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed,
+      calendarioParsed, limiteVacSeguro
     ]);
+
+    const io = req.app.get('io');
+    if (io) { io.emit('config_actualizada'); }
 
     res.json({ success: true, logo_url });
   } catch (error) {
@@ -256,8 +277,8 @@ exports.obtenerCupones = async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM cupones ORDER BY id DESC');
     res.json(result.rows);
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al obtener cupones' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener cupones' });
   }
 };
 
@@ -271,7 +292,9 @@ exports.crearCupon = async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (error) {
-    if(error.code === '23505') return res.status(400).json({ error: 'Este código de cupón ya existe.' });
+    if (error.code === '23505') {
+      return res.status(400).json({ error: 'El código del cupón ya existe.' });
+    }
     res.status(500).json({ error: 'Error al crear cupón' });
   }
 };
@@ -282,18 +305,17 @@ exports.actualizarCuponEstado = async (req, res) => {
   try {
     const result = await db.query('UPDATE cupones SET activo = $1 WHERE id = $2 RETURNING *', [activo, id]);
     res.json(result.rows[0]);
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al actualizar cupón' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar cupón' });
   }
 };
 
 exports.eliminarCupon = async (req, res) => {
-  const { id } = req.params;
   try {
-    await db.query('DELETE FROM cupones WHERE id = $1', [id]);
+    await db.query('DELETE FROM cupones WHERE id = $1', [req.params.id]);
     res.json({ success: true });
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al eliminar cupón' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar cupón' });
   }
 };
 
@@ -302,18 +324,22 @@ exports.validarCupon = async (req, res) => {
   try {
     const codigoLimpio = String(codigo).toUpperCase().replace(/\s+/g, '');
     const result = await db.query('SELECT * FROM cupones WHERE codigo = $1 AND activo = true', [codigoLimpio]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Cupón no encontrado o inactivo.' });
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Cupón inválido o inactivo.' });
+    }
     
     const cupon = result.rows[0];
-    if (cupon.fecha_vencimiento && new Date(cupon.fecha_vencimiento) < new Date()) {
-      return res.status(400).json({ error: 'Este cupón ya expiró.' });
-    }
+    
     if (cupon.limite_usos !== null && cupon.usos_actuales >= cupon.limite_usos) {
-      return res.status(400).json({ error: 'Este cupón ya alcanzó su límite de usos.' });
+      return res.status(400).json({ error: 'El cupón ha superado su límite de usos.' });
+    }
+    if (cupon.fecha_vencimiento && new Date(cupon.fecha_vencimiento) < new Date()) {
+      return res.status(400).json({ error: 'El cupón ha expirado.' });
     }
     
     res.json(cupon);
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al validar cupón' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al validar cupón' });
   }
 };

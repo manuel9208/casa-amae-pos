@@ -53,17 +53,18 @@ const MenuCategoriasYProductos = ({
               const stockActual = Number(p.stock_preparado) || 0;
 
               return (
+              // 👇 FIX APLICADO: min-h-[180px] y justify-start para evitar que se aplaste en móviles
               <button 
                 key={p.id} 
                 onClick={() => abrirModalProducto(p)} 
-                className="bg-white rounded-3xl p-3 md:p-5 flex flex-col items-center text-center hover:shadow-xl hover:border-blue-200 transition-all border border-slate-100 group active:scale-95 relative overflow-hidden"
+                className="bg-white rounded-3xl p-3 md:p-5 flex flex-col items-center justify-start text-center hover:shadow-xl hover:border-blue-200 transition-all border border-slate-100 group active:scale-95 relative overflow-hidden min-h-[180px] md:min-h-[220px]"
               >
                 {p.imagen_url ? (
-                   <div className="w-20 h-20 md:w-24 md:h-24 mb-3 md:mb-4 rounded-2xl overflow-hidden shadow-sm">
+                   <div className="w-16 h-16 md:w-24 md:h-24 mb-3 rounded-2xl overflow-hidden shadow-sm shrink-0">
                      <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                    </div>
                 ) : (
-                   <span className="text-5xl md:text-6xl mb-3 md:mb-4 group-hover:scale-110 transition-transform drop-shadow-sm">{p.emoji}</span>
+                   <span className="text-4xl md:text-6xl mb-3 group-hover:scale-110 transition-transform drop-shadow-sm shrink-0">{p.emoji}</span>
                 )}
                 
                 <span className="font-black text-slate-800 leading-tight mb-2 text-sm md:text-base group-hover:text-blue-700 transition-colors">
@@ -77,12 +78,13 @@ const MenuCategoriasYProductos = ({
                 )}
 
                 {p.descripcion && (
-                  <span className="text-xs text-slate-500 font-medium line-clamp-2 mb-2 leading-tight px-1">
+                  <span className="text-[10px] md:text-xs text-slate-500 font-medium line-clamp-2 mb-2 leading-tight px-1">
                     {p.descripcion}
                   </span>
                 )}
                 
-                <span className="text-blue-600 font-black bg-blue-50 px-3 md:px-4 py-1.5 rounded-xl text-xs md:text-sm border border-blue-100">
+                {/* Botón de precio empujado siempre hacia abajo */}
+                <span className="mt-auto text-blue-600 font-black bg-blue-50 px-3 md:px-4 py-1.5 rounded-xl text-xs md:text-sm border border-blue-100">
                   ${p.precio_base}
                 </span>
               </button>

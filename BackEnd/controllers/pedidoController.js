@@ -7,7 +7,18 @@ const limpiarNulos = (obj) => {
 
 exports.obtenerPedidosHoy = async (req, res) => {
     try {
-        const result = await db.query("SELECT * FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE ORDER BY id DESC");
+        // 👇 FIX: Hacemos un LEFT JOIN con 'clientes' para que la Caja y la vista de Entregas 
+        // tengan acceso a 'cliente_nombre' y 'cliente_telefono', dejando de decir "Invitado".
+        const query = `
+            SELECT p.*, 
+                   c.nombre AS cliente_nombre, 
+                   c.telefono AS cliente_telefono
+            FROM pedidos p
+            LEFT JOIN clientes c ON p.cliente_id = c.id
+            WHERE DATE(p.fecha_creacion) = CURRENT_DATE 
+            ORDER BY p.id DESC
+        `;
+        const result = await db.query(query);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener pedidos de hoy' });
@@ -267,7 +278,6 @@ exports.actualizarEstado = async (req, res) => {
             }
         }  
         
-        // 👇 Restauración de Inventario (¡Lógica Original devuelta!)
         if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
             if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0 && pedidoPrevio.cliente_id) {
                 await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
@@ -396,7 +406,14 @@ exports.actualizarAlerta = async (req, res) => {
 
 exports.obtenerHistorialAuditoria = async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM pedidos ORDER BY id DESC LIMIT 200');
+        // 👇 FIX: También agregamos el JOIN aquí por prevención en los reportes de auditoría
+        const query = `
+            SELECT p.*, c.nombre AS cliente_nombre 
+            FROM pedidos p
+            LEFT JOIN clientes c ON p.cliente_id = c.id
+            ORDER BY p.id DESC LIMIT 200
+        `;
+        const result = await db.query(query);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener historial' });

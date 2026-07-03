@@ -8,107 +8,171 @@ import PantallaBloqueo from './caja/PantallaBloqueo';
 import { useCajaCentral } from './caja/useCajaCentral';
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
-    const c = useCajaCentral(user, onLogout, onGoToKiosco);
-    const { apiUrl, cargarDataDinamica } = c;
+  const c = useCajaCentral(user, onLogout, onGoToKiosco);
+  const { apiUrl, cargarDataDinamica } = c;
 
-    useEffect(() => {
-        if (!apiUrl) return;
-        const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
-        const actualizarPantalla = () => {
-            if (cargarDataDinamica) cargarDataDinamica();
-        };
-        socket.on('nuevo_pedido', actualizarPantalla);
-        socket.on('pedido_actualizado', actualizarPantalla);
-        socket.on('pedido_eliminado', actualizarPantalla);
-        return () => socket.disconnect();
-    }, [apiUrl, cargarDataDinamica]);
+  useEffect(() => {
+    if (!apiUrl) return;
+    const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
+    const actualizarPantalla = () => {
+      if (cargarDataDinamica) cargarDataDinamica();
+    };
+    socket.on('nuevo_pedido', actualizarPantalla);
+    socket.on('pedido_actualizado', actualizarPantalla);
+    socket.on('pedido_eliminado', actualizarPantalla);
+    return () => socket.disconnect();
+  }, [apiUrl, cargarDataDinamica]);
 
-    return (
-        <>
-            <PantallaBloqueo
-                isCajaBloqueada={c.isCajaBloqueada}
-                setIsCajaBloqueada={c.setIsCajaBloqueada}
-                empleadosPOS={c.empleadosPOS}
-                setOperadorActual={c.setOperadorActual}
-                configGlobal={c.configGlobal}
-                onLogout={onLogout}
-            />
-            <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden overflow-hidden">
-                <TopNavCaja
-                    user={c.operadorActual} onLogout={c.cerrarCajaYSalir} configGlobal={c.configGlobal} toggleEstadoNegocio={c.toggleEstadoNegocio}
-                    vistaActiva={c.vistaActiva} setVistaActiva={c.setVistaActiva} pedidosPorConfirmar={c.pedidosPorConfirmar}
-                    pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas}
-                    setModalCompraRapida={c.setModalCompraRapida} abrirIdentificador={c.abrirIdentificador}
-                    pedidosEnReparto={c.pedidosPorLiquidar}
-                    setModalAsistencia={c.setModalAsistencia}
-                    setModalComedor={c.setModalComedor}
-                    
-                    /* 👇 FIX: PUENTE HACIA LA BARRA SUPERIOR PARA ABRIR EL MODAL */
-                    setModalMermas={c.setModalMermas} 
-                />
-                <main className="flex-1 overflow-y-auto">
-                    <VistasCaja
-                        user={c.operadorActual}
-                        empleadosPOS={c.empleadosPOS}
-                        vistaActiva={c.vistaActiva}
-                        setVistaActiva={c.setVistaActiva}
-                        subVistaHistorial={c.subVistaHistorial}
-                        setSubVistaHistorial={c.setSubVistaHistorial}
-                        pedidos={c.pedidos} mesas={c.mesas} pedidosConAlerta={c.pedidosConAlerta} pedidosPorConfirmar={c.pedidosPorConfirmar}
-                        pendientesDePago={c.pendientesDePago} listosParaEntregar={c.listosParaEntregar} mesasPagadas={c.mesasPagadas}
-                        pedidosEnReparto={c.pedidosPorLiquidar}
-                        fondosRepartidores={c.fondosRepartidores}
-                        actualizarFondoRepartidor={c.actualizarFondoRepartidor}
-                        fondoRepartidorGlobal={c.fondoRepartidorGlobal}
-                        liquidarPedidoRepartidor={c.liquidarPedidoRepartidor}
-                        fondoCaja={c.fondoCaja} configGlobal={c.configGlobal} gastosDia={c.gastosDia} abrirModalResolver={c.abrirModalResolver}
-                        limpiarAlerta={c.limpiarAlerta} setModalPago={c.setModalPago} setMontoRecibido={c.setMontoRecibido}
-                        actualizarEstadoPedido={c.actualizarEstadoPedido} confirmarPedidoRecoger={c.confirmarPedidoRecoger}
-                        lanzarImpresion={c.lanzarImpresion} setModalZonaEnvio={c.setModalZonaEnvio} setModalAgregarExtra={c.setModalAgregarExtra}
-                        setModalEditarPedido={c.setModalEditarPedido} isSubmitting={c.isSubmitting} setModalVerDetalle={c.setModalVerDetalle}
-                    />
-                </main>
-                <ModalesCaja
-                    user={c.operadorActual} cargarDataDinamica={c.cargarDataDinamica} modalPuntoVenta={c.modalPuntoVenta} setModalPuntoVenta={c.setModalPuntoVenta}
-                    ordenEditandoRapida={c.ordenEditandoRapida} productos={c.productos} clasificaciones={c.clasificaciones}
-                    apiUrl={c.apiUrl} lanzarImpresion={c.lanzarImpresion}
-                    empleadosPOS={c.empleadosPOS}
-                    mesas={c.mesas}
-                    fondoCaja={c.fondoCaja} iniciarTurno={c.iniciarTurno} inputFondo={c.inputFondo} setInputFondo={c.setInputFondo}
-                    modalResolver={c.modalResolver} setModalResolver={c.setModalResolver} itemAfectadoIdx={c.itemAfectadoIdx}
-                    setItemAfectadoIdx={c.setItemAfectadoIdx} accionAlerta={c.accionAlerta} setAccionAlerta={c.setAccionAlerta}
-                    ingredienteReemplazo={c.ingredienteReemplazo} setIngredienteReemplazo={c.setIngredienteReemplazo}
-                    enviarRespuestaCocina={c.enviarRespuestaCocina} catalogoIngredientes={c.catalogoIngredientes}
-                    modalPago={c.modalPago} setModalPago={c.setModalPago} montoRecibido={c.montoRecibido} setMontoRecibido={c.setMontoRecibido}
-                    procesarPago={c.procesarPago} configGlobal={c.configGlobal} modalZonaEnvio={c.modalZonaEnvio}
-                    setModalZonaEnvio={c.setModalZonaEnvio} confirmarPedidoDomicilio={c.confirmarPedidoDomicilio}
-                    modalCompraRapida={c.modalCompraRapida} setModalCompraRapida={c.setModalCompraRapida} insumosDB={c.insumosDB}
-                    insumoComprar={c.insumoComprar} setInsumoComprar={c.setInsumoComprar} paquetesComprados={c.paquetesComprados}
-                    setPaquetesComprados={c.setPaquetesComprados} registrarCompraRapida={c.registrarCompraRapida}
-                    alertaCaja={c.alertaCaja} setAlertaCaja={c.setAlertaCaja} modalAgregarExtra={c.modalAgregarExtra}
-                    setModalAgregarExtra={c.setModalAgregarExtra} confirmarAgregarExtra={c.confirmarAgregarExtra}
-                    modalEditarPedido={c.modalEditarPedido} setModalEditarPedido={c.setModalEditarPedido}
-                    guardarEdicionPedido={c.guardarEdicionPedido} alertaCobroExtra={c.alertaCobroExtra}
-                    setAlertaCobroExtra={c.setAlertaCobroExtra} isSubmitting={c.isSubmitting} modalVerDetalle={c.modalVerDetalle}
-                    setModalVerDetalle={c.setModalVerDetalle} modalIdentificar={c.modalIdentificar} setModalIdentificar={c.setModalIdentificar}
-                    pasoIdentificar={c.pasoIdentificar} setPasoIdentificar={c.setPasoIdentificar} telClienteNuevo={c.telClienteNuevo}
-                    setTelClienteNuevo={c.setTelClienteNuevo} datosNuevoCliente={c.datosNuevoCliente} setDatosNuevoCliente={c.setDatosNuevoCliente}
-                    buscarClienteParaPedido={c.buscarClienteParaPedido} registrarClienteParaPedido={c.registrarClienteParaPedido}
-                    onGoToKiosco={c.onGoToKiosco}
-                    modalAsistencia={c.modalAsistencia}
-                    setModalAsistencia={c.setModalAsistencia}
-                    modalComedor={c.modalComedor}
-                    setModalComedor={c.setModalComedor}
-                    pedidos={c.pedidos}
-                    
-                    /* 👇 FIX: PUENTE HACIA LOS MODALES PARA PODER CERRARLO */
-                    modalMermas={c.modalMermas}
-                    setModalMermas={c.setModalMermas}
-                />
-            </div>
-            <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />
-        </>
-    );
+  return (
+    <>
+      <PantallaBloqueo
+        isCajaBloqueada={c.isCajaBloqueada}
+        setIsCajaBloqueada={c.setIsCajaBloqueada}
+        empleadosPOS={c.empleadosPOS}
+        setOperadorActual={c.setOperadorActual}
+        configGlobal={c.configGlobal}
+        onLogout={onLogout}
+      />
+      
+      <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-800 relative print:hidden overflow-hidden">
+        <TopNavCaja
+          user={c.operadorActual} 
+          onLogout={c.cerrarCajaYSalir} 
+          configGlobal={c.configGlobal} 
+          toggleEstadoNegocio={c.toggleEstadoNegocio}
+          vistaActiva={c.vistaActiva} 
+          setVistaActiva={c.setVistaActiva} 
+          pedidosPorConfirmar={c.pedidosPorConfirmar}
+          pendientesDePago={c.pendientesDePago} 
+          listosParaEntregar={c.listosParaEntregar} 
+          mesasPagadas={c.mesasPagadas}
+          setModalCompraRapida={c.setModalCompraRapida} 
+          abrirIdentificador={c.abrirIdentificador}
+          pedidosEnReparto={c.pedidosPorLiquidar}
+          setModalAsistencia={c.setModalAsistencia}
+          setModalComedor={c.setModalComedor}
+          setModalMermas={c.setModalMermas}
+        />
+        
+        <main className="flex-1 overflow-y-auto">
+          <VistasCaja
+            user={c.operadorActual}
+            empleadosPOS={c.empleadosPOS}
+            vistaActiva={c.vistaActiva} 
+            setVistaActiva={c.setVistaActiva}
+            subVistaHistorial={c.subVistaHistorial} 
+            setSubVistaHistorial={c.setSubVistaHistorial}
+            pedidos={c.pedidos} 
+            mesas={c.mesas} 
+            pedidosConAlerta={c.pedidosConAlerta} 
+            pedidosPorConfirmar={c.pedidosPorConfirmar}
+            pendientesDePago={c.pendientesDePago} 
+            listosParaEntregar={c.listosParaEntregar} 
+            mesasPagadas={c.mesasPagadas}
+            pedidosEnReparto={c.pedidosPorLiquidar}
+            fondosRepartidores={c.fondosRepartidores}
+            actualizarFondoRepartidor={c.actualizarFondoRepartidor}
+            fondoRepartidorGlobal={c.fondoRepartidorGlobal}
+            liquidarPedidoRepartidor={c.liquidarPedidoRepartidor}
+            fondoCaja={c.fondoCaja} 
+            configGlobal={c.configGlobal} 
+            gastosDia={c.gastosDia} 
+            abrirModalResolver={c.abrirModalResolver}
+            limpiarAlerta={c.limpiarAlerta} 
+            setModalPago={c.setModalPago} 
+            setMontoRecibido={c.setMontoRecibido}
+            actualizarEstadoPedido={c.actualizarEstadoPedido} 
+            confirmarPedidoRecoger={c.confirmarPedidoRecoger}
+            lanzarImpresion={c.lanzarImpresion} 
+            setModalZonaEnvio={c.setModalZonaEnvio} 
+            setModalAgregarExtra={c.setModalAgregarExtra}
+            setModalEditarPedido={c.setModalEditarPedido} 
+            isSubmitting={c.isSubmitting} 
+            setModalVerDetalle={c.setModalVerDetalle}
+            onLogout={c.cerrarCajaYSalir} // 👈 PUENTE DE LOGOUT AGREGADO
+            forzarLiberacionMesas={c.forzarLiberacionMesas}
+          />
+        </main>
+        
+        <ModalesCaja
+          user={c.operadorActual} 
+          cargarDataDinamica={c.cargarDataDinamica} 
+          modalPuntoVenta={c.modalPuntoVenta} 
+          setModalPuntoVenta={c.setModalPuntoVenta}
+          ordenEditandoRapida={c.ordenEditandoRapida} 
+          productos={c.productos} 
+          clasificaciones={c.clasificaciones}
+          apiUrl={c.apiUrl} 
+          lanzarImpresion={c.lanzarImpresion}
+          empleadosPOS={c.empleadosPOS}
+          mesas={c.mesas}
+          fondoCaja={c.fondoCaja} 
+          iniciarTurno={c.iniciarTurno} 
+          inputFondo={c.inputFondo} 
+          setInputFondo={c.setInputFondo}
+          modalResolver={c.modalResolver} 
+          setModalResolver={c.setModalResolver} 
+          itemAfectadoIdx={c.itemAfectadoIdx}
+          setItemAfectadoIdx={c.setItemAfectadoIdx} 
+          accionAlerta={c.accionAlerta} 
+          setAccionAlerta={c.setAccionAlerta}
+          ingredienteReemplazo={c.ingredienteReemplazo} 
+          setIngredienteReemplazo={c.setIngredienteReemplazo}
+          enviarRespuestaCocina={c.enviarRespuestaCocina} 
+          catalogoIngredientes={c.catalogoIngredientes}
+          modalPago={c.modalPago} 
+          setModalPago={c.setModalPago} 
+          montoRecibido={c.montoRecibido} 
+          setMontoRecibido={c.setMontoRecibido}
+          procesarPago={c.procesarPago} 
+          configGlobal={c.configGlobal} 
+          modalZonaEnvio={c.modalZonaEnvio}
+          setModalZonaEnvio={c.setModalZonaEnvio} 
+          confirmarPedidoDomicilio={c.confirmarPedidoDomicilio}
+          modalCompraRapida={c.modalCompraRapida} 
+          setModalCompraRapida={c.setModalCompraRapida} 
+          insumosDB={c.insumosDB}
+          insumoComprar={c.insumoComprar} 
+          setInsumoComprar={c.setInsumoComprar} 
+          paquetesComprados={c.paquetesComprados}
+          setPaquetesComprados={c.setPaquetesComprados} 
+          registrarCompraRapida={c.registrarCompraRapida}
+          alertaCaja={c.alertaCaja} 
+          setAlertaCaja={c.setAlertaCaja} 
+          modalAgregarExtra={c.modalAgregarExtra}
+          setModalAgregarExtra={c.setModalAgregarExtra} 
+          confirmarAgregarExtra={c.confirmarAgregarExtra}
+          modalEditarPedido={c.modalEditarPedido} 
+          setModalEditarPedido={c.setModalEditarPedido}
+          guardarEdicionPedido={c.guardarEdicionPedido} 
+          alertaCobroExtra={c.alertaCobroExtra}
+          setAlertaCobroExtra={c.setAlertaCobroExtra} 
+          isSubmitting={c.isSubmitting} 
+          modalVerDetalle={c.modalVerDetalle}
+          setModalVerDetalle={c.setModalVerDetalle} 
+          modalIdentificar={c.modalIdentificar} 
+          setModalIdentificar={c.setModalIdentificar}
+          pasoIdentificar={c.pasoIdentificar} 
+          setPasoIdentificar={c.setPasoIdentificar} 
+          telClienteNuevo={c.telClienteNuevo}
+          setTelClienteNuevo={c.setTelClienteNuevo} 
+          datosNuevoCliente={c.datosNuevoCliente} 
+          setDatosNuevoCliente={c.setDatosNuevoCliente}
+          buscarClienteParaPedido={c.buscarClienteParaPedido} 
+          registrarClienteParaPedido={c.registrarClienteParaPedido}
+          onGoToKiosco={c.onGoToKiosco}
+          modalAsistencia={c.modalAsistencia}
+          setModalAsistencia={c.setModalAsistencia}
+          modalComedor={c.modalComedor}
+          setModalComedor={c.setModalComedor}
+          pedidos={c.pedidos}
+          modalMermas={c.modalMermas}
+          setModalMermas={c.setModalMermas}
+        />
+      </div>
+      <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />
+    </>
+  );
 };
 
 export default Caja;

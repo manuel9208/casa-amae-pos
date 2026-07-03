@@ -29,18 +29,18 @@ const mermaCtrl = require('../controllers/mermaController'); // 👈 NUEVO CONTR
 // CONFIGURACIÓN DE CLOUDINARY
 // ==========================================
 cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 const storage = new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-        folder: 'pos_uploads',
-        resource_type: 'auto',
-        allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov']
-    }
+  cloudinary: cloudinary,
+  params: {
+    folder: 'pos_uploads',
+    resource_type: 'auto',
+    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov']
+  }
 });
 const upload = multer({ storage: storage });
 
@@ -116,7 +116,6 @@ router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
 router.post('/clasificaciones', upload.single('imagen'), clasificacionCtrl.crearClasificacion);
 router.put('/clasificaciones/:id', upload.single('imagen'), clasificacionCtrl.actualizarClasificacion);
 router.delete('/clasificaciones/:id', clasificacionCtrl.eliminarClasificacion);
-
 router.get('/ingredientes', ingredienteCtrl.obtenerIngredientes);
 router.post('/ingredientes', ingredienteCtrl.crearIngrediente);
 router.put('/ingredientes/:id', ingredienteCtrl.actualizarIngrediente);
@@ -159,6 +158,8 @@ router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);
 // ==========================================
 router.get('/insumos', insumoCtrl.obtenerInsumos);
 router.get('/insumos/compras/hoy', insumoCtrl.obtenerComprasHoy);
+// 👇 NUEVO: Endpoint para el reporte de compras con filtros de periodo y fecha
+router.get('/insumos/compras/reporte', insumoCtrl.obtenerReporteCompras);
 router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo);
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
