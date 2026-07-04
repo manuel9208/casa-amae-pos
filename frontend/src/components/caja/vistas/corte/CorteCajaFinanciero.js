@@ -7,7 +7,6 @@ import CorteResumenCuadre from './CorteResumenCuadre';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
-// 👇 BLINDAJE DE ZONA HORARIA LOCAL
 const getLocalHoyStr = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -41,11 +40,11 @@ const CorteCajaFinanciero = (props) => {
     } catch(e) {}
   }  
   
-  const hoyStr = getLocalHoyStr(); // 👈 USO DE FECHA LOCAL
+  const hoyStr = getLocalHoyStr(); 
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [cargando, setCargando] = useState(false);
-  const [pedidos, setPedidos] = useState([]);
-  const [datosHistoricos, setDatosHistoricos] = useState(null);
+  const [pedidosGlobales, setPedidosGlobales] = useState([]);
+  const [datosHistoricos, setDatosHistoricos] = useState([]);
   const [efectivoManual, setEfectivoManual] = useState('');
   const [guardandoCorte, setGuardandoCorte] = useState(false);
   const [fondoManual, setFondoManual] = useState(fondoCaja || '');
@@ -54,7 +53,8 @@ const CorteCajaFinanciero = (props) => {
   const [mathHoy, setMathHoy] = useState({
     lPlatillos: 0, lExtras: 0, lEfectivo: 0, lTarjeta: 0, lTransf: 0,
     dPlatillos: 0, dExtras: 0, dEfectivo: 0, dTarjeta: 0, dTransf: 0, dEnvio: 0,
-    tEnvio: 0, tPlatillos: 0, tExtras: 0
+    tEnvio: 0, tPlatillos: 0, tExtras: 0,
+    pedidos_incluidos: []
   });  
 
   const esHoy = fechaFiltro === hoyStr;
@@ -67,10 +67,8 @@ const CorteCajaFinanciero = (props) => {
   useEffect(() => {
     if (fondoCaja !== undefined && fondoCaja !== null && fondoManual === '') {
       setFondoManual(fondoCaja);
-    } else if (datosHistoricos && datosHistoricos.fondo_inicial !== undefined && datosHistoricos.fondo_inicial !== null && fondoManual === '') {
-      setFondoManual(datosHistoricos.fondo_inicial);
     }
-  }, [fondoCaja, datosHistoricos, fondoManual]);  
+  }, [fondoCaja, fondoManual]);  
 
   useEffect(() => {
     const cargarDatos = async (esSilencioso = false) => {
@@ -84,12 +82,16 @@ const CorteCajaFinanciero = (props) => {
             const { localDateStr } = getMazatlanDate(p.fecha_creacion);
             return localDateStr === fechaFiltro;
           });
-          setPedidos(data);
+          setPedidosGlobales(data);
         }
-        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}`);
-        if(resCorte.ok) setDatosHistoricos(await resCorte.json());
-        else setDatosHistoricos(null);
-      } catch(e) { setDatosHistoricos(null); }
+        
+        // 👇 FIX: Traemos todos los cortes del día (array)
+        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`);
+        if(resCorte.ok) {
+            const dataC = await resCorte.json();
+            setDatosHistoricos(Array.isArray(dataC) ? dataC : [dataC]);
+        } else setDatosHistoricos([]);
+      } catch(e) { setDatosHistoricos([]); }
       if (!esSilencioso) setCargando(false);
     };
     cargarDatos(false);
@@ -98,12 +100,23 @@ const CorteCajaFinanciero = (props) => {
     return () => clearInterval(int);
   }, [fechaFiltro, esHoy]);  
 
+  // 👇 LÓGICA DE SEPARACIÓN DE TURNOS
   useEffect(() => {
+    // 1. Buscamos qué pedidos YA fueron reportados en turnos cerrados el día de hoy
+    const cortesCerrados = datosHistoricos.filter(c => c.turno_cerrado);
+    const idsCobrados = cortesCerrados.flatMap(c => {
+        try { return typeof c.pedidos_incluidos === 'string' ? JSON.parse(c.pedidos_incluidos) : (c.pedidos_incluidos || []); }
+        catch(e) { return []; }
+    });
+
+    // 2. Filtramos: Solo nos quedamos con los pedidos que NADIE ha cortado
+    const pedidosDelTurnoActivo = pedidosGlobales.filter(p => !idsCobrados.includes(p.id));
+
     let lEfe=0, lTar=0, lTra=0, lPla=0, lExt=0;
     let dEfe=0, dTar=0, dTra=0, dPla=0, dExt=0, dEnv=0;
     let tEnv=0, tPla=0, tExt=0;  
 
-    pedidos.forEach(p => {
+    pedidosDelTurnoActivo.forEach(p => {
       if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
       if(['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) return;
       
@@ -158,9 +171,10 @@ const CorteCajaFinanciero = (props) => {
     setMathHoy({
       lPlatillos: lPla, lExtras: lExt, lEfectivo: lEfe, lTarjeta: lTar, lTransf: lTra,
       dPlatillos: dPla, dExtras: dExt, dEfectivo: dEfe, dTarjeta: dTar, dTransf: dTra, dEnvio: dEnv,
-      tEnvio: tEnv, tPlatillos: tPla, tExtras: tExt
+      tEnvio: tEnv, tPlatillos: tPla, tExtras: tExt,
+      pedidos_incluidos: pedidosDelTurnoActivo.map(p => p.id) // Guardamos qué pedidos entran en este corte
     });
-  }, [pedidos]);  
+  }, [pedidosGlobales, datosHistoricos]);  
 
   const guardarFondoManualBD = async (montoVal) => {
     if (!esHoy || !esAdminOGerente) return;
@@ -182,10 +196,12 @@ const CorteCajaFinanciero = (props) => {
           total_transferencia: mathHoy.lTransf + mathHoy.dTransf,
           total_gastos: totalGastos,
           efectivo_cajon: (montoNeto + (Number(fondoRepartidor)||0) + mathHoy.lEfectivo + mathHoy.dEfectivo) - (Number(totalGastos) || 0),
+          pedidos_incluidos: mathHoy.pedidos_incluidos,
           detalles_envio: {
             platillos: mathHoy.dPlatillos, extras: mathHoy.dExtras, envio: mathHoy.dEnvio,
             efectivo: mathHoy.dEfectivo, tarjeta: mathHoy.dTarjeta, transf: mathHoy.dTransf
-          }
+          },
+          turno_cerrado: false // Auto-guardado en vivo, NO CIERRA el turno
         })
       });
     } catch (error) {}
@@ -195,7 +211,8 @@ const CorteCajaFinanciero = (props) => {
   const handleCierreCajaCiego = async (e) => {
     e.preventDefault();
     const efectivoNum = parseFloat(efectivoManual);
-    const fondoNum = esAdminOGerente ? parseFloat(fondoManual) : parseFloat(fondoCaja || datosHistoricos?.fondo_inicial || 0);  
+    const turnoAbierto = datosHistoricos.find(c => !c.turno_cerrado && c.usuario_id === currentUser?.id);
+    const fondoNum = esAdminOGerente ? parseFloat(fondoManual) : parseFloat(fondoCaja || turnoAbierto?.fondo_inicial || 0);  
     
     if (isNaN(efectivoNum) || efectivoNum < 0) {
       alert("Por favor ingresa una cantidad válida de efectivo.");
@@ -219,10 +236,12 @@ const CorteCajaFinanciero = (props) => {
           total_transferencia: mathHoy.lTransf + mathHoy.dTransf,
           total_gastos: totalGastos,
           efectivo_cajon: efectivoNum,
+          pedidos_incluidos: mathHoy.pedidos_incluidos,
           detalles_envio: {
             platillos: mathHoy.dPlatillos, extras: mathHoy.dExtras, envio: mathHoy.dEnvio,
             efectivo: mathHoy.dEfectivo, tarjeta: mathHoy.dTarjeta, transf: mathHoy.dTransf
-          }
+          },
+          turno_cerrado: true // 👈 SELLA EL TURNO
         })
       });  
       if (res.ok) {
@@ -236,9 +255,12 @@ const CorteCajaFinanciero = (props) => {
     setGuardandoCorte(false);
   };  
 
-  const pFondoCaja = esHoy ? (Number(fondoManual) || 0) : Number(datosHistoricos?.fondo_inicial || datosHistoricos?.fondo_caja || 0);
-  const pTotalGastos = esHoy ? (Number(totalGastos) || 0) : Number(datosHistoricos?.total_gastos || 0);
-  const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : Number(datosHistoricos?.fondo_repartidor || 0);  
+  // Identificamos el turno activo de este usuario
+  const turnoAbierto = datosHistoricos.find(c => !c.turno_cerrado && c.usuario_id === currentUser?.id);
+  
+  const pFondoCaja = esHoy ? (Number(fondoManual) || 0) : Number(turnoAbierto?.fondo_inicial || 0);
+  const pTotalGastos = esHoy ? (Number(totalGastos) || 0) : Number(turnoAbierto?.total_gastos || 0);
+  const pFondoRepartidor = esHoy ? (Number(fondoRepartidor) || 0) : Number(turnoAbierto?.fondo_repartidor || 0);  
   
   const efectivoEsperadoCaja = (pFondoCaja + mathHoy.lEfectivo) - pTotalGastos;
   const efectivoEsperadoMotos = (pFondoRepartidor + mathHoy.dEfectivo);

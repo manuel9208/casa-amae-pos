@@ -8,7 +8,6 @@ const formaterMoneda = (monto) => {
   return "$" + Number(monto).toFixed(2);
 };  
 
-// 👇 BLINDAJE DE ZONA HORARIA LOCAL
 const getLocalHoyStr = () => {
   const d = new Date();
   const year = d.getFullYear();
@@ -36,7 +35,7 @@ const getMazatlanDate = (dateString) => {
 };  
 
 const VistaCortesHistorico = ({ apiUrl }) => {
-  const hoyStr = getLocalHoyStr(); // 👈 USO DE FECHA LOCAL
+  const hoyStr = getLocalHoyStr(); 
   const [periodo, setPeriodo] = useState('dia');
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroCliente, setFiltroCliente] = useState('');
@@ -107,18 +106,21 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
   const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
 
+  // 👇 LÓGICA MAESTRA: Si es un turno, lee el array `pedidos_incluidos`. Si es Global, lee TODO.
   const pedidosDelTurno = useMemo(() => {
     if (corteSeleccionadoId === 'global' || cortesDelDia.length === 0) return pedidos;  
     const index = cortesDelDia.findIndex(c => c.id === corteSeleccionadoId);
     if (index === -1) return pedidos;  
+    
     const cAct = cortesDelDia[index];
-    const dStart = index > 0 ? new Date(cortesDelDia[index-1].fecha_creacion) : new Date(fechaFiltro + 'T00:00:00');
-    const dEnd = new Date(cAct.fecha_creacion);  
-    return pedidos.filter(p => {
-      const d = new Date(p.fecha_creacion);
-      return d > dStart && d <= dEnd;
-    });
-  }, [pedidos, corteSeleccionadoId, cortesDelDia, fechaFiltro]);  
+    let idsDelTurno = [];
+    try {
+        idsDelTurno = typeof cAct.pedidos_incluidos === 'string' ? JSON.parse(cAct.pedidos_incluidos) : (cAct.pedidos_incluidos || []);
+    } catch(e) {}
+    
+    // Filtro exacto por ID, blindado y separado
+    return pedidos.filter(p => idsDelTurno.includes(p.id));
+  }, [pedidos, corteSeleccionadoId, cortesDelDia]);  
 
   const pedidosTabla = pedidosDelTurno.filter(p => {
     if (filtroCliente.trim() !== '') {
@@ -191,11 +193,13 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
   let fondoCaja = 0, fondoRepartidor = 0, gastosCompras = 0, efectivoDeclaradoCaja = 0;
   
+  // 👇 FIX MÁGICO: Cálculo de Cuadre Global Sumado
   if (corteSeleccionadoId === 'global') {
-    fondoCaja = cortesDelDia.reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
-    fondoRepartidor = cortesDelDia.reduce((s, c) => s + Number(c.fondo_repartidor || 0), 0);
+    // Si vemos el Día Completo, el Fondo es con lo que se abrió el primer turno del día
+    fondoCaja = cortesDelDia.length > 0 ? Number(cortesDelDia[0].fondo_inicial || 0) : 0;
+    
     gastosCompras = cortesDelDia.reduce((s, c) => s + Number(c.total_gastos || 0), 0);
-    efectivoDeclaradoCaja = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_cajon || 0), 0);
+    // El declarado no lo sumamos, solo usamos las matemáticas para el Cuadre Final.
   } else {
     const cAct = cortesDelDia.find(c => c.id === corteSeleccionadoId);
     if (cAct) {
@@ -217,12 +221,14 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     }
   });  
 
-  const efectivoEsperadoCaja = (fondoCaja + lEfectivo) - gastosCompras;
-  const diferenciaCaja = efectivoDeclaradoCaja - efectivoEsperadoCaja;
+  const efectivoEsperadoCaja = corteSeleccionadoId !== 'global' ? (fondoCaja + lEfectivo) - gastosCompras : 0;
+  const diferenciaCaja = corteSeleccionadoId !== 'global' ? efectivoDeclaradoCaja - efectivoEsperadoCaja : 0;
   const efectivoEsperadoMotos = (fondoRepartidor + dEfectivo);
-  const totalEfectivoFisico = efectivoEsperadoCaja + efectivoEsperadoMotos;  
-  const totalDigital = lTarjeta + lTransf + dTarjeta + dTransf;
-  const totalVentasGlobales = tPlatillos + tExtras + tEnvio;  
+  
+  // 👇 MATEMÁTICAS SUMADAS PARA LA VISTA GLOBAL
+  const totalEfectivoFisico = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_efectivo || 0), 0) : efectivoEsperadoCaja + efectivoEsperadoMotos;  
+  const totalDigital = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_tarjeta || 0) + Number(c.total_transferencia || 0), 0) : lTarjeta + lTransf + dTarjeta + dTransf;
+  const totalVentasGlobales = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.venta_platillos || 0) + Number(c.ingresos_extras || 0) + Number(c.cargos_envio || 0), 0) : tPlatillos + tExtras + tEnvio;  
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -263,7 +269,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         </div>
       </div>  
 
-      {/* 👇 SOLUCIÓN APLICADA: Ahora mostrará las pestañas SIEMPRE que haya al menos 1 corte */}
       {cortesDelDia.length > 0 && periodo === 'dia' && (
         <div className="mb-6 flex gap-2 overflow-x-auto print:hidden bg-slate-100 p-2 rounded-2xl custom-scrollbar">
           <button
@@ -278,7 +283,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
               onClick={() => setCorteSeleccionadoId(c.id)}
               className={`px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap flex items-center gap-2 ${corteSeleccionadoId === c.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
             >
-              <User size={16}/> Turno {i+1}: {c.usuario_nombre || 'Cajero'}
+              <User size={16}/> Turno {i+1}: {c.usuario_nombre || 'Cajero'} {c.turno_cerrado ? '' : '(Activo)'}
             </button>
           ))}
         </div>
@@ -316,32 +321,33 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           </div>
         </div>
 
-        {/* COMPARATIVA DE CUADRE DE CAJA */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col justify-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-3 print:text-black">
-            <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px] print:text-slate-800">Efectivo Esperado</p>
-            <p className="text-3xl font-black">{formaterMoneda(efectivoEsperadoCaja)}</p>
-            <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-slate-500">(Fondo + Ventas) - Gastos</p>
-          </div>
-          
-          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-200 shadow-sm flex flex-col justify-center print:border-slate-300">
-            <p className="text-blue-600 font-black uppercase tracking-widest mb-1 text-[10px]">Efectivo Declarado</p>
-            <p className="text-3xl font-black text-blue-800">{formaterMoneda(efectivoDeclaradoCaja)}</p>
-            <p className="text-[9px] font-bold text-blue-400 uppercase mt-2">Entregado por cajero</p>
-          </div>
+        {corteSeleccionadoId !== 'global' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col justify-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-3 print:text-black">
+                <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px] print:text-slate-800">Efectivo Esperado</p>
+                <p className="text-3xl font-black">{formaterMoneda(efectivoEsperadoCaja)}</p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-slate-500">(Fondo + Ventas) - Gastos</p>
+              </div>
+              
+              <div className="bg-blue-50 p-6 rounded-3xl border border-blue-200 shadow-sm flex flex-col justify-center print:border-slate-300">
+                <p className="text-blue-600 font-black uppercase tracking-widest mb-1 text-[10px]">Efectivo Declarado</p>
+                <p className="text-3xl font-black text-blue-800">{formaterMoneda(efectivoDeclaradoCaja)}</p>
+                <p className="text-[9px] font-bold text-blue-400 uppercase mt-2">Entregado por cajero</p>
+              </div>
 
-          <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center print:border-slate-300 ${diferenciaCaja < 0 ? 'bg-red-50 border-red-200' : diferenciaCaja > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
-            <p className={`font-black uppercase tracking-widest mb-1 text-[10px] ${diferenciaCaja < 0 ? 'text-red-600' : diferenciaCaja > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-              {diferenciaCaja < 0 ? 'Faltante en Caja' : diferenciaCaja > 0 ? 'Sobrante en Caja' : 'Cuadre Exacto'}
-            </p>
-            <p className={`text-3xl font-black ${diferenciaCaja < 0 ? 'text-red-600' : diferenciaCaja > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
-              {diferenciaCaja > 0 ? '+' : ''}{formaterMoneda(diferenciaCaja)}
-            </p>
-            <p className={`text-[9px] font-bold uppercase mt-2 ${diferenciaCaja < 0 ? 'text-red-400' : diferenciaCaja > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
-              Diferencia neta
-            </p>
-          </div>
-        </div>
+              <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center print:border-slate-300 ${diferenciaCaja < 0 ? 'bg-red-50 border-red-200' : diferenciaCaja > 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+                <p className={`font-black uppercase tracking-widest mb-1 text-[10px] ${diferenciaCaja < 0 ? 'text-red-600' : diferenciaCaja > 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  {diferenciaCaja < 0 ? 'Faltante en Caja' : diferenciaCaja > 0 ? 'Sobrante en Caja' : 'Cuadre Exacto'}
+                </p>
+                <p className={`text-3xl font-black ${diferenciaCaja < 0 ? 'text-red-600' : diferenciaCaja > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                  {diferenciaCaja > 0 ? '+' : ''}{formaterMoneda(diferenciaCaja)}
+                </p>
+                <p className={`text-[9px] font-bold uppercase mt-2 ${diferenciaCaja < 0 ? 'text-red-400' : diferenciaCaja > 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
+                  Diferencia neta
+                </p>
+              </div>
+            </div>
+        )}
       </div>  
 
       {/* 🛵 SECCIÓN 2: MOTOS Y LOGÍSTICA */}
@@ -362,19 +368,23 @@ const VistaCortesHistorico = ({ apiUrl }) => {
               <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Envíos Cobrados</p>
               <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(dEnvio)}</p>
             </div>
-            <div className="bg-white p-5 rounded-3xl border border-indigo-100 shadow-sm print:border-slate-300 print:shadow-none">
-              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Fondo Repartidores</p>
-              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(fondoRepartidor)}</p>
-            </div>
+            {corteSeleccionadoId !== 'global' && (
+                <div className="bg-white p-5 rounded-3xl border border-indigo-100 shadow-sm print:border-slate-300 print:shadow-none">
+                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Fondo Repartidores</p>
+                  <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(fondoRepartidor)}</p>
+                </div>
+            )}
             <div className="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 shadow-sm print:bg-white print:border-slate-300 print:shadow-none">
               <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Efectivo</p>
               <p className="text-xl font-black text-emerald-700 print:text-black">+{formaterMoneda(dEfectivo)}</p>
             </div>
           </div>
-          <div className="bg-indigo-600 p-8 rounded-3xl shadow-lg flex justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-4 print:text-black">
-            <div><p className="text-indigo-200 font-black uppercase tracking-widest mb-1 text-sm print:text-slate-800">Efectivo Físico a Entregar por Motos</p><p className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider opacity-90 print:text-slate-500">Fondo Repartidores + Pagos en Efectivo de Ruta</p></div>
-            <p className="text-5xl font-black print:text-3xl">{formaterMoneda(efectivoEsperadoMotos)}</p>
-          </div>
+          {corteSeleccionadoId !== 'global' && (
+              <div className="bg-indigo-600 p-8 rounded-3xl shadow-lg flex justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-4 print:text-black">
+                <div><p className="text-indigo-200 font-black uppercase tracking-widest mb-1 text-sm print:text-slate-800">Efectivo Físico a Entregar por Motos</p><p className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider opacity-90 print:text-slate-500">Fondo Repartidores + Pagos en Efectivo de Ruta</p></div>
+                <p className="text-5xl font-black print:text-3xl">{formaterMoneda(efectivoEsperadoMotos)}</p>
+              </div>
+          )}
           
           {Object.keys(repsData).length > 0 && (
             <div className="mt-6 pt-6 border-t border-indigo-200 print:border-slate-300">
@@ -412,11 +422,15 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
               <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Tarjetas</p>
-              <p className="text-2xl font-black text-blue-900 print:text-black">{formaterMoneda(lTarjeta + dTarjeta)}</p>
+              <p className="text-2xl font-black text-blue-900 print:text-black">
+                  {formaterMoneda(corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_tarjeta || 0), 0) : (lTarjeta + dTarjeta))}
+              </p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
               <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Transferencias</p>
-              <p className="text-2xl font-black text-purple-900 print:text-black">{formaterMoneda(lTransf + dTransf)}</p>
+              <p className="text-2xl font-black text-purple-900 print:text-black">
+                  {formaterMoneda(corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_transferencia || 0), 0) : (lTransf + dTransf))}
+              </p>
             </div>
           </div>
         </div>  
@@ -442,11 +456,18 @@ const VistaCortesHistorico = ({ apiUrl }) => {
               </div>
               <span className="text-4xl font-black text-emerald-600 print:text-black">{formaterMoneda(totalVentasGlobales)}</span>
             </div>
+            {corteSeleccionadoId === 'global' && (
+                <div className="mt-4 pt-4 border-t border-emerald-300">
+                    <p className="text-xs font-bold text-slate-500 text-center">
+                        Este resumen global suma estrictamente las cantidades auditadas por los cajeros en sus cierres de turno de hoy.
+                    </p>
+                </div>
+            )}
           </div>
         </div>
       </div>  
 
-      {/* 📜 SECCIÓN TABLA TICKETS Y VISOR LATERAL RESTAURADO */}
+      {/* 📜 SECCIÓN TABLA TICKETS */}
       {cargando ? (
         <div className="text-center py-20 animate-pulse font-bold text-slate-500 print:hidden">Cargando transacciones históricas...</div>
       ) : (
@@ -523,7 +544,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
             </div>
           </div>  
 
-          {/* 👇 RESTAURADO Y MEJORADO: VISOR LATERAL DE TICKETS */}
+          {/* VISOR LATERAL DE TICKETS */}
           <div className="xl:col-span-1 bg-slate-900 print:bg-white rounded-[32px] p-6 border border-slate-800 print:border-slate-300 shadow-xl h-full flex flex-col print:shadow-none break-inside-avoid">
             {pedidoSeleccionado ? (
               <div className="flex flex-col h-full animate-in slide-in-from-right-4">

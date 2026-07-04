@@ -141,17 +141,22 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const catBebidas = typeof configGlobal.comedor_clasif_bebidas === 'string' ? JSON.parse(configGlobal.comedor_clasif_bebidas || '[]') : (configGlobal.comedor_clasif_bebidas || []);
   const catPlatillos = typeof configGlobal.comedor_clasif_platillos === 'string' ? JSON.parse(configGlobal.comedor_clasif_platillos || '[]') : (configGlobal.comedor_clasif_platillos || []);  
 
+  // 👇 FIX: Leemos el nombre exactamente de la direccion_entrega sin importar mayúsculas
   pedidosHoy.forEach(p => {
-    if (p.metodo_pago === 'Comida Personal' && p.direccion_entrega && p.direccion_entrega.includes(userData.nombre)) {
-      const car = typeof p.carrito === 'string' ? JSON.parse(p.carrito || '[]') : (p.carrito || []);
-      car.forEach(item => {
-        if (catBebidas.includes(item.categoria)) consumosBebidas += (item.cantidad || 1);
-        if (catPlatillos.includes(item.categoria)) consumosPlatillos += (item.cantidad || 1);
-      });
+    if (p.metodo_pago === 'Comida Personal' && p.estado_preparacion !== 'Cancelado') {
+      const empNombreLimpio = String(userData.nombre).trim().toLowerCase();
+      const direccionLimpia = String(p.direccion_entrega || '').trim().toLowerCase();
+
+      if (direccionLimpia.includes(`a nombre de: ${empNombreLimpio}`)) {
+        const car = typeof p.carrito === 'string' ? JSON.parse(p.carrito || '[]') : (p.carrito || []);
+        car.forEach(item => {
+          if (catBebidas.includes(item.categoria)) consumosBebidas += (Number(item.cantidad) || 1);
+          if (catPlatillos.includes(item.categoria) || item.categoria === 'Personalizado') consumosPlatillos += (Number(item.cantidad) || 1);
+        });
+      }
     }
   });
 
-  // 👇 FUNCIÓN RESTAURADA Y CORREGIDA PARA SELECCIONAR DÍAS DE VACACIONES
   const toggleDiaVacacion = (fechaStr) => {
     if (vacacionesSeleccionadas.includes(fechaStr)) {
       setVacacionesSeleccionadas(vacacionesSeleccionadas.filter(f => f !== fechaStr));

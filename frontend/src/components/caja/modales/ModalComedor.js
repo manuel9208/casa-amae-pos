@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChefHat, XCircle, ShoppingBag, CheckSquare, Square } from 'lucide-react';
+import { ChefHat, XCircle, ShoppingBag, CheckSquare, Square, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 
 const ModalComedor = ({
     modalComedor, setModalComedor, empleadosPOS, pedidos, configGlobal,
@@ -8,7 +8,7 @@ const ModalComedor = ({
     // ==========================================
     // ESTADOS PRINCIPALES
     // ==========================================
-    const [paso, setPaso] = useState('pin'); // 'pin', 'menu', 'armar_libre'
+    const [paso, setPaso] = useState('pin'); 
     const [pinEmpleado, setPinEmpleado] = useState('');
     const [empleadoActivo, setEmpleadoActivo] = useState(null);
     const [errorMsg, setErrorMsg] = useState('');
@@ -16,6 +16,8 @@ const ModalComedor = ({
     
     const [carrito, setCarrito] = useState([]);
     const [categoriaActiva, setCategoriaActiva] = useState(null);
+    
+    const [alertaUI, setAlertaUI] = useState(null);
     
     // ==========================================
     // ESTADOS DE LÍMITES
@@ -98,13 +100,15 @@ const ModalComedor = ({
         let consumidosP = 0;
         let consumidosB = 0;
         
-        // Escanear Pedidos de HOY en la base de datos
-        const pedidosHoyEmp = pedidos.filter(p => 
-            p.metodo_pago === 'Comida Personal' && 
-            p.estado_preparacion !== 'Cancelado' &&
-            p.direccion_entrega && 
-            p.direccion_entrega.includes(`A NOMBRE DE: ${empleadoActivo.nombre}`)
-        );
+        // 👇 FIX: Leemos el nombre exactamente de la direccion_entrega sin importar mayúsculas
+        const pedidosHoyEmp = pedidos.filter(p => {
+            if (p.metodo_pago !== 'Comida Personal' || p.estado_preparacion === 'Cancelado') return false;
+            
+            const empNombreLimpio = String(empleadoActivo.nombre).trim().toLowerCase();
+            const direccionLimpia = String(p.direccion_entrega || '').trim().toLowerCase();
+            
+            return direccionLimpia.includes(`a nombre de: ${empNombreLimpio}`);
+        });
         
         pedidosHoyEmp.forEach(p => {
             let car = []; 
@@ -114,8 +118,8 @@ const ModalComedor = ({
                 const isBebida = catBebidas.includes(item.categoria);
                 const isPlatillo = catPlatillos.includes(item.categoria) || item.categoria === 'Personalizado';
                 
-                if (isBebida) consumidosB += (item.cantidad || 1);
-                else if (isPlatillo) consumidosP += (item.cantidad || 1);
+                if (isBebida) consumidosB += (Number(item.cantidad) || 1);
+                else if (isPlatillo) consumidosP += (Number(item.cantidad) || 1);
             });
         });
         
@@ -166,8 +170,8 @@ const ModalComedor = ({
 
     const abrirWizardNormal = (p) => {
         const esBebida = catBebidas.includes(p.categoria);
-        if (esBebida && restanteBebidas <= 0) return alert('Has alcanzado el límite de bebidas de hoy.');
-        if (!esBebida && restantePlatillos <= 0) return alert('Has alcanzado el límite de comida de hoy.');
+        if (esBebida && restanteBebidas <= 0) return setAlertaUI({ titulo: 'Límite Alcanzado', mensaje: 'Has consumido el máximo de bebidas permitidas en tu turno.', tipo: 'info' });
+        if (!esBebida && restantePlatillos <= 0) return setAlertaUI({ titulo: 'Límite Alcanzado', mensaje: 'Has consumido el máximo de platillos permitidos en tu turno.', tipo: 'info' });
         
         resetWizard();
         setProductoEnEspera(p);
@@ -211,7 +215,7 @@ const ModalComedor = ({
     };
 
     const procesarArmadoLibre = () => {
-        if (ingredientesLibres.length === 0) return alert('Selecciona al menos un ingrediente.');
+        if (ingredientesLibres.length === 0) return setAlertaUI({ titulo: 'Platillo Vacío', mensaje: 'Debes seleccionar al menos un ingrediente para armar tu platillo.', tipo: 'error' });
         
         const nuevoItem = {
             idTicket: Date.now().toString(),
@@ -236,6 +240,7 @@ const ModalComedor = ({
         if (carrito.length === 0 || isSubmitting) return;
         setIsSubmitting(true);
 
+        // 👇 FIX: Restauramos tu arquitectura original enviando "A NOMBRE DE:" y mandamos el estado a Finalizado.
         const paquete = {
             cliente_id: null,
             tipo_consumo: 'Local',
@@ -245,7 +250,7 @@ const ModalComedor = ({
             carrito: carrito,
             origen: 'Caja',
             direccion_entrega: `A NOMBRE DE: ${empleadoActivo.nombre} | COMEDOR (${empleadoActivo.rol})`,
-            estado_preparacion: 'Pagado', 
+            estado_preparacion: 'Finalizado', 
             mesa: null, 
             cupon_codigo: null
         };
@@ -263,10 +268,10 @@ const ModalComedor = ({
                 if (configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
                 setModalComedor(false);
             } else {
-                alert('Error al procesar la comanda.');
+                setAlertaUI({ titulo: 'Error al Guardar', mensaje: 'Ocurrió un problema al procesar la comanda en la base de datos.', tipo: 'error' });
             }
         } catch (e) { 
-            alert('Sin conexión.'); 
+            setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No se pudo contactar con el servidor. Verifica tu red.', tipo: 'error' });
         }
         setIsSubmitting(false);
     };
@@ -332,6 +337,21 @@ const ModalComedor = ({
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md flex items-center justify-center z-[200] p-4 sm:p-6 animate-in fade-in duration-200">
             <div className="bg-slate-50 w-full max-w-7xl h-[95vh] rounded-[36px] shadow-2xl overflow-hidden flex flex-col relative">
                 
+                {alertaUI && (
+                    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
+                        <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ${alertaUI.tipo === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                {alertaUI.tipo === 'error' ? <AlertTriangle size={40}/> : <Info size={40}/>}
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 mb-2">{alertaUI.titulo}</h3>
+                            <p className="text-slate-500 font-medium mb-8 leading-relaxed">{alertaUI.mensaje}</p>
+                            <button onClick={() => setAlertaUI(null)} className={`w-full text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition ${alertaUI.tipo === 'error' ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'}`}>
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 <button onClick={() => setModalComedor(false)} className="absolute top-4 right-4 z-50 bg-white shadow-md hover:bg-red-100 text-slate-400 hover:text-red-500 p-2 rounded-full transition">
                     <XCircle size={28} />
                 </button>
@@ -394,7 +414,7 @@ const ModalComedor = ({
                                 <div className="p-4 md:p-6 grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto custom-scrollbar">
                                     <button 
                                         onClick={() => { 
-                                            if(restantePlatillos <= 0) return alert('Límite de platillos alcanzado.'); 
+                                            if(restantePlatillos <= 0) return setAlertaUI({ titulo: 'Límite Alcanzado', mensaje: 'Has consumido el máximo de platillos permitidos en tu turno.', tipo: 'info' }); 
                                             setPaso('armar_libre'); 
                                         }} 
                                         className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-3xl p-4 md:p-6 flex flex-col items-center justify-center gap-4 shadow-lg hover:shadow-xl transition-all active:scale-95 h-48 border-4 border-orange-200"
@@ -500,7 +520,7 @@ const ModalComedor = ({
                                     onClick={generarComandaComedor} 
                                     className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-black text-sm md:text-base uppercase tracking-widest shadow-lg shadow-indigo-500/30 transition disabled:opacity-50 flex items-center justify-center gap-2"
                                 >
-                                    <ChefHat size={20}/> Mandar a Cocina ($0.00)
+                                    <CheckCircle2 size={20}/> Registrar y Finalizar
                                 </button>
                             </div>
                         </div>
@@ -564,14 +584,16 @@ const ModalComedor = ({
                 {productoEnEspera && pasoActualObj && paso === 'menu' && (
                     <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
                         
-                        {pasoPersonalizacion > 0 && (
-                            <button 
-                                onClick={() => setPasoPersonalizacion(p => p - 1)} 
-                                className="absolute left-6 top-6 text-white bg-slate-800/50 hover:bg-blue-600 p-3 rounded-full shadow-lg transition z-50"
-                            >
-                                ← Volver
+                        <div className="absolute top-4 right-4 md:top-6 md:right-6 flex gap-2">
+                            {pasoPersonalizacion > 0 && (
+                                <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="text-white bg-slate-800/50 hover:bg-blue-600 px-4 py-2 rounded-xl shadow-lg transition z-50 font-bold">
+                                    ← Volver
+                                </button>
+                            )}
+                            <button onClick={resetWizard} className="text-white bg-red-500/80 hover:bg-red-600 px-4 py-2 rounded-xl shadow-lg transition z-50 font-bold">
+                                Cancelar ❌
                             </button>
-                        )}
+                        </div>
                         
                         <div className="bg-slate-50 rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100">
                             <div className="p-8 text-center shrink-0 bg-white border-b border-slate-200">
@@ -728,15 +750,9 @@ const ModalComedor = ({
                                 )}
                             </div>
                             
-                            {/* 👇 FIX APLICADO: Botón Cancelar anclado al final junto a Siguiente / Agregar */}
+                            {/* PIE DEL WIZARD (ACCIONES Y TOTALES) */}
                             <div className="p-8 bg-white border-t border-slate-200 shrink-0">
                                 <div className="flex gap-4">
-                                    <button 
-                                        onClick={resetWizard} 
-                                        className="px-6 py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-base"
-                                    >
-                                        Cancelar
-                                    </button>
                                     
                                     {pasoPersonalizacion < pasosWiz.length - 1 ? (
                                         <button 

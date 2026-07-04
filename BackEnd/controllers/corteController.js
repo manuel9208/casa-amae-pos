@@ -15,10 +15,11 @@ exports.guardarCorte = async (req, res) => {
     total_gastos,
     efectivo_cajon,
     pedidos_incluidos,
-    detalles_envio
+    detalles_envio,
+    turno_cerrado // 👈 NUEVO: Bandera para saber si se sella el turno
   } = req.body;
 
-  // 🛡️ ESCUDO ANTI-NULL: Forzamos a que TODO sea un número válido. 
+  // 🛡️ ESCUDO ANTI-NULL
   const f_inicial = Number(fondo_inicial ?? fondo_caja) || 0;
   const f_repartidor = Number(fondo_repartidor) || 0;
   const v_platillos = Number(venta_platillos ?? total_platillos) || 0;
@@ -29,19 +30,20 @@ exports.guardarCorte = async (req, res) => {
   const t_transferencia = Number(total_transferencia) || 0;
   const t_gastos = Number(total_gastos) || 0;
   const e_cajon = Number(efectivo_cajon) || 0;
+  const isCerrado = turno_cerrado === true;
   
   const fechaCorte = fecha || new Date().toISOString().split('T')[0];
 
   try {
-    // 👇 FIX: Buscamos si el CAJERO EXACTO ya tiene un corte abierto en este día
+    // 👇 FIX: Buscamos si el CAJERO EXACTO ya tiene un corte ABIERTO hoy
     const existeCorte = await db.query(
-      'SELECT id FROM historico_cortes WHERE fecha_corte = $1 AND usuario_id IS NOT DISTINCT FROM $2', 
+      'SELECT id FROM historico_cortes WHERE fecha_corte = $1 AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false ORDER BY id DESC LIMIT 1', 
       [fechaCorte, usuario_id || null]
     );
 
     let result;
     if (existeCorte.rows.length > 0) {
-      // Si existe, lo ACTUALIZAMOS (Autoguardado del mismo turno)
+      // Si existe y está abierto, lo ACTUALIZAMOS
       result = await db.query(
         `UPDATE historico_cortes SET 
           fondo_inicial = $1, 
@@ -56,27 +58,29 @@ exports.guardarCorte = async (req, res) => {
           efectivo_cajon = $10, 
           pedidos_incluidos = COALESCE($11, pedidos_incluidos), 
           detalles_envio = COALESCE($12, detalles_envio),
+          turno_cerrado = $13,
           fecha_creacion = CURRENT_TIMESTAMP
-        WHERE id = $13 RETURNING *`,
+        WHERE id = $14 RETURNING *`,
         [
           f_inicial, f_repartidor, v_platillos, i_extras, c_envio,
           t_efectivo, t_tarjeta, t_transferencia, t_gastos, e_cajon,
           pedidos_incluidos ? JSON.stringify(pedidos_incluidos) : null, 
           detalles_envio ? JSON.stringify(detalles_envio) : null,
+          isCerrado,
           existeCorte.rows[0].id
         ]
       );
     } else {
-      // Si entra otro cajero, CREAMOS UN NUEVO TURNO en el mismo día
+      // Si entra otro cajero o inicia otro turno, CREAMOS UN NUEVO TURNO
       result = await db.query(
         `INSERT INTO historico_cortes (
           fecha_corte, usuario_id, fondo_inicial, fondo_repartidor, venta_platillos, ingresos_extras, cargos_envio,
-          total_efectivo, total_tarjeta, total_transferencia, total_gastos, efectivo_cajon, pedidos_incluidos, detalles_envio
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+          total_efectivo, total_tarjeta, total_transferencia, total_gastos, efectivo_cajon, pedidos_incluidos, detalles_envio, turno_cerrado
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
         [
           fechaCorte, usuario_id || null, f_inicial, f_repartidor, v_platillos, i_extras, c_envio,
           t_efectivo, t_tarjeta, t_transferencia, t_gastos, e_cajon,
-          JSON.stringify(pedidos_incluidos || []), JSON.stringify(detalles_envio || {})
+          JSON.stringify(pedidos_incluidos || []), JSON.stringify(detalles_envio || {}), isCerrado
         ]
       );
     }
@@ -98,19 +102,18 @@ exports.obtenerHistorial = async (req, res) => {
           FROM historico_cortes c 
           LEFT JOIN usuarios u ON c.usuario_id = u.id 
           WHERE c.fecha_corte = $1
-          ORDER BY c.fecha_creacion ASC
+          ORDER BY c.id ASC
         `, [fecha]);
     } else {
         result = await db.query(`
           SELECT c.*, u.nombre as usuario_nombre 
           FROM historico_cortes c 
           LEFT JOIN usuarios u ON c.usuario_id = u.id 
-          ORDER BY c.fecha_corte DESC, c.fecha_creacion DESC
+          ORDER BY c.fecha_corte DESC, c.id DESC
         `);
     }
     
     if (fecha && result.rows.length > 0) {
-        // 👇 FIX: Si piden completo devolvemos todos los turnos del día, si no, solo el último
         if (completo === 'true') {
             res.json(result.rows);
         } else {

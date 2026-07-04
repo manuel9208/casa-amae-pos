@@ -25,6 +25,7 @@ const App = () => {
   // ESTADOS: Para control dinámico de pantallas y persistencia F5
   const [entornoActivo, setEntornoActivo] = useState(null);
   const [segundaSesionActiva, setSegundaSesionActiva] = useState(false);
+  const [sesionExpirada, setSesionExpirada] = useState(false); // 👈 FIX: Nuevo estado para la alerta bonita
 
   // ==========================================
   // ESTADOS DE FORMULARIOS Y LOGIN
@@ -78,8 +79,9 @@ const App = () => {
     localStorage.removeItem('pos_sesion');
     localStorage.removeItem('pos_entorno_activo');
     
+    // 👇 FIX: En lugar de "alert()", activamos el modal bonito
     if (forzado) {
-        alert("Tu sesión ha caducado por seguridad tras 6 horas de inactividad.");
+        setSesionExpirada(true);
     }
   }, [usuarioActivo]);
 
@@ -178,7 +180,6 @@ const App = () => {
   }, []); 
 
   useEffect(() => {
-    // 👇 FIX: Quitamos baseUrl del array de dependencias
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
 
     socket.on('usuario_actualizado', (usuarioEditado) => {
@@ -221,7 +222,6 @@ const App = () => {
   }, [usuarioActivo, segundaSesionActiva]);
 
   useEffect(() => {
-    // 👇 FIX: Quitamos apiUrl del array de dependencias
     const checkHorarioCron = async () => {
       if (!configGlobal || !configGlobal.horarios_semana) return;
       try {
@@ -530,6 +530,23 @@ const App = () => {
             {!necesitaRegistro && !empleadoFase2 && (<div className="mt-8 flex flex-col gap-4"><button onClick={() => setModoInvitado(true)} className="text-slate-400 hover:text-slate-500 font-bold text-sm transition-colors underline">Entrar directo como Invitado</button></div>)}
           </div>
         </div>
+
+        {/* 👇 FIX APLICADO: Modal hermoso para cuando expira la sesión */}
+        {sesionExpirada && (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
+                <div className="bg-white rounded-[40px] p-8 md:p-12 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
+                    <div className="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                        <span className="text-5xl">⏱️</span>
+                    </div>
+                    <h3 className="text-3xl font-black text-slate-800 mb-2 tracking-tight">Sesión Expirada</h3>
+                    <p className="text-slate-500 font-medium mb-8">Por seguridad y protección de datos, tu sesión ha caducado tras 6 horas de inactividad.</p>
+                    <button onClick={() => setSesionExpirada(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-xl shadow-lg shadow-slate-800/30 active:scale-95 transition-all text-lg">
+                        Entendido
+                    </button>
+                </div>
+            </div>
+        )}
+
       </div>
     </>
   );

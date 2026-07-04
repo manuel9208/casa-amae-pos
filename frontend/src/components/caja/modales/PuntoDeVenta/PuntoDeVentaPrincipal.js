@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -21,6 +21,9 @@ const PuntoDeVentaPrincipal = ({
     const [paso, setPaso] = useState('identificar'); 
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1); 
     
+    // 👇 FIX: Estado Global de Alertas para reemplazar los "alert()" feos
+    const [alertaUI, setAlertaUI] = useState(null); 
+
     // ==========================================
     // ESTADOS DE DATOS
     // ==========================================
@@ -91,7 +94,7 @@ const PuntoDeVentaPrincipal = ({
     useEffect(() => {
         if (ordenEditandoRapida && modalPuntoVenta) {
             setPaso('menu');
-            setPasoFlujoCaja(2); // Al editar, vamos directo al carrito
+            setPasoFlujoCaja(2);
             
             if (ordenEditandoRapida.cliente_id) {
                 setClienteAsignado({ id: ordenEditandoRapida.cliente_id, nombre: ordenEditandoRapida.cliente_nombre });
@@ -99,9 +102,7 @@ const PuntoDeVentaPrincipal = ({
                 setClienteAsignado(null);
             }
             
-            // 👇 FIX: Forzamos a que si no hay un cliente real, el campo se quede en blanco en lugar de decir "Invitado"
             setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
-            
             setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
             setMesaSeleccionada(ordenEditandoRapida.mesa || '');
             setZonaEnvioCosto(ordenEditandoRapida.costo_envio || '');
@@ -194,7 +195,7 @@ const PuntoDeVentaPrincipal = ({
                 const stockActual = Number(item.stock_preparado) || 0;
                 const newQty = (item.cantidad || 1) + delta;
                 if (isUsaStock && delta > 0 && newQty > stockActual) {
-                    alert(`¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`);
+                    setAlertaUI({ titulo: 'Stock Insuficiente', mensaje: `¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`, tipo: 'error' });
                     return item;
                 }
                 return newQty > 0 ? { ...item, cantidad: newQty } : item;
@@ -349,7 +350,9 @@ const PuntoDeVentaPrincipal = ({
 
     const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
         if (carrito.length === 0 || isSubmitting) return;
-        if (!nombreOrden.trim()) return alert("El nombre del cliente es obligatorio.");
+        
+        if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
+        
         setIsSubmitting(true);
 
         const carritoExpandido = [];
@@ -363,7 +366,6 @@ const PuntoDeVentaPrincipal = ({
         const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
 
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
-        if (nombreOrden) stringDireccion = `${stringDireccion} | A NOMBRE DE: ${nombreOrden}`;
 
         if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
         else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
@@ -383,6 +385,7 @@ const PuntoDeVentaPrincipal = ({
 
         const paquete = {
             cliente_id: clienteAsignado?.id || null,
+            cliente_nombre: nombreOrden.trim(),
             tipo_consumo: tipoConsumo, 
             metodo_pago: pagoFinal,
             total: totalConEnvio, 
@@ -418,9 +421,12 @@ const PuntoDeVentaPrincipal = ({
                     setTimeout(() => setModalPago(data), 100);
                 }
             } else {
-                const errData = await res.json(); alert(errData.error || 'Problema al guardar la orden.');
+                const errData = await res.json(); 
+                setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
             }
-        } catch (e) { alert('Sin conexión.'); }
+        } catch (e) { 
+            setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' }); 
+        }
         setIsSubmitting(false);
     };
 
@@ -492,6 +498,21 @@ const PuntoDeVentaPrincipal = ({
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
             <div className="bg-slate-50 w-full max-w-4xl h-[90vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
                 
+                {alertaUI && (
+                    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
+                        <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ${alertaUI.tipo === 'error' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                                {alertaUI.tipo === 'error' ? <AlertTriangle size={40}/> : <Info size={40}/>}
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 mb-2">{alertaUI.titulo}</h3>
+                            <p className="text-slate-500 font-medium mb-8 leading-relaxed">{alertaUI.mensaje}</p>
+                            <button onClick={() => setAlertaUI(null)} className={`w-full text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition ${alertaUI.tipo === 'error' ? 'bg-red-500 hover:bg-red-600 shadow-red-500/30' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30'}`}>
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* ENCABEZADO GLOBAL */}
                 <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -522,10 +543,7 @@ const PuntoDeVentaPrincipal = ({
                         paso={paso} setPaso={setPaso} telefonoCliente={telefonoCliente} setTelefonoCliente={setTelefonoCliente}
                         errorMsg={errorMsg} setErrorMsg={setErrorMsg} isSubmitting={isSubmitting} buscarClienteRapido={buscarClienteRapido}
                         datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} registrarClienteRapido={registrarClienteRapido}
-                        
-                        // 👇 FIX: Interceptamos el texto 'Invitado' si se pulsa "Continuar como invitado"
                         setNombreOrden={(nombre) => setNombreOrden(nombre === 'Invitado' ? '' : nombre)} 
-                        
                         setClienteAsignado={setClienteAsignado} 
                     />
                 ) : (
