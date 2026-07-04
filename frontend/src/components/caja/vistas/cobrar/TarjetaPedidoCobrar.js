@@ -23,24 +23,28 @@ const TarjetaPedidoCobrar = ({
     };
     const estiloConsumo = obtenerEstiloConsumo();  
 
-    // 👇 FIX RUTA A: Extraemos el nombre del invitado si viene empaquetado en la dirección
+    // 👇 FIX: Lógica homologada para extracción de nombre (con o sin plecas '|')
     let direccionLimpia = pedido.direccion_entrega || '';
     let clienteExtraido = pedido.cliente_nombre || 'Invitado';
 
-    if (direccionLimpia.includes('|')) {
-        const partes = direccionLimpia.split('|');
-        const parteNombre = partes.find(p => p.includes('A NOMBRE DE:'));
-        
-        if (parteNombre) {
-            clienteExtraido = parteNombre.replace('A NOMBRE DE:', '').trim();
+    if (direccionLimpia.includes('A NOMBRE DE:')) {
+        const match = direccionLimpia.match(/A NOMBRE DE:\s*([^|]+)/i);
+        if (match && match[1]) {
+            clienteExtraido = match[1].trim();
         }
+    }
 
-        direccionLimpia = partes[0]
-            .replace(/TEL:\s*\d*/g, '')
-            .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, '')
-            .replace(/A NOMBRE DE:\s*(.*)/g, '')
-            .trim();
-    }  
+    if (direccionLimpia.includes('|')) {
+        // La dirección pura suele estar en la primera posición antes de la pleca
+        direccionLimpia = direccionLimpia.split('|')[0];
+    }
+
+    // Limpiamos los rastros residuales de texto
+    direccionLimpia = direccionLimpia
+        .replace(/TEL:\s*\d*/gi, '')
+        .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+        .replace(/A NOMBRE DE:\s*.*/gi, '')
+        .trim();
 
     return (
         <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all hover:shadow-md hover:border-blue-200 animate-in slide-in-from-bottom-4 group">  
@@ -66,7 +70,6 @@ const TarjetaPedidoCobrar = ({
             {/* 2. DETALLES DEL CLIENTE Y CONTACTO */}
             <div className="space-y-2 mb-6 flex-1">
                 <p className="text-sm font-black text-slate-700 flex items-center gap-2">
-                    {/* 👇 FIX RUTA A: Imprimimos el cliente extraído dinámicamente */}
                     <User size={16} className="text-slate-400" /> {clienteExtraido}
                 </p>  
                 {telefono && (

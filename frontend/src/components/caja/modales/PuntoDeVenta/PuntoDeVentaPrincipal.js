@@ -348,87 +348,90 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
 
-    const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
-        if (carrito.length === 0 || isSubmitting) return;
-        
-        if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
-        
-        setIsSubmitting(true);
+      const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
+    if (carrito.length === 0 || isSubmitting) return;  
+    if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });  
+    setIsSubmitting(true);  
 
-        const carritoExpandido = [];
-        carrito.forEach(item => { 
-            const qty = item.cantidad || 1; 
-            for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
-        });
+    const carritoExpandido = [];
+    carrito.forEach(item => {
+      const qty = item.cantidad || 1;
+      for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
+    });  
 
-        let stringDireccion = notaOpcional;
-        let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-        const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
+    let stringDireccion = notaOpcional;
+    let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
+    const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
 
-        if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
+    if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
 
-        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+    // 👇 FIX EXACTO Y SEGURO: Inyectamos el nombre del invitado para que no se pierda en BD
+    if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
+      stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
+    }
 
-        if (detallesCuentaAbierta) {
-            if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
-            else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
+    if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+    else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+    else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
+
+    if (detallesCuentaAbierta) {
+      if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
+      else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
+    }  
+
+    let estadoInicial = 'Pendiente';
+    if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
+    else {
+      if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
+      else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
+    }  
+
+    const paquete = {
+      cliente_id: clienteAsignado?.id || null,
+      cliente_nombre: nombreOrden.trim(),
+      tipo_consumo: tipoConsumo,
+      metodo_pago: pagoFinal,
+      total: totalConEnvio,
+      costo_envio: costoEnvioFinal,
+      carrito: carritoExpandido,
+      origen: 'Caja',
+      direccion_entrega: stringDireccion,
+      estado_preparacion: estadoInicial,
+      mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
+      cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
+      descuento_puntos: descuentoPuntosPuntosFisicos
+    };  
+
+    const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
+    const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
+
+    try {
+      const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
+      if (res.ok) {
+        const data = await res.json();
+        if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
+          const dirLimpia = notaOpcional.trim();
+          if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
+            fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+          }
         }
-
-        let estadoInicial = 'Pendiente';
-        if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
-        else {
-            if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
-            else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
+        refrescarDatosCaja();
+        if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta' || ordenEditandoRapida) {
+          if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
+          cerrarModalVenta();
+        } else {
+          cerrarModalVenta();
+          setTimeout(() => setModalPago(data), 100);
         }
-
-        const paquete = {
-            cliente_id: clienteAsignado?.id || null,
-            cliente_nombre: nombreOrden.trim(),
-            tipo_consumo: tipoConsumo, 
-            metodo_pago: pagoFinal,
-            total: totalConEnvio, 
-            costo_envio: costoEnvioFinal, 
-            carrito: carritoExpandido,
-            origen: 'Caja', 
-            direccion_entrega: stringDireccion, 
-            estado_preparacion: estadoInicial,
-            mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
-            cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
-            descuento_puntos: descuentoPuntosPuntosFisicos
-        };
-
-        const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
-        const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';
-
-        try {
-            const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
-            if (res.ok) {
-                const data = await res.json();
-                if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
-                    const dirLimpia = notaOpcional.trim();
-                    if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-                        fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
-                    }
-                }
-                refrescarDatosCaja();
-                if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta' || ordenEditandoRapida) {
-                    if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
-                    cerrarModalVenta();
-                } else {
-                    cerrarModalVenta();
-                    setTimeout(() => setModalPago(data), 100);
-                }
-            } else {
-                const errData = await res.json(); 
-                setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
-            }
-        } catch (e) { 
-            setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' }); 
-        }
-        setIsSubmitting(false);
-    };
+      } else {
+        const errData = await res.json();
+        setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
+      }
+    } catch (e) {
+      setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
+    }
+    setIsSubmitting(false);
+  };
 
     // ==========================================
     // WIZARD PROPS Y VALIDACIONES

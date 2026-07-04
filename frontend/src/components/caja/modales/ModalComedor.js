@@ -1,3 +1,4 @@
+// Archivo: ModalComedor.js
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChefHat, XCircle, ShoppingBag, CheckSquare, Square, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 
@@ -100,7 +101,6 @@ const ModalComedor = ({
         let consumidosP = 0;
         let consumidosB = 0;
         
-        // 👇 FIX: Leemos el nombre exactamente de la direccion_entrega sin importar mayúsculas
         const pedidosHoyEmp = pedidos.filter(p => {
             if (p.metodo_pago !== 'Comida Personal' || p.estado_preparacion === 'Cancelado') return false;
             
@@ -112,15 +112,22 @@ const ModalComedor = ({
         
         pedidosHoyEmp.forEach(p => {
             let car = []; 
-            try { car = JSON.parse(p.carrito); } catch(e){}
+            try { 
+                // 👇 FIX: Validación segura del tipo de dato para evitar que JSON.parse rompa con arreglos nativos.
+                car = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []); 
+            } catch(e) { 
+                car = []; 
+            }
             
-            car.forEach(item => {
-                const isBebida = catBebidas.includes(item.categoria);
-                const isPlatillo = catPlatillos.includes(item.categoria) || item.categoria === 'Personalizado';
-                
-                if (isBebida) consumidosB += (Number(item.cantidad) || 1);
-                else if (isPlatillo) consumidosP += (Number(item.cantidad) || 1);
-            });
+            if (Array.isArray(car)) {
+                car.forEach(item => {
+                    const isBebida = catBebidas.includes(item.categoria);
+                    const isPlatillo = catPlatillos.includes(item.categoria) || item.categoria === 'Personalizado';
+                    
+                    if (isBebida) consumidosB += (Number(item.cantidad) || 1);
+                    else if (isPlatillo) consumidosP += (Number(item.cantidad) || 1);
+                });
+            }
         });
         
         // Escanear el Carrito actual
@@ -240,7 +247,6 @@ const ModalComedor = ({
         if (carrito.length === 0 || isSubmitting) return;
         setIsSubmitting(true);
 
-        // 👇 FIX: Restauramos tu arquitectura original enviando "A NOMBRE DE:" y mandamos el estado a Finalizado.
         const paquete = {
             cliente_id: null,
             tipo_consumo: 'Local',
