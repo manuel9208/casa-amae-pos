@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize } from 'lucide-react';
+import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize } from 'lucide-react';  
 
 const PantallaTV = ({ onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [config, setConfig] = useState({});
   const [mostrarPublicidad, setMostrarPublicidad] = useState(false);
-  const [indiceImagen, setIndiceImagen] = useState(0); 
-  
+  const [indiceImagen, setIndiceImagen] = useState(0);  
+
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const baseUrl = apiUrl.replace('/api', '');
+  const baseUrl = apiUrl.replace('/api', '');  
 
   useEffect(() => {
     const cargarDatos = async () => {
       try {
         const resConf = await fetch(`${apiUrl}/configuracion`);
         const dataConf = await resConf.json();
-        if (dataConf && !dataConf.error) setConfig(dataConf);
+        if (dataConf && !dataConf.error) setConfig(dataConf);  
 
         const resPed = await fetch(`${apiUrl}/pedidos/hoy`);
         const dataPed = await resPed.json();
@@ -23,21 +23,21 @@ const PantallaTV = ({ onLogout }) => {
           setPedidos(dataPed);
         }
       } catch (e) { console.error("Error al refrescar TV:", e); }
-    };
+    };  
     
     cargarDatos();
-    const intervalo = setInterval(cargarDatos, 3000); 
+    const intervalo = setInterval(cargarDatos, 3000);
     return () => clearInterval(intervalo);
-  }, [apiUrl]);
+  }, [apiUrl]);  
 
   const handleExit = useCallback((e) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
-    if (typeof onLogout === 'function') { onLogout(); } 
+    if (typeof onLogout === 'function') { onLogout(); }
     else { localStorage.removeItem('pos_sesion'); window.location.href = '/'; }
-  }, [onLogout]);
+  }, [onLogout]);  
 
   const carruselActivo = config?.tv_carrusel_activo === true || config?.tv_carrusel_activo === 'true';
-  const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;
+  const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;  
 
   useEffect(() => {
     if (carruselActivo) {
@@ -50,7 +50,7 @@ const PantallaTV = ({ onLogout }) => {
     } else {
       setMostrarPublicidad(false);
     }
-  }, [carruselActivo, carruselSegundos]);
+  }, [carruselActivo, carruselSegundos]);  
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -58,53 +58,52 @@ const PantallaTV = ({ onLogout }) => {
     } else {
       if (document.exitFullscreen) document.exitFullscreen();
     }
-  };
+  };  
 
   const subPedidos = [];
   pedidos.forEach(p => {
-      // 👇 SOLUCIÓN: Agregamos 'En Camino' a la lista para que desaparezcan de la TV
-      if (['Cancelado', 'Entregado', 'Pendiente', 'Finalizado', 'En Camino'].includes(p.estado_preparacion)) return;
+    // 👇 FIX EXACTO APLICADO: Agregamos 'Liquidado' para que también desaparezcan de la TV
+    if (['Cancelado', 'Entregado', 'Pendiente', 'Finalizado', 'En Camino', 'Liquidado'].includes(p.estado_preparacion)) return;  
 
-      const carritoArray = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
+    const carritoArray = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);  
+    const itemsCocina = carritoArray.filter(i => i.destino === 'Cocina' && i.estado !== 'Finalizado');
+    const itemsBarra = carritoArray.filter(i => i.destino === 'Barra' && i.estado !== 'Finalizado');  
 
-      const itemsCocina = carritoArray.filter(i => i.destino === 'Cocina' && i.estado !== 'Finalizado');
-      const itemsBarra = carritoArray.filter(i => i.destino === 'Barra' && i.estado !== 'Finalizado');
+    const getEstado = (items, estadoGlobal) => {
+      if (items.length === 0) return null;
+      if (estadoGlobal === 'Listo') return 'Listo';
+      if (estadoGlobal === 'Preparando') return 'Preparando';
+      if (items.every(i => i.estado === 'Listo')) return 'Listo';
+      if (items.some(i => i.estado === 'Preparando' || i.estado === 'Listo')) return 'Preparando';
+      return 'Pagado';
+    };  
 
-      const getEstado = (items, estadoGlobal) => {
-          if (items.length === 0) return null; 
-          if (estadoGlobal === 'Listo') return 'Listo';
-          if (estadoGlobal === 'Preparando') return 'Preparando';
-          if (items.every(i => i.estado === 'Listo')) return 'Listo';
-          if (items.some(i => i.estado === 'Preparando' || i.estado === 'Listo')) return 'Preparando';
-          return 'Pagado'; 
-      };
+    const estCocina = getEstado(itemsCocina, p.estado_preparacion);
+    if (estCocina) subPedidos.push({ ...p, subDestino: 'Cocina', subEstado: estCocina, uid: p.id + '-cocina' });  
 
-      const estCocina = getEstado(itemsCocina, p.estado_preparacion);
-      if (estCocina) subPedidos.push({ ...p, subDestino: 'Cocina', subEstado: estCocina, uid: p.id + '-cocina' });
-
-      const estBarra = getEstado(itemsBarra, p.estado_preparacion);
-      if (estBarra) subPedidos.push({ ...p, subDestino: 'Barra', subEstado: estBarra, uid: p.id + '-barra' });
-  });
+    const estBarra = getEstado(itemsBarra, p.estado_preparacion);
+    if (estBarra) subPedidos.push({ ...p, subDestino: 'Barra', subEstado: estBarra, uid: p.id + '-barra' });
+  });  
 
   const enCola = subPedidos.filter(p => p.subEstado === 'Pagado');
   const preparando = subPedidos.filter(p => p.subEstado === 'Preparando');
-  const listos = subPedidos.filter(p => p.subEstado === 'Listo');
+  const listos = subPedidos.filter(p => p.subEstado === 'Listo');  
 
   const mediosPromocionales = [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video].filter(Boolean);
-  const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && mediosPromocionales.length > 0);
+  const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && mediosPromocionales.length > 0);  
 
   const renderBotonesControl = () => (
     <div className="fixed bottom-4 right-4 flex gap-3 z-[999] opacity-20 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300 print:hidden pointer-events-auto">
       <button onClick={toggleFullScreen} className="p-3 bg-black/60 rounded-2xl text-white/80 hover:text-white hover:bg-slate-800 transition shadow-lg backdrop-blur-sm border border-white/10 active:scale-95 cursor-pointer" title="Pantalla Completa"><Maximize size={24} /></button>
       <button onClick={handleExit} className="p-3 bg-black/60 rounded-2xl text-white/80 hover:text-white hover:bg-red-600 transition shadow-lg backdrop-blur-sm border border-white/10 active:scale-95 cursor-pointer" title="Cerrar Sesión"><LogOut size={24} /></button>
     </div>
-  );
+  );  
 
   if (forzarPantallaCompleta) {
-    let medioAMostrar = config.logo_url; 
+    let medioAMostrar = config.logo_url;
     if (carruselActivo && mediosPromocionales.length > 0) { medioAMostrar = mediosPromocionales[indiceImagen % mediosPromocionales.length]; }
     const urlCompleta = medioAMostrar?.startsWith('http') ? medioAMostrar : `${baseUrl}${medioAMostrar}`;
-    const esVideo = medioAMostrar && medioAMostrar === config.tv_video;
+    const esVideo = medioAMostrar && medioAMostrar === config.tv_video;  
 
     return (
       <div className="h-screen w-full bg-black flex flex-col items-center justify-center overflow-hidden relative">
@@ -112,7 +111,7 @@ const PantallaTV = ({ onLogout }) => {
         {medioAMostrar ? (
           <>
             <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
-               {esVideo ? <video src={urlCompleta} autoPlay muted loop className="w-full h-full object-cover opacity-20 blur-2xl scale-110" /> : <img src={urlCompleta} className="w-full h-full object-cover opacity-20 blur-2xl scale-110" alt="" />}
+              {esVideo ? <video src={urlCompleta} autoPlay muted loop className="w-full h-full object-cover opacity-20 blur-2xl scale-110" /> : <img src={urlCompleta} className="w-full h-full object-cover opacity-20 blur-2xl scale-110" alt="" />}
             </div>
             {esVideo ? <video key={`v-${medioAMostrar}`} src={urlCompleta} autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10" /> : <img key={`i-${medioAMostrar}`} src={urlCompleta} className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" alt="Publicidad" />}
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none"></div>
@@ -123,7 +122,7 @@ const PantallaTV = ({ onLogout }) => {
         <div className="absolute bottom-12 text-white font-black text-xl landscape:text-2xl tracking-[0.5em] landscape:tracking-[1em] uppercase z-30 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] animate-pulse pointer-events-none">Esperando Órdenes...</div>
       </div>
     );
-  }
+  }  
 
   return (
     <div className="min-h-screen flex flex-col font-sans overflow-hidden relative" style={{ backgroundColor: config.color_fondo || '#f1f5f9' }}>
@@ -137,8 +136,8 @@ const PantallaTV = ({ onLogout }) => {
         <div className="text-center landscape:text-right bg-slate-100 px-5 py-2.5 rounded-2xl border border-slate-200 shrink-0 w-full landscape:w-auto">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">HORA LOCAL</p>
           <p className="text-2xl landscape:text-3xl font-black text-blue-600">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-        </div> 
-      </div>
+        </div>
+      </div>  
 
       <div className="flex-1 p-4 landscape:p-8 grid grid-cols-1 landscape:grid-cols-3 gap-4 landscape:gap-8 overflow-hidden">
         <div className="bg-slate-100/50 rounded-3xl landscape:rounded-[40px] flex flex-col overflow-hidden border border-slate-200 shadow-sm min-h-0">
@@ -154,7 +153,7 @@ const PantallaTV = ({ onLogout }) => {
               </div>
             ))}
           </div>
-        </div>
+        </div>  
 
         <div className="bg-blue-50/50 rounded-3xl landscape:rounded-[40px] flex flex-col overflow-hidden border border-blue-100 shadow-sm min-h-0">
           <div className="bg-blue-600 py-4 landscape:py-6 text-center border-b border-blue-200 shrink-0">
@@ -168,7 +167,7 @@ const PantallaTV = ({ onLogout }) => {
               </div>
             ))}
           </div>
-        </div>
+        </div>  
 
         <div className="bg-emerald-50/50 rounded-3xl landscape:rounded-[40px] flex flex-col overflow-hidden border border-emerald-100 shadow-sm min-h-0">
           <div className="bg-emerald-500 py-4 landscape:py-6 text-center shadow-md z-10 shrink-0">
@@ -186,6 +185,6 @@ const PantallaTV = ({ onLogout }) => {
       </div>
     </div>
   );
-};
+};  
 
 export default PantallaTV;

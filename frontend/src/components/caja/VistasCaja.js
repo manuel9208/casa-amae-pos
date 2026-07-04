@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BellRing, MessageSquare, XCircle, DollarSign, Clock, CreditCard, Smartphone, Wallet, PlusCircle, Eye } from 'lucide-react';
-
+import { BellRing, MessageSquare, XCircle, DollarSign, Clock, CreditCard, Smartphone, Wallet, PlusCircle, Eye } from 'lucide-react';  
 import VistaMesas from './vistas/mesas/GestorMesasPrincipal';
 import VistaConfirmar from './vistas/confirmar/GestorConfirmacionPrincipal';
 import VistaCobrar from './vistas/cobrar/GestorCobranzaPrincipal';
@@ -9,21 +8,21 @@ import VistaEntregas from './vistas/entregas/GestorEntregasPrincipal';
 import VistaHistorial from './vistas/historial/HistorialTodosLosPedidos';
 import VistaCorte from './vistas/corte/CorteCajaFinanciero';
 import VistaLiquidacionRep from './vistas/reparto/LiquidacionRepartidoresPrincipal';
-import VistaCocinaMini from './vistas/cocina_mini/MonitorCocinaKDS';
+import VistaCocinaMini from './vistas/cocina_mini/MonitorCocinaKDS';  
 
-const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
 const VistasCaja = (props) => {
   const {
     vistaActiva, setVistaActiva, pedidosEnReparto, pedidos, user, isSubmitting, empleadosPOS,
     fondosRepartidores, actualizarFondoRepartidor, fondoRepartidorGlobal, liquidarPedidoRepartidor,
     pedidosPorConfirmar
-  } = props;
+  } = props;  
 
   const [limpiandoMesas, setLimpiandoMesas] = useState(false);
   const [mostrarAlertaKiosco, setMostrarAlertaKiosco] = useState(false);
   const [ultimoPedidoKiosco, setUltimoPedidoKiosco] = useState(null);
-  const prevPendientesCount = useRef(pedidosPorConfirmar?.length || 0);
+  const prevPendientesCount = useRef(pedidosPorConfirmar?.length || 0);  
 
   useEffect(() => {
     const currentCount = pedidosPorConfirmar?.length || 0;
@@ -39,7 +38,7 @@ const VistasCaja = (props) => {
       } catch (e) {}
     }
     prevPendientesCount.current = currentCount;
-  }, [pedidosPorConfirmar, vistaActiva]);
+  }, [pedidosPorConfirmar, vistaActiva]);  
 
   const getIconoPago = (metodo) => {
     if(metodo==='Tarjeta') return <CreditCard size={16}/>;
@@ -47,7 +46,7 @@ const VistasCaja = (props) => {
     if(metodo==='Mixto') return <Wallet size={16}/>;
     if(metodo==='Pendiente' || metodo==='Por Cobrar') return <Clock size={16}/>;
     return <DollarSign size={16}/>;
-  };
+  };  
 
   const getTelefonoExtraido = (p) => {
     let tel = p.cliente_telefono || p.cliente?.telefono || p.telefono;
@@ -63,7 +62,7 @@ const VistasCaja = (props) => {
       if (t !== '' && t !== 'null' && t !== 'undefined') return t;
     }
     return null;
-  };
+  };  
 
   const renderItemsConfirmacion = (carritoRaw) => {
     if (!carritoRaw) return null;
@@ -78,7 +77,7 @@ const VistasCaja = (props) => {
         )}
       </div>
     ));
-  };
+  };  
 
   const renderBotonAgregarExtra = (pedido) => {
     if (!pedido.carrito) return null;
@@ -89,34 +88,27 @@ const VistasCaja = (props) => {
         <PlusCircle size={18} className="text-slate-300 group-hover:text-emerald-500 transition"/>
       </button>
     ));
-  };
+  };  
 
   const renderBotonEditar = (pedido) => (
     <button disabled={isSubmitting} onClick={() => props.setModalEditarPedido(pedido)} className="w-full text-left px-4 py-3 hover:bg-slate-100 transition font-bold text-slate-700 text-sm border-b border-slate-100 disabled:opacity-50">
       Modificar Orden
     </button>
-  );
+  );  
 
   const renderBotonVerDetalle = (pedido) => (
     <button disabled={isSubmitting} onClick={() => props.setModalVerDetalle(pedido)} className="p-2 md:p-2.5 bg-slate-100 hover:bg-blue-100 text-slate-500 hover:text-blue-600 rounded-xl transition shadow-sm disabled:opacity-50" title="Ver Detalles">
       <Eye size={18} />
     </button>
-  );
+  );  
 
-  // 👇 FIX: Función rediseñada para procesar ambos tipos de liberaciones (Mesa Pagada y Liberación Forzada)
   const liberarMesaMagicamente = async (numero_mesa, pedido_id) => {
-    if (!numero_mesa || isSubmitting) return;
-    
-    if (props.setLimpiandoMesas) props.setLimpiandoMesas(true);
-    
+    if (!numero_mesa || isSubmitting) return;  
+    if (props.setLimpiandoMesas) props.setLimpiandoMesas(true);  
     try {
       if (pedido_id) {
-        // ESCENARIO 1: Viene de "Mesas Pagadas".
-        // Solo necesitamos finalizar el pedido. El backend hará el UPDATE de la mesa, el socket y la auditoría.
         await props.actualizarEstadoPedido(pedido_id, 'Finalizado');
       } else {
-        // ESCENARIO 2: Viene de "Forzar Limpieza" desde el mapa de mesas.
-        // Buscamos el ID real de la mesa en el arreglo de mesas y usamos el prop forzarLiberacionMesas.
         const mesaBD = props.mesas?.find(m => String(m.numero_mesa) === String(numero_mesa));
         if (mesaBD && props.forzarLiberacionMesas) {
           await props.forzarLiberacionMesas([mesaBD]);
@@ -124,21 +116,20 @@ const VistasCaja = (props) => {
       }
     } catch(e) {
       console.error("Error al procesar la liberación de mesa:", e);
-    }
-    
+    }  
     if (props.setLimpiandoMesas) props.setLimpiandoMesas(false);
-  };
+  };  
 
   const totalGastos = (props.gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
-  const pedidosValidos = pedidos.filter(p => p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado');
+  const pedidosValidos = pedidos.filter(p => p.estado_preparacion !== 'Pendiente' && p.estado_preparacion !== 'Cancelado');  
 
   let totalPlatillos = 0; let totalExtras = 0; let totalEnvio = 0;
-  let dPlatillos = 0; let dExtras = 0; let dEnvio = 0; let dEfectivo = 0; let dTarjeta = 0; let dTransf = 0;
+  let dPlatillos = 0; let dExtras = 0; let dEnvio = 0; let dEfectivo = 0; let dTarjeta = 0; let dTransf = 0;  
 
   pedidosValidos.forEach(p => {
     const isDomicilio = p.tipo_consumo === 'Domicilio';
     totalEnvio += Number(p.costo_envio || 0);
-    if (isDomicilio) dEnvio += Number(p.costo_envio || 0);
+    if (isDomicilio) dEnvio += Number(p.costo_envio || 0);  
 
     const items = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
     items.forEach(item => {
@@ -153,15 +144,15 @@ const VistasCaja = (props) => {
       }
       const calcExtra = (extrasMonetariosReales * qty);
       totalExtras += calcExtra;
-      if (isDomicilio) dExtras += calcExtra;
-      
+      if (isDomicilio) dExtras += calcExtra;  
+
       const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
       const precioBasePlatillo = precioTotalItem - extrasMonetariosReales;
-      const calcPlat = (precioBasePlatillo * qty);
-      
+      const calcPlat = (precioBasePlatillo * qty);  
+
       totalPlatillos += calcPlat;
       if (isDomicilio) dPlatillos += calcPlat;
-    });
+    });  
 
     if (isDomicilio) {
       if(p.metodo_pago === 'Efectivo') dEfectivo += Number(p.total);
@@ -178,7 +169,7 @@ const VistasCaja = (props) => {
         } catch(e) {}
       }
     }
-  });
+  });  
 
   const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
@@ -188,7 +179,7 @@ const VistasCaja = (props) => {
       if (ef) return sum + Number(ef.monto);
     }
     return sum;
-  }, 0);
+  }, 0);  
 
   const totalTarjetaVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Tarjeta') return sum + Number(p.total);
@@ -198,7 +189,7 @@ const VistasCaja = (props) => {
       if (tar) return sum + Number(tar.monto);
     }
     return sum;
-  }, 0);
+  }, 0);  
 
   const totalTransferenciaVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Transferencia') return sum + Number(p.total);
@@ -208,13 +199,12 @@ const VistasCaja = (props) => {
       if (trans) return sum + Number(trans.monto);
     }
     return sum;
-  }, 0);
+  }, 0);  
 
-  const ordenesEnCaja = props.pendientesDePago || [];
+  const ordenesEnCaja = props.pendientesDePago || [];  
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-50 relative">
-      
+    <div className="flex-1 flex flex-col h-full bg-slate-50 relative">  
       {mostrarAlertaKiosco && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-xl w-full text-center border-4 border-emerald-500 animate-in zoom-in-95">
@@ -244,7 +234,7 @@ const VistasCaja = (props) => {
             </div>
           </div>
         </div>
-      )}
+      )}  
 
       {props.pedidosConAlerta.length > 0 && (
         <div className="w-full p-4 space-y-2 z-10 shrink-0">
@@ -271,73 +261,26 @@ const VistasCaja = (props) => {
             )
           })}
         </div>
-      )}
+      )}  
 
       <div className="flex-1 p-4 md:p-10">
         {vistaActiva === 'mesas' && <VistaMesas mesas={props.mesas} pedidos={pedidos} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} setLimpiandoMesas={setLimpiandoMesas} setModalPago={props.setModalPago} liberarMesaMagicamente={liberarMesaMagicamente} forzarLiberacionMesas={props.forzarLiberacionMesas} />}
         {vistaActiva === 'confirmar' && <VistaConfirmar user={user} pedidosPorConfirmar={pedidosPorConfirmar} isSubmitting={isSubmitting} actualizarEstadoPedido={props.actualizarEstadoPedido} setModalZonaEnvio={props.setModalZonaEnvio} confirmarPedidoRecoger={props.confirmarPedidoRecoger} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonEditar={renderBotonEditar} renderItemsConfirmacion={renderItemsConfirmacion} />}
-        {vistaActiva === 'cobrar' && <VistaCobrar user={user} ordenesEnCaja={ordenesEnCaja} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} setModalPago={props.setModalPago} setMontoRecibido={props.setMontoRecibido} actualizarEstadoPedido={props.actualizarEstadoPedido} getIconoPago={getIconoPago} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonEditar={renderBotonEditar} renderBotonAgregarExtra={renderBotonAgregarExtra} />}
         
-        {/* 👇 FIX: Se pasa liberarMesaMagicamente correctamente */}
-        {vistaActiva === 'mesas_pagadas' && <VistaMesasPagadas mesasPagadas={props.mesasPagadas} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} setLimpiandoMesas={setLimpiandoMesas} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonEditar={renderBotonEditar} renderBotonAgregarExtra={renderBotonAgregarExtra} liberarMesaMagicamente={liberarMesaMagicamente} apiUrl={apiUrl} setModalPago={props.setModalPago} setMontoRecibido={props.setMontoRecibido} />}
+        {vistaActiva === 'cobrar' && <VistaCobrar user={user} ordenesEnCaja={ordenesEnCaja} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} setModalPago={props.setModalPago} setMontoRecibido={props.setMontoRecibido} actualizarEstadoPedido={props.actualizarEstadoPedido} getIconoPago={getIconoPago} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonEditar={renderBotonEditar} renderBotonAgregarExtra={renderBotonAgregarExtra} />}  
         
+        {vistaActiva === 'mesas_pagadas' && <VistaMesasPagadas mesasPagadas={props.mesasPagadas} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} setLimpiandoMesas={setLimpiandoMesas} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonEditar={renderBotonEditar} renderBotonAgregarExtra={renderBotonAgregarExtra} liberarMesaMagicamente={liberarMesaMagicamente} apiUrl={apiUrl} setModalPago={props.setModalPago} setMontoRecibido={props.setMontoRecibido} />}  
         {vistaActiva === 'entregas' && <VistaEntregas listosParaEntregar={props.listosParaEntregar} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} actualizarEstadoPedido={props.actualizarEstadoPedido} setModalPago={props.setModalPago} setMontoRecibido={props.setMontoRecibido} getTelefonoExtraido={getTelefonoExtraido} renderBotonVerDetalle={renderBotonVerDetalle} renderBotonAgregarExtra={renderBotonAgregarExtra} empleadosPOS={empleadosPOS} />}
         
-        {vistaActiva === 'historial' && (
-          <VistaHistorial
-            pedidos={pedidos}
-            isSubmitting={isSubmitting}
-            limpiandoMesas={limpiandoMesas}
-            configGlobal={props.configGlobal}
-            lanzarImpresion={props.lanzarImpresion}
-            setModalPuntoVenta={props.setModalPuntoVenta}
-            setOrdenEditandoRapida={props.setOrdenEditandoRapida}
-          />
-        )}
+        {/* 👇 FIX APLICADO: Inyectamos setModalEditarPedido y actualizarEstadoPedido */}
+        {vistaActiva === 'historial' && <VistaHistorial pedidos={pedidos} lanzarImpresion={props.lanzarImpresion} setModalPuntoVenta={props.setModalPuntoVenta} setModalEditarPedido={props.setModalEditarPedido} actualizarEstadoPedido={props.actualizarEstadoPedido} configGlobal={props.configGlobal} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} />}
         
-        {vistaActiva === 'liquidacion_reparto' && (
-          <VistaLiquidacionRep
-            pedidosEnReparto={pedidosEnReparto}
-            empleadosPOS={empleadosPOS}
-            fondosRepartidores={fondosRepartidores}
-            actualizarFondoRepartidor={actualizarFondoRepartidor}
-            fondoRepartidorGlobal={fondoRepartidorGlobal}
-            liquidarPedidoRepartidor={liquidarPedidoRepartidor}
-            actualizarEstadoPedido={props.actualizarEstadoPedido}
-          />
-        )}
-        
-        {vistaActiva === 'corte' && (
-          <VistaCorte
-            totalPlatillos={totalPlatillos} 
-            totalExtras={totalExtras} 
-            totalEnvio={totalEnvio} 
-            fondoCaja={props.fondoCaja}
-            totalEfectivoVentas={totalEfectivoVentas} 
-            totalGastos={totalGastos} 
-            totalTarjetaVentas={totalTarjetaVentas}
-            totalTransferenciaVentas={totalTransferenciaVentas} 
-            gastosDia={props.gastosDia}
-            fondoRepartidor={fondoRepartidorGlobal} 
-            user={user}
-            envios={{ platillos: dPlatillos, extras: dExtras, envio: dEnvio, efectivo: dEfectivo, tarjeta: dTarjeta, transf: dTransf }}
-            onLogout={props.onLogout} 
-          />
-        )}
-
-        {vistaActiva === 'cocina_mini' && (
-          <VistaCocinaMini
-            user={user}
-            pedidos={pedidos}
-            empleadosPOS={props.empleadosPOS}
-            apiUrl={apiUrl}
-            isSubmitting={isSubmitting}
-          />
-        )}
-
+        {vistaActiva === 'corte' && <VistaCorte user={user} apiUrl={apiUrl} onLogout={props.onLogout} fondoCaja={props.fondoCaja} totalGastos={totalGastos} mathData={{totalPlatillos, totalExtras, totalEnvio, dPlatillos, dExtras, dEnvio, lEfectivo: totalEfectivoVentas-dEfectivo, lTarjeta: totalTarjetaVentas-dTarjeta, lTransf: totalTransferenciaVentas-dTransf, dEfectivo, dTarjeta, dTransf}} fondoRepartidor={fondoRepartidorGlobal} />}
+        {vistaActiva === 'liquidacion_reparto' && <VistaLiquidacionRep pedidosEnReparto={pedidosEnReparto} empleadosPOS={empleadosPOS} fondosRepartidores={fondosRepartidores} actualizarFondoRepartidor={actualizarFondoRepartidor} fondoRepartidorGlobal={fondoRepartidorGlobal} liquidarPedidoRepartidor={liquidarPedidoRepartidor} actualizarEstadoPedido={props.actualizarEstadoPedido} />}
+        {vistaActiva === 'cocina_mini' && <VistaCocinaMini user={user} pedidos={pedidos} empleadosPOS={empleadosPOS} apiUrl={apiUrl} isSubmitting={isSubmitting} />}
       </div>
     </div>
   );
-};
+};  
 
 export default VistasCaja;
