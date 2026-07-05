@@ -190,9 +190,17 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setFondoCaja(m);
     };
 
+    // 👇 AQUÍ ESTÁ LA MEJORA DEL TICKET EN PANTALLA
     const lanzarImpresion = (pedido) => {
         setTicketImprimir(pedido);
-        setTimeout(() => { window.print(); setTicketImprimir(null); }, 500);
+        // 1. Damos 2 segundos para que la animación termine y el cajero vea el ticket en pantalla
+        setTimeout(() => { 
+            window.print(); 
+            // 2. Una vez que el usuario cierra el diálogo de impresión, damos medio segundo de gracia y lo cerramos
+            setTimeout(() => {
+                setTicketImprimir(null);
+            }, 500);
+        }, 2000);
     };
 
     const toggleEstadoNegocio = async () => {
@@ -254,14 +262,12 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setIsSubmitting(false);
     };
 
-    // 👇 FIX: Función rediseñada para aceptar un ID único o un Arreglo de IDs (Liquidación Masiva)
     const liquidarPedidoRepartidor = async (pedidoIds) => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         try {
             const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
             
-            // Ejecutamos las llamadas en paralelo para máxima velocidad
             const promesas = idsArray.map(id => 
                 fetch(`${apiUrl}/pedidos/${id}/estado`, {
                     method: 'PUT',
