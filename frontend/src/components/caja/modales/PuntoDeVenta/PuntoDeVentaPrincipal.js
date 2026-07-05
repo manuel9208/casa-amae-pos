@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -47,6 +47,11 @@ const PuntoDeVentaPrincipal = ({
     const [errorMsg, setErrorMsg] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     
+    // ESTADOS PARA EL AUTOCOMPLETADO INTELIGENTE
+    const [sugerenciasInvitado, setSugerenciasInvitado] = useState([]);
+    const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
+    const [buscandoSugerencias, setBuscandoSugerencias] = useState(false);
+
     // ==========================================
     // ESTADOS DE MODALES Y PUNTOS
     // ==========================================
@@ -142,6 +147,104 @@ const PuntoDeVentaPrincipal = ({
         setPaso('identificar');
         setModalPuntoVenta(false);
         if (onClose) onClose();
+    };
+
+    // ==========================================
+    // LÓGICA DE AUTOCOMPLETADO INTELIGENTE (REESCRITA PARA MÁXIMA PRECISIÓN)
+    // ==========================================
+    useEffect(() => {
+        const buscarEnHistorial = async () => {
+            if (nombreOrden.trim().length >= 2 && !clienteAsignado) {
+                setBuscandoSugerencias(true);
+                try {
+                    const res = await fetch(`${apiUrl}/pedidos/historial?periodo=anio`);
+                    if (res.ok) {
+                        const pedidos = await res.json();
+                        const mapSugerencias = new Map();
+                        const busquedaLimpia = nombreOrden.trim().toLowerCase();
+
+                        pedidos.forEach(p => {
+                            let nom = (p.cliente_nombre || '').trim();
+                            let dir = p.direccion_entrega || '';
+                            let tel = p.cliente_telefono || '';
+
+                            // Rescate de nombre si el cajero lo guardó como "Invitado" pero escribió "A NOMBRE DE:"
+                            if (nom.toLowerCase() === 'invitado' || nom === '') {
+                                const match = dir.match(/A NOMBRE DE:\s*([^|]+)/i);
+                                if (match && match[1]) {
+                                    nom = match[1].trim();
+                                }
+                            }
+
+                            // Si el nombre coincide con lo que el cajero está tecleando (y no es el texto Invitado)
+                            if (
+                                nom.toLowerCase().includes(busquedaLimpia) &&
+                                nom.toLowerCase() !== 'invitado'
+                            ) {
+                                // Rescate del teléfono si está incrustado en la dirección
+                                if (dir.includes('TEL:')) {
+                                    const parts = dir.split('TEL:');
+                                    dir = parts[0].trim();
+                                    const telMatch = parts[1].split('|')[0].trim();
+                                    if (!tel) tel = telMatch;
+                                } else if (dir.includes('CONTACTO:')) {
+                                    const parts = dir.split('CONTACTO:');
+                                    dir = parts[0].trim();
+                                    const telMatch = parts[1].split('|')[0].trim();
+                                    if (!tel) tel = telMatch;
+                                }
+
+                                // Limpieza estética de la dirección para que no salgan textos de cobro
+                                dir = dir
+                                    .replace(/A NOMBRE DE:\s*[^|]+\s*\|?/i, '')
+                                    .replace(/\[.*?\]/g, '') // Quita [LLEVAR CAMBIO DE: $500]
+                                    .replace(/\|$/, '')
+                                    .trim();
+
+                                const telLimpio = tel.replace(/\D/g, '');
+                                const dirEvaluable = dir.toLowerCase();
+
+                                // Solo agregamos la sugerencia si nos aporta algo útil (teléfono o dirección real)
+                                if (telLimpio.length >= 10 || (dir.length > 5 && dirEvaluable !== 'pendiente de dirección')) {
+                                    const keyUnica = `${nom.toLowerCase()}_${telLimpio}_${dirEvaluable}`;
+
+                                    if (!mapSugerencias.has(keyUnica)) {
+                                        mapSugerencias.set(keyUnica, {
+                                            cliente_nombre: nom,
+                                            cliente_telefono: telLimpio,
+                                            direccion_entrega: dir
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                        setSugerenciasInvitado(Array.from(mapSugerencias.values()).slice(0, 5));
+                        setMostrarSugerencias(true);
+                    }
+                } catch(e) {
+                    console.error("Error al buscar sugerencias:", e);
+                }
+                setBuscandoSugerencias(false);
+            } else {
+                setSugerenciasInvitado([]);
+                setMostrarSugerencias(false);
+            }
+        };
+
+        const timer = setTimeout(buscarEnHistorial, 400); // Anti-rebote
+        return () => clearTimeout(timer);
+    }, [nombreOrden, clienteAsignado, apiUrl]);
+
+    const seleccionarSugerencia = (sug) => {
+        setNombreOrden(sug.cliente_nombre);
+        if (sug.cliente_telefono) {
+            setTelefonoCliente(sug.cliente_telefono);
+            setTelefonoOrdenRapida(sug.cliente_telefono);
+        }
+        if (sug.direccion_entrega && sug.direccion_entrega !== 'Pendiente de dirección') {
+            setNotaOpcional(sug.direccion_entrega);
+        }
+        setMostrarSugerencias(false);
     };
 
     // ==========================================
@@ -346,90 +449,94 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
 
-    const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
-        if (carrito.length === 0 || isSubmitting) return;
-        if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
-        setIsSubmitting(true);
+      const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
+    if (carrito.length === 0 || isSubmitting) return;
+    if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
+    setIsSubmitting(true);  
 
-        const carritoExpandido = [];
-        carrito.forEach(item => { 
-            const qty = item.cantidad || 1; 
-            for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
-        });
+    const carritoExpandido = [];
+    carrito.forEach(item => {
+      const qty = item.cantidad || 1;
+      for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
+    });  
 
-        let stringDireccion = notaOpcional;
-        let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-        const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
+    let stringDireccion = notaOpcional;
+    let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
+    const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
 
-        if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
+    if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
 
-        // 👇 INYECCIÓN: Rescate del nombre Invitado en BD
-        if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
-            stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
+    if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
+      stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
+    }  
+
+    if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+    else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+    else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
+
+    if (detallesCuentaAbierta) {
+      if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
+      else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
+    }  
+
+    // 👇 FIX: Asignación de estados estrictos respetando KDS y Modales
+    let estadoInicial = 'Pendiente';
+    if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
+      estadoInicial = 'Pagado'; 
+    } else if (metodoAcelerado === 'Cobrar Ahora') {
+      estadoInicial = 'Pendiente';
+    } else if (ordenEditandoRapida) {
+      estadoInicial = ordenEditandoRapida.estado_preparacion;
+    }
+
+    const paquete = {
+      cliente_id: clienteAsignado?.id || null,
+      cliente_nombre: nombreOrden.trim(),
+      tipo_consumo: tipoConsumo,
+      metodo_pago: pagoFinal,
+      total: totalConEnvio,
+      costo_envio: costoEnvioFinal,
+      carrito: carritoExpandido,
+      origen: 'Caja',
+      direccion_entrega: stringDireccion,
+      estado_preparacion: estadoInicial,
+      mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
+      cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
+      descuento_puntos: descuentoPuntosPuntosFisicos
+    };  
+
+    const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
+    const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
+
+    try {
+      const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
+      if (res.ok) {
+        const data = await res.json();
+        if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
+          const dirLimpia = notaOpcional.trim();
+          if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
+            fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+          }
         }
+        refrescarDatosCaja();
 
-        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-
-        if (detallesCuentaAbierta) {
-            if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
-            else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
+        // 👇 FIX: Separación de flujo para asegurar que el ModalPago se abra SIEMPRE.
+        if (metodoAcelerado === 'Cobrar Ahora') {
+            cerrarModalVenta();
+            setTimeout(() => setModalPago(data), 100);
+        } else {
+            if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
+            cerrarModalVenta();
         }
-
-        let estadoInicial = 'Pendiente';
-        if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
-        else {
-            if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
-            else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
-        }
-
-        const paquete = {
-            cliente_id: clienteAsignado?.id || null,
-            cliente_nombre: nombreOrden.trim(),
-            tipo_consumo: tipoConsumo, 
-            metodo_pago: pagoFinal,
-            total: totalConEnvio, 
-            costo_envio: costoEnvioFinal, 
-            carrito: carritoExpandido,
-            origen: 'Caja', 
-            direccion_entrega: stringDireccion, 
-            estado_preparacion: estadoInicial,
-            mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
-            cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
-            descuento_puntos: descuentoPuntosPuntosFisicos
-        };
-
-        const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
-        const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';
-
-        try {
-            const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
-            if (res.ok) {
-                const data = await res.json();
-                if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
-                    const dirLimpia = notaOpcional.trim();
-                    if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-                        fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
-                    }
-                }
-                refrescarDatosCaja();
-                if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta' || ordenEditandoRapida) {
-                    if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
-                    cerrarModalVenta();
-                } else {
-                    cerrarModalVenta();
-                    setTimeout(() => setModalPago(data), 100);
-                }
-            } else {
-                const errData = await res.json(); 
-                setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
-            }
-        } catch (e) { 
-            setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' }); 
-        }
-        setIsSubmitting(false);
-    };
+      } else {
+        const errData = await res.json();
+        setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
+      }
+    } catch (e) {
+      setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
+    }
+    setIsSubmitting(false);
+  };
 
     // ==========================================
     // WIZARD PROPS Y VALIDACIONES
@@ -632,7 +739,54 @@ const PuntoDeVentaPrincipal = ({
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
                                         
-                                        <input type="text" placeholder="Nombre del Cliente (Obligatorio) *" value={nombreOrden} onChange={e => setNombreOrden(e.target.value)} className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`} />
+                                        {/* 👇 INPUT DE NOMBRE REEMPLAZADO CON AUTOCOMPLETADO FLOTANTE BLINDADO */}
+                                        <div className="relative">
+                                            <input 
+                                                type="text" 
+                                                placeholder="Nombre del Cliente (Obligatorio) *" 
+                                                value={nombreOrden} 
+                                                onChange={e => setNombreOrden(e.target.value)} 
+                                                onFocus={() => { if(sugerenciasInvitado.length > 0) setMostrarSugerencias(true); }}
+                                                onBlur={() => setTimeout(() => setMostrarSugerencias(false), 250)}
+                                                className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`} 
+                                            />
+                                            
+                                            {buscandoSugerencias && (
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                                   <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                                </div>
+                                            )}
+
+                                            {mostrarSugerencias && sugerenciasInvitado.length > 0 && (
+                                                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                                                    <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
+                                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sugerencias del Historial</p>
+                                                    </div>
+                                                    {sugerenciasInvitado.map((sug, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onMouseDown={(e) => { e.preventDefault(); seleccionarSugerencia(sug); }}
+                                                            className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
+                                                        >
+                                                            <span className="font-black text-slate-800">{sug.cliente_nombre}</span>
+                                                            <div className="flex flex-wrap items-center gap-4 mt-1">
+                                                                {sug.cliente_telefono && (
+                                                                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                                                                        <Phone size={14} className="text-emerald-500"/> {sug.cliente_telefono}
+                                                                    </span>
+                                                                )}
+                                                                {sug.direccion_entrega && (
+                                                                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1 line-clamp-1">
+                                                                        <MapPin size={14} className="text-pink-500"/> {sug.direccion_entrega}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                         
                                         {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
                                         {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} clienteAsignado={clienteAsignado} />}
@@ -756,7 +910,6 @@ const PuntoDeVentaPrincipal = ({
                                             </button>
                                         ) : (tipoConsumo === 'Domicilio' || tipoConsumo === 'Recoger') ? (
                                             <>
-                                                {/* 👇 NUEVO DISEÑO (SOLO DOMICILIO Y RECOGER): Cobrar Ahora (Amarillo) a la izquierda */}
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => generarPedidoBD('Cobrar Ahora')}
@@ -765,7 +918,6 @@ const PuntoDeVentaPrincipal = ({
                                                     Cobrar Ahora
                                                 </button>
                                                 
-                                                {/* 👇 NUEVO DISEÑO (SOLO DOMICILIO Y RECOGER): Cuenta Abierta (Verde) a la derecha */}
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => {
@@ -779,7 +931,6 @@ const PuntoDeVentaPrincipal = ({
                                             </>
                                         ) : (
                                             <>
-                                                {/* DISEÑO ORIGINAL (LOCAL Y PARA LLEVAR) */}
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => {

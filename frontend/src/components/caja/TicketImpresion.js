@@ -1,7 +1,31 @@
-import React from 'react';  
+import React from 'react';
+import { MessageCircle } from 'lucide-react'; // 👈 Se agregó el ícono
 
 const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
   if (!ticketImprimir || !configGlobal) return null;  
+
+  // 👇 NUEVA LÓGICA: Extracción de WhatsApp
+  const getCleanPhone = () => {
+    let cleanPhone = '';
+    if (ticketImprimir.cliente_telefono) {
+      cleanPhone = String(ticketImprimir.cliente_telefono).replace(/\D/g, '');
+    } else if (ticketImprimir.direccion_entrega) {
+      if (ticketImprimir.direccion_entrega.includes('TEL:')) cleanPhone = ticketImprimir.direccion_entrega.split('TEL:')[1].split('|')[0].replace(/\D/g, '');
+      else if (ticketImprimir.direccion_entrega.includes('CONTACTO:')) cleanPhone = ticketImprimir.direccion_entrega.split('CONTACTO:')[1].split('|')[0].replace(/\D/g, '');
+    }
+    return cleanPhone;
+  };
+
+  const cleanPhone = getCleanPhone();
+  const hasValidPhone = cleanPhone.length >= 10;
+
+  const handleWhatsApp = () => {
+    if (hasValidPhone) {
+      const texto = `Hola ${ticketImprimir.cliente_nombre || ''}, te comparto la confirmación de tu orden #${ticketImprimir.numero_pedido} por un total de *$${ticketImprimir.total}*. ¡Gracias por tu preferencia!`;
+      const url = `https://wa.me/52${cleanPhone}?text=${encodeURIComponent(texto)}`;
+      window.open(url, '_blank');
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[10000] flex flex-col items-center justify-center p-4 print:bg-transparent print:backdrop-blur-none print:p-0 print:static print:block animate-in fade-in duration-200">
@@ -83,6 +107,20 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
           )}
         </div>
       </div>
+
+      {/* 👇 NUEVO BOTÓN DE WHATSAPP (Se oculta al imprimir con print:hidden) */}
+      {hasValidPhone && (
+        <div className="mt-8 print:hidden animate-in slide-in-from-bottom-4">
+          <button 
+            onClick={handleWhatsApp} 
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-2 mx-auto shadow-lg shadow-emerald-500/30 transition-all active:scale-95"
+          >
+            <MessageCircle size={20} />
+            Enviar Ticket por WhatsApp
+          </button>
+        </div>
+      )}
+
     </div>
   );
 };  

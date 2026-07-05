@@ -209,7 +209,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             window.addEventListener('afterprint', handleAfterPrint);
 
             // Fallback de 10 segundos en caso de que el sistema operativo móvil bloquee el evento
-            setTimeout(handleAfterPrint, 10000);
+            setTimeout(handleAfterPrint, 1000);
 
         }, 1500);
     };

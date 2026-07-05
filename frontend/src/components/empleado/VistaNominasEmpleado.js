@@ -60,7 +60,7 @@ const VistaNominasEmpleado = ({ user, apiUrl }) => {
         cargarMisRecibos();
     }, [cargarMisRecibos]);  
     
-    // 👇 SOLUCIÓN MÓVIL EXACTA APLICADA AQUÍ
+    // Retenemos el modal en móviles para evitar pantallas blancas antes de imprimir
     useEffect(() => {
         if (reciboPrint) {
             const timer = setTimeout(() => {
@@ -73,7 +73,7 @@ const VistaNominasEmpleado = ({ user, apiUrl }) => {
 
                 window.addEventListener('afterprint', handleAfterPrint);
                 setTimeout(handleAfterPrint, 10000); // Respaldo 10s para celulares
-            }, 1500); // 1.5s para asegurar renderizado de fuente y logos
+            }, 1500); 
             return () => clearTimeout(timer);
         }
     }, [reciboPrint]);  
@@ -204,55 +204,88 @@ const VistaNominasEmpleado = ({ user, apiUrl }) => {
                 </div>
             )}  
             
-            {/* 🛡️ BLINDAJE DE IMPRESIÓN MÓVIL DIRECTO */}
+            {/* 👇 🛡️ CORRECCIÓN DEFINITIVA DE PÁGINA EN BLANCO Y MÓVILES */}
             <style>{`
             @media screen {
                 .print-receipt-wrapper { display: none !important; }
             }
             @media print {
-                .print-hidden, header, nav, aside, footer, button, .tabs-navigation {
+                /* 1. APAGAR TODO LO QUE NO SEA EL TICKET */
+                .print-hidden, .print\\:hidden, header, nav, aside, footer, button, .tabs-navigation {
                     display: none !important;
                     height: 0 !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
                     overflow: hidden !important;
                 }
+                
+                /* 2. RESETEAR CONTENEDORES MAESTROS (Causa #1 de hojas en blanco) */
                 html, body, #root, main, .min-h-screen, .overflow-hidden, .overflow-y-auto {
                     height: auto !important;
-                    min-height: 100% !important;
+                    min-height: 0 !important;
                     width: 100% !important;
                     overflow: visible !important;
                     position: static !important;
                     display: block !important;
                     background: #ffffff !important;
+                    box-shadow: none !important;
+                    border: none !important;
                     margin: 0 !important;
                     padding: 0 !important;
                 }
+                
+                /* Anular márgenes inyectados por contenedores padres (Causa #2) */
+                body > *:not(#root), .space-y-6 > div:not(.print-receipt-wrapper) { 
+                    display: none !important; 
+                }
+                .space-y-6 > * + * { margin-top: 0 !important; }
+                
+                /* 3. AISLAR Y DIBUJAR EL TICKET EXACTO */
                 .print-receipt-wrapper {
                     display: block !important;
                     position: absolute !important;
                     top: 0 !important;
                     left: 0 !important;
                     width: 100% !important;
-                    padding: 8mm !important;
+                    margin: 0 !important;
+                    padding: 5mm !important;
                     box-sizing: border-box !important;
                     background-color: #ffffff !important;
                     z-index: 9999999 !important;
+                    page-break-after: avoid !important; /* MATA LA PÁGINA EN BLANCO FINAL */
                 }
+                
+                .print-receipt-wrapper * {
+                    visibility: visible !important;
+                    color: #000000 !important;
+                    opacity: 1 !important;
+                }
+                
+                /* 4. BLINDAR TABLAS CONTRA RECORTES HORIZONTALES EN PDF MÓVIL */
                 .print-receipt-wrapper table {
                     display: table !important;
                     width: 100% !important;
                     border: 1px solid #000000 !important;
                     border-collapse: collapse !important;
+                    page-break-inside: auto !important;
                 }
-                .print-receipt-wrapper tr { display: table-row !important; }
+                .print-receipt-wrapper tr { 
+                    display: table-row !important; 
+                    page-break-inside: avoid !important;
+                    page-break-after: auto !important;
+                }
                 .print-receipt-wrapper th, .print-receipt-wrapper td {
                     display: table-cell !important;
                     border: 1px solid #000000 !important;
                     padding: 6px 8px !important;
                 }
-                @page { size: auto; margin: 6mm; }
+                
+                /* Eliminar márgenes del navegador (Header/Footer de URL) */
+                @page { size: auto; margin: 2mm; }
             }
             `}</style>
         </div>
     );
 };  
+
 export default VistaNominasEmpleado;
