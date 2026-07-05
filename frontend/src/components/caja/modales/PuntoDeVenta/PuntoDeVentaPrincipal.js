@@ -20,8 +20,6 @@ const PuntoDeVentaPrincipal = ({
     // ==========================================
     const [paso, setPaso] = useState('identificar'); 
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1); 
-    
-    // 👇 FIX: Estado Global de Alertas para reemplazar los "alert()" feos
     const [alertaUI, setAlertaUI] = useState(null); 
 
     // ==========================================
@@ -348,90 +346,90 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
 
-      const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
-    if (carrito.length === 0 || isSubmitting) return;  
-    if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });  
-    setIsSubmitting(true);  
+    const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
+        if (carrito.length === 0 || isSubmitting) return;
+        if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
+        setIsSubmitting(true);
 
-    const carritoExpandido = [];
-    carrito.forEach(item => {
-      const qty = item.cantidad || 1;
-      for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
-    });  
+        const carritoExpandido = [];
+        carrito.forEach(item => { 
+            const qty = item.cantidad || 1; 
+            for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
+        });
 
-    let stringDireccion = notaOpcional;
-    let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-    const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
+        let stringDireccion = notaOpcional;
+        let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
+        const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;
 
-    if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
+        if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';
 
-    // 👇 FIX EXACTO Y SEGURO: Inyectamos el nombre del invitado para que no se pierda en BD
-    if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
-      stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
-    }
-
-    if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-    else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
-    else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
-
-    if (detallesCuentaAbierta) {
-      if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
-      else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
-    }  
-
-    let estadoInicial = 'Pendiente';
-    if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
-    else {
-      if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
-      else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
-    }  
-
-    const paquete = {
-      cliente_id: clienteAsignado?.id || null,
-      cliente_nombre: nombreOrden.trim(),
-      tipo_consumo: tipoConsumo,
-      metodo_pago: pagoFinal,
-      total: totalConEnvio,
-      costo_envio: costoEnvioFinal,
-      carrito: carritoExpandido,
-      origen: 'Caja',
-      direccion_entrega: stringDireccion,
-      estado_preparacion: estadoInicial,
-      mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
-      cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
-      descuento_puntos: descuentoPuntosPuntosFisicos
-    };  
-
-    const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
-    const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
-
-    try {
-      const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
-      if (res.ok) {
-        const data = await res.json();
-        if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
-          const dirLimpia = notaOpcional.trim();
-          if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-            fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
-          }
+        // 👇 INYECCIÓN: Rescate del nombre Invitado en BD
+        if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
+            stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
         }
-        refrescarDatosCaja();
-        if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta' || ordenEditandoRapida) {
-          if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
-          cerrarModalVenta();
-        } else {
-          cerrarModalVenta();
-          setTimeout(() => setModalPago(data), 100);
+
+        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += ` | TEL: ${telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += ` | TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+
+        if (detallesCuentaAbierta) {
+            if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
+            else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
         }
-      } else {
-        const errData = await res.json();
-        setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
-      }
-    } catch (e) {
-      setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
-    }
-    setIsSubmitting(false);
-  };
+
+        let estadoInicial = 'Pendiente';
+        if (ordenEditandoRapida) estadoInicial = ordenEditandoRapida.estado_preparacion;
+        else {
+            if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') estadoInicial = 'Pagado';
+            else if (metodoAcelerado === 'Cobrar Ahora') estadoInicial = 'Pendiente';
+        }
+
+        const paquete = {
+            cliente_id: clienteAsignado?.id || null,
+            cliente_nombre: nombreOrden.trim(),
+            tipo_consumo: tipoConsumo, 
+            metodo_pago: pagoFinal,
+            total: totalConEnvio, 
+            costo_envio: costoEnvioFinal, 
+            carrito: carritoExpandido,
+            origen: 'Caja', 
+            direccion_entrega: stringDireccion, 
+            estado_preparacion: estadoInicial,
+            mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
+            cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
+            descuento_puntos: descuentoPuntosPuntosFisicos
+        };
+
+        const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
+        const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';
+
+        try {
+            const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
+            if (res.ok) {
+                const data = await res.json();
+                if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
+                    const dirLimpia = notaOpcional.trim();
+                    if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
+                        fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+                    }
+                }
+                refrescarDatosCaja();
+                if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta' || ordenEditandoRapida) {
+                    if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
+                    cerrarModalVenta();
+                } else {
+                    cerrarModalVenta();
+                    setTimeout(() => setModalPago(data), 100);
+                }
+            } else {
+                const errData = await res.json(); 
+                setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
+            }
+        } catch (e) { 
+            setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' }); 
+        }
+        setIsSubmitting(false);
+    };
 
     // ==========================================
     // WIZARD PROPS Y VALIDACIONES
@@ -756,13 +754,36 @@ const PuntoDeVentaPrincipal = ({
                                             >
                                                 Guardar Modificación
                                             </button>
-                                        ) : (
+                                        ) : (tipoConsumo === 'Domicilio' || tipoConsumo === 'Recoger') ? (
                                             <>
+                                                {/* 👇 NUEVO DISEÑO (SOLO DOMICILIO Y RECOGER): Cobrar Ahora (Amarillo) a la izquierda */}
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => generarPedidoBD('Cobrar Ahora')}
+                                                    className="flex-1 bg-amber-100 text-amber-600 hover:bg-amber-200 border-2 border-amber-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cobrar Ahora
+                                                </button>
+                                                
+                                                {/* 👇 NUEVO DISEÑO (SOLO DOMICILIO Y RECOGER): Cuenta Abierta (Verde) a la derecha */}
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => {
                                                         if (tipoConsumo === 'Domicilio') setModalCuentaAbierta(true);
                                                         else generarPedidoBD('Mandar a Cocina');
+                                                    }}
+                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cuenta Abierta
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {/* DISEÑO ORIGINAL (LOCAL Y PARA LLEVAR) */}
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => {
+                                                        generarPedidoBD('Mandar a Cocina');
                                                     }}
                                                     className="flex-1 bg-orange-100 text-orange-600 hover:bg-orange-200 border-2 border-orange-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
                                                 >

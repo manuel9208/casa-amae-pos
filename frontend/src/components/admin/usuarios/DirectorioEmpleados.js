@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Search, Filter, Edit, Trash2, XCircle } from 'lucide-react';
+import { Search, Filter, Edit, Trash2, XCircle, Eye, EyeOff } from 'lucide-react';
 
 const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, user }) => {
     const isGlobalAdmin = user?.usuario === 'admin';
 
     const [filtroTexto, setFiltroTexto] = useState('');
     const [filtroRol, setFiltroRol] = useState('');
+    
+    // 👇 NUEVO: Estados para la visibilidad de las contraseñas
+    const [mostrarPassForm, setMostrarPassForm] = useState(false);
+    const [passwordsVisibles, setPasswordsVisibles] = useState({});
     
     const [editandoUsuarioId, setEditandoUsuarioId] = useState(null);
     const [uNombre, setUNombre] = useState('');
@@ -18,7 +22,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
         menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
         corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false,
-        reportar_mermas: false // 👈 NUEVO PERMISO
+        reportar_mermas: false
     });
 
     const plantillaVisible = usuariosDB.filter(u => {
@@ -38,6 +42,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         setEditandoUsuarioId(null);
         setUNombre(''); setUUser(''); setUPass(''); setUTelefono(''); setUPin('');
         setURol('cajero');
+        setMostrarPassForm(false); // Resetear visibilidad en el form
         setUPermisos({
             pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
             menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
@@ -71,17 +76,16 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             setUPin('');
         }
 
-        // Pre-cargamos llaves de pantalla según el rol
         if (nuevoRol === 'admin') {
             perms.pantalla_admin = true; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = true;
             perms.menu = true; perms.inventario = true; perms.catalogos = true; perms.promociones = true; perms.mesas = true;
-            perms.reportar_mermas = true; // 👈
+            perms.reportar_mermas = true;
         } else if (nuevoRol === 'gerente') {
             perms.pantalla_admin = false; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
-            perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true; // 👈
+            perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true;
         } else if (nuevoRol === 'jefe') {
             perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
-            perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true; // 👈
+            perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true;
         } else if (nuevoRol === 'cajero') {
             perms.pantalla_caja = true; perms.corte_caja = true;
         } else if (nuevoRol === 'cocina') {
@@ -153,6 +157,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         setURol(usuario.rol);
         setUTelefono(usuario.telefono || '');
         setUPin(usuario.pin || '');
+        setMostrarPassForm(false); // Reiniciamos el ojito en el formulario
         setUPermisos(typeof usuario.permisos === 'string' ? JSON.parse(usuario.permisos) : (usuario.permisos || {}));
     };
 
@@ -166,6 +171,13 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                 }
             } catch(e) {}
         });
+    };
+
+    const toggleContrasenaLista = (id) => {
+        setPasswordsVisibles(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
     };
 
     const showPantallasBlock = ['admin', 'gerente', 'jefe'].includes(uRol);
@@ -197,9 +209,26 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                         <input type="text" required value={uUser} onChange={e => setUUser(e.target.value.replace(/\s+/g, '').toLowerCase())} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700" placeholder="juan_perez" />
                     </div>
 
+                    {/* 👇 CAMBIO: Agregado ojito para la contraseña en el formulario */}
                     <div>
                         <label className="text-xs font-bold text-slate-400 block mb-1">Contraseña de Acceso {editandoUsuarioId ? '(Dejar en blanco para no cambiar)' : '*'}</label>
-                        <input type="password" required={!editandoUsuarioId} value={uPass} onChange={e => setUPass(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700" placeholder="••••" />
+                        <div className="relative">
+                            <input 
+                                type={mostrarPassForm ? "text" : "password"} 
+                                required={!editandoUsuarioId} 
+                                value={uPass} 
+                                onChange={e => setUPass(e.target.value)} 
+                                className="w-full p-3 pr-10 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700" 
+                                placeholder="••••" 
+                            />
+                            <button 
+                                type="button" 
+                                onClick={() => setMostrarPassForm(!mostrarPassForm)} 
+                                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-blue-500 transition-colors focus:outline-none"
+                            >
+                                {mostrarPassForm ? <EyeOff size={18} /> : <Eye size={18} />}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
@@ -231,12 +260,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                         </select>
                     </div>
 
-                    {/* BLOQUE: ACCESO A PANTALLAS (La llave de las puertas) */}
+                    {/* BLOQUE: ACCESO A PANTALLAS */}
                     {showPantallasBlock && (
                         <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 space-y-3 animate-in fade-in">
                             <p className="text-xs font-black text-indigo-600 mb-2 uppercase tracking-widest">Acceso a Pantallas</p>
                             
-                            {/* Jefe de turno no puede ver la opción de acceder al panel Admin */}
                             {['admin', 'gerente'].includes(uRol) && (
                                 <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer">
                                     <input type="checkbox" checked={uPermisos.pantalla_admin === true} onChange={e => setUPermisos({...uPermisos, pantalla_admin: e.target.checked})} className="accent-indigo-600 w-5 h-5" />
@@ -277,7 +305,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                                 <input type="checkbox" checked={uPermisos.compras_rapidas === true} onChange={e => setUPermisos({...uPermisos, compras_rapidas: e.target.checked})} className="accent-emerald-500 w-5 h-5" />
                                 Puede registrar Compras Rápidas
                             </label>
-                            {/* 👇 FIX APLICADO: Nuevo permiso de control de mermas */}
                             <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer border-t border-blue-200/50 pt-2">
                                 <input type="checkbox" checked={uPermisos.reportar_mermas === true} onChange={e => setUPermisos({...uPermisos, reportar_mermas: e.target.checked})} className="accent-red-600 w-5 h-5" />
                                 Puede Reportar Mermas de Inventario
@@ -285,7 +312,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                         </div>
                     )}
 
-                    {/* PERMISOS DE ACCESO WEB (MÓDULOS DEL ADMIN) */}
+                    {/* PERMISOS DE ACCESO WEB */}
                     {showWebBlock && (
                         <div className="bg-orange-50 p-4 rounded-xl border border-orange-200 space-y-3 animate-in fade-in">
                             <p className="text-xs font-black text-orange-600 mb-2 uppercase tracking-widest">Permisos de Módulos (Acceso Web)</p>
@@ -390,15 +417,32 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                                             {u.rol === 'tv' ? '📺 TV KDS' : u.rol === 'ayudante_cocina' ? '🔪 Ayudante' : u.rol === 'repartidor' ? '🛵 Repartidor' : u.rol === 'jefe' ? '⭐ Jefe de Turno' : u.rol === 'gerente' ? '👔 Gerente' : u.rol === 'admin' ? '👑 Admin' : u.rol}
                                         </span>
                                     </p>
-                                    <div className="mt-1 space-y-0.5 flex items-center gap-4 flex-wrap">
+                                    <div className="mt-1 space-y-1 flex items-center gap-x-4 gap-y-1 flex-wrap">
                                         <p className="text-sm text-slate-600 font-bold">Usuario: <span className="text-slate-800">{u.usuario}</span></p>
+                                        
+                                        {/* 👇 CAMBIO: Agregado ojito y campo de contraseña en la lista de empleados */}
+                                        <div className="flex items-center gap-1.5 text-sm text-slate-600 font-bold">
+                                            Pass: 
+                                            <span className="text-slate-800 font-black tracking-widest bg-slate-200/50 px-2 py-0.5 rounded flex items-center justify-center min-w-[40px]">
+                                                {passwordsVisibles[u.id] ? (u.password || '••••') : '••••'}
+                                            </span>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => toggleContrasenaLista(u.id)}
+                                                className="text-slate-400 hover:text-blue-500 transition-colors focus:outline-none ml-0.5"
+                                                title="Mostrar/Ocultar Contraseña"
+                                            >
+                                                {passwordsVisibles[u.id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            </button>
+                                        </div>
+
                                         <p className="text-sm text-slate-600 font-bold">Tel: <span className="text-blue-600 font-black">{u.telefono || '--'}</span></p>
                                         {u.pin && <p className="text-sm text-slate-600 font-bold">PIN: <span className="text-emerald-600 font-black tracking-widest">{u.pin}</span></p>}
                                     </div>
                                 </div>
                                 
                                 <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                                    {/* Botón: Forzar Cierre de Sesión (Icono de puerta salida) */}
+                                    {/* Botón: Forzar Cierre de Sesión */}
                                     {u.dispositivo_id && u.rol !== 'tv' && (
                                         <button onClick={() => forzarLogoutRemoto(u.id)} className="p-3 text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-xl transition border border-red-100 shadow-sm" title="Cerrar sesión activa remota">
                                             <span className="text-xl leading-none">🚪</span>
