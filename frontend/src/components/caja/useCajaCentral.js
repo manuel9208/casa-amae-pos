@@ -190,17 +190,28 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setFondoCaja(m);
     };
 
-    // 👇 AQUÍ ESTÁ LA MEJORA DEL TICKET EN PANTALLA
+    // 👇 AQUÍ ESTÁ LA MEJORA DEL TICKET EN PANTALLA (CORRECCIÓN PARA CELULARES Y PC)
     const lanzarImpresion = (pedido) => {
         setTicketImprimir(pedido);
-        // 1. Damos 2 segundos para que la animación termine y el cajero vea el ticket en pantalla
+        
+        // 1. Damos 1.5 segundos para que la animación visual se procese
         setTimeout(() => { 
             window.print(); 
-            // 2. Una vez que el usuario cierra el diálogo de impresión, damos medio segundo de gracia y lo cerramos
-            setTimeout(() => {
+            
+            // 2. CORRECCIÓN MÓVIL: En celular, window.print() no pausa el sistema.
+            // Si borramos el ticket muy rápido, el celular imprime una hoja en blanco.
+            const handleAfterPrint = () => {
                 setTicketImprimir(null);
-            }, 500);
-        }, 2000);
+                window.removeEventListener('afterprint', handleAfterPrint);
+            };
+
+            // El navegador avisará cuando el diálogo de impresión se cierre o termine
+            window.addEventListener('afterprint', handleAfterPrint);
+
+            // Fallback de 10 segundos en caso de que el sistema operativo móvil bloquee el evento
+            setTimeout(handleAfterPrint, 10000);
+
+        }, 1500);
     };
 
     const toggleEstadoNegocio = async () => {
