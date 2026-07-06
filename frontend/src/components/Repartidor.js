@@ -1,79 +1,72 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MapPin, Phone, ShoppingBag, LogOut, CheckCircle2, Navigation, Bell, Package, Layers, MessageCircle, Banknote } from 'lucide-react';  
+import { MapPin, Phone, CheckCircle2, Package, AlertTriangle, Navigation, LogOut, Layers, Banknote, ShoppingBag, Bell, MessageCircle, CheckCircle } from 'lucide-react';  
 
 const Repartidor = ({ user, onLogout }) => {
-  const [tabActiva, setTabActiva] = useState('disponibles');
   const [pedidosPool, setPedidosPool] = useState([]);
   const [viajeActivo, setViajeActivo] = useState(null);
+  const [tabActiva, setTabActiva] = useState('disponibles'); // 'disponibles' | 'mi_ruta'
   const [cargando, setCargando] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);  
-  const [confirmarEntregaId, setConfirmarEntregaId] = useState(null);  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmarEntregaId, setConfirmarEntregaId] = useState(null);
+
+  // ESTADO PARA ALERTAS UI BONITAS
+  const [alertaUI, setAlertaUI] = useState(null);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
-  const getCarrito = (p) => {
-    if (!p || !p.carrito) return [];
-    return typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito;
-  };  
+  // EFECTO PARA AUTO-CERRAR LA ALERTA A LOS 3.5 SEGUNDOS
+  useEffect(() => {
+    if (alertaUI) {
+      const timer = setTimeout(() => setAlertaUI(null), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [alertaUI]);
 
-  const getTelefonoExtraido = (p) => {
-    let tel = p.cliente_telefono || p.cliente?.telefono || p.telefono;
-    if (!tel && typeof p.direccion_entrega === 'string') {
-      if (p.direccion_entrega.includes('TEL:')) {
-        tel = p.direccion_entrega.split('TEL:')[1].split('|')[0].trim();
-      } else if (p.direccion_entrega.includes('CONTACTO:')) {
-        tel = p.direccion_entrega.split('CONTACTO:')[1].split('|')[0].trim();
-      }
-    }
-    if (tel) {
-      const t = String(tel).replace(/\D/g, '').trim();
-      if (t.length >= 10) return t;
-    }
-    return null;
-  };  
-
-  const getInstruccionCobro = (direccionStr) => {
-    if (!direccionStr) return null;
-    const match = direccionStr.match(/\[(.*?)\]/);
-    if (match && (match[1].includes('LLEVAR CAMBIO') || match[1].includes('PAGO PENDIENTE'))) {
-      return match[1];
-    }
-    return null;
+  // FUNCIÓN MAESTRA PARA DISPARAR NOTIFICACIONES
+  const mostrarAlerta = (mensaje, tipo = 'success') => {
+    setAlertaUI({ mensaje, tipo });
   };
 
-  // 👇 FIX APLICADO: Función para extraer inteligentemente el nombre oculto del Invitado
-  const getNombreExtraido = (p) => {
-    let nombre = p.cliente_nombre || 'Invitado';
-    if (p.direccion_entrega && p.direccion_entrega.includes('A NOMBRE DE:')) {
-      const match = p.direccion_entrega.match(/A NOMBRE DE:\s*([^|]+)/i);
+  const getTelefonoExtraido = (pedido) => {
+    if (pedido.cliente_telefono) return pedido.cliente_telefono;
+    if (pedido.direccion_entrega) {
+      if (pedido.direccion_entrega.includes('TEL:')) return pedido.direccion_entrega.split('TEL:')[1].split('|')[0].trim();
+      if (pedido.direccion_entrega.includes('CONTACTO:')) return pedido.direccion_entrega.split('CONTACTO:')[1].split('|')[0].trim();
+    }
+    return null;
+  };  
+
+  const getNombreExtraido = (pedido) => {
+    let clienteExtraido = pedido.cliente_nombre || 'Invitado';
+    if (pedido.direccion_entrega && pedido.direccion_entrega.includes('A NOMBRE DE:')) {
+      const match = pedido.direccion_entrega.match(/A NOMBRE DE:\s*([^|]+)/i);
       if (match && match[1]) {
-        nombre = match[1].trim();
+        clienteExtraido = match[1].trim();
       }
     }
-    return nombre;
+    return clienteExtraido;
   };
 
-  const getDireccionLimpia = (direccionStr) => {
-    let dir = direccionStr || '';
-    
-    // 1. Quitar etiquetas de cobro con corchetes
-    dir = dir.replace(/\[.*?\]/g, '').trim();
+  const getCarrito = (pedido) => {
+    if (Array.isArray(pedido.carrito)) return pedido.carrito;
+    try { return JSON.parse(pedido.carrito) || []; } catch(e) { return []; }
+  };  
 
+  const getInstruccionCobro = (direccionBruta) => {
+    if (!direccionBruta) return null;
+    const match = direccionBruta.match(/\[(.*?)\]/);
+    return match ? match[1] : null;
+  };  
+
+  const getDireccionLimpia = (direccionBruta) => {
+    if (!direccionBruta) return 'Dirección no especificada';
+    let dir = direccionBruta;
     if (dir.includes('|')) {
-      // 2. Separar por plecas y filtrar partes que sean metadatos
-      const partes = dir.split('|').map(p => p.trim());
-      const partesDireccion = partes.filter(p => 
-        !p.toUpperCase().includes('A NOMBRE DE:') && 
-        !p.toUpperCase().includes('TEL:') && 
-        !p.toUpperCase().includes('PEDIDO POR TELÉFONO')
-      );
-      dir = partesDireccion.length > 0 ? partesDireccion.join(', ') : dir;
-    } else {
-      // 3. Fallback tradicional por si no hay plecas
-      dir = dir.replace(/TEL:\s*\d*/gi, '')
-               .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
-               .replace(/A NOMBRE DE:\s*[^|]*/gi, '')
-               .trim();
+      dir = dir.split('|')[0]
+        .replace(/TEL:\s*\d*/gi, '')
+        .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+        .replace(/A NOMBRE DE:\s*[^|]*/gi, '')
+        .trim();
     }
     return dir || 'Dirección no especificada';
   };  
@@ -119,12 +112,13 @@ const Repartidor = ({ user, onLogout }) => {
       });
       if (res.ok) {
         await cargarDatosLogistica();
+        mostrarAlerta("¡Orden asignada con éxito! Conduce con cuidado.", "success");
       } else {
         const err = await res.json();
-        alert(err.error || "No se pudo tomar la orden. Quizá otro repartidor la tomó primero.");
+        mostrarAlerta(err.error || "No se pudo tomar la orden. Quizá otro repartidor la tomó primero.", "error");
       }
     } catch (e) {
-      alert("Error de red al intentar asignar la orden.");
+      mostrarAlerta("Error de red al intentar asignar la orden.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -137,9 +131,9 @@ const Repartidor = ({ user, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alerta_cocina: `[REPARTIDOR] El repartidor ${user.nombre} está afuera del domicilio.` })
       });
-      alert("Notificación de llegada enviada a la sucursal con éxito.");
+      mostrarAlerta("Aviso enviado a la sucursal.", "success");
     } catch (e) {
-      console.log("Notificación falló silenciosamente.");
+      mostrarAlerta("No se pudo conectar con la sucursal.", "error");
     }
   };  
 
@@ -150,11 +144,11 @@ const Repartidor = ({ user, onLogout }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notificar_cliente: true })
       });
-      alert("Notificación enviada al celular del cliente con éxito.");
+      mostrarAlerta("El cliente ha sido notificado.", "success");
     } catch (e) {
-      console.log("Notificación push falló.");
+      mostrarAlerta("No se pudo notificar al cliente.", "error");
     }
-  };
+  };  
 
   const finalizarEntrega = async (pedidoId) => {
     setIsSubmitting(true);
@@ -167,9 +161,10 @@ const Repartidor = ({ user, onLogout }) => {
         setTabActiva('disponibles');
         setConfirmarEntregaId(null);
         await cargarDatosLogistica();
+        mostrarAlerta("¡Entrega finalizada con éxito!", "success");
       }
     } catch (e) {
-      alert("Error de conexión al cerrar la entrega.");
+      mostrarAlerta("Error de conexión al cerrar la entrega.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -185,7 +180,20 @@ const Repartidor = ({ user, onLogout }) => {
   const esDeuda = viajeActivo && ['Pendiente', 'Por Cobrar'].includes(viajeActivo.metodo_pago);  
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24 relative">  
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans pb-24 relative">
+      
+      {/* RENDERIZADO DEL TOAST FLOTANTE ESTILO APPLE */}
+      {alertaUI && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[999] animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-sm">
+          <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl backdrop-blur-md border ${
+            alertaUI.tipo === 'success' ? 'bg-emerald-500/90 border-emerald-400 text-white shadow-emerald-500/20' : 'bg-red-500/90 border-red-400 text-white shadow-red-500/20'
+          }`}>
+            {alertaUI.tipo === 'success' ? <CheckCircle2 size={24} className="shrink-0" /> : <AlertTriangle size={24} className="shrink-0" />}
+            <p className="font-bold text-sm tracking-wide leading-tight">{alertaUI.mensaje}</p>
+          </div>
+        </div>
+      )}
+
       {/* CABEZAL TÁCTIL */}
       <div className="bg-slate-900 border-b border-slate-800 p-5 sticky top-0 z-40 flex justify-between items-center shadow-xl">
         <div className="flex items-center gap-3">
@@ -232,7 +240,7 @@ const Repartidor = ({ user, onLogout }) => {
               <div className="bg-amber-950/40 border border-amber-500/40 p-4 rounded-2xl text-amber-300 font-bold text-xs text-center uppercase tracking-wider mb-2">
                 ⚠️ Tienes un viaje en progreso. Termina tu ruta actual para poder tomar otro pedido.
               </div>
-            )}  
+            )}
             {pedidosPool.map(p => {
               const instruccionPool = getInstruccionCobro(p.direccion_entrega);
               return (
@@ -245,20 +253,19 @@ const Repartidor = ({ user, onLogout }) => {
                     <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-blue-950 text-blue-400 border border-blue-800'}`}>
                       💵 Pago: {p.metodo_pago}
                     </span>
-                  </div>  
+                  </div>
                   <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
                     <div>
                       <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1"><MapPin size={10}/> Destino de Entrega</p>
                       <p className="text-sm font-bold text-slate-200">{getDireccionLimpia(p.direccion_entrega)}</p>
                     </div>
-                    {/* Badge especial para que el repartidor vea el cambio antes de tomarlo */}
                     {instruccionPool && (
                       <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg flex items-center gap-1.5 mt-2">
                         <Banknote size={12} className="text-amber-400 shrink-0" />
                         <p className="text-[10px] font-black text-amber-400 uppercase tracking-wider">{instruccionPool}</p>
                       </div>
                     )}
-                  </div>  
+                  </div>
                   <button
                     disabled={!!viajeActivo || isSubmitting}
                     onClick={() => tomarPedido(p.id)}
@@ -268,7 +275,7 @@ const Repartidor = ({ user, onLogout }) => {
                   </button>
                 </div>
               );
-            })}  
+            })}
             {pedidosPool.length === 0 && (
               <div className="text-center py-16 bg-slate-900 rounded-3xl border border-slate-800 border-dashed text-slate-500 font-bold text-sm">
                 <Package size={40} className="mx-auto mb-2 opacity-30"/>
@@ -295,13 +302,12 @@ const Repartidor = ({ user, onLogout }) => {
                     </p>
                   </div>
                 </div>  
-                
+
                 {/* Cliente y Contacto de WhatsApp */}
                 <div className="flex justify-between items-center bg-slate-950 p-4 rounded-2xl border border-slate-800">
                   <div>
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1"><Phone size={10}/> Destinatario</p>
-                    {/* 👇 FIX APLICADO: SE MUESTRA EL NOMBRE EXTRAÍDO EN LUGAR DE INVITADO */}
-                    <p className="text-base font-black text-slate-200 mt-0.5">{getNombreExtraido(viajeActivo)}</p>  
+                    <p className="text-base font-black text-slate-200 mt-0.5">{getNombreExtraido(viajeActivo)}</p>
                     {getTelefonoExtraido(viajeActivo) && (
                       <a
                         href={`https://wa.me/52${getTelefonoExtraido(viajeActivo)}`}
@@ -312,7 +318,7 @@ const Repartidor = ({ user, onLogout }) => {
                         <MessageCircle size={14} /> {getTelefonoExtraido(viajeActivo)}
                       </a>
                     )}
-                  </div>  
+                  </div>
                   {getTelefonoExtraido(viajeActivo) && (
                     <div className="flex gap-2">
                       <a href={`tel:${getTelefonoExtraido(viajeActivo)}`} className="bg-slate-800 hover:bg-slate-700 text-white p-3.5 rounded-xl transition border border-slate-700 active:scale-95" title="Llamar">
@@ -324,14 +330,13 @@ const Repartidor = ({ user, onLogout }) => {
                     </div>
                   )}
                 </div>  
-                
+
                 {/* Dirección y Botón de Mapa */}
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                   <div>
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1"><MapPin size={10}/> Dirección de Envío</p>
                     <p className="text-sm font-bold text-slate-300 mt-1 leading-snug">{getDireccionLimpia(viajeActivo.direccion_entrega)}</p>
-                  </div>
-
+                  </div>  
                   {/* INSTRUCCIÓN DE COBRO SEPARADA (ESTILO ALERTA) */}
                   {getInstruccionCobro(viajeActivo.direccion_entrega) && (
                     <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl flex items-start gap-2">
@@ -340,8 +345,7 @@ const Repartidor = ({ user, onLogout }) => {
                         {getInstruccionCobro(viajeActivo.direccion_entrega)}
                       </p>
                     </div>
-                  )}
-
+                  )}  
                   <button
                     onClick={() => abrirMapaOriginal(viajeActivo.direccion_entrega)}
                     className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs rounded-xl transition border border-slate-700 flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95 shadow-sm"
@@ -349,7 +353,7 @@ const Repartidor = ({ user, onLogout }) => {
                     <Navigation size={14} className="text-blue-400"/> Abrir en Google Maps
                   </button>
                 </div>  
-                
+
                 {/* Desglose de qué lleva */}
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
                   <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1"><ShoppingBag size={12}/> Contenido del Pedido</p>
@@ -362,7 +366,7 @@ const Repartidor = ({ user, onLogout }) => {
                     ))}
                   </div>
                 </div>  
-                
+
                 {/* Botones separados de Alertas al estilo Apple */}
                 <div className="flex gap-3">
                   <button
@@ -378,7 +382,7 @@ const Repartidor = ({ user, onLogout }) => {
                     <MessageCircle size={18}/> <span>Avisar al Cliente</span>
                   </button>
                 </div>  
-                
+
                 {/* Botón Maestro de Cierre */}
                 <button
                   disabled={isSubmitting}
@@ -398,33 +402,31 @@ const Repartidor = ({ user, onLogout }) => {
         )}
       </div>  
 
-      {/* MODAL ELEGANTE DE CONFIRMACIÓN */}
+      {/* MODAL ELEGANTE DE CONFIRMACIÓN DE ENTREGA */}
       {confirmarEntregaId && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-in fade-in">
           <div className="bg-slate-900 border border-slate-700 p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95">
             <div className="mx-auto bg-emerald-500/20 text-emerald-400 w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner border border-emerald-500/30">
-              <CheckCircle2 size={40} />
+              <CheckCircle size={40} />
             </div>
-            <h2 className="text-2xl font-black text-white mb-2 tracking-tight">Confirmar Entrega</h2>
+            <h3 className="text-2xl font-black text-white mb-2 tracking-tight">Confirmar Entrega</h3>
             <p className="text-slate-400 font-medium mb-8 text-sm">
-              {['Pendiente', 'Por Cobrar'].includes(viajeActivo?.metodo_pago)
-                ? '¿Confirmas que la orden ya fue entregada y cobrada con éxito al cliente?'
-                : '¿Confirmas que la orden ya fue entregada con éxito al cliente? (Esta orden ya estaba pagada).'}
-            </p>  
+              ¿Estás seguro de marcar esta orden como entregada? Asegúrate de haber recibido el dinero si era pago en efectivo.
+            </p>
             <div className="flex gap-4">
               <button
-                onClick={() => setConfirmarEntregaId(null)}
                 disabled={isSubmitting}
-                className="flex-1 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-black rounded-2xl transition active:scale-95 disabled:opacity-50 border border-slate-700"
+                onClick={() => setConfirmarEntregaId(null)}
+                className="flex-1 py-4 bg-slate-800 text-slate-300 font-black rounded-2xl hover:bg-slate-700 transition active:scale-95 disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
-                onClick={() => finalizarEntrega(confirmarEntregaId)}
                 disabled={isSubmitting}
-                className="flex-[2] py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50"
+                onClick={() => finalizarEntrega(confirmarEntregaId)}
+                className="flex-1 py-4 bg-emerald-500 text-white font-black rounded-2xl hover:bg-emerald-400 shadow-lg shadow-emerald-500/30 transition active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {isSubmitting ? 'Cerrando...' : 'Sí, Entregada'}
+                {isSubmitting ? 'Cerrando...' : 'Sí, Entregar'}
               </button>
             </div>
           </div>

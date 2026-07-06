@@ -9,7 +9,7 @@ import NotificacionesWA from './configuracion/NotificacionesWA';
 import GestorSeguridad from './configuracion/GestorSeguridad';
 import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
 import GestorAsistencias from './configuracion/GestorAsistencias';
-import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta'; // 👈 NUEVO MÓDULO IMPORTADO
+import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta'; 
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [logoBlob, setLogoBlob] = useState(null);
@@ -18,7 +18,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
   const [tvBlob3, setTvBlob3] = useState(null);
   const [tvVideoBlob, setTvVideoBlob] = useState(null);
   const [tarifasEnvio, setTarifasEnvio] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);  
 
   useEffect(() => {
     if (configGlobal.tarifas_envio) {
@@ -29,7 +29,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         setTarifasEnvio([]);
       }
     }
-  }, [configGlobal.tarifas_envio]);
+  }, [configGlobal.tarifas_envio]);  
 
   const getImageUrl = (url) => {
     if (!url) return '';
@@ -39,7 +39,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     }
     if (url.startsWith('http')) return url;
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
-  };
+  };  
 
   const parseArraySeguro = (val) => {
     if (Array.isArray(val)) return val;
@@ -47,18 +47,20 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       try { return JSON.parse(val || '[]'); } catch(e) { return []; }
     }
     return [];
-  };
+  };  
 
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
     if(isSubmitting) return;
-    setIsSubmitting(true);  
+    setIsSubmitting(true);
     const formData = new FormData();  
 
+    // 🛡️ Aislamos estos datos para inyectarlos forzosamente abajo y evitar que se pierdan
     const llavesManuales = [
       'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos',
       'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
-      'cocina_en_caja_activa', 'horarios_semana', 'politicas_sustitucion' // 👈 INYECTADO AQUÍ
+      'cocina_en_caja_activa', 'horarios_semana', 'politicas_sustitucion',
+      'ticket_impresion_activa', 'ticket_modo_impresion', 'ticket_domicilio', 'ticket_mensaje_final', 'ticket_firma_sistema', 'ticket_impresora_ip', 'ticket_impresora_puerto'
     ];  
 
     Object.keys(configGlobal).forEach(key => {
@@ -69,26 +71,36 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       }
     });  
 
-    formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));  
+    formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
+    
     const isBloqueoActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
     const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';  
-
+    
     formData.append('bloqueo_caja_activo', isBloqueoActivo ? 'true' : 'false');
     formData.append('bloqueo_caja_segundos', configGlobal.bloqueo_caja_segundos || 30);
-    formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');  
+    formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');
     formData.append('comedor_limite', configGlobal.comedor_limite || 'ambos');
     formData.append('comedor_clasif_bebidas', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_bebidas)));
     formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));  
-
+    
     let horSem = configGlobal.horarios_semana || '{}';
     if (horSem === '') horSem = '{}';
     formData.append('horarios_semana', typeof horSem === 'string' ? horSem : JSON.stringify(horSem));  
-
-    // 👇 INYECCIÓN DE PARSEO PARA LA NUEVA POLÍTICA
+    
     let polSustitucion = configGlobal.politicas_sustitucion || '{}';
     if (polSustitucion === '') polSustitucion = '{}';
-    formData.append('politicas_sustitucion', typeof polSustitucion === 'string' ? polSustitucion : JSON.stringify(polSustitucion));
+    formData.append('politicas_sustitucion', typeof polSustitucion === 'string' ? polSustitucion : JSON.stringify(polSustitucion));  
 
+    // 👇 INYECCIÓN FORZOSA: Esto arregla el error de que el checkbox no se guardaba
+    const isTicketActivo = configGlobal.ticket_impresion_activa === true || configGlobal.ticket_impresion_activa === 'true';
+    formData.append('ticket_impresion_activa', isTicketActivo ? 'true' : 'false');
+    formData.append('ticket_modo_impresion', configGlobal.ticket_modo_impresion || 'pdf');
+    formData.append('ticket_domicilio', configGlobal.ticket_domicilio || '');
+    formData.append('ticket_mensaje_final', configGlobal.ticket_mensaje_final || '');
+    formData.append('ticket_firma_sistema', configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS');
+    formData.append('ticket_impresora_ip', configGlobal.ticket_impresora_ip || '192.168.1.100');
+    formData.append('ticket_impresora_puerto', configGlobal.ticket_impresora_puerto || '9100');
+    
     if (logoBlob) formData.append('logo', logoBlob);
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
     if (tvBlob2) formData.append('tv_imagen_2', tvBlob2);
@@ -108,7 +120,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       showAlert("Error", "Error de conexión con el servidor.", "error");
     }
     setIsSubmitting(false);
-  };
+  };  
 
   const restablecerBranding = () => {
     showConfirm("Restablecer Diseño", "¿Deseas borrar toda la configuración visual y volver a los valores de fábrica?", () => {
@@ -123,36 +135,34 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         mensaje_cierre: 'El negocio se encuentra cerrado temporalmente.',
         ticket_impresion_activa: false, ticket_modo_impresion: 'pdf', ticket_domicilio: '',
         ticket_mensaje_final: '¡Gracias por su preferencia!', ticket_firma_sistema: 'Powered by MiSistemaPOS',
+        ticket_impresora_ip: '192.168.1.100', ticket_impresora_puerto: '9100',
         mensaje_envio: 'El costo de envío se calculará según tu zona.',
         bloqueo_caja_activo: false, bloqueo_caja_segundos: 30,
         cocina_en_caja_activa: false,
         comedor_limite: 'ambos', comedor_clasif_bebidas: '[]', comedor_clasif_platillos: '[]',
-        politicas_sustitucion: { activa: false, modalidad: 'proporcional', tarifa_fija: 0 } // 👈 RESTABLECIMIENTO
+        politicas_sustitucion: { activa: false, modalidad: 'proporcional', tarifa_fija: 0 } 
       });
       setTarifasEnvio([]);
       setTvVideoBlob(null);
       showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
     });
-  };
+  };  
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-8 pb-12 animate-in fade-in px-4">
       <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
       <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
-        <MarcaIdentidad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} logoBlob={logoBlob} setLogoBlob={setLogoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} />
-        
-        <GestorAsistencias configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
-        
-        <GestorSeguridad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
-        
-        {/* 👇 NUEVO PANEL INSERTADO */}
-        <GestorPoliticasVenta configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
-        
+        <MarcaIdentidad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} logoBlob={logoBlob} setLogoBlob={setLogoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} />  
+        <GestorAsistencias configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
+        <GestorSeguridad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
+        <GestorPoliticasVenta configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
         <GestorComedorPersonal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <PagosContacto configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <BrandingGlobal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />
+        
         <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
+        
         <CostosEnvio configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tarifasEnvio={tarifasEnvio} setTarifasEnvio={setTarifasEnvio} isSubmitting={isSubmitting} />
         <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
         
@@ -165,6 +175,6 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       </form>
     </div>
   );
-};
+};  
 
 export default AdminConfiguracion;
