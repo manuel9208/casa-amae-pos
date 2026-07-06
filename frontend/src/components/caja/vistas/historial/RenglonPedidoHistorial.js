@@ -11,7 +11,7 @@ const RenglonPedidoHistorial = ({
   isSubmitting,
   limpiandoMesas
 }) => {
-  const [confirmarAnular, setConfirmarAnular] = useState(false);
+  const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
   let totalArticulos = 0;
   try {
@@ -24,29 +24,26 @@ const RenglonPedidoHistorial = ({
     let telefonoExtraido = '';
     let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
-    // 👇 FIX: Extracción impecable del nombre
     if (dirPura.includes('A NOMBRE DE:')) {
       const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
       if (match && match[1]) {
         clienteExtraido = match[1].trim();
       }
-    }
+    }  
 
     if (dirPura.includes('|')) {
       const partes = dirPura.split('|');
       const parteTel = partes.find(p => p.includes('TEL:'));
-      if (parteTel) telefonoExtraido = parteTel.replace('TEL:', '').trim();
-      
+      if (parteTel) telefonoExtraido = parteTel.replace('TEL:', '').trim();  
       dirPura = partes[0];
-    }
+    }  
 
-    // 👇 FIX: Borrado definitivo de brackets y rastros en la dirección mostrada
     dirPura = dirPura
       .replace(/TEL:\s*\d*/g, '')
       .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, '')
       .replace(/A NOMBRE DE:\s*([^|]+)/i, '')
-      .replace(/\[.*?\]/g, '') 
-      .trim();
+      .replace(/\[.*?\]/g, '')
+      .trim();  
 
     return { direccionLimpia: dirPura, telefono: telefonoExtraido, cliente: clienteExtraido };
   };  
@@ -61,7 +58,9 @@ const RenglonPedidoHistorial = ({
     } catch (e) { return '--:--'; }
   };  
 
-  const esEditable = !['Cancelado', 'Finalizado', 'Entregado', 'Liquidado'].includes(pedido.estado_preparacion);  
+  // 👇 FIX: Solo se permite editar si está estrictamente "En Cola" (Pagado, Pendiente, Por Confirmar)
+  const esEditable = ['Pagado', 'Pendiente', 'Por Confirmar'].includes(pedido.estado_preparacion);
+  
   const esCancelable = !['Cancelado', 'Finalizado', 'Entregado', 'Liquidado'].includes(pedido.estado_preparacion);  
 
   return (
@@ -134,9 +133,8 @@ const RenglonPedidoHistorial = ({
               >
                 <Printer size={18} />
               </button>
-            )}
-            
-            {/* 👇 FIX: Botón Editar Funcionando Perfectamente */}
+            )}  
+
             {esEditable && (
               <button
                 type="button"
@@ -147,9 +145,8 @@ const RenglonPedidoHistorial = ({
               >
                 <Edit size={18} />
               </button>
-            )}
+            )}  
 
-            {/* 👇 FIX: Botón Anular Agregado */}
             {esCancelable && (
               <button
                 type="button"
@@ -163,9 +160,8 @@ const RenglonPedidoHistorial = ({
             )}
           </div>
         </div>
-      </div>
+      </div>  
 
-      {/* 👇 FIX: Modal Confirmación Cancelar desde Historial */}
       {confirmarAnular && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">

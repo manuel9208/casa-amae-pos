@@ -9,9 +9,21 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
     if (modalEditarPedido) {
       setEditConsumo(modalEditarPedido.tipo_consumo || 'Local');
       let dirPura = modalEditarPedido.direccion_entrega || '';
-      if (modalEditarPedido.tipo_consumo === 'Domicilio' && dirPura.includes('|')) {
-        dirPura = dirPura.split('|')[0].trim();
+
+      // 👇 FIX: Limpieza estricta. Eliminamos teléfonos y el tag de "A NOMBRE DE:" para no contaminar el campo.
+      dirPura = dirPura
+        .replace(/TEL:\s*\d*/gi, '')
+        .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+        .replace(/A NOMBRE DE:\s*[^|]+\|?/gi, '')
+        .replace(/\[.*?\]/g, '')
+        .trim();
+
+      // 👇 FIX: Si la orden original era Local o Para Llevar, forzamos que el campo nazca vacío.
+      // Así al hacer clic en Domicilio, la caja de texto estará limpia.
+      if (modalEditarPedido.tipo_consumo === 'Local' || modalEditarPedido.tipo_consumo === 'Para llevar') {
+        dirPura = '';
       }
+
       setEditDireccion(dirPura);
     }
   }, [modalEditarPedido]);  
@@ -34,11 +46,11 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       }
     } else {
       payload.direccion_entrega = '';
-      payload.costo_envio = 0;  
+      payload.costo_envio = 0;
       if (modalEditarPedido.tipo_consumo === 'Domicilio' && Number(modalEditarPedido.costo_envio) > 0) {
         payload.total = Math.max(0, Number(modalEditarPedido.total) - Number(modalEditarPedido.costo_envio));
       }
-    }  
+    }
     guardarEdicionPedido(modalEditarPedido.id, payload);
   };  
 
@@ -70,26 +82,21 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
             <button
               type="button"
               onClick={() => {
-                setModalEditarPedido(null);
+                setModalEditarPedido(null);  
                 
-                // 👇 FIX: Rescate Inteligente del Nombre (Para que el Kiosco no se abra en blanco)
-                let nombreLimpio = modalEditarPedido.cliente_nombre || (modalEditarPedido.cliente ? modalEditarPedido.cliente.nombre : '');
+                let nombreLimpio = modalEditarPedido.cliente_nombre || (modalEditarPedido.cliente ? modalEditarPedido.cliente.nombre : '');  
                 
-                // Si el nombre no venía directo, lo sacamos de la dirección o nota
                 if (!nombreLimpio && modalEditarPedido.direccion_entrega) {
                   const partes = modalEditarPedido.direccion_entrega.split('|').map(x => x.trim());
                   nombreLimpio = partes[0].replace(/TEL:\s*\d*/g, '').replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, 'Pasará a recoger').replace(/A NOMBRE DE:\s*(.*)/g, '$1').trim();
-                }
-
-                // Creamos el cliente simulado para pasarlo al Kiosco
-                const clienteSimulado = nombreLimpio ? { id: modalEditarPedido.cliente_id || null, nombre: nombreLimpio } : null;
-
-                // Inyectamos forzosamente el nombre en la orden para que el Kiosco lo lea
+                }  
+                
+                const clienteSimulado = nombreLimpio ? { id: modalEditarPedido.cliente_id || null, nombre: nombreLimpio } : null;  
+                
                 const ordenCorregida = {
                   ...modalEditarPedido,
                   cliente_nombre: nombreLimpio
-                };
-
+                };  
                 onGoToKiosco(clienteSimulado, ordenCorregida);
               }}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl text-sm shadow-md transition active:scale-95"
