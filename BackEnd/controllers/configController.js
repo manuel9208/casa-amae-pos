@@ -35,20 +35,37 @@ exports.obtenerConfiguracion = async (req, res) => {
       ADD COLUMN IF NOT EXISTS ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
       ADD COLUMN IF NOT EXISTS ticket_impresora_ip VARCHAR(50) DEFAULT '192.168.1.100',
       ADD COLUMN IF NOT EXISTS ticket_impresora_puerto VARCHAR(10) DEFAULT '9100';
-    `);  
+    `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
     if (result.rows.length === 0) {
       await db.query("INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING");
       result = await db.query('SELECT * FROM configuracion WHERE id = 1');
-    }  
+    }
 
     let config = result.rows[0] || {};
+    
+    // Limpiamos nulos
     for (let key in config) {
       if (config[key] === null) {
         config[key] = '';
       }
     }
+
+    // 👇 FIX: INYECTAR PROMOCIONES ACTIVAS AL CONFIG GLOBAL PARA EL POS Y KIOSCO
+    const promoRes = await db.query(`
+      SELECT p.*,
+      t.nombre AS trigger_nombre,
+      o.nombre AS oferta_nombre, o.imagen_url AS oferta_imagen
+      FROM promociones p
+      LEFT JOIN productos t ON p.producto_trigger_id = t.id
+      LEFT JOIN productos o ON p.producto_oferta_id = o.id
+      WHERE p.activo = true
+    `);
+    
+    // Anexamos el arreglo al objeto config que se envía al frontend
+    config.promociones = promoRes.rows;
+
     res.json(config);
   } catch (error) {
     console.error("Error al obtener config:", error);

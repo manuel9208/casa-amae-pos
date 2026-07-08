@@ -3,12 +3,15 @@ import { Gift, AlertCircle } from 'lucide-react';
 import FormularioPromocion from './promociones/FormularioPromocion';
 import ListaPromociones from './promociones/ListaPromociones';
 import GestorCupones from './promociones/GestorCupones';
-import ProgramaLealtad from './promociones/ProgramaLealtad';
+import ProgramaLealtad from './promociones/ProgramaLealtad';  
 
 const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos, configGlobal, setConfigGlobal }) => {
   const [promociones, setPromociones] = useState([]);
   const [clasificaciones, setClasificaciones] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);  
+  
+  // 👇 NUEVO: Estado para saber qué promoción estamos editando
+  const [promoAEditar, setPromoAEditar] = useState(null); 
 
   const cargarDatos = useCallback(async () => {
     try {
@@ -61,6 +64,8 @@ const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos, 
         refrescarDatos={cargarDatos}
         isSubmitting={isSubmitting}
         setIsSubmitting={setIsSubmitting}
+        promoAEditar={promoAEditar} // 👈 Inyectado
+        setPromoAEditar={setPromoAEditar} // 👈 Inyectado
       />  
 
       <ListaPromociones
@@ -70,22 +75,21 @@ const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos, 
         showConfirm={showConfirm}
         refrescarDatos={cargarDatos}
         isSubmitting={isSubmitting}
-      />
+        setPromoAEditar={setPromoAEditar} // 👈 Inyectado
+      />  
 
-      {/* --- MÓDULOS DE MARKETING TRASLADADOS --- */}
-      <GestorCupones 
-        apiUrl={apiUrl} 
-        showAlert={showAlert} 
-        showConfirm={showConfirm} 
-      />
+      <GestorCupones
+        apiUrl={apiUrl}
+        showAlert={showAlert}
+        showConfirm={showConfirm}
+      />  
 
-      <ProgramaLealtad 
-        configGlobal={configGlobal} 
-        setConfigGlobal={setConfigGlobal} 
-        apiUrl={apiUrl} 
-        showAlert={showAlert} 
-      />
-
+      <ProgramaLealtad
+        configGlobal={configGlobal}
+        setConfigGlobal={setConfigGlobal}
+        apiUrl={apiUrl}
+        showAlert={showAlert}
+      />  
     </div>
   );
 };  

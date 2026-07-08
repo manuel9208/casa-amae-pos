@@ -53,3 +53,23 @@ exports.eliminarPromocion = async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar la promoción' });
   }
 };
+
+exports.actualizarPromocion = async (req, res) => {
+  const { id } = req.params;
+  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE promociones SET 
+        nombre = $1, tipo = $2, producto_trigger_id = $3, categoria_trigger = $4, 
+        producto_oferta_id = $5, tipo_descuento = $6, valor_descuento = $7, 
+        dias_aplicables = $8::jsonb, hora_inicio = $9, hora_fin = $10
+      WHERE id = $11 RETURNING *`,
+      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Promoción no encontrada' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error al actualizar promoción:", error);
+    res.status(500).json({ error: 'Error al actualizar la promoción' });
+  }
+};

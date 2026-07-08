@@ -67,7 +67,8 @@ router.post('/cupones/validar', configCtrl.validarCupon);
 router.get('/promociones', promocionCtrl.obtenerPromociones);
 router.post('/promociones', promocionCtrl.crearPromocion);
 router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
-router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);  
+router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
+router.put('/promociones/:id', promocionCtrl.actualizarPromocion);  
 
 // ==========================================
 // NOTIFICACIONES PUSH
