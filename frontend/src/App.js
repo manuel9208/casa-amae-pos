@@ -256,33 +256,18 @@ const App = () => {
   }, [configGlobal]);
 
   // ==========================================
-  // LÓGICAS DE LOGUEO Y REGISTRO
+  // MANEJADORES DE LOGUEO Y REGISTRO
   // ==========================================
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
-    
-    // (Opcional) Si escribes puros ceros, también entra directo a la TV por defecto
     if (telefono === '0000000000') { setVistaTV(true); return; }
-    
     try {
-      const res = await fetch(`${apiUrl}/identificar`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ telefono }) 
-      });
+      const res = await fetch(`${apiUrl}/identificar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ telefono }) });
       const data = await res.json();
-      
       if (res.ok) {
         const payload = data.data || data.datos || data.usuario || data.cliente;
-        
         if (data.tipo === 'empleado') {
-          // 👇 NUEVO: Si el sistema detecta que el empleado es la TV, entra directo.
-          if (payload.rol === 'tv') {
-            iniciarSesionPersistente('empleado', payload, false);
-          } else {
-            // Si es cajero, admin o cocina, sí le pedimos la contraseña (Fase 2)
-            setEmpleadoFase2(payload);
-          }
+          setEmpleadoFase2(payload);
         } else if (data.tipo === 'cliente') {
           iniciarSesionPersistente('cliente', payload);
         } else {
@@ -292,9 +277,7 @@ const App = () => {
         if (res.status === 404) setNecesitaRegistro(true);
         else setError(data.error || 'Error al identificar.');
       }
-    } catch (err) { 
-      setError('Error de conexión al servidor.'); 
-    }
+    } catch (err) { setError('Error de conexión al servidor.'); }
   };
 
   const handleRegistro = async (e) => {
