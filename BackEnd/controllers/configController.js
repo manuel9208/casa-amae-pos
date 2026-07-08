@@ -52,7 +52,88 @@ exports.obtenerConfiguracion = async (req, res) => {
       }
     }
 
-    // 👇 FIX: INYECTAR PROMOCIONES ACTIVAS AL CONFIG GLOBAL PARA EL POS Y KIOSCO
+    // 👇 SOLUCIÓN: LÓGICA MAESTRA ESTRICTA DE AUTO-APERTURA/CIERRE (ZONA HORARIA PACÍFICO)
+    try {
+      if (config.horarios_semana && Object.keys(config.horarios_semana).length > 0) {
+        const horarios = typeof config.horarios_semana === 'string' ? JSON.parse(config.horarios_semana) : config.horarios_semana;
+        const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+        // Obligamos al servidor a calcular el tiempo exactamente en Mazatlán
+        const formatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Mazatlan',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          weekday: 'long'
+        });
+
+        const parts = formatter.formatToParts(new Date());
+        let horaStr = '', minStr = '', diaStrEN = '';
+        parts.forEach(p => {
+          if (p.type === 'hour') horaStr = p.value;
+          if (p.type === 'minute') minStr = p.value;
+          if (p.type === 'weekday') diaStrEN = p.value;
+        });
+
+        if (horaStr === '24') horaStr = '00';
+
+        const dayMap = { 'Sunday': 'Domingo', 'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado' };
+        const diaHoyStr = dayMap[diaStrEN] || dias[new Date().getDay()];
+
+        const minutosActuales = parseInt(horaStr, 10) * 60 + parseInt(minStr, 10);
+        let deberiaEstarAbierto = false;
+
+        // 1. Evaluar si cruzamos la medianoche y seguimos en el turno de AYER
+        const indiceHoy = dias.indexOf(diaHoyStr);
+        const diaAyerStr = dias[(indiceHoy + 6) % 7];
+        const configAyer = horarios[diaAyerStr];
+
+        if (configAyer && configAyer.activo && configAyer.apertura && configAyer.cierre) {
+          const apA = parseInt(configAyer.apertura.split(':')[0], 10) * 60 + parseInt(configAyer.apertura.split(':')[1], 10);
+          const ciA = parseInt(configAyer.cierre.split(':')[0], 10) * 60 + parseInt(configAyer.cierre.split(':')[1], 10);
+          if (ciA <= apA) { // El turno cruzó la medianoche
+            if (minutosActuales < ciA) {
+              deberiaEstarAbierto = true;
+            }
+          }
+        }
+
+        // 2. Evaluar el turno del día de HOY
+        if (!deberiaEstarAbierto) {
+          const configHoy = horarios[diaHoyStr];
+          if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
+            const apH = parseInt(configHoy.apertura.split(':')[0], 10) * 60 + parseInt(configHoy.apertura.split(':')[1], 10);
+            const ciH = parseInt(configHoy.cierre.split(':')[0], 10) * 60 + parseInt(configHoy.cierre.split(':')[1], 10);
+
+            if (ciH <= apH) { // Cruza medianoche (Ej: 18:00 a 02:00)
+              if (minutosActuales >= apH) {
+                deberiaEstarAbierto = true;
+              }
+            } else { // Normal (Ej: 08:00 a 22:00)
+              if (minutosActuales >= apH && minutosActuales < ciH) {
+                deberiaEstarAbierto = true;
+              }
+            }
+          }
+        }
+
+        const estadoActual = (config.negocio_abierto === true || String(config.negocio_abierto) === 'true');
+
+        // Si el estado no coincide con lo que el reloj dicta, lo forzamos a obedecer al reloj
+        if (estadoActual !== deberiaEstarAbierto) {
+          await db.query('UPDATE configuracion SET negocio_abierto = $1 WHERE id = 1', [deberiaEstarAbierto]);
+          config.negocio_abierto = deberiaEstarAbierto;
+          
+          // Emitimos a todos los dispositivos (Caja, Kiosco) para que actúen
+          const io = req.app.get('io');
+          if (io) io.emit('config_actualizada');
+        }
+      }
+    } catch (errHorario) {
+      console.error("Error validando el reloj de apertura:", errHorario);
+    }
+
+    // 👇 INYECCIÓN MANTENIDA: PROMOCIONES ACTIVAS AL CONFIG GLOBAL
     const promoRes = await db.query(`
       SELECT p.*,
       t.nombre AS trigger_nombre,
@@ -62,8 +143,6 @@ exports.obtenerConfiguracion = async (req, res) => {
       LEFT JOIN productos o ON p.producto_oferta_id = o.id
       WHERE p.activo = true
     `);
-    
-    // Anexamos el arreglo al objeto config que se envía al frontend
     config.promociones = promoRes.rows;
 
     res.json(config);
@@ -92,7 +171,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     tv_carrusel_activo, tv_carrusel_segundos,
     negocio_abierto, mensaje_cierre,
     ticket_impresion_activa, ticket_modo_impresion, ticket_domicilio, ticket_mensaje_final, ticket_firma_sistema,
-    ticket_impresora_ip, ticket_impresora_puerto, // 👈 INYECTADOS
+    ticket_impresora_ip, ticket_impresora_puerto, 
     mensaje_envio, tarifas_envio,
     wa_api_activa, wa_api_token, wa_phone_id,
     puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
