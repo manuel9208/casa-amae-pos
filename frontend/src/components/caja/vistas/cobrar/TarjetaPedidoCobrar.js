@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle } from 'lucide-react';  
+import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle, Banknote } from 'lucide-react';  
 
 const TarjetaPedidoCobrar = ({
   pedido,
@@ -13,7 +13,7 @@ const TarjetaPedidoCobrar = ({
   renderBotonEditar,
   renderBotonAgregarExtra
 }) => {
-  const [confirmarAnular, setConfirmarAnular] = useState(false); // 👈 FIX: Estado para modal
+  const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
   const telefono = getTelefonoExtraido(pedido);
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';
@@ -26,7 +26,8 @@ const TarjetaPedidoCobrar = ({
   };
   const estiloConsumo = obtenerEstiloConsumo();  
 
-  // 👇 FIX: Extracción del nombre y limpieza impecable
+  // 👇 NUEVA EXTRACCIÓN INTELIGENTE
+  const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
   let direccionLimpia = pedido.direccion_entrega || '';
   let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
@@ -37,22 +38,21 @@ const TarjetaPedidoCobrar = ({
     }
   }  
 
-  if (direccionLimpia.includes('|')) {
-    direccionLimpia = direccionLimpia.split('|')[0];
-  }  
-
   direccionLimpia = direccionLimpia
+    .replace(/\[.*?\]/g, '')
+    .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
     .replace(/TEL:\s*\d*/gi, '')
     .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
-    .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-    .replace(/\[.*?\]/g, '') // Borra los tags de [LLEVAR CAMBIO DE: ...]
-    .trim();  
+    .split('|')
+    .map(parte => parte.trim())
+    .filter(parte => parte.length > 0)
+    .join(', ')
+    .trim();
 
   return (
     <>
-      <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all hover:shadow-md hover:border-blue-200 animate-in slide-in-from-bottom-4 group">
-        
-        {/* 1. ENCABEZADO DEL PEDIDO */}
+      <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all hover:shadow-md hover:border-blue-200 animate-in slide-in-from-bottom-4 group">  
+        {/* ENCABEZADO */}
         <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
           <div>
             <span className="text-xl md:text-2xl font-black text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">
@@ -71,60 +71,49 @@ const TarjetaPedidoCobrar = ({
           </div>
         </div>  
 
-        {/* 2. DETALLES DEL CLIENTE Y CONTACTO */}
+        {/* DETALLES DEL CLIENTE Y CONTACTO */}
         <div className="space-y-2 mb-6 flex-1">
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
           {telefono && (
-            <a
-              href={`https://wa.me/52${telefono.replace(/\D/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer"
-              title="Abrir chat en WhatsApp"
-            >
+            <a href={`https://wa.me/52${telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
               <Phone size={14} className="text-blue-400" /> {telefono}
             </a>
           )}
           {esDomicilio && direccionLimpia && direccionLimpia !== 'Pendiente de dirección' && (
-            <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">
-              <MapPin size={14} className="text-pink-400 shrink-0 mt-0.5" /> {direccionLimpia}
-            </p>
+            <div className="space-y-2 mt-2">
+              <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">
+                <MapPin size={14} className="text-pink-400 shrink-0 mt-0.5" /> {direccionLimpia}
+              </p>
+              {instruccionCobro && (
+                <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg flex items-center gap-1.5 w-fit">
+                  <Banknote size={12} className="text-amber-500 shrink-0" />
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider">{instruccionCobro}</p>
+                </div>
+              )}
+            </div>
           )}
         </div>  
 
-        {/* 3. BOTONES DE ACCIÓN SECUNDARIOS INYECTADOS */}
+        {/* BOTONES SECUNDARIOS */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           {renderBotonVerDetalle(pedido)}
           {renderBotonEditar(pedido)}
           {renderBotonAgregarExtra(pedido)}
         </div>  
 
-        {/* 4. BOTÓN DE COBRO PRINCIPAL Y CANCELAR */}
+        {/* BOTÓN COBRO / ANULAR */}
         <div className="flex gap-2">
-          {/* 👇 FIX: Botón de Cancelación Integrado */}
-          <button
-            disabled={isSubmitting || limpiandoMesas}
-            onClick={() => setConfirmarAnular(true)}
-            className="w-14 shrink-0 bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all flex justify-center items-center active:scale-95 disabled:opacity-50 border border-red-200"
-            title="Anular Orden"
-          >
+          <button disabled={isSubmitting || limpiandoMesas} onClick={() => setConfirmarAnular(true)} className="w-14 shrink-0 bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all flex justify-center items-center active:scale-95 disabled:opacity-50 border border-red-200" title="Anular Orden">
             <Trash2 size={20} />
-          </button>
-          
-          <button
-            disabled={isSubmitting || limpiandoMesas}
-            onClick={() => setModalPago(pedido)}
-            className="flex-1 bg-slate-800 hover:bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-slate-800/20 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50"
-          >
-            {getIconoPago(pedido.metodo_pago)}
-            Recibir Pago
+          </button>  
+          <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago(pedido)} className="flex-1 bg-slate-800 hover:bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-slate-800/20 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
+            {getIconoPago(pedido.metodo_pago)} Recibir Pago
           </button>
         </div>
-      </div>
+      </div>  
 
-      {/* 👇 FIX: Modal Confirmación Cancelar desde Cobranza */}
       {confirmarAnular && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -136,12 +125,8 @@ const TarjetaPedidoCobrar = ({
               ¿Estás seguro que deseas cancelar y eliminar permanentemente la orden <strong>#{pedido.numero_pedido}</strong>? Esta acción no se puede deshacer.
             </p>
             <div className="flex gap-4">
-              <button onClick={() => setConfirmarAnular(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
-                Volver
-              </button>
-              <button onClick={() => { actualizarEstadoPedido(pedido.id, 'Cancelado'); setConfirmarAnular(false); }} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95">
-                Sí, Anular
-              </button>
+              <button onClick={() => setConfirmarAnular(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">Volver</button>
+              <button onClick={() => { actualizarEstadoPedido(pedido.id, 'Cancelado'); setConfirmarAnular(false); }} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95">Sí, Anular</button>
             </div>
           </div>
         </div>

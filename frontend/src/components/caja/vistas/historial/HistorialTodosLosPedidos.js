@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { ClipboardList } from 'lucide-react';  
-
 import FiltrosSubVistaHistorial from './FiltrosSubVistaHistorial';
 import RenglonPedidoHistorial from './RenglonPedidoHistorial';  
 
@@ -8,11 +7,12 @@ const HistorialTodosLosPedidos = ({
   pedidos,
   lanzarImpresion,
   setModalPuntoVenta,
-  setModalEditarPedido,     // 👈 FIX: Función maestra de Edición
-  actualizarEstadoPedido,   // 👈 FIX: Función maestra de Cancelación
+  setModalEditarPedido,
+  actualizarEstadoPedido,
   configGlobal,
   isSubmitting,
-  limpiandoMesas
+  limpiandoMesas,
+  setModalVerDetalle // 👈 FIX: Inyectamos la orden de ver detalle
 }) => {
   const [subVistaHistorial, setSubVistaHistorial] = useState('Pagado');  
 
@@ -29,7 +29,7 @@ const HistorialTodosLosPedidos = ({
   }, [pedidos, subVistaHistorial]);  
 
   return (
-    <div className="w-full h-full bg-slate-50 text-slate-800 p-4 md:p-6 flex flex-col overflow-hidden">  
+    <div className="w-full h-full bg-slate-50 text-slate-800 p-4 md:p-6 flex flex-col overflow-hidden">
       <FiltrosSubVistaHistorial
         pedidos={pedidos}
         subVistaHistorial={subVistaHistorial}
@@ -54,15 +54,16 @@ const HistorialTodosLosPedidos = ({
               pedido={pedido}
               lanzarImpresion={lanzarImpresion}
               setModalPuntoVenta={setModalPuntoVenta}
-              setModalEditarPedido={setModalEditarPedido}       // 👈 Inyectado al renglón
-              actualizarEstadoPedido={actualizarEstadoPedido}   // 👈 Inyectado al renglón
+              setModalEditarPedido={setModalEditarPedido}
+              actualizarEstadoPedido={actualizarEstadoPedido}
               configGlobal={configGlobal}
               isSubmitting={isSubmitting}
               limpiandoMesas={limpiandoMesas}
+              setModalVerDetalle={setModalVerDetalle} // 👈 FIX: Puente hacia el componente hijo
             />
           ))
         )}
-      </div>  
+      </div>
     </div>
   );
 };  

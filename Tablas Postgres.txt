@@ -367,11 +367,11 @@ CREATE TABLE IF NOT EXISTS mesas (
 CREATE TABLE IF NOT EXISTS cupones (
     id SERIAL PRIMARY KEY,
     codigo VARCHAR(50) UNIQUE NOT NULL,
-    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('porcentaje', 'dinero')),
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('porcentaje', 'dinero', 'fijo')),
     valor DECIMAL(10,2) NOT NULL,
     limite_usos INTEGER DEFAULT NULL,
     usos_actuales INTEGER DEFAULT 0,
-    fecha_expiracion TIMESTAMP NULL,
+    fecha_vencimiento TIMESTAMP NULL, 
     activo BOOLEAN DEFAULT true,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  

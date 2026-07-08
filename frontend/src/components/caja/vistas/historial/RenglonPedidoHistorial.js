@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Printer, Edit, MapPin, Phone, User, Clock, Trash2, AlertTriangle } from 'lucide-react';  
+import { Printer, Edit, MapPin, Phone, User, Clock, Trash2, AlertTriangle, Eye } from 'lucide-react';  
 
 const RenglonPedidoHistorial = ({
   pedido,
@@ -9,7 +9,8 @@ const RenglonPedidoHistorial = ({
   actualizarEstadoPedido,
   configGlobal,
   isSubmitting,
-  limpiandoMesas
+  limpiandoMesas,
+  setModalVerDetalle // 👈 FIX: Recibimos la función para abrir el modal
 }) => {
   const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
@@ -34,7 +35,7 @@ const RenglonPedidoHistorial = ({
     if (dirPura.includes('|')) {
       const partes = dirPura.split('|');
       const parteTel = partes.find(p => p.includes('TEL:'));
-      if (parteTel) telefonoExtraido = parteTel.replace('TEL:', '').trim();  
+      if (parteTel) telefonoExtraido = parteTel.replace('TEL:', '').trim();
       dirPura = partes[0];
     }  
 
@@ -58,14 +59,13 @@ const RenglonPedidoHistorial = ({
     } catch (e) { return '--:--'; }
   };  
 
-  // 👇 FIX: Solo se permite editar si está estrictamente "En Cola" (Pagado, Pendiente, Por Confirmar)
-  const esEditable = ['Pagado', 'Pendiente', 'Por Confirmar'].includes(pedido.estado_preparacion);
-  
+  const esEditable = ['Pagado', 'Pendiente', 'Por Confirmar'].includes(pedido.estado_preparacion);  
   const esCancelable = !['Cancelado', 'Finalizado', 'Entregado', 'Liquidado'].includes(pedido.estado_preparacion);  
 
   return (
     <>
       <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-200 hover:shadow-md hover:border-slate-300 animate-in fade-in">
+        
         {/* COLUMNA 1: IDENTIFICADOR Y TIEMPO */}
         <div className="flex items-center gap-4 min-w-[120px]">
           <div className="bg-slate-900 text-white font-black text-xl md:text-2xl px-4 py-2.5 rounded-2xl shadow-sm tracking-tight shrink-0">
@@ -124,6 +124,17 @@ const RenglonPedidoHistorial = ({
 
           {/* COLUMNA 4: BOTONES DE ACCIÓN */}
           <div className="flex gap-2 shrink-0">
+            {/* 👇 FIX APLICADO: Botón de Ver Detalles (SIEMPRE VISIBLE) */}
+            <button
+              type="button"
+              disabled={isSubmitting || limpiandoMesas}
+              onClick={() => setModalVerDetalle(pedido)}
+              className="p-3 bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 rounded-xl transition-all active:scale-95 border border-emerald-200/60 shadow-sm flex items-center justify-center"
+              title="Ver Detalles de la Orden"
+            >
+              <Eye size={18} />
+            </button>
+
             {configGlobal?.ticket_impresion_activa && (
               <button
                 type="button"

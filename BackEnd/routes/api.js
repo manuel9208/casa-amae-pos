@@ -23,7 +23,8 @@ const repartidorCtrl = require('../controllers/repartidorController');
 const corteCtrl = require('../controllers/corteController');
 const mensajeCtrl = require('../controllers/mensajeController');
 const biometricoCtrl = require('../controllers/biometricoController');
-const mermaCtrl = require('../controllers/mermaController'); 
+const mermaCtrl = require('../controllers/mermaController');  
+const impresionCtrl = require('../controllers/impresionController'); // 🖨️ Controlador Impresión IP
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -149,6 +150,7 @@ router.get('/reparto/disponibles', repartidorCtrl.obtenerPedidosDisponiblesParaR
 router.put('/reparto/tomar/:id', repartidorCtrl.tomarPedidoRepartidor);
 router.put('/reparto/entregar/:id', repartidorCtrl.entregarPedidoRepartidor);
 router.get('/reparto/mis-viajes/:repartidor_id', repartidorCtrl.obtenerMisViajesActivos);
+router.get('/reparto/historial/:repartidor_id', repartidorCtrl.obtenerHistorialRepartidor); // 👈 NUEVA RUTA DEL HISTORIAL
 router.get('/reparto/auditoria/repartidores', repartidorCtrl.obtenerRepartidoresAuditoria);
 router.get('/reparto/auditoria/pedidos/:repartidor_id', repartidorCtrl.obtenerPedidosAuditoria);
 router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);  
@@ -163,7 +165,7 @@ router.post('/insumos', insumoCtrl.crearInsumo);
 router.put('/insumos/:id', insumoCtrl.actualizarInsumo);
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
 router.put('/insumos/:id/reiniciar', insumoCtrl.reiniciarStock);
-router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);  
+router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
@@ -201,5 +203,10 @@ router.get('/cortes/historial', corteCtrl.obtenerHistorial);
 router.get('/iclock/cdata', biometricoCtrl.handshake);
 router.post('/iclock/cdata', express.text({ type: '*/*' }), biometricoCtrl.recibirDatos);
 router.get('/iclock/getrequest', biometricoCtrl.getComandos);  
+
+// ==========================================
+// 🖨️ IMPRESIÓN TCP / RED (TICKETS)
+// ==========================================
+router.post('/imprimir', impresionCtrl.imprimirTicketIP);  
 
 module.exports = router;

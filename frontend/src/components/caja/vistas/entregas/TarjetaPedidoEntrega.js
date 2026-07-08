@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MapPin, Phone, User, Bike, CheckCircle2, DollarSign, XCircle, Utensils, Package, AlertTriangle } from 'lucide-react';  
+import { MapPin, Phone, User, Bike, CheckCircle2, DollarSign, XCircle, Utensils, Package, AlertTriangle, Banknote } from 'lucide-react';  
 
 const TarjetaPedidoEntrega = ({
   pedido,
@@ -13,7 +13,6 @@ const TarjetaPedidoEntrega = ({
   empleadosPOS
 }) => {
   const [repartidorId, setRepartidorId] = useState(pedido.repartidor_id || '');
-  // 👇 FIX: Estado para controlar el modal de anulación
   const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
   const telefono = getTelefonoExtraido(pedido);
@@ -23,7 +22,8 @@ const TarjetaPedidoEntrega = ({
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';
   const esLocal = pedido.tipo_consumo === 'Local';  
 
-  // 👇 FIX EXACTO APLICADO: Lógica homologada para la extracción del nombre del invitado oculto en la dirección
+  // 👇 NUEVA EXTRACCIÓN INTELIGENTE (Igual que el Repartidor)
+  const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
   let direccionLimpia = pedido.direccion_entrega || '';
   let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
@@ -34,19 +34,20 @@ const TarjetaPedidoEntrega = ({
     }
   }  
 
-  if (direccionLimpia.includes('|')) {
-    direccionLimpia = direccionLimpia.split('|')[0];
-  }  
-
   direccionLimpia = direccionLimpia
+    .replace(/\[.*?\]/g, '')
+    .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
     .replace(/TEL:\s*\d*/gi, '')
     .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
-    .replace(/A NOMBRE DE:\s*.*/gi, '')
+    .split('|')
+    .map(parte => parte.trim())
+    .filter(parte => parte.length > 0)
+    .join(', ')
     .trim();
 
   return (
     <>
-      <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all hover:shadow-md animate-in slide-in-from-bottom-4">  
+      <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between transition-all hover:shadow-md animate-in slide-in-from-bottom-4">
         {/* ENCABEZADO */}
         <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
           <div>
@@ -71,22 +72,27 @@ const TarjetaPedidoEntrega = ({
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
+          
           {telefono && (
-            <a
-              href={`https://wa.me/52${telefono.replace(/\D/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer"
-              title="Abrir chat en WhatsApp"
-            >
+            <a href={`https://wa.me/52${telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
               <Phone size={14} className="text-blue-400" /> {telefono}
             </a>
           )}
+          
           {esDomicilio && direccionLimpia && direccionLimpia !== 'Pendiente de dirección' && (
-            <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">
-              <MapPin size={14} className="text-pink-400 shrink-0 mt-0.5" /> {direccionLimpia}
-            </p>
+            <div className="space-y-2 mt-2">
+              <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">
+                <MapPin size={14} className="text-pink-400 shrink-0 mt-0.5" /> {direccionLimpia}
+              </p>
+              {instruccionCobro && (
+                <div className="bg-amber-500/10 border border-amber-500/30 p-2 rounded-lg flex items-center gap-1.5 w-fit">
+                  <Banknote size={12} className="text-amber-500 shrink-0" />
+                  <p className="text-[10px] font-black text-amber-600 uppercase tracking-wider">{instruccionCobro}</p>
+                </div>
+              )}
+            </div>
           )}
+
           {esLocal && pedido.mesa && (
             <p className="text-xs font-bold text-slate-500 flex items-center gap-2">
               <Utensils size={14} className="text-orange-400 shrink-0" /> Mesa: {pedido.mesa}
@@ -123,80 +129,40 @@ const TarjetaPedidoEntrega = ({
 
           {esDomicilio && faltaPagar ? (
             <div className="flex flex-col gap-2">
-              <button
-                disabled={isSubmitting || limpiandoMesas || repartidorId !== ''}
-                onClick={() => setModalPago(pedido)}
-                className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2
-                ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}
-              >
+              <button disabled={isSubmitting || limpiandoMesas || repartidorId !== ''} onClick={() => setModalPago(pedido)} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
                 <DollarSign size={18} /> Cobrar (Pickup/Externo)
               </button>
-              <button
-                disabled={isSubmitting || limpiandoMesas || !repartidorId}
-                onClick={() => actualizarEstadoPedido(pedido.id, 'En Camino', { repartidor_id: repartidorId })}
-                className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2
-                ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}
-              >
+              <button disabled={isSubmitting || limpiandoMesas || !repartidorId} onClick={() => actualizarEstadoPedido(pedido.id, 'En Camino', { repartidor_id: repartidorId })} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}>
                 <Bike size={18} /> Mandar a Repartir
               </button>
             </div>
-          ) : faltaPagar ? (  
-            /* Pedidos Locales / Mostrador sin pagar */
+          ) : faltaPagar ? (
             esLocal && pedido.mesa ? (
               <div className="flex gap-2">
-                <button
-                  disabled={isSubmitting || limpiandoMesas}
-                  // 👇 FIX: Activamos el modal en lugar del window.confirm()
-                  onClick={() => setConfirmarAnular(true)}
-                  className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white p-3 md:p-4 rounded-xl border border-red-200 transition-colors flex items-center justify-center shadow-sm disabled:opacity-50 active:scale-95"
-                  title="Anular Orden"
-                >
+                <button disabled={isSubmitting || limpiandoMesas} onClick={() => setConfirmarAnular(true)} className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white p-3 md:p-4 rounded-xl border border-red-200 transition-colors flex items-center justify-center shadow-sm disabled:opacity-50 active:scale-95" title="Anular Orden">
                   <XCircle size={20} />
                 </button>
-                <button
-                  disabled={isSubmitting || limpiandoMesas}
-                  onClick={() => actualizarEstadoPedido(pedido.id, 'Entregado')}
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-orange-500/30 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50"
-                >
+                <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Entregado')} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-orange-500/30 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
                   <Utensils size={18} /> Servir Mesa
                 </button>
               </div>
             ) : (
-              <button
-                disabled={isSubmitting || limpiandoMesas}
-                onClick={() => setModalPago(pedido)}
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50"
-              >
+              <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago(pedido)} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
                 <DollarSign size={18} /> Cobrar Orden
               </button>
-            )  
+            )
           ) : (
-            /* Pedidos YA PAGADOS */
             esDomicilio ? (
               <div className="flex flex-col gap-2">
-                <button
-                  disabled={isSubmitting || limpiandoMesas || !repartidorId}
-                  onClick={() => actualizarEstadoPedido(pedido.id, 'En Camino', { repartidor_id: repartidorId })}
-                  className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2
-                  ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}
-                >
+                <button disabled={isSubmitting || limpiandoMesas || !repartidorId} onClick={() => actualizarEstadoPedido(pedido.id, 'En Camino', { repartidor_id: repartidorId })} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}>
                   <Bike size={18} /> Despachar (En Camino)
                 </button>
-                <button
-                  disabled={isSubmitting || limpiandoMesas || repartidorId !== ''}
-                  onClick={() => actualizarEstadoPedido(pedido.id, 'Finalizado')}
-                  className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2
-                  ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}
-                >
+                <button disabled={isSubmitting || limpiandoMesas || repartidorId !== ''} onClick={() => actualizarEstadoPedido(pedido.id, 'Finalizado')} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
                   <Package size={18} /> Entregar a Externo
                 </button>
               </div>
             ) : (
-              <button
-                disabled={isSubmitting || limpiandoMesas}
-                onClick={() => actualizarEstadoPedido(pedido.id, 'Entregado')}
-                className={`w-full ${esLocal && pedido.mesa ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30' : 'bg-slate-800 hover:bg-indigo-600 shadow-slate-800/30'} text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50`}
-              >
+              <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Entregado')} className={`w-full ${esLocal && pedido.mesa ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30' : 'bg-slate-800 hover:bg-indigo-600 shadow-slate-800/30'} text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50`}>
                 {esLocal && pedido.mesa ? <Utensils size={18} /> : <CheckCircle2 size={18} />}
                 {esLocal && pedido.mesa ? 'Servir Mesa' : 'Marcar Entregado'}
               </button>
@@ -205,7 +171,7 @@ const TarjetaPedidoEntrega = ({
         </div>
       </div>  
 
-      {/* 👇 FIX APLICADO: Modal de Confirmación Estilizado */}
+      {/* MODAL CANCELAR */}
       {confirmarAnular && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -214,15 +180,11 @@ const TarjetaPedidoEntrega = ({
             </div>
             <h3 className="text-2xl font-black text-slate-800 mb-2">¿Anular Orden?</h3>
             <p className="text-slate-500 font-medium mb-8 leading-relaxed">
-              ¿Estás seguro que deseas cancelar y eliminar permanentemente la orden <strong>#{pedido.numero_pedido}</strong>? Esta acción no se puede deshacer.
+              ¿Estás seguro que deseas cancelar y eliminar permanentemente la orden <strong>#{pedido.numero_pedido}</strong>?
             </p>
             <div className="flex gap-4">
-              <button onClick={() => setConfirmarAnular(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
-                Volver
-              </button>
-              <button onClick={() => { actualizarEstadoPedido(pedido.id, 'Cancelado'); setConfirmarAnular(false); }} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95">
-                Sí, Anular
-              </button>
+              <button onClick={() => setConfirmarAnular(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">Volver</button>
+              <button onClick={() => { actualizarEstadoPedido(pedido.id, 'Cancelado'); setConfirmarAnular(false); }} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95">Sí, Anular</button>
             </div>
           </div>
         </div>
