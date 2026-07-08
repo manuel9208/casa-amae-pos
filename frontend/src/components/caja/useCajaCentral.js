@@ -188,96 +188,101 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setFondoCaja(m);
   };  
 
-  // 👇 AQUÍ ESTÁ LA NUEVA LÓGICA DE LA IMPRESORA SEPARADA
-  // 👇 AQUÍ ESTÁ LA NUEVA LÓGICA DE LA IMPRESORA SILENCIOSA (CON RAWBT PARA TABLETS ANDROID)
+  // 👇 AQUÍ ESTÁ LA MAGIA PROFUNDA DE RAWBT NATIVO
   const lanzarImpresion = async (pedido) => {
     setTicketImprimir(pedido);
     const modoImpresion = configGlobal?.ticket_modo_impresion || 'pdf';
-
+    
     if (modoImpresion === 'impresora') {
       try {
-        // 1. Armamos el diseño del ticket en texto plano con comandos ESC/POS básicos
-        let ticketText = "";
-        ticketText += "\x1B\x61\x01"; // Alineación Centro
-        ticketText += "\x1B\x45\x01"; // Negritas ON
-        ticketText += (configGlobal.nombre_negocio || 'TICKET DE VENTA') + "\n";
-        ticketText += "\x1B\x45\x00"; // Negritas OFF
-
-        if (configGlobal.ticket_domicilio) ticketText += configGlobal.ticket_domicilio + "\n";
-        if (configGlobal.whatsapp) ticketText += "Tel: " + configGlobal.whatsapp + "\n";
-        ticketText += "--------------------------------\n";
-
-        ticketText += "\x1B\x61\x00"; // Alineación Izquierda
-        ticketText += "Ticket: #" + pedido.numero_pedido + "\n";
-        ticketText += "Fecha: " + new Date().toLocaleString() + "\n";
-        ticketText += "Cliente: " + (pedido.cliente_nombre || 'Invitado') + "\n";
-        ticketText += "Tipo: " + pedido.tipo_consumo + "\n";
-        if (pedido.mesa) ticketText += "MESA: " + pedido.mesa + "\n";
+        await fetch(`${apiUrl}/imprimir`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pedido, configGlobal })
+        });
+      } catch (e) {
+        console.error("Error al enviar a impresora de red:", e);
+      }
+      setTimeout(() => {
+        setTicketImprimir(null);
+      }, 2500);
+    } else if (modoImpresion === 'rawbt_nativo') {
+      // 🚀 MOTOR DE ENLACE PROFUNDO (DEEP LINK) PARA RAWBT
+      try {
+        let receipt = "";
         
-        // Evitamos imprimir "Pendiente de dirección" en el ticket físico
-        if (pedido.direccion_entrega && pedido.direccion_entrega !== 'Pendiente de dirección') {
-          ticketText += "DIR: " + pedido.direccion_entrega + "\n";
-        }
-        ticketText += "--------------------------------\n";
+        // Helper para centrar texto a 32 caracteres (formato 58mm)
+        const center = (text) => {
+          const str = String(text || '');
+          if (str.length >= 32) return str.substring(0, 32) + "\n";
+          const pad = Math.floor((32 - str.length) / 2);
+          return " ".repeat(pad) + str + "\n";
+        };
 
-        // Carrito de Platillos
-        const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
-        items.forEach(item => {
-          ticketText += `${item.cantidad || 1}x ${item.nombre}\n`;
+        // Construcción de ticket crudo puro
+        receipt += center(configGlobal?.nombre_negocio || 'Mi Negocio');
+        if (configGlobal?.ticket_domicilio) receipt += center(configGlobal.ticket_domicilio);
+        if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);
+        
+        receipt += `--------------------------------\n`;
+        receipt += `TICKET: #${pedido.numero_pedido}\n`;
+        receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
+        receipt += `CLIENTE: ${pedido.cliente_nombre || 'Invitado'}\n`;
+        receipt += `TIPO: ${pedido.tipo_consumo}\n`;
+        if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
+        if (pedido.direccion_entrega) receipt += `DIR: ${pedido.direccion_entrega.substring(0, 50)}\n`;
+        receipt += `--------------------------------\n`;
+
+        const car = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
+        car.forEach(item => {
+          const qty = item.cantidad || 1;
+          const price = (Number(item.precioFinal) * qty).toFixed(2);
+          let line = `${qty}x ${item.nombre}`;
+          
+          if (line.length > 24) line = line.substring(0, 24);
+          let spaces = 32 - line.length - price.length - 1;
+          if (spaces < 1) spaces = 1;
+          
+          receipt += `${line}${" ".repeat(spaces)}$${price}\n`;
+
           if (item.extras && item.extras.length > 0) {
-            ticketText += `  + ${item.extras.map(e => e.nombre).join(', ')}\n`;
+            item.extras.forEach(e => {
+              receipt += `  + ${e.nombre}\n`;
+            });
           }
-          ticketText += `  $${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}\n`;
         });
 
-        ticketText += "--------------------------------\n";
-        ticketText += "\x1B\x61\x02"; // Alineación Derecha
-        ticketText += "\x1B\x45\x01"; // Negritas ON
-        ticketText += "TOTAL: $" + Number(pedido.total).toFixed(2) + "\n";
-        ticketText += "\x1B\x45\x00"; // Negritas OFF
-        ticketText += "Pago: " + pedido.metodo_pago + "\n";
-
-        // Desglose si el pago fue mixto
+        receipt += `--------------------------------\n`;
+        receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
+        receipt += `PAGO: ${pedido.metodo_pago}\n`;
+        
         if (pedido.metodo_pago === 'Mixto' && pedido.pagos_mixtos) {
           const pm = typeof pedido.pagos_mixtos === 'string' ? JSON.parse(pedido.pagos_mixtos) : pedido.pagos_mixtos;
-          pm.forEach(p => {
-             ticketText += ` - ${p.metodo}: $${Number(p.monto).toFixed(2)}\n`;
+          pm.forEach(x => {
+            receipt += ` - ${x.metodo}: $${Number(x.monto).toFixed(2)}\n`;
           });
         }
+        
+        receipt += `--------------------------------\n`;
+        receipt += center(configGlobal?.ticket_mensaje_final || '¡Gracias por su preferencia!');
+        receipt += `\n\n\n\n`; // Avance de papel extra para corte
 
-        ticketText += "\n\x1B\x61\x01"; // Alineación Centro
-        ticketText += (configGlobal.ticket_mensaje_final || '¡Gracias por su compra!') + "\n";
-        if (configGlobal.ticket_firma_sistema) ticketText += configGlobal.ticket_firma_sistema + "\n";
+        // Empaquetado en Base64 e inyección a la URL nativa de Android
+        const base64Data = btoa(unescape(encodeURIComponent(receipt)));
+        const rawbtIntent = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
+        
+        window.location.href = rawbtIntent;
 
-        ticketText += "\n\n\n\n"; // Espacio para que el papel salga bien
-        ticketText += "\x1D\x56\x42\x00"; // Comando ESC/POS para Corte de Papel
-
-        // 2. Conexión WebSocket 100% silenciosa hacia la App RawBT interna en la tablet
-        const ws = new WebSocket('ws://127.0.0.1:40228/');
-
-        ws.onopen = () => {
-          ws.send(ticketText);
-          ws.close();
-          // Notificación bonita sin interrumpir
-          mostrarAlertaCaja('Impresión Exitosa', 'El ticket fue enviado a la impresora térmica.', 'success');
-        };
-
-        ws.onerror = (e) => {
-          console.error("Error RawBT:", e);
-          mostrarAlertaCaja('Fallo de Impresora', '¿Está RawBT abierto? No se logró conexión local.', 'error');
-        };
-
-      } catch (e) {
-        console.error("Error al construir ticket RawBT:", e);
+      } catch (err) {
+        console.error("Error ejecutando puente nativo:", err);
       }
 
-      // Limpiamos el estado rápidamente para que el modal desaparezca
       setTimeout(() => {
         setTicketImprimir(null);
       }, 1000);
-
+      
     } else {
-      // Flujo Nativo/PDF (Predeterminado cuando no es "impresora")
+      // Motor PDF Local Tradicional
       setTimeout(() => {
         window.print();
         const handleAfterPrint = () => {
@@ -288,7 +293,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setTimeout(handleAfterPrint, 1000);
       }, 1500);
     }
-  };  
+  };
 
   const toggleEstadoNegocio = async () => {
     try {

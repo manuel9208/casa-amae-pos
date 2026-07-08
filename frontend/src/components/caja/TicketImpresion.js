@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageCircle } from 'lucide-react'; // 👈 Se agregó el ícono
+import { MessageCircle } from 'lucide-react'; // 👈 Se agregó el ícono  
 
 const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
   if (!ticketImprimir || !configGlobal) return null;  
@@ -14,10 +14,10 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
       else if (ticketImprimir.direccion_entrega.includes('CONTACTO:')) cleanPhone = ticketImprimir.direccion_entrega.split('CONTACTO:')[1].split('|')[0].replace(/\D/g, '');
     }
     return cleanPhone;
-  };
+  };  
 
   const cleanPhone = getCleanPhone();
-  const hasValidPhone = cleanPhone.length >= 10;
+  const hasValidPhone = cleanPhone.length >= 10;  
 
   const handleWhatsApp = () => {
     if (hasValidPhone) {
@@ -25,23 +25,21 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
       const url = `https://wa.me/52${cleanPhone}?text=${encodeURIComponent(texto)}`;
       window.open(url, '_blank');
     }
-  };
+  };  
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[10000] flex flex-col items-center justify-center p-4 print:bg-transparent print:backdrop-blur-none print:p-0 print:static print:block animate-in fade-in duration-200">
-      
+    <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[10000] flex flex-col items-center justify-center p-4 print:bg-transparent print:backdrop-blur-none print:p-0 print:static print:block animate-in fade-in duration-200">  
       {/* 👇 NUEVO: Indicador visual en pantalla (se oculta al imprimir) */}
       <div className="mb-6 text-white text-center print:hidden animate-in slide-in-from-top-4">
         <div className="bg-emerald-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(16,185,129,0.4)]">
           <span className="text-3xl">🧾</span>
         </div>
         <h2 className="font-black text-2xl tracking-tight">Generando Ticket</h2>
-        <p className="text-sm font-medium text-slate-300 mt-1">Formato térmico 58mm</p>
-      </div>
+        <p className="text-sm font-medium text-slate-300 mt-1">Enviando orden a la impresora...</p>
+      </div>  
 
       {/* 👇 EL TICKET FÍSICO: Se ve en pantalla y se adapta al papel térmico */}
-      <div className="bg-white text-black shadow-2xl print:shadow-none relative" style={{ width: '58mm', fontSize: '12px', fontFamily: 'monospace', margin: '0', padding: '4mm', boxSizing: 'border-box' }}>
-        
+      <div className="bg-white text-black shadow-2xl print:shadow-none relative" style={{ width: '58mm', fontSize: '12px', fontFamily: 'monospace', margin: '0', padding: '4mm', boxSizing: 'border-box' }}>  
         <div className="text-center mb-3">
           {configGlobal.logo_url && (
             <img src={configGlobal.logo_url.startsWith('http') ? configGlobal.logo_url : `${apiUrl.replace('/api', '')}${configGlobal.logo_url}`} alt="Logo" className="w-16 h-16 mx-auto mb-1 object-contain grayscale" />
@@ -56,7 +54,7 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
           <p>Fecha: {new Date().toLocaleString()}</p>
           <p>Cliente: {ticketImprimir.cliente_nombre || 'Invitado'}</p>
           <p>Tipo: {ticketImprimir.tipo_consumo}</p>
-          {ticketImprimir.mesa && <p className="font-bold">MESA: {ticketImprimir.mesa}</p>}  
+          {ticketImprimir.mesa && <p className="font-bold">MESA: {ticketImprimir.mesa}</p>}
           {ticketImprimir.direccion_entrega && ticketImprimir.direccion_entrega !== 'Pendiente de dirección' && (
             <p className="font-bold mt-1 text-[11px] leading-tight">DIR: {ticketImprimir.direccion_entrega}</p>
           )}
@@ -90,7 +88,7 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
 
         <div className="border-t border-black border-dashed pt-2 text-right uppercase text-[10px] mb-4">
           <p className="font-bold text-sm">Total: ${ticketImprimir.total}</p>
-          <p className="mt-1">Pago: {ticketImprimir.metodo_pago}</p>  
+          <p className="mt-1">Pago: {ticketImprimir.metodo_pago}</p>
           {ticketImprimir.metodo_pago === 'Mixto' && ticketImprimir.pagos_mixtos && (
             <div className="mt-1 text-[9px] text-gray-700 space-y-0.5">
               {(typeof ticketImprimir.pagos_mixtos === 'string' ? JSON.parse(ticketImprimir.pagos_mixtos) : ticketImprimir.pagos_mixtos).map((pm, idx) => (
@@ -101,26 +99,25 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
         </div>  
 
         <div className="text-center mt-4 pt-4 border-t border-black border-dashed text-[10px]">
-          <p className="font-bold uppercase leading-tight">{configGlobal.ticket_mensaje_final || '¡Gracias por su compra!'}</p>  
+          <p className="font-bold uppercase leading-tight">{configGlobal.ticket_mensaje_final || '¡Gracias por su compra!'}</p>
           {configGlobal.ticket_firma_sistema && configGlobal.ticket_firma_sistema.trim() !== '' && (
             <p className="mt-2 text-[8px] opacity-50">{configGlobal.ticket_firma_sistema}</p>
           )}
         </div>
-      </div>
+      </div>  
 
       {/* 👇 NUEVO BOTÓN DE WHATSAPP (Se oculta al imprimir con print:hidden) */}
       {hasValidPhone && (
         <div className="mt-8 print:hidden animate-in slide-in-from-bottom-4">
-          <button 
-            onClick={handleWhatsApp} 
+          <button
+            onClick={handleWhatsApp}
             className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black flex items-center justify-center gap-2 mx-auto shadow-lg shadow-emerald-500/30 transition-all active:scale-95"
           >
             <MessageCircle size={20} />
             Enviar Ticket por WhatsApp
           </button>
         </div>
-      )}
-
+      )}  
     </div>
   );
 };  
