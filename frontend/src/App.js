@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 import AdminPanel from './components/AdminPanel';
 import Caja from './components/Caja';
@@ -25,7 +25,7 @@ const App = () => {
   // ESTADOS: Para control dinámico de pantallas y persistencia F5
   const [entornoActivo, setEntornoActivo] = useState(null);
   const [segundaSesionActiva, setSegundaSesionActiva] = useState(false);
-  const [sesionExpirada, setSesionExpirada] = useState(false); // 👈 FIX: Nuevo estado para la alerta bonita
+  const [sesionExpirada, setSesionExpirada] = useState(false);
 
   // ==========================================
   // ESTADOS DE FORMULARIOS Y LOGIN
@@ -44,6 +44,9 @@ const App = () => {
   const [configGlobal, setConfigGlobal] = useState({
     nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b'
   });
+
+  // 👇 REF: Para controlar la transición inteligente del horario y no bloquear tu botón manual
+  const prevDentroDeHorario = useRef(null);
 
   // ==========================================
   // HELPERS VISUALES Y SESIÓN
@@ -79,14 +82,13 @@ const App = () => {
     localStorage.removeItem('pos_sesion');
     localStorage.removeItem('pos_entorno_activo');
     
-    // 👇 FIX: En lugar de "alert()", activamos el modal bonito
     if (forzado) {
         setSesionExpirada(true);
     }
   }, [usuarioActivo]);
 
   const iniciarSesionPersistente = (tipo, data, segundaSesion = false) => {
-    const expiracion = new Date().getTime() + (6 * 60 * 60 * 1000);
+    const expiracion = new Date().getTime() + (9 * 60 * 60 * 1000);
 
     localStorage.setItem('pos_sesion', JSON.stringify({ tipo, data, expiracion, segundaSesion }));
 
@@ -221,6 +223,7 @@ const App = () => {
     }
   }, [usuarioActivo, segundaSesionActiva]);
 
+  // 👇 FIX DEL CRON: Dependencia 'apiUrl' eliminada para limpiar el Warning
   useEffect(() => {
     const checkHorarioCron = async () => {
       if (!configGlobal || !configGlobal.horarios_semana) return;
@@ -233,22 +236,31 @@ const App = () => {
           : configGlobal.horarios_semana;
 
         const hHoy = horario[diaActual];
-        let debeEstarCerrado = true;
+        let dentro = false;
 
-        if (hHoy && hHoy.activo) {
+        if (hHoy && hHoy.activo && hHoy.cierre && hHoy.apertura) {
           const hActualNum = hoy.getHours() * 60 + hoy.getMinutes();
           const [hCie, mCie] = hHoy.cierre.split(':').map(Number);
+          const [hApe, mApe] = hHoy.apertura.split(':').map(Number);
           const minCie = hCie * 60 + mCie;
-          if (hActualNum < minCie) {
-            debeEstarCerrado = false;
+          const minApe = hApe * 60 + mApe;
+
+          if (minCie <= minApe) { // Turno que cruza la medianoche
+            if (hActualNum >= minApe || hActualNum < minCie) dentro = true;
+          } else { // Turno de día normal
+            if (hActualNum >= minApe && hActualNum < minCie) dentro = true;
           }
         }
 
-        if (debeEstarCerrado && configGlobal.negocio_abierto === true) {
-          const formData = new FormData();
-          formData.append('negocio_abierto', 'false');
-          await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+        if (prevDentroDeHorario.current === true && dentro === false) {
+          if (configGlobal.negocio_abierto === true || String(configGlobal.negocio_abierto) === 'true') {
+            const formData = new FormData();
+            formData.append('negocio_abierto', 'false');
+            await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+          }
         }
+        prevDentroDeHorario.current = dentro;
+
       } catch(e) {}
     }
     const interval = setInterval(checkHorarioCron, 60000);
@@ -261,7 +273,6 @@ const App = () => {
   const handleIdentificar = async (e) => {
     e.preventDefault(); setError('');
     
-    // (Opcional) Si escribes puros ceros, también entra directo a la TV por defecto
     if (telefono === '0000000000') { setVistaTV(true); return; }
     
     try {
@@ -276,11 +287,9 @@ const App = () => {
         const payload = data.data || data.datos || data.usuario || data.cliente;
         
         if (data.tipo === 'empleado') {
-          // 👇 NUEVO: Si el sistema detecta que el empleado es la TV, entra directo.
           if (payload.rol === 'tv') {
             iniciarSesionPersistente('empleado', payload, false);
           } else {
-            // Si es cajero, admin o cocina, sí le pedimos la contraseña (Fase 2)
             setEmpleadoFase2(payload);
           }
         } else if (data.tipo === 'cliente') {
@@ -548,7 +557,6 @@ const App = () => {
           </div>
         </div>
 
-        {/* 👇 FIX APLICADO: Modal hermoso para cuando expira la sesión */}
         {sesionExpirada && (
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
                 <div className="bg-white rounded-[40px] p-8 md:p-12 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -556,7 +564,7 @@ const App = () => {
                         <span className="text-5xl">⏱️</span>
                     </div>
                     <h3 className="text-3xl font-black text-slate-800 mb-2 tracking-tight">Sesión Expirada</h3>
-                    <p className="text-slate-500 font-medium mb-8">Por seguridad y protección de datos, tu sesión ha caducado tras 6 horas de inactividad.</p>
+                    <p className="text-slate-500 font-medium mb-8">Por seguridad y protección de datos, tu sesión ha caducado tras 9 horas de inactividad.</p>
                     <button onClick={() => setSesionExpirada(false)} className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-4 rounded-xl shadow-lg shadow-slate-800/30 active:scale-95 transition-all text-lg">
                         Entendido
                     </button>

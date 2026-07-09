@@ -177,9 +177,68 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setTimeout(() => setAlertaCaja(null), 5000);
   };  
 
+  // 👇 AQUÍ SE INYECTÓ LA SOLUCIÓN DEL HORARIO, RESTO DEL CÓDIGO INTACTO
   const cerrarCajaYSalir = async () => {
+    try {
+      if (configGlobal && configGlobal.horarios_semana) {
+        const horarios = typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana;
+        const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+        const formatter = new Intl.DateTimeFormat('en-US', { 
+          timeZone: 'America/Mazatlan', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'long' 
+        });
+        
+        const parts = formatter.formatToParts(new Date());
+        let horaStr = '', minStr = '', diaStrEN = '';
+        parts.forEach(p => {
+          if (p.type === 'hour') horaStr = p.value;
+          if (p.type === 'minute') minStr = p.value;
+          if (p.type === 'weekday') diaStrEN = p.value;
+        });
+        
+        if (horaStr === '24') horaStr = '00';
+        const dayMap = { 'Sunday': 'Domingo', 'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado' };
+        const diaHoyStr = dayMap[diaStrEN] || dias[new Date().getDay()];
+        const minutosActuales = parseInt(horaStr, 10) * 60 + parseInt(minStr, 10);
+        let deberiaEstarAbierto = false;
+
+        const indiceHoy = dias.indexOf(diaHoyStr);
+        const diaAyerStr = dias[(indiceHoy + 6) % 7];
+        const configAyer = horarios[diaAyerStr];
+        
+        if (configAyer && configAyer.activo && configAyer.apertura && configAyer.cierre) {
+          const apA = parseInt(configAyer.apertura.split(':')[0], 10) * 60 + parseInt(configAyer.apertura.split(':')[1], 10);
+          const ciA = parseInt(configAyer.cierre.split(':')[0], 10) * 60 + parseInt(configAyer.cierre.split(':')[1], 10);
+          if (ciA <= apA && minutosActuales < ciA) deberiaEstarAbierto = true;
+        }
+
+        if (!deberiaEstarAbierto) {
+          const configHoy = horarios[diaHoyStr];
+          if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
+            const apH = parseInt(configHoy.apertura.split(':')[0], 10) * 60 + parseInt(configHoy.apertura.split(':')[1], 10);
+            const ciH = parseInt(configHoy.cierre.split(':')[0], 10) * 60 + parseInt(configHoy.cierre.split(':')[1], 10);
+            if (ciH <= apH) {
+              if (minutosActuales >= apH) deberiaEstarAbierto = true;
+            } else {
+              if (minutosActuales >= apH && minutosActuales < ciH) deberiaEstarAbierto = true;
+            }
+          }
+        }
+
+        const estadoActual = (configGlobal.negocio_abierto === true || String(configGlobal.negocio_abierto) === 'true');
+
+        if (estadoActual !== deberiaEstarAbierto) {
+          const formData = new FormData();
+          formData.append('negocio_abierto', deberiaEstarAbierto ? 'true' : 'false');
+          await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+        }
+      }
+    } catch (error) {
+      console.error("Error al restaurar horario de kiosco:", error);
+    }
+
     onLogout();
-  };  
+  };
 
   const iniciarTurno = (e) => {
     e.preventDefault();
@@ -565,11 +624,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };  
 
+  // 👇 FUNCIÓN ORIGINAL RESTAURADA
   const abrirIdentificador = () => {
     setOrdenEditandoRapida(null);
     setModalPuntoVenta(true);
   };  
 
+  // 👇 FUNCIÓN ORIGINAL RESTAURADA
   const onGoToKioscoLocal = (cliente, orden) => {
     setOrdenEditandoRapida(orden);
     setModalEditarPedido(null);

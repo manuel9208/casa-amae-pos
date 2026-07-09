@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, Utensils, Map, Maximize, Trash2, Lock, Unlock } from 'lucide-react';  
+import { 
+  DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, 
+  List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, 
+  Utensils, Map, Maximize, Trash2, Lock, Unlock 
+} from 'lucide-react';  
 
 const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
