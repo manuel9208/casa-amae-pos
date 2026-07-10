@@ -7,18 +7,16 @@ import ResumenFinanciero from './reportes/ResumenFinanciero';
 import TablaDesgloseVentas from './reportes/TablaDesgloseVentas';
 import VistaCortesHistorico from './reportes/VistaCortesHistorico';
 import ReporteCombustible from './reportes/ReporteCombustible'; 
-// 👇 NUEVOS IMPORT DE REPORTES
 import ReporteCompras from './reportes/ReporteCompras'; 
 import ReporteMermas from './reportes/ReporteMermas'; 
 import { BarChart3, History, Fuel, ShoppingCart, Trash2 } from 'lucide-react'; 
+import io from 'socket.io-client'; // 👈 NUEVO: WebSockets
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
   const [cargando, setCargando] = useState(true);  
   
-  // 🆕 Control de sub-módulos actualizado
-  const [vistaModulo, setVistaModulo] = useState('ventas'); // 'ventas', 'cortes', 'combustible', 'compras', 'mermas'
-  
+  const [vistaModulo, setVistaModulo] = useState('ventas'); 
   const [filtroActivo, setFiltroActivo] = useState('dia');
   const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);
   const [clasificaciones, setClasificaciones] = useState([]);
@@ -55,6 +53,25 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     }
   }, [cargarReporte, filtroActivo, fechaCustom, vistaModulo]);  
 
+  // 👇 NUEVO: EFECTO SOCKET.IO PARA ACTUALIZAR REPORTES EN VIVO
+  useEffect(() => {
+    if (!apiUrl) return;
+    const baseUrl = apiUrl.replace('/api', '');
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    
+    const triggerRefresh = () => {
+      if (vistaModulo === 'ventas') {
+         cargarReporte(filtroActivo, fechaCustom);
+      }
+    };
+
+    socket.on('nuevo_pedido', triggerRefresh);
+    socket.on('pedido_actualizado', triggerRefresh);
+    socket.on('pedido_eliminado', triggerRefresh);
+
+    return () => socket.disconnect();
+  }, [apiUrl, vistaModulo, filtroActivo, fechaCustom, cargarReporte]);
+
   const formaterMoneda = (cantidad) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(cantidad || 0);
   };  
@@ -75,10 +92,9 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">  
       
-      {/* SELECTOR DE FLUJO DE TRABAJO */}
       <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden gap-4">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-          📊 Finanzas
+          📈 Finanzas
         </h2>
         <div className="flex flex-wrap justify-center bg-slate-100 p-1 rounded-2xl w-full xl:w-auto overflow-hidden">
           <button onClick={() => setVistaModulo('ventas')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -90,7 +106,6 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
           <button onClick={() => setVistaModulo('combustible')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'combustible' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <Fuel size={16}/> Combustible
           </button>
-          {/* 👇 NUEVOS BOTONES INYECTADOS */}
           <button onClick={() => setVistaModulo('compras')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'compras' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <ShoppingCart size={16}/> Compras
           </button>
@@ -100,7 +115,6 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
         </div>
       </div>  
 
-      {/* RENDERIZADO CONDICIONAL DE VISTAS */}
       {vistaModulo === 'ventas' && (
         <>
           <FiltrosVentas
@@ -130,8 +144,6 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
 
       {vistaModulo === 'cortes' && <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />}  
       {vistaModulo === 'combustible' && <ReporteCombustible apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
-      
-      {/* 👇 NUEVOS COMPONENTES RENDERIZADOS */}
       {vistaModulo === 'compras' && <ReporteCompras apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
       {vistaModulo === 'mermas' && <ReporteMermas apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
 

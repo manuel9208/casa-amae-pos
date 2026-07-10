@@ -95,7 +95,10 @@ const ModalesCaja = ({
             <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />  
             <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />  
             <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />  
-            <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} configGlobal={configGlobal} />  
+            
+            {/* 👇 AQUÍ SE AGREGÓ setModalEditarPedido */}
+            <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} configGlobal={configGlobal} setModalEditarPedido={setModalEditarPedido} />  
+            
             <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />  
             <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />  
             <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} onSuccess={cargarDataDinamica} />  

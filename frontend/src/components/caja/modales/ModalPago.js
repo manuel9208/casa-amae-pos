@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle } from 'lucide-react';
+import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft } from 'lucide-react';
 
-const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal }) => {
+const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modoMixto, setModoMixto] = useState(false);
   const [montoEfectivoMixto, setMontoEfectivoMixto] = useState('');
@@ -21,14 +21,24 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
 
   if (!modalPago) return null;
 
+  const noSePuedeAnular = modalPago.estado_preparacion === 'Entregado' || modalPago.estado_preparacion === 'En Camino' || modalPago.estado_preparacion === 'Liquidado' || modalPago.estado_preparacion === 'Finalizado';
+
+  // 🛡️ Lógica Anti-Limbo Actualizada:
+  // Al cerrar desde la X, si la orden se puede anular, la destruimos del sistema.
   const cerrarModalPago = () => {
-    // 🛡️ Lógica Anti-Limbo: 
-    // Si el pedido se acaba de crear en Caja y el cajero cierra el modal (X o Cancelar) 
-    // sin haber cobrado ni mandado a cocina, lo anulamos en automático para borrarlo.
-    if (modalPago.estado_preparacion === 'Pendiente' && modalPago.origen === 'Caja') {
+    if (!noSePuedeAnular) {
       procesarPago('Cancelado');
     } else {
       setModalPago(null);
+    }
+  };
+
+  // 🔄 Nuevo Puente de Edición Fluida:
+  // Oculta el pago y nos devuelve a la interfaz del Kiosco con la orden activa
+  const handleVolverEditar = () => {
+    setModalPago(null);
+    if (setModalEditarPedido) {
+      setModalEditarPedido(modalPago);
     }
   };
 
@@ -70,8 +80,6 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     }
   };
 
-  const noSePuedeAnular = modalPago.estado_preparacion === 'Entregado' || modalPago.estado_preparacion === 'En Camino' || modalPago.estado_preparacion === 'Liquidado' || modalPago.estado_preparacion === 'Finalizado';
-
   const calcularRestanteMixto = () => {
     const total = Number(modalPago.total) || 0;
     const efe = Number(montoEfectivoMixto) || 0;
@@ -99,12 +107,12 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">
       <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto relative">
         
-        {/* Botón de Salida Superior */}
+        {/* Botón de Salida Superior (Anula la orden) */}
         <button
           onClick={cerrarModalPago}
           disabled={isSubmitting}
           className="absolute top-6 right-6 text-slate-400 hover:text-red-500 bg-slate-100 p-2.5 rounded-full transition-all active:scale-95 disabled:opacity-50 z-50"
-          title="Cerrar ventana"
+          title="Cerrar y anular pedido"
         >
           <X size={20} strokeWidth={3} />
         </button>
@@ -164,8 +172,8 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               {Number(calcularRestanteMixto()) !== 0 && <p className="text-xs font-bold mt-1">La suma de los pagos debe ser exactamente igual al total.</p>}
             </div>
             <div className="flex gap-4 pt-4 border-t border-slate-100">
-              <button disabled={isSubmitting} onClick={() => setModoMixto(false)} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">
-                Atrás
+              <button disabled={isSubmitting} onClick={() => setModoMixto(false)} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Atrás
               </button>
               <button disabled={Number(calcularRestanteMixto()) !== 0 || isSubmitting} onClick={procesarCobroMixto} className="flex-[2] py-4 md:py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg transition flex items-center justify-center gap-2">
                 <CheckCircle2 size={24}/> {isSubmitting ? 'Procesando...' : 'Confirmar Pago Mixto'}
@@ -181,15 +189,19 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               <button disabled={isSubmitting} onClick={() => procesarSeleccionPago('Transferencia')} className="bg-purple-50 border-2 border-purple-100 hover:border-purple-500 hover:bg-purple-100 text-purple-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Smartphone size={28} className="text-purple-500"/> <span className="text-sm md:text-base">Transf.</span></button>
               <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-100 text-indigo-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28} className="text-indigo-500"/> <span className="text-sm md:text-base text-center leading-tight">Dividir Pago</span></button>
             </div>
+            
+            {/* 👇 NUEVO BOTÓN "VOLVER" (Sustituye al viejo Cancelar) */}
             <div className="flex flex-col md:flex-row gap-3 md:gap-4 pt-4 border-t border-slate-100">
-              <button disabled={isSubmitting} onClick={cerrarModalPago} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">
-                Cancelar
+              <button disabled={isSubmitting} onClick={handleVolverEditar} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Volver / Editar
               </button>
+
               {modalPago.estado_preparacion === 'Pendiente' && (
                 <button disabled={isSubmitting} onClick={() => procesarPago(null, true)} className="flex-[2] py-4 md:py-5 px-4 md:px-6 bg-orange-100 text-orange-700 font-black rounded-2xl hover:bg-orange-200 transition disabled:opacity-50 flex items-center justify-center gap-2" title="Mandar a cocina y cobrar al final">
                   <ChefHat size={24}/> Cocinar (Cobro final)
                 </button>
               )}
+
               {!noSePuedeAnular && (
                 <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
                   Anular Pedido
@@ -216,8 +228,8 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               </div>
             )}
             <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
-              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto">
-                Cancelar
+              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Atrás
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (
@@ -266,8 +278,8 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               </div>
             </div>
             <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
-              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto">
-                Cancelar
+              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Atrás
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (
@@ -288,8 +300,8 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               <p className="font-bold text-lg text-blue-800">Pídele al cliente que inserte o deslice su tarjeta en la terminal.</p>
             </div>
             <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
-              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto">
-                Cancelar
+              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Atrás
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (

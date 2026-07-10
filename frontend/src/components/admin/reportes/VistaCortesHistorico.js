@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { io } from 'socket.io-client';
 import {
   DollarSign, Search, ShoppingBag, Eye, CalendarDays, Printer,
-  Store, Bike, Calculator, Smartphone, User
+  Store, Calculator, Smartphone, User
 } from 'lucide-react';
 
 const formaterMoneda = (monto) => {
@@ -36,33 +37,43 @@ const getMazatlanDate = (dateString) => {
 
 const VistaCortesHistorico = ({ apiUrl }) => {
   const hoyStr = getLocalHoyStr();
+  const baseUrl = apiUrl.replace('/api', '');
   const [periodo, setPeriodo] = useState('dia');
   const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
   const [filtroCliente, setFiltroCliente] = useState('');
   const [filtroMetodoPago, setFiltroMetodoPago] = useState('Todos');
   const [cargando, setCargando] = useState(false);
+  
   const [pedidos, setPedidos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
-  
+  const [compras, setCompras] = useState([]);
   const [cortesDelDia, setCortesDelDia] = useState([]);
+  
   const [corteSeleccionadoId, setCorteSeleccionadoId] = useState('global');
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
 
-  useEffect(() => {
-    fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
-      setUsuarios(Array.isArray(data) ? data : []);
-    }).catch(() => {});
-  }, [apiUrl]);
-
-  const getNombreEmpleado = (id) => {
-    const emp = usuarios.find(u => Number(u.id) === Number(id));
-    return emp ? emp.nombre : `Conductor #${id}`;
-  };
-
-  const cargarPedidosHistoricos = useCallback(async () => {
+  const cargarAuditoriaCompleta = useCallback(async () => {
     setCargando(true);
     try {
-      const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`);
+      const [resPed, resCorte, resCompras, resUsu] = await Promise.all([
+        fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`),
+        periodo === 'dia' ? fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`) : Promise.resolve({ok:false}),
+        fetch(`${apiUrl}/insumos/compras/reporte?periodo=${periodo}&fecha=${fechaFiltro}`),
+        fetch(`${apiUrl}/usuarios`)
+      ]);
+
+      if (resUsu.ok) {
+        const usuData = await resUsu.json();
+        setUsuarios(Array.isArray(usuData) ? usuData : []);
+      }
+
+      if (resCompras.ok) {
+        const compData = await resCompras.json();
+        setCompras(Array.isArray(compData) ? compData : []);
+      } else {
+        setCompras([]);
+      }
+
       if (resPed.ok) {
         let data = await resPed.json();
         data = data.filter(p => {
@@ -76,29 +87,35 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         setPedidos(data);
       }
       
-      if (periodo === 'dia') {
-        const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`);
-        if (resCorte.ok) {
-          const dataC = await resCorte.json();
-          const arrayCortes = Array.isArray(dataC) ? dataC.sort((a,b) => a.id - b.id) : [dataC];
-          setCortesDelDia(arrayCortes);
-        } else {
-          setCortesDelDia([]);
-        }
+      if (resCorte.ok) {
+        const dataC = await resCorte.json();
+        setCortesDelDia(Array.isArray(dataC) ? dataC.sort((a,b) => a.id - b.id) : [dataC]);
       } else {
         setCortesDelDia([]);
       }
+      
       setCorteSeleccionadoId('global');
     } catch (e) {
+      console.error("Error sincronizando auditoría:", e);
     } finally {
       setCargando(false);
     }
   }, [periodo, fechaFiltro, apiUrl]);
 
   useEffect(() => {
-    cargarPedidosHistoricos();
+    cargarAuditoriaCompleta();
     setPedidoSeleccionado(null);
-  }, [cargarPedidosHistoricos]);
+  }, [cargarAuditoriaCompleta]);
+
+  useEffect(() => {
+    if (periodo === 'dia' && fechaFiltro === hoyStr) {
+      const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+      socket.on('nuevo_pedido', cargarAuditoriaCompleta);
+      socket.on('pedido_actualizado', cargarAuditoriaCompleta);
+      socket.on('pedido_eliminado', cargarAuditoriaCompleta);
+      return () => socket.disconnect();
+    }
+  }, [baseUrl, periodo, fechaFiltro, hoyStr, cargarAuditoriaCompleta]);
 
   const deserializarCarrito = (carritoRaw) => {
     if (!carritoRaw) return [];
@@ -107,7 +124,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
   const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
 
-  // LÓGICA DE FILTRADO (Buscador y Pestañas)
   const pedidosFiltrados = useMemo(() => {
     let filtrados = pedidos;
     if (periodo === 'dia' && corteSeleccionadoId !== 'global') {
@@ -147,11 +163,13 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     return [];
   }, [pedidos, corteSeleccionadoId, cortesDelDia, periodo]);
 
-  // MATEMÁTICAS DEL CORTE
-  // 👇 FIX: Variables no usadas borradas para limpiar los warnings
+  const pedidosOrdenadosCrono = [...pedidosDelTurno].sort((a, b) => new Date(a.fecha_creacion) - new Date(b.fecha_creacion));
+  const turnoHoraInicio = pedidosOrdenadosCrono.length > 0 ? new Date(pedidosOrdenadosCrono[0].fecha_creacion).toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'}) : '--:--';
+  const turnoHoraFin = pedidosOrdenadosCrono.length > 0 ? new Date(pedidosOrdenadosCrono[pedidosOrdenadosCrono.length-1].fecha_creacion).toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'}) : '--:--';
+
   let lEfectivo = 0, lTarjeta = 0, lTransf = 0;
-  let dEfectivo = 0, dTarjeta = 0, dTransf = 0, dPlatillos = 0, dExtras = 0, dEnvio = 0;
-  let tEnvio = 0, tPlatillos = 0, tExtras = 0;
+  let dEfectivo = 0, dTarjeta = 0, dTransf = 0;
+  let tEnvio = 0, tPlatillos = 0, tExtras = 0, tDescuentos = 0;
 
   pedidosDelTurno.forEach(p => {
     if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
@@ -173,12 +191,14 @@ const VistaCortesHistorico = ({ apiUrl }) => {
       });
     }
 
-    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); }
+    if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; tEnvio += parseMoney(p.costo_envio); }
     else { lEfectivo += efe; lTarjeta += tar; lTransf += tra; tEnvio += parseMoney(p.costo_envio); }
 
     let car = [];
     if (Array.isArray(p.carrito)) car = p.carrito;
     else if (typeof p.carrito === 'string') { try { car = JSON.parse(p.carrito); } catch(e) {} }
+
+    let order_gross = parseMoney(p.costo_envio);
 
     car.forEach(i => {
       const qty = parseMoney(i.cantidad) || 1;
@@ -192,22 +212,35 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
         });
       }
+      
+      const calcExtra = (exP * qty);
+      let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
+      if (calcBase < 0) calcBase = 0;
+      const calcPlat = (calcBase * qty);
+
       if (!isComedor) {
-        const calcExtra = (exP * qty);
-        let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
-        if (calcBase < 0) calcBase = 0;
-        const calcPlat = (calcBase * qty);
         tExtras += calcExtra; tPlatillos += calcPlat;
-        if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; }
       }
+      
+      order_gross += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
     });
+
+    if (!isComedor) {
+      const discount = order_gross - parseMoney(p.total);
+      if (discount > 0) tDescuentos += discount;
+    }
   });
 
   let fondoCaja = 0, fondoRepartidor = 0, gastosCompras = 0, efectivoDeclaradoCaja = 0;
 
   if (corteSeleccionadoId === 'global') {
-    fondoCaja = cortesDelDia.length > 0 ? Number(cortesDelDia[0].fondo_inicial || 0) : 0;
-    gastosCompras = cortesDelDia.reduce((s, c) => s + Number(c.total_gastos || 0), 0);
+    gastosCompras = compras.reduce((s, c) => s + Number(c.costo_total || 0), 0);
+    const fondoCerrado = cortesDelDia.reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
+    const fondoActivo = usuarios.reduce((s, u) => s + Number(u.fondo_actual || 0), 0);
+    fondoCaja = fondoCerrado + fondoActivo;
+
+    fondoRepartidor = cortesDelDia.reduce((s, c) => s + Number(c.fondo_repartidor || 0), 0);
+    efectivoDeclaradoCaja = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_cajon || 0), 0);
   } else {
     const cAct = cortesDelDia.find(c => c.id === corteSeleccionadoId);
     if (cAct) {
@@ -218,43 +251,34 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     }
   }
 
-  const repsData = {};
-  pedidosDelTurno.filter(p => p.tipo_consumo === 'Domicilio' && p.repartidor_id).forEach(p => {
-    const rId = p.repartidor_id;
-    if(!repsData[rId]) repsData[rId] = { nombre: getNombreEmpleado(rId), envios: 0, efectivo: 0, digital: 0 };
-    repsData[rId].envios++;
-    if (!['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) {
-      if (['Efectivo', 'Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) repsData[rId].efectivo += parseMoney(p.total);
-      else if (p.metodo_pago !== 'Mixto') repsData[rId].digital += parseMoney(p.total);
-    }
-  });
-
-  // 👇 FIX MATEMÁTICO: Reglas de Total Globales e Históricas
   const totalEfectivoDia = lEfectivo + dEfectivo;
-  const efectivoEsperadoCaja = corteSeleccionadoId !== 'global' ? (fondoCaja + totalEfectivoDia) - gastosCompras : 0;
-  const diferenciaCaja = corteSeleccionadoId !== 'global' ? efectivoDeclaradoCaja - efectivoEsperadoCaja : 0;
+  
+  // 👇 FIX MÁGICO: Las matemáticas ahora fluyen en vivo sin importar el estado del corte
+  const efectivoEsperadoCaja = (fondoCaja + totalEfectivoDia) - gastosCompras;
+  const diferenciaCaja = efectivoDeclaradoCaja - efectivoEsperadoCaja;
   const efectivoEsperadoMotos = (fondoRepartidor + dEfectivo);
 
-  const totalEfectivoFisico = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_efectivo || 0) + Number(c.fondo_inicial || 0) + Number(c.fondo_repartidor || 0) - Number(c.total_gastos || 0), 0) : efectivoEsperadoCaja + efectivoEsperadoMotos;
-  const totalDigital = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_tarjeta || 0) + Number(c.total_transferencia || 0), 0) : lTarjeta + lTransf + dTarjeta + dTransf;
-  const totalVentasGlobales = corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.venta_platillos || 0) + Number(c.ingresos_extras || 0) + Number(c.cargos_envio || 0), 0) : tPlatillos + tExtras + tEnvio;
+  const totalEfectivoFisico = efectivoEsperadoCaja + efectivoEsperadoMotos;
+  const totalDigital = lTarjeta + lTransf + dTarjeta + dTransf;
+  const totalVentasBrutas = tPlatillos + tExtras + tEnvio;
+  const totalIngresoNetoReal = totalVentasBrutas - tDescuentos;
 
-  if (cargando) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Cargando reporte histórico...</div>;
-  if (cortesDelDia.length === 0) return (
-    <div className="p-10 text-center animate-in fade-in">
-      <h2 className="text-2xl font-black text-slate-800 mb-2">Sin Cortes de Caja</h2>
-      <p className="text-slate-500 font-bold mb-6">No hay registros guardados para la fecha seleccionada ({fechaFiltro}).</p>
-      <input type="date" value={fechaFiltro} max={hoyStr} onChange={(e) => setFechaFiltro(e.target.value)} className="p-3 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-blue-500 shadow-sm" />
-    </div>
-  );
+  if (cargando && pedidos.length === 0) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Sincronizando auditoría en vivo...</div>;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      {/* CABECERA FILTROS */}
+    <div className="space-y-6 animate-in fade-in duration-300 print:m-0 print:p-0 print:space-y-0 text-slate-800 print:absolute print:inset-0 print:bg-white print:z-[99999]">
+      
+      <div className="hidden print:block text-center mb-6 pt-4 w-full">
+        <h1 className="text-3xl font-black text-slate-900 uppercase">Auditoría de Ventas</h1>
+        <p className="text-slate-500 font-bold mt-1 text-sm">Fecha: {fechaFiltro} | Rango: {corteSeleccionadoId === 'global' ? 'DÍA COMPLETO' : 'TURNO ESPECÍFICO'}</p>
+        <p className="text-slate-500 font-bold text-sm">Horario Registrado: {turnoHoraInicio} - {turnoHoraFin}</p>
+        <hr className="mt-4 border-slate-300 border-2" />
+      </div>
+
       <div className="print:hidden bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 grid grid-cols-1 lg:grid-cols-4 gap-4 items-end">
         <div>
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-            <CalendarDays size={14}/> Rango de Auditoría
+            <CalendarDays size={14} /> Rango de Auditoría
           </label>
           <div className="flex bg-slate-100 p-1 rounded-xl">
             {[['dia', 'Día'], ['mes', 'Mes'], ['anio', 'Año']].map(([id, label]) => (
@@ -270,13 +294,13 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         </div>
         <div>
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-            <Search size={14}/> Identificador o Teléfono
+            <Search size={14} /> Identificador o Teléfono
           </label>
           <input type="text" placeholder="Buscar comprador..." value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 text-sm outline-none" />
         </div>
         <div>
           <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-            <DollarSign size={14}/> Método de Pago
+            <DollarSign size={14} /> Método de Pago
           </label>
           <select value={filtroMetodoPago} onChange={(e) => setFiltroMetodoPago(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 text-sm outline-none cursor-pointer">
             <option value="Todos">Todos</option>
@@ -288,7 +312,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         </div>
       </div>
 
-      {/* SELECTORES DE TURNO */}
       {cortesDelDia.length > 0 && periodo === 'dia' && (
         <div className="mb-6 flex gap-2 overflow-x-auto print:hidden bg-slate-100 p-2 rounded-2xl custom-scrollbar">
           <button
@@ -303,220 +326,156 @@ const VistaCortesHistorico = ({ apiUrl }) => {
               onClick={() => setCorteSeleccionadoId(c.id)}
               className={`px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap flex items-center gap-2 ${corteSeleccionadoId === c.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-200'}`}
             >
-              <User size={16}/> Turno {i+1}: {c.usuario_nombre || 'Cajero'} {c.turno_cerrado ? '' : '(Activo)'}
+              <User size={16} /> Turno {i+1}: {c.usuario_nombre || 'Cajero'}
             </button>
           ))}
         </div>
       )}
 
-      {/* TÍTULO DE IMPRESIÓN */}
-      <div className="hidden print:block text-center mb-6">
-        <h1 className="text-2xl font-black text-slate-900">Reporte de Cortes y Auditoría</h1>
-        <p className="text-slate-500 font-bold">Fecha de referencia: {fechaFiltro} | Rango: {corteSeleccionadoId === 'global' ? 'DÍA COMPLETO' : 'TURNO ESPECÍFICO'}</p>
-        <hr className="mt-4 border-slate-300" />
-      </div>
-
-      {/* 🟢 SECCIÓN 1: CAJA PRINCIPAL */}
-      <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0 mb-6">
+      <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 print:hidden mb-6">
         <div className="flex items-center gap-3 mb-6">
-          <div className="bg-slate-800 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Store size={24}/></div>
-          <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest print:text-black">1. Caja Principal (Mostrador)</h3>
+          <div className="bg-slate-800 text-white p-2 rounded-xl"><Store size={24} /></div>
+          <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest">1. Caja Principal (Mostrador)</h3>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ventas Totales</p>
-            <p className="text-xl font-black text-slate-700 print:text-base">{formaterMoneda(tPlatillos + tExtras + tEnvio)}</p>
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ventas Brutas</p>
+            <p className="text-xl font-black text-slate-700">{formaterMoneda(totalVentasBrutas)}</p>
           </div>
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:p-3 print:rounded-xl">
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Fondo Inicial</p>
-            <p className="text-xl font-black text-slate-700 print:text-base">{formaterMoneda(fondoCaja)}</p>
+            <p className="text-xl font-black text-slate-700">{formaterMoneda(fondoCaja)}</p>
           </div>
-          <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Efectivo</p>
-            <p className="text-xl font-black text-emerald-700 print:text-base">+{formaterMoneda(totalEfectivoDia)}</p>
+          <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
+            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Ingresos Efectivo</p>
+            <p className="text-xl font-black text-emerald-700">+{formaterMoneda(totalEfectivoDia)}</p>
           </div>
-          <div className="bg-red-50 p-5 rounded-2xl border border-red-100 relative print:bg-white print:border-slate-200 print:p-3 print:rounded-xl">
-            <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1 print:text-slate-500">Gastos (Compras)</p>
-            <p className="text-xl font-black text-red-700 print:text-base">-{formaterMoneda(gastosCompras)}</p>
+          <div className="bg-red-50 p-5 rounded-2xl border border-red-100 relative">
+            <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">Gastos (Compras)</p>
+            <p className="text-xl font-black text-red-700">-{formaterMoneda(gastosCompras)}</p>
           </div>
         </div>
 
-        {corteSeleccionadoId !== 'global' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col justify-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-3 print:text-black">
-              <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px] print:text-slate-800">Efectivo Esperado</p>
-              <p className="text-3xl font-black">{formaterMoneda(efectivoEsperadoCaja)}</p>
-              <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-slate-500">(Fondo + Ingresos Efectivo) - Gastos</p>
-            </div>
-            <div className="bg-blue-50 p-6 rounded-3xl border border-blue-200 shadow-sm flex flex-col justify-center print:border-slate-300">
-              <p className="text-blue-600 font-black uppercase tracking-widest mb-1 text-[10px]">Efectivo Declarado</p>
-              <p className="text-3xl font-black text-blue-800">{formaterMoneda(efectivoDeclaradoCaja)}</p>
-              <p className="text-[9px] font-bold text-blue-400 uppercase mt-2">Por cajero</p>
-            </div>
-            <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center print:border-slate-300 ${diferenciaCaja >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-              <p className={`font-black uppercase tracking-widest mb-1 text-[10px] ${diferenciaCaja >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {diferenciaCaja >= 0 ? 'Sobrante a Favor' : 'Faltante en Caja'}
-              </p>
-              <p className={`text-3xl font-black ${diferenciaCaja >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                {diferenciaCaja >= 0 ? '+' : ''}{formaterMoneda(diferenciaCaja)}
-              </p>
-              <p className="text-[9px] font-bold text-slate-400 uppercase mt-2">Diferencia neta</p>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col justify-center text-white">
+            <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px]">Efectivo Esperado</p>
+            <p className="text-3xl font-black">{formaterMoneda(efectivoEsperadoCaja)}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase mt-2">(Fondo + Ingresos Efectivo) - Gastos</p>
           </div>
-        )}
+          
+          {corteSeleccionadoId !== 'global' && (
+            <>
+              <div className="bg-blue-50 p-6 rounded-3xl border border-blue-200 shadow-sm flex flex-col justify-center">
+                <p className="text-blue-600 font-black uppercase tracking-widest mb-1 text-[10px]">Efectivo Declarado</p>
+                <p className="text-3xl font-black text-blue-800">{formaterMoneda(efectivoDeclaradoCaja)}</p>
+                <p className="text-[9px] font-bold text-blue-400 uppercase mt-2">Por cajero al cerrar turno</p>
+              </div>
+              <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center ${diferenciaCaja >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                <p className={`font-black uppercase tracking-widest mb-1 text-[10px] ${diferenciaCaja >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {diferenciaCaja >= 0 ? 'Sobrante a Favor' : 'Faltante en Caja'}
+                </p>
+                <p className={`text-3xl font-black ${diferenciaCaja >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {diferenciaCaja >= 0 ? '+' : ''}{formaterMoneda(diferenciaCaja)}
+                </p>
+                <p className="text-[9px] font-bold text-slate-400 uppercase mt-2">Diferencia neta</p>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* 🛵 SECCIÓN 2: REPARTIDORES */}
-      {corteSeleccionadoId !== 'global' && (dPlatillos > 0 || dEnvio > 0) && (
-        <div className="bg-indigo-50/50 p-6 md:p-8 rounded-[32px] border border-indigo-100 print:border-none print:p-0 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start print:hidden">
+        <div className="bg-blue-50/50 p-6 md:p-8 rounded-[32px] border border-blue-100">
           <div className="flex items-center gap-3 mb-6">
-            <div className="bg-indigo-600 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Bike size={24}/></div>
-            <h3 className="text-xl font-black text-indigo-900 uppercase tracking-widest print:text-black">2. Repartidores (Motos)</h3>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white p-5 rounded-3xl border border-indigo-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none">
-              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Venta (Domicilio)</p>
-              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(dPlatillos + dExtras)}</p>
-            </div>
-            <div className="bg-white p-5 rounded-3xl border border-indigo-100 flex flex-col justify-center shadow-sm print:border-slate-300 print:shadow-none">
-              <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Envíos Cobrados</p>
-              <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(dEnvio)}</p>
-            </div>
-            {corteSeleccionadoId !== 'global' && (
-              <div className="bg-white p-5 rounded-3xl border border-indigo-100 shadow-sm print:border-slate-300 print:shadow-none">
-                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 print:text-slate-500">Fondo Repartidores</p>
-                <p className="text-xl font-black text-indigo-900 print:text-black">{formaterMoneda(fondoRepartidor)}</p>
-              </div>
-            )}
-            <div className="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 shadow-sm print:bg-white print:border-slate-300 print:shadow-none">
-              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-slate-500">Ingresos Efectivo</p>
-              <p className="text-xl font-black text-emerald-700 print:text-black">+{formaterMoneda(dEfectivo)}</p>
-            </div>
-          </div>
-          {corteSeleccionadoId !== 'global' && (
-            <div className="bg-indigo-600 p-8 rounded-3xl shadow-lg flex justify-between items-center text-white print:bg-white print:border print:border-slate-400 print:shadow-none print:p-4 print:text-black">
-              <div><p className="text-indigo-200 font-black uppercase tracking-widest mb-1 text-sm print:text-slate-800">Efectivo Físico a Entregar por Motos</p><p className="text-[11px] font-bold text-indigo-300 uppercase tracking-wider opacity-90 print:text-slate-500">Fondo Repartidores + Pagos en Efectivo de Ruta</p></div>
-              <p className="text-5xl font-black print:text-3xl">{formaterMoneda(efectivoEsperadoMotos)}</p>
-            </div>
-          )}
-
-          {Object.keys(repsData).length > 0 && (
-            <div className="mt-6 pt-6 border-t border-indigo-200 print:border-slate-300">
-              <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-4 print:text-black">Desglose por Repartidor en este Turno</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {Object.values(repsData).map((r, i) => (
-                  <div key={i} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-100 flex flex-col gap-2 print:border-slate-300 print:shadow-none">
-                    <p className="font-black text-slate-800 text-sm flex items-center justify-between">
-                      {r.nombre}
-                      <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{r.envios} entregas</span>
-                    </p>
-                    <div className="flex justify-between items-center text-xs mt-1">
-                      <span className="font-bold text-slate-500">Efectivo Recaudado:</span>
-                      <span className="font-black text-pink-600">{formaterMoneda(r.efectivo)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-500">Pagado Línea/Tarjeta:</span>
-                      <span className="font-black text-blue-600">{formaterMoneda(r.digital)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 💳 SECCIÓN 3: PAGOS DIGITALES Y CUADRE GLOBAL */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <div className="bg-blue-50/50 p-6 md:p-8 rounded-[32px] border border-blue-100 print:border-none print:p-0">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="bg-blue-600 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Smartphone size={24}/></div>
-            <h3 className="text-xl font-black text-blue-900 uppercase tracking-widest print:text-black">3. Pagos Digitales</h3>
+            <div className="bg-blue-600 text-white p-2 rounded-xl"><Smartphone size={24} /></div>
+            <h3 className="text-xl font-black text-blue-900 uppercase tracking-widest">Pagos Digitales</h3>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
-              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Tarjetas</p>
-              <p className="text-2xl font-black text-blue-900 print:text-black">
-                {formaterMoneda(corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_tarjeta || 0), 0) : (lTarjeta + dTarjeta))}
+            <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm">
+              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Total Tarjetas</p>
+              <p className="text-2xl font-black text-blue-900">
+                {formaterMoneda(totalDigital - (lTransf + dTransf))}
               </p>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm print:shadow-none print:border-slate-200 print:p-3">
-              <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1 print:text-slate-500">Total Transferencias</p>
-              <p className="text-2xl font-black text-purple-900 print:text-black">
-                {formaterMoneda(corteSeleccionadoId === 'global' ? cortesDelDia.reduce((s,c) => s + Number(c.total_transferencia || 0), 0) : (lTransf + dTransf))}
+            <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm">
+              <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1">Total Transferencias</p>
+              <p className="text-2xl font-black text-purple-900">
+                {formaterMoneda(lTransf + dTransf)}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-emerald-50 p-6 md:p-8 rounded-[32px] border border-emerald-200 shadow-sm print:border-slate-400 print:p-4">
+        <div className="bg-emerald-50 p-6 md:p-8 rounded-[32px] border border-emerald-200 shadow-sm">
           <div className="flex items-center gap-3 mb-6">
-            <div className="bg-emerald-600 text-white p-2 rounded-xl print:bg-slate-200 print:text-black"><Calculator size={24}/></div>
-            <h3 className="text-xl font-black text-emerald-900 uppercase tracking-widest print:text-black">4. Gran Total (Cuadre)</h3>
+            <div className="bg-emerald-600 text-white p-2 rounded-xl"><Calculator size={24} /></div>
+            <h3 className="text-xl font-black text-emerald-900 uppercase tracking-widest">Cuadre Global</h3>
           </div>
           <div className="space-y-4">
             
-            {/* 👇 FIX APLICADO: Variables correctas para Fondo Inicial y Gastos */}
-            <div className="bg-emerald-100/40 p-4 rounded-2xl border border-emerald-200/60 mb-2 print:border-none print:p-0">
-              <div className="flex justify-between items-center text-xs font-bold text-emerald-700 mb-1.5 print:text-slate-700">
-                <span>Fondo Inicial Registrado:</span>
+            <div className="bg-emerald-100/40 p-4 rounded-2xl border border-emerald-200/60 mb-2">
+              <div className="flex justify-between items-center text-xs font-bold text-emerald-700 mb-1.5">
+                <span>+ Fondo Inicial Registrado:</span>
                 <span>${fondoCaja.toFixed(2)}</span>
               </div>
-              {fondoRepartidor > 0 && (
-                <div className="flex justify-between items-center text-xs font-bold text-emerald-700 mb-1.5 print:text-slate-700">
-                  <span>+ Fondo Extra Repartidores:</span>
-                  <span>${fondoRepartidor.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center text-xs font-bold text-emerald-700 mb-1.5 print:text-slate-700">
+              <div className="flex justify-between items-center text-xs font-bold text-emerald-700 mb-1.5">
                 <span>+ Total Ingresos Efectivo:</span>
                 <span>${totalEfectivoDia.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between items-center text-xs font-bold text-red-500 mb-2 print:text-red-700">
+              <div className="flex justify-between items-center text-xs font-bold text-red-500 mb-2">
                 <span>- Total Gastos (Caja Chica):</span>
                 <span>-${gastosCompras.toFixed(2)}</span>
               </div>
               
-              <div className="flex justify-between items-center border-t border-emerald-200/80 pt-3 mt-1 print:border-slate-300">
-                <span className="text-sm font-black text-emerald-800 print:text-black">Total Efectivo Físico Global:</span>
-                <span className="text-2xl font-black text-emerald-900 print:text-black">{formaterMoneda(totalEfectivoFisico)}</span>
+              <div className="flex justify-between items-center border-t border-emerald-200/80 pt-3 mt-1">
+                <span className="text-sm font-black text-emerald-800">Total Efectivo Físico Global:</span>
+                <span className="text-2xl font-black text-emerald-900">{formaterMoneda(totalEfectivoFisico)}</span>
               </div>
             </div>
 
-            <div className="flex justify-between items-center border-b border-emerald-200 pb-3 print:border-slate-300">
-              <span className="text-sm font-bold text-emerald-700 print:text-slate-600">Total Pagos Digitales:</span>
-              <span className="text-xl font-black text-emerald-900 print:text-black">{formaterMoneda(totalDigital)}</span>
+            <div className="flex justify-between items-center border-b border-emerald-200 pb-3">
+              <span className="text-sm font-bold text-emerald-700">Total Pagos Digitales:</span>
+              <span className="text-xl font-black text-emerald-900">{formaterMoneda(totalDigital)}</span>
             </div>
+
+            {tDescuentos > 0 && (
+              <div className="flex justify-between items-center border-b border-emerald-200 pb-3">
+                <span className="text-sm font-bold text-orange-600">Descuentos Aplicados:</span>
+                <span className="text-xl font-black text-orange-600">-{formaterMoneda(tDescuentos)}</span>
+              </div>
+            )}
             
             <div className="flex justify-between items-end pt-2">
               <div>
-                <span className="text-sm font-black text-emerald-800 uppercase tracking-widest print:text-black">Ventas Brutas Totales:</span>
-                <p className="text-[10px] font-bold text-emerald-600 mt-1 bg-emerald-100/50 px-2 py-1 rounded w-fit print:bg-transparent print:p-0 print:text-slate-500">Suma de Platillos + Extras + Envíos</p>
+                <span className="text-sm font-black text-emerald-800 uppercase tracking-widest">Ingresos Netos Totales:</span>
+                <p className="text-[10px] font-bold text-emerald-600 mt-1 bg-emerald-100/50 px-2 py-1 rounded w-fit">
+                  Bruto ({formaterMoneda(totalVentasBrutas)}) - Descuentos
+                </p>
               </div>
-              <span className="text-4xl md:text-5xl font-black text-emerald-600 drop-shadow-sm print:text-black">
-                {formaterMoneda(totalVentasGlobales)}
+              <span className="text-4xl md:text-5xl font-black text-emerald-600 drop-shadow-sm">
+                {formaterMoneda(totalIngresoNetoReal)}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* TABLA DE ÓRDENES Y VISOR DE TICKETS */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col h-[600px] print:h-auto print:border-none print:shadow-none print:p-0">
-          <div className="flex justify-between items-center mb-6 shrink-0 border-b border-slate-100 pb-4">
-            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-              <ShoppingBag size={20} className="text-blue-500" /> Órdenes Auditadas ({pedidosFiltrados.length})
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:w-full">
+        <div className="lg:col-span-2 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col h-[600px] print:h-auto print:border-none print:shadow-none print:p-0 print:block print:w-full">
+          <div className="flex justify-between items-center mb-6 shrink-0 border-b border-slate-100 pb-4 print:border-black print:mb-2">
+            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2 print:text-black">
+              <ShoppingBag className="text-blue-500 print:hidden" size={20} /> Órdenes Registradas ({pedidosFiltrados.length})
             </h3>
             <button onClick={() => window.print()} className="hidden md:flex bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-xs items-center gap-2 hover:bg-slate-700 transition print:hidden">
               <Printer size={14} /> Imprimir Reporte
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead className="sticky top-0 bg-white z-10">
-                <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+          
+          <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 print:overflow-visible">
+            <table className="w-full text-left border-collapse text-sm print:text-xs">
+              <thead className="sticky top-0 bg-white z-10 print:static print:bg-transparent">
+                <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest print:border-black print:text-black">
                   <th className="pb-3 px-2">Orden</th>
                   <th className="pb-3 px-2">Cliente / Identificador</th>
                   <th className="pb-3 px-2 text-center">Método</th>
@@ -524,10 +483,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                   <th className="pb-3 px-2 text-right">Monto</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-50 print:divide-slate-300">
                 {pedidosFiltrados.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="text-center py-10 font-bold text-slate-400">
+                    <td colSpan="5" className="text-center py-10 font-bold text-slate-400 print:text-black">
                       No hay órdenes para los filtros aplicados.
                     </td>
                   </tr>
@@ -539,30 +498,31 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     const isCancelado = p.estado_preparacion === 'Cancelado';
                     const isSeleccionado = pedidoSeleccionado?.id === p.id;
 
+                    let clienteExtracto = p.cliente_nombre || 'Invitado';
+                    if (clienteExtracto === 'Invitado' && p.direccion_entrega && p.direccion_entrega.includes('A NOMBRE DE:')) {
+                        clienteExtracto = p.direccion_entrega.split('A NOMBRE DE:')[1].split('|')[0].trim();
+                    }
+
                     return (
                       <tr
                         key={p.id}
                         onClick={() => setPedidoSeleccionado(p)}
-                        className={`transition-colors cursor-pointer group ${isSeleccionado ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}
+                        className={`transition-colors cursor-pointer group print:break-inside-avoid ${isSeleccionado ? 'bg-blue-50/50 print:bg-transparent' : 'hover:bg-slate-50 print:hover:bg-transparent'}`}
                       >
-                        <td className="py-3 px-2">
-                          <span className="font-black text-slate-800">#{p.numero_pedido}</span>
+                        <td className="py-3 px-2 align-top">
+                          <span className="font-black text-slate-800 print:text-black">#{p.numero_pedido}</span>
+                          <br/><span className="text-[10px] font-bold text-slate-400 print:text-slate-600">{new Date(p.fecha_creacion).toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'})}</span>
                         </td>
-                        <td className="py-3 px-2">
-                          <p className={`font-bold ${isCancelado ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                            {p.cliente_nombre || 'Invitado'}
+                        <td className="py-3 px-2 align-top">
+                          <p className={`font-bold ${isCancelado ? 'text-slate-400 line-through print:text-slate-400' : 'text-slate-700 print:text-black'}`}>
+                            {clienteExtracto}
                           </p>
-                          <p className="text-[10px] font-black uppercase text-slate-400 mt-0.5 tracking-widest flex items-center gap-1">
-                            {p.tipo_consumo} {p.mesa ? `- Mesa ${p.mesa}` : ''}
+                          <p className="text-[10px] font-black uppercase text-slate-400 print:text-slate-600 mt-0.5 tracking-widest flex items-center gap-1">
+                            {p.tipo_consumo} {p.mesa ? `- MESA ${p.mesa}` : ''}
                           </p>
-                          {p.tipo_consumo === 'Domicilio' && (
-                            <p className="text-[10px] font-bold text-slate-500 mt-0.5 truncate max-w-[200px]" title={dirPura}>
-                              {dirPura}
-                            </p>
-                          )}
                         </td>
-                        <td className="py-3 px-2 text-center">
-                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${
+                        <td className="py-3 px-2 text-center align-top">
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${
                             p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' :
                             p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' :
                             p.metodo_pago === 'Transferencia' ? 'bg-purple-100 text-purple-700' :
@@ -572,15 +532,15 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                             {p.metodo_pago}
                           </span>
                         </td>
-                        <td className="py-3 px-2 text-center">
-                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${
+                        <td className="py-3 px-2 text-center align-top">
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${
                             isCancelado ? 'bg-red-100 text-red-600' : 'bg-emerald-50 text-emerald-600'
                           }`}>
                             {p.estado_preparacion}
                           </span>
                         </td>
-                        <td className="py-3 px-2 text-right">
-                          <span className={`font-black ${isCancelado ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                        <td className="py-3 px-2 text-right align-top">
+                          <span className={`font-black ${isCancelado ? 'text-slate-400 line-through print:text-slate-400' : 'text-slate-800 print:text-black'}`}>
                             ${Number(p.total).toFixed(2)}
                           </span>
                         </td>
@@ -593,22 +553,21 @@ const VistaCortesHistorico = ({ apiUrl }) => {
           </div>
         </div>
 
-        {/* VISOR DE TICKET */}
-        <div className="lg:col-span-1 bg-slate-900 print:bg-white text-white print:text-black rounded-[32px] p-6 shadow-xl flex flex-col h-[600px] print:h-auto print:border print:border-slate-300">
+        <div className="lg:col-span-1 bg-slate-900 text-white rounded-[32px] p-6 shadow-xl flex flex-col h-[600px] print:hidden">
           {pedidoSeleccionado ? (
             <div className="flex flex-col h-full animate-in fade-in">
-              <div className="flex justify-between items-start mb-6 border-b border-slate-800 print:border-slate-300 pb-4 shrink-0">
+              <div className="flex justify-between items-start mb-6 border-b border-slate-800 pb-4 shrink-0">
                 <div>
-                  <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1 print:text-slate-500">Ticket de Venta</p>
-                  <h3 className="text-2xl font-black text-white print:text-black tracking-tight">#{pedidoSeleccionado.numero_pedido}</h3>
+                  <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Detalle de Ticket</p>
+                  <h3 className="text-2xl font-black text-white tracking-tight">#{pedidoSeleccionado.numero_pedido}</h3>
                 </div>
                 <div className="text-right">
                   <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md tracking-widest ${
-                    pedidoSeleccionado.estado_preparacion === 'Cancelado' ? 'bg-red-500/20 text-red-400 print:bg-red-100 print:text-red-600' : 'bg-emerald-500/20 text-emerald-400 print:bg-emerald-100 print:text-emerald-600'
+                    pedidoSeleccionado.estado_preparacion === 'Cancelado' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
                   }`}>
                     {pedidoSeleccionado.estado_preparacion}
                   </span>
-                  <p className="text-xs font-bold text-slate-400 mt-2 print:text-slate-500">
+                  <p className="text-xs font-bold text-slate-400 mt-2">
                     {new Date(pedidoSeleccionado.fecha_creacion).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -616,20 +575,20 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
                 {deserializarCarrito(pedidoSeleccionado.carrito).map((item, idx) => (
-                  <div key={idx} className="bg-slate-800 print:bg-slate-50 rounded-xl p-3 border border-slate-700 print:border-slate-200">
+                  <div key={idx} className="bg-slate-800 rounded-xl p-3 border border-slate-700">
                     <div className="flex justify-between items-start gap-2">
-                      <p className="font-bold text-sm text-slate-200 print:text-slate-800 leading-tight">
-                        <span className="text-blue-400 print:text-blue-600 font-black mr-1">{item.cantidad}x</span>
+                      <p className="font-bold text-sm text-slate-200 leading-tight">
+                        <span className="text-blue-400 font-black mr-1">{item.cantidad}x</span>
                         {item.nombre}
                       </p>
-                      <p className="font-black text-emerald-400 print:text-emerald-600 text-sm shrink-0">
+                      <p className="font-black text-emerald-400 text-sm shrink-0">
                         ${(parseMoney(item.precioFinal) * (item.cantidad || 1)).toFixed(2)}
                       </p>
                     </div>
                     {item.extras && item.extras.length > 0 && (
-                      <div className="mt-2 pl-2 border-l border-slate-600 print:border-slate-300">
+                      <div className="mt-2 pl-2 border-l border-slate-600">
                         {item.extras.map((e, i) => (
-                          <p key={i} className="text-[10px] font-bold text-slate-400 print:text-slate-600 uppercase tracking-wide">
+                          <p key={i} className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
                             + {e.nombre}
                           </p>
                         ))}
@@ -639,16 +598,16 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                 ))}
               </div>
 
-              <div className="bg-slate-950 print:bg-slate-50 p-4 rounded-2xl border border-slate-800 print:border-slate-300 text-sm space-y-2 mt-4 shrink-0 shadow-inner">
-                <div className="flex justify-between"><span className="text-slate-400 print:text-slate-600 font-bold">Liquidación:</span><span className="font-black uppercase text-slate-200 print:text-black">{pedidoSeleccionado.metodo_pago}</span></div>
-                <div className="flex justify-between text-base font-black border-t border-slate-800 print:border-slate-300 pt-2 mt-2"><span className="text-slate-400 print:text-slate-800">Total:</span><span className="text-emerald-400 print:text-emerald-700 text-xl">{formaterMoneda(parseMoney(pedidoSeleccionado.total))}</span></div>
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-sm space-y-2 mt-4 shrink-0 shadow-inner">
+                <div className="flex justify-between"><span className="text-slate-400 font-bold">Liquidación:</span><span className="font-black uppercase text-slate-200">{pedidoSeleccionado.metodo_pago}</span></div>
+                <div className="flex justify-between text-base font-black border-t border-slate-800 pt-2 mt-2"><span className="text-slate-400">Total Abonado:</span><span className="text-emerald-400 text-xl">{formaterMoneda(parseMoney(pedidoSeleccionado.total))}</span></div>
               </div>
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 print:text-slate-400 opacity-60">
-              <Eye size={64} className="mx-auto mb-4 opacity-50"/>
+            <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 opacity-60">
+              <Eye className="mx-auto mb-4 opacity-50" size={64} />
               <p className="text-xl font-bold">Visor de Tickets</p>
-              <p className="text-sm mt-1 px-4">Selecciona una orden de la tabla para ver el detalle de los productos.</p>
+              <p className="text-sm mt-1 px-4">Selecciona una orden de la tabla para ver lo que cocinaste y el detalle de precios.</p>
             </div>
           )}
         </div>

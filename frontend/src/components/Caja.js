@@ -14,12 +14,20 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   useEffect(() => {
     if (!apiUrl) return;
     const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
+    
     const actualizarPantalla = () => {
       if (cargarDataDinamica) cargarDataDinamica();
     };
+
     socket.on('nuevo_pedido', actualizarPantalla);
     socket.on('pedido_actualizado', actualizarPantalla);
     socket.on('pedido_eliminado', actualizarPantalla);
+    
+    // 👇 NUEVOS SOCKETS AÑADIDOS: Actualización en vivo de administración
+    socket.on('usuario_actualizado', actualizarPantalla);
+    socket.on('config_actualizada', actualizarPantalla);
+    socket.on('catalogo_actualizado', actualizarPantalla);
+
     return () => socket.disconnect();
   }, [apiUrl, cargarDataDinamica]);
 
@@ -89,8 +97,10 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             setModalEditarPedido={c.setModalEditarPedido} 
             isSubmitting={c.isSubmitting} 
             setModalVerDetalle={c.setModalVerDetalle}
-            onLogout={c.cerrarCajaYSalir} // 👈 PUENTE DE LOGOUT AGREGADO
+            onLogout={c.cerrarCajaYSalir}
             forzarLiberacionMesas={c.forzarLiberacionMesas}
+            pedidosAuditados={c.pedidosAuditados} 
+            apiUrl={c.apiUrl}
           />
         </main>
         

@@ -1,14 +1,27 @@
-import { useState, useEffect, useCallback } from 'react';  
+import { useState, useEffect, useCallback } from 'react';
+
+// 👇 RELOJ SINCRONIZADO ESTRICTO (Zona Horaria Local)
+const getMazatlanDateStr = () => {
+    const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const parts = formatter.formatToParts(new Date());
+    let dDay, dMonth, dYear;
+    parts.forEach(part => {
+        if(part.type === 'day') dDay = part.value;
+        if(part.type === 'month') dMonth = part.value;
+        if(part.type === 'year') dYear = part.value;
+    });
+    return `${dYear}-${dMonth}-${dDay}`;
+};
 
 export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [vistaActiva, setVistaActiva] = useState('por_confirmar');
   const [subVistaHistorial, setSubVistaHistorial] = useState('activos');
   const [isCajaBloqueada, setIsCajaBloqueada] = useState(true);
-  const [operadorActual, setOperadorActual] = useState(user);  
+  const [operadorActual, setOperadorActual] = useState(user);
 
   useEffect(() => {
     if (user) setOperadorActual(user);
-  }, [user]);  
+  }, [user]);
 
   const [pedidos, setPedidos] = useState([]);
   const [mesas, setMesas] = useState([]);
@@ -18,7 +31,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [configGlobal, setConfigGlobal] = useState(null);
   const [empleadosPOS, setEmpleadosPOS] = useState([]);
   const [insumosDB, setInsumosDB] = useState([]);
-  const [gastosDia, setGastosDia] = useState([]);  
+  const [gastosDia, setGastosDia] = useState([]);
+
+  const [pedidosAuditados, setPedidosAuditados] = useState(new Set());
 
   const [modalPago, setModalPago] = useState(null);
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -45,36 +60,15 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [modalPuntoVenta, setModalPuntoVenta] = useState(false);
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [modalComedor, setModalComedor] = useState(false);  
+  const [modalComedor, setModalComedor] = useState(false);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const hoyStr = new Date().toISOString().split('T')[0];  
-
-  const [fondoCaja, setFondoCaja] = useState(() => {
-    const guardado = localStorage.getItem(`fondo_caja_${user?.id}_${hoyStr}`);
-    return guardado !== null ? Number(guardado) : null;
-  });  
-
-  const [inputFondo, setInputFondo] = useState('');  
-
-  const [fondosRepartidores, setFondosRepartidores] = useState(() => {
-    const guardado = localStorage.getItem(`fondos_repartidores_${hoyStr}`);
-    return guardado ? JSON.parse(guardado) : {};
-  });  
-
-  const actualizarFondoRepartidor = (repartidorId, valor) => {
-    const num = Number(valor);
-    const newFondos = { ...fondosRepartidores, [repartidorId]: isNaN(num) ? 0 : num };
-    setFondosRepartidores(newFondos);
-    localStorage.setItem(`fondos_repartidores_${hoyStr}`, JSON.stringify(newFondos));
-  };  
-
-  const fondoRepartidorGlobal = Object.values(fondosRepartidores).reduce((sum, val) => sum + (Number(val) || 0), 0);  
+  const hoyStr = getMazatlanDateStr(); // 👈 IMPLEMENTACIÓN DEL RELOJ LOCAL
 
   const cargarDataDinamica = useCallback(async () => {
     try {
       const t = new Date().getTime();
-      const [ resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu ] = await Promise.all([
+      const [ resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu, resCortes ] = await Promise.all([
         fetch(`${apiUrl}/pedidos/hoy?t=${t}`),
         fetch(`${apiUrl}/mesas?t=${t}`),
         fetch(`${apiUrl}/insumos?t=${t}`),
@@ -82,36 +76,127 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         fetch(`${apiUrl}/productos?t=${t}`),
         fetch(`${apiUrl}/clasificaciones?t=${t}`),
         fetch(`${apiUrl}/ingredientes?t=${t}`),
-        fetch(`${apiUrl}/usuarios?t=${t}`)
-      ]);  
+        fetch(`${apiUrl}/usuarios?t=${t}`),
+        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true`) 
+      ]);
 
       const dataPed = await resPed.json();
-      setPedidos(Array.isArray(dataPed) ? dataPed : []);  
+      setPedidos(Array.isArray(dataPed) ? dataPed : []);
 
       const dataMesas = await resMesas.json();
-      setMesas(Array.isArray(dataMesas) ? dataMesas : []);  
+      setMesas(Array.isArray(dataMesas) ? dataMesas : []);
 
       const dataInsumos = await resInsumos.json();
-      setInsumosDB(Array.isArray(dataInsumos) ? dataInsumos : []);  
+      setInsumosDB(Array.isArray(dataInsumos) ? dataInsumos : []);
 
       const dataGastos = await resGastos.json();
-      setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);  
+      setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
 
       const dataProd = await resProd.json();
-      setProductos(Array.isArray(dataProd) ? dataProd.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0) : []);  
+      setProductos(Array.isArray(dataProd) ? dataProd.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0) : []);
 
       const dataClas = await resClas.json();
-      setClasificaciones(Array.isArray(dataClas) ? dataClas : []);  
+      setClasificaciones(Array.isArray(dataClas) ? dataClas : []);
 
       const dataIng = await resIng.json();
-      setCatalogoIngredientes(Array.isArray(dataIng) ? dataIng : []);  
+      setCatalogoIngredientes(Array.isArray(dataIng) ? dataIng : []);
 
       const dataUsu = await resUsu.json();
-      setEmpleadosPOS(Array.isArray(dataUsu) ? dataUsu : []);  
+      setEmpleadosPOS(Array.isArray(dataUsu) ? dataUsu : []);
+
+      if (resCortes.ok) {
+          const dataCortes = await resCortes.json();
+          const cortesArr = Array.isArray(dataCortes) ? dataCortes : (dataCortes && dataCortes.id ? [dataCortes] : []);
+          let auditados = new Set();
+          
+          cortesArr.forEach(c => {
+              let inc = [];
+              try { inc = typeof c.pedidos_incluidos === 'string' ? JSON.parse(c.pedidos_incluidos) : c.pedidos_incluidos; } catch(e){}
+              (inc || []).forEach(id => auditados.add(id));
+          });
+          
+          setPedidosAuditados(auditados);
+      }
+
     } catch (error) {
       console.error("Error cargando data dinámica:", error);
     }
-  }, [apiUrl]);  
+  }, [apiUrl, hoyStr]);
+
+  // 👇 ESTADO NACIDO ESTRICTAMENTE EN NULL PARA OBLIGAR A PEDIR CAJA SIEMPRE
+  const [fondoCaja, setFondoCaja] = useState(null);
+  const [inputFondo, setInputFondo] = useState('');
+
+  // 👇 EVALUACIÓN ESTRICTA DEL ÚLTIMO EVENTO DEL CAJERO
+  useEffect(() => {
+    if (operadorActual && apiUrl) {
+        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true&t=${new Date().getTime()}`)
+        .then(r => r.json())
+        .then(dataCortes => {
+            const cortesArr = Array.isArray(dataCortes) ? dataCortes : (dataCortes && dataCortes.id ? [dataCortes] : []);
+            
+            // Filtramos solo los eventos de ESTE usuario de HOY (Hora Mazatlán)
+            const misCortesHoy = cortesArr.filter(c => Number(c.usuario_id) === Number(operadorActual.id));
+            
+            if (misCortesHoy.length > 0) {
+                // Ordenamos por ID para agarrar siempre el movimiento más reciente
+                misCortesHoy.sort((a, b) => Number(a.id) - Number(b.id));
+                const ultimoEvento = misCortesHoy[misCortesHoy.length - 1];
+
+                // Si su última acción fue abrir turno, lo pasamos directo. 
+                // Si su última acción fue cerrar, le exigimos fondo nuevo (setFondoCaja null).
+                if (ultimoEvento.turno_cerrado === false && ultimoEvento.fondo_inicial !== null) {
+                    setFondoCaja(Number(ultimoEvento.fondo_inicial));
+                } else {
+                    setFondoCaja(null);
+                }
+            } else {
+                setFondoCaja(null); // Primer turno del día
+            }
+        }).catch(()=>{});
+    }
+  }, [operadorActual, apiUrl, hoyStr]);
+
+  // 👇 APERTURA DE CAJA: Conectado a la BD para asentar la fecha exacta
+  const iniciarTurno = async (e) => {
+    e.preventDefault();
+    const m = Number(inputFondo);
+    try {
+        await fetch(`${apiUrl}/usuarios/${operadorActual.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fondo_actual: m })
+        });
+
+        await fetch(`${apiUrl}/cortes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fecha: hoyStr,
+                usuario_id: operadorActual.id,
+                fondo_inicial: m,
+                turno_cerrado: false
+            })
+        });
+        
+        setFondoCaja(m);
+        await cargarDataDinamica();
+    } catch(err) {}
+  };
+
+  const [fondosRepartidores, setFondosRepartidores] = useState(() => {
+    const guardado = localStorage.getItem(`fondos_repartidores_${hoyStr}`);
+    return guardado ? JSON.parse(guardado) : {};
+  });
+
+  const actualizarFondoRepartidor = (repartidorId, valor) => {
+    const num = Number(valor);
+    const newFondos = { ...fondosRepartidores, [repartidorId]: isNaN(num) ? 0 : num };
+    setFondosRepartidores(newFondos);
+    localStorage.setItem(`fondos_repartidores_${hoyStr}`, JSON.stringify(newFondos));
+  };
+
+  const fondoRepartidorGlobal = Object.values(fondosRepartidores).reduce((sum, val) => sum + (Number(val) || 0), 0);
 
   useEffect(() => {
     const cargarConfig = async () => {
@@ -128,40 +213,39 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           }
         }
       } catch (error) {}
-    };  
+    };
     cargarConfig();
-    cargarDataDinamica();  
+    cargarDataDinamica();
 
     const intervaloData = setInterval(cargarDataDinamica, 3000);
-    const intervaloConfig = setInterval(cargarConfig, 3000);  
-
+    const intervaloConfig = setInterval(cargarConfig, 3000);
     return () => {
       clearInterval(intervaloData);
       clearInterval(intervaloConfig);
     };
-  }, [apiUrl, cargarDataDinamica]);  
+  }, [apiUrl, cargarDataDinamica]);
 
   useEffect(() => {
     if (!configGlobal) return;
     const isBloqueoGlobalOn = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
-    if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia || modalComedor || modalMermas) return;  
+    if (!isBloqueoGlobalOn || modalPuntoVenta || modalPago || modalCompraRapida || modalResolver || modalIdentificar || modalAsistencia || modalComedor || modalMermas) return;
 
     let timeout;
-    const segundosLimite = configGlobal.bloqueo_caja_segundos || 30;  
+    const segundosLimite = configGlobal.bloqueo_caja_segundos || 30;
 
     const reiniciarTemporizador = () => {
       clearTimeout(timeout);
       if (!isCajaBloqueada && fondoCaja !== null) {
         timeout = setTimeout(() => setIsCajaBloqueada(true), segundosLimite * 1000);
       }
-    };  
+    };
 
     window.addEventListener('mousemove', reiniciarTemporizador);
     window.addEventListener('keydown', reiniciarTemporizador);
     window.addEventListener('touchstart', reiniciarTemporizador);
-    window.addEventListener('click', reiniciarTemporizador);  
+    window.addEventListener('click', reiniciarTemporizador);
 
-    reiniciarTemporizador();  
+    reiniciarTemporizador();
 
     return () => {
       clearTimeout(timeout);
@@ -170,178 +254,162 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       window.removeEventListener('touchstart', reiniciarTemporizador);
       window.removeEventListener('click', reiniciarTemporizador);
     };
-  }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia, modalComedor, modalMermas, fondoCaja]);  
+  }, [configGlobal, isCajaBloqueada, modalPuntoVenta, modalPago, modalCompraRapida, modalResolver, modalIdentificar, modalAsistencia, modalComedor, modalMermas, fondoCaja]);
 
   const mostrarAlertaCaja = (titulo, mensaje, tipo = 'success') => {
     setAlertaCaja({ titulo, mensaje, tipo });
     setTimeout(() => setAlertaCaja(null), 5000);
-  };  
+  };
 
-  // 👇 AQUÍ SE INYECTÓ LA SOLUCIÓN DEL HORARIO, RESTO DEL CÓDIGO INTACTO
   const cerrarCajaYSalir = async () => {
-    try {
-      if (configGlobal && configGlobal.horarios_semana) {
-        const horarios = typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana;
-        const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
-        const formatter = new Intl.DateTimeFormat('en-US', { 
-          timeZone: 'America/Mazatlan', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'long' 
-        });
-        
-        const parts = formatter.formatToParts(new Date());
-        let horaStr = '', minStr = '', diaStrEN = '';
-        parts.forEach(p => {
-          if (p.type === 'hour') horaStr = p.value;
-          if (p.type === 'minute') minStr = p.value;
-          if (p.type === 'weekday') diaStrEN = p.value;
-        });
-        
-        if (horaStr === '24') horaStr = '00';
-        const dayMap = { 'Sunday': 'Domingo', 'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles', 'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado' };
-        const diaHoyStr = dayMap[diaStrEN] || dias[new Date().getDay()];
-        const minutosActuales = parseInt(horaStr, 10) * 60 + parseInt(minStr, 10);
-        let deberiaEstarAbierto = false;
-
-        const indiceHoy = dias.indexOf(diaHoyStr);
-        const diaAyerStr = dias[(indiceHoy + 6) % 7];
-        const configAyer = horarios[diaAyerStr];
-        
-        if (configAyer && configAyer.activo && configAyer.apertura && configAyer.cierre) {
-          const apA = parseInt(configAyer.apertura.split(':')[0], 10) * 60 + parseInt(configAyer.apertura.split(':')[1], 10);
-          const ciA = parseInt(configAyer.cierre.split(':')[0], 10) * 60 + parseInt(configAyer.cierre.split(':')[1], 10);
-          if (ciA <= apA && minutosActuales < ciA) deberiaEstarAbierto = true;
-        }
-
-        if (!deberiaEstarAbierto) {
-          const configHoy = horarios[diaHoyStr];
-          if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
-            const apH = parseInt(configHoy.apertura.split(':')[0], 10) * 60 + parseInt(configHoy.apertura.split(':')[1], 10);
-            const ciH = parseInt(configHoy.cierre.split(':')[0], 10) * 60 + parseInt(configHoy.cierre.split(':')[1], 10);
-            if (ciH <= apH) {
-              if (minutosActuales >= apH) deberiaEstarAbierto = true;
-            } else {
-              if (minutosActuales >= apH && minutosActuales < ciH) deberiaEstarAbierto = true;
-            }
-          }
-        }
-
-        const estadoActual = (configGlobal.negocio_abierto === true || String(configGlobal.negocio_abierto) === 'true');
-
-        if (estadoActual !== deberiaEstarAbierto) {
-          const formData = new FormData();
-          formData.append('negocio_abierto', deberiaEstarAbierto ? 'true' : 'false');
-          await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-        }
-      }
-    } catch (error) {
-      console.error("Error al restaurar horario de kiosco:", error);
-    }
-
     onLogout();
   };
 
-  const iniciarTurno = (e) => {
-    e.preventDefault();
-    const m = Number(inputFondo);
-    localStorage.setItem(`fondo_caja_${user?.id}_${hoyStr}`, m);
-    setFondoCaja(m);
-  };  
-
-  // 👇 AQUÍ ESTÁ LA MAGIA PROFUNDA DE RAWBT NATIVO
   const lanzarImpresion = async (pedido) => {
     setTicketImprimir(pedido);
     const modoImpresion = configGlobal?.ticket_modo_impresion || 'pdf';
-    
+
+    const stripEmojis = (str) => {
+      return String(str || '')
+        .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
+        .replace(/[⭐🔹🔸📝❌]/g, '')
+        .trim();
+    };
+
+    const construirTextoTicket = () => {
+      let receipt = "";  
+      const center = (text) => {
+        const str = String(text || '');
+        if (str.length >= 32) return str.substring(0, 32) + "\n";
+        const pad = Math.floor((32 - str.length) / 2);
+        return " ".repeat(pad) + str + "\n";
+      };  
+      
+      receipt += center(stripEmojis(configGlobal?.nombre_negocio || 'Mi Negocio'));
+      if (configGlobal?.ticket_domicilio) receipt += center(stripEmojis(configGlobal.ticket_domicilio));
+      if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);  
+      receipt += `--------------------------------\n`;
+      receipt += `TICKET: #${pedido.numero_pedido}\n`;
+      receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
+      receipt += `CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}\n`;
+      receipt += `TIPO: ${stripEmojis(pedido.tipo_consumo)}\n`;
+      if (pedido.mesa) receipt += `MESA: ${stripEmojis(pedido.mesa)}\n`;
+      if (pedido.direccion_entrega) receipt += `DIR: ${stripEmojis(pedido.direccion_entrega.substring(0, 50))}\n`;
+      receipt += `--------------------------------\n`;  
+      
+      const car = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
+      car.forEach(item => {
+        const qty = item.cantidad || 1;
+        const price = (Number(item.precioFinal) * qty).toFixed(2);
+        let line = `${qty}x ${stripEmojis(item.nombre)}`;  
+        if (line.length > 24) line = line.substring(0, 24);
+        let spaces = 32 - line.length - price.length - 1;
+        if (spaces < 1) spaces = 1;  
+        receipt += `${line}${" ".repeat(spaces)}$${price}\n`;  
+        if (item.extras && item.extras.length > 0) {
+          item.extras.forEach(e => {
+            receipt += `  + ${stripEmojis(e.nombre)}\n`;
+          });
+        }
+      });  
+      
+      receipt += `--------------------------------\n`;
+      receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
+      receipt += `PAGO: ${stripEmojis(pedido.metodo_pago)}\n`;  
+      
+      if (pedido.metodo_pago === 'Mixto' && pedido.pagos_mixtos) {
+        const pm = typeof pedido.pagos_mixtos === 'string' ? JSON.parse(pedido.pagos_mixtos) : pedido.pagos_mixtos;
+        pm.forEach(x => {
+          receipt += ` - ${stripEmojis(x.metodo)}: $${Number(x.monto).toFixed(2)}\n`;
+        });
+      }  
+      
+      receipt += `--------------------------------\n`;
+      receipt += center(stripEmojis(configGlobal?.ticket_mensaje_final || '¡Gracias por su preferencia!'));
+      receipt += `\n\n\n\n`;
+      return receipt;
+    };
+
     if (modoImpresion === 'impresora') {
       try {
-        await fetch(`${apiUrl}/imprimir`, {
+        const res = await fetch(`${apiUrl}/imprimir`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pedido, configGlobal })
         });
+        
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          mostrarAlertaCaja('Error de Impresión IP', err.error || 'La impresora de red está apagada o fuera de alcance.', 'error');
+        } else {
+          mostrarAlertaCaja('Generando Ticket', 'Ticket enviado a la impresora de red.', 'success');
+        }
       } catch (e) {
-        console.error("Error al enviar a impresora de red:", e);
+        mostrarAlertaCaja('Fallo de Conexión', 'No se pudo contactar al servidor para imprimir el ticket.', 'error');
       }
-      setTimeout(() => {
-        setTicketImprimir(null);
-      }, 2500);
-    } else if (modoImpresion === 'rawbt_nativo') {
-      // 🚀 MOTOR DE ENLACE PROFUNDO (DEEP LINK) PARA RAWBT
+      setTimeout(() => setTicketImprimir(null), 2500);
+
+    } else if (modoImpresion === 'rawbt_http') {
       try {
-        let receipt = "";
-        
-        // Helper para centrar texto a 32 caracteres (formato 58mm)
-        const center = (text) => {
-          const str = String(text || '');
-          if (str.length >= 32) return str.substring(0, 32) + "\n";
-          const pad = Math.floor((32 - str.length) / 2);
-          return " ".repeat(pad) + str + "\n";
-        };
-
-        // Construcción de ticket crudo puro
-        receipt += center(configGlobal?.nombre_negocio || 'Mi Negocio');
-        if (configGlobal?.ticket_domicilio) receipt += center(configGlobal.ticket_domicilio);
-        if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);
-        
-        receipt += `--------------------------------\n`;
-        receipt += `TICKET: #${pedido.numero_pedido}\n`;
-        receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
-        receipt += `CLIENTE: ${pedido.cliente_nombre || 'Invitado'}\n`;
-        receipt += `TIPO: ${pedido.tipo_consumo}\n`;
-        if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
-        if (pedido.direccion_entrega) receipt += `DIR: ${pedido.direccion_entrega.substring(0, 50)}\n`;
-        receipt += `--------------------------------\n`;
-
-        const car = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
-        car.forEach(item => {
-          const qty = item.cantidad || 1;
-          const price = (Number(item.precioFinal) * qty).toFixed(2);
-          let line = `${qty}x ${item.nombre}`;
-          
-          if (line.length > 24) line = line.substring(0, 24);
-          let spaces = 32 - line.length - price.length - 1;
-          if (spaces < 1) spaces = 1;
-          
-          receipt += `${line}${" ".repeat(spaces)}$${price}\n`;
-
-          if (item.extras && item.extras.length > 0) {
-            item.extras.forEach(e => {
-              receipt += `  + ${e.nombre}\n`;
-            });
-          }
+        const receipt = construirTextoTicket();
+        const res = await fetch("http://127.0.0.1:40228/", {
+            method: "POST",
+            body: receipt,
         });
 
-        receipt += `--------------------------------\n`;
-        receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
-        receipt += `PAGO: ${pedido.metodo_pago}\n`;
-        
-        if (pedido.metodo_pago === 'Mixto' && pedido.pagos_mixtos) {
-          const pm = typeof pedido.pagos_mixtos === 'string' ? JSON.parse(pedido.pagos_mixtos) : pedido.pagos_mixtos;
-          pm.forEach(x => {
-            receipt += ` - ${x.metodo}: $${Number(x.monto).toFixed(2)}\n`;
-          });
+        if (!res.ok) {
+          mostrarAlertaCaja('Error de RawBT', 'La conexión local falló. Verifica que RawBT esté abierto.', 'error');
+        } else {
+          mostrarAlertaCaja('Imprimiendo', 'Enviando ticket a la impresora de red (RawBT Silencioso)...', 'success');
         }
-        
-        receipt += `--------------------------------\n`;
-        receipt += center(configGlobal?.ticket_mensaje_final || '¡Gracias por su preferencia!');
-        receipt += `\n\n\n\n`; // Avance de papel extra para corte
-
-        // Empaquetado en Base64 e inyección a la URL nativa de Android
-        const base64Data = btoa(unescape(encodeURIComponent(receipt)));
-        const rawbtIntent = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
-        
-        window.location.href = rawbtIntent;
-
       } catch (err) {
-        console.error("Error ejecutando puente nativo:", err);
+        mostrarAlertaCaja('RawBT Inactivo', 'Abre RawBT en la tablet y activa el servidor HTTP.', 'error');
       }
+      setTimeout(() => setTicketImprimir(null), 1000);
 
+    } else if (modoImpresion === 'parzibyte') {
+      try {
+        const receipt = construirTextoTicket();
+        const nombreImpresora = configGlobal.ticket_impresora_parzibyte || "POS-58";
+        const payloadPlugin = {
+          nombreImpresora: nombreImpresora,
+          operaciones: [
+            { nombre: "Iniciar", argumentos: [] },
+            { nombre: "EscribirTexto", argumentos: [receipt] },
+            { nombre: "Corte", argumentos: [1] } 
+          ]
+        };
+
+        const res = await fetch("http://localhost:8000/imprimir", {
+            method: "POST",
+            body: JSON.stringify(payloadPlugin),
+        });
+
+        if (!res.ok) {
+          mostrarAlertaCaja('Error de Impresora Local', `Verifica que la impresora "${nombreImpresora}" esté conectada y encendida.`, 'error');
+        } else {
+          mostrarAlertaCaja('Imprimiendo', 'Enviando ticket a impresora local (Parzibyte)...', 'success');
+        }
+      } catch (err) {
+        mostrarAlertaCaja('Plugin Parzibyte Inactivo', 'El puente de impresión local no está corriendo en esta computadora. Por favor inícialo.', 'error');
+      }
+      setTimeout(() => setTicketImprimir(null), 1000);
+
+    } else if (modoImpresion === 'rawbt_nativo') {
+      try {
+        const receipt = construirTextoTicket();
+        const base64Data = btoa(unescape(encodeURIComponent(receipt)));
+        const rawbtIntent = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;  
+        window.location.href = rawbtIntent;  
+        mostrarAlertaCaja('Imprimiendo', 'Abriendo la app RawBT para imprimir el ticket...', 'success');
+      } catch (err) {
+        mostrarAlertaCaja('Error de RawBT', 'No se pudo conectar con la aplicación de impresión instalada.', 'error');
+      }  
       setTimeout(() => {
         setTicketImprimir(null);
-      }, 1000);
-      
+      }, 1000);  
+
     } else {
-      // Motor PDF Local Tradicional
       setTimeout(() => {
         window.print();
         const handleAfterPrint = () => {
@@ -362,14 +430,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
       if (res.ok) setConfigGlobal({ ...configGlobal, negocio_abierto: nuevoEstado });
     } catch (e) {}
-  };  
+  };
 
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
     if (isSubmitting) return;
-    setIsSubmitting(true);  
-
+    setIsSubmitting(true);
     let estadoFinal;
-    let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;  
+    let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
 
     if (estadoRechazo) {
       estadoFinal = estadoRechazo;
@@ -388,15 +455,15 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       } else {
         estadoFinal = modalPago.estado_preparacion;
       }
-    }  
+    }
 
     try {
-      const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal };
-      if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;  
+      const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, cajero_id: operadorActual?.id };
+      if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
 
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });  
+      });
 
       if (res.ok) {
         if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) lanzarImpresion(modalPago);
@@ -405,13 +472,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         await cargarDataDinamica();
       } else {
         const errData = await res.json().catch(() => ({}));
-        mostrarAlertaCaja('Error de Servidor', errData.error || 'El backend rechazó el pago. Revisa tu consola.', 'error');
+        mostrarAlertaCaja('Error de Servidor', errData.error || 'El backend rechazó el pago.', 'error');
       }
     } catch (error) {
       mostrarAlertaCaja('Error de Red', 'Problema de conexión al procesar el pago.', 'error');
     }
     setIsSubmitting(false);
-  };  
+  };
 
   const liquidarPedidoRepartidor = async (pedidoIds) => {
     if (isSubmitting) return;
@@ -422,23 +489,23 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         fetch(`${apiUrl}/pedidos/${id}/estado`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: 'Efectivo' })
+          body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: 'Efectivo', cajero_id: operadorActual?.id })
         })
       );
       const results = await Promise.all(promesas);
       const todosOk = results.every(res => res.ok);
       if (todosOk) {
         await cargarDataDinamica();
-        mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el efectivo de ${idsArray.length} orden(es) en caja.`, 'success');
+        mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el efectivo en caja.`, 'success');
       } else {
-        mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar. Revisa tu red.', 'error');
+        mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar.', 'error');
         await cargarDataDinamica();
       }
     } catch (error) {
       mostrarAlertaCaja('Error de Red', 'Problema de conexión.', 'error');
     }
     setIsSubmitting(false);
-  };  
+  };
 
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado, extraData = {}) => {
     if (isSubmitting) return;
@@ -448,36 +515,70 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     let estadoSeguro = nuevoEstado;
     if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
       estadoSeguro = 'Pagado';
-    }  
-
+    }
     try {
       let payload = { estado_preparacion: estadoSeguro, ...extraData };
       if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
-        // Se mantiene
       } else if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
         payload.metodo_pago = 'Por Cobrar';
-      }  
-
+      }
       const res = await fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       if (res.ok) {
-        if (estadoSeguro === 'Cancelado') {
-          mostrarAlertaCaja('Orden Anulada', `La orden #${pedidoFull?.numero_pedido} se ha cancelado correctamente.`, 'error');
-        }
         await cargarDataDinamica();
       }
     } catch (error) {}
     setIsSubmitting(false);
-  };  
+  };
 
-  const confirmarPedidoRecoger = (id) => actualizarEstadoPedido(id, 'Pagado');
-  const confirmarPedidoDomicilio = (pedidoData) => {
-    actualizarEstadoPedido(pedidoData.id, 'Pagado', { costo_envio: pedidoData.costo_envio, total: (Number(pedidoData.total) + Number(pedidoData.costo_envio)) });
-    setModalZonaEnvio(null);
-  };  
+  const forzarLiberacionMesas = async (arrayMesasOcupadas) => {
+    setIsSubmitting(true);
+    try {
+      const promesas = arrayMesasOcupadas.map(m =>
+        fetch(`${apiUrl}/mesas/${m.id}/estado`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ estado: 'Libre' })
+        })
+      );
+      await Promise.all(promesas);
+      await cargarDataDinamica();
+    } catch(e) {}
+    setIsSubmitting(false);
+  };
+
+  const confirmarPedidoRecoger = async (id) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await fetch(`${apiUrl}/pedidos/${id}/estado`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ estado_preparacion: 'Pagado', cajero_id: operadorActual?.id }) 
+      });
+      await cargarDataDinamica();
+    } catch (error) {}
+    setIsSubmitting(false);
+  };
+
+  const confirmarPedidoDomicilio = async (pedidoModificado) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const { costo_envio } = pedidoModificado;
+      const t = Number(pedidoModificado.total) + Number(costo_envio);
+      await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ estado_preparacion: 'Pagado', costo_envio, total: t, cajero_id: operadorActual?.id }) 
+      });
+      setModalZonaEnvio(null);
+      await cargarDataDinamica();
+    } catch (error) {}
+    setIsSubmitting(false);
+  };
 
   const limpiarAlerta = async (id) => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       await fetch(`${apiUrl}/pedidos/${id}/alerta`, {
@@ -486,26 +587,25 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await cargarDataDinamica();
     } catch(e) {}
     setIsSubmitting(false);
-  };  
+  };
 
   const abrirModalResolver = (pedido) => {
     setModalResolver(pedido);
     setItemAfectadoIdx('');
     setAccionAlerta('');
     setIngredienteReemplazo('');
-  };  
+  };
 
-  const confirmarAgregarExtra = async (pedidoOriginal, itemIndex, extraObj) => {
+  const confirmarAgregarExtra = async (pedidoOriginal, idxItem, extraObj) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       const items = typeof pedidoOriginal.carrito === 'string' ? JSON.parse(pedidoOriginal.carrito) : pedidoOriginal.carrito;
-      const itemReal = items[itemIndex];
+      const itemReal = items[idxItem];
       itemReal.extras = itemReal.extras || [];
       itemReal.extras.push({ nombre: extraObj.nombre, precioExtra: extraObj.precio_extra || extraObj.precioExtra || 0, tipo: 'extra' });
       itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
-      const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);  
-
+      const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
       await fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ carrito: items, total: nuevoTotal, estado_preparacion: pedidoOriginal.estado_preparacion })
@@ -515,7 +615,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await cargarDataDinamica();
     } catch(e) {}
     setIsSubmitting(false);
-  };  
+  };
 
   const registrarCompraRapida = async (payload) => {
     if (isSubmitting) return; setIsSubmitting(true);
@@ -529,7 +629,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await cargarDataDinamica();
     } catch(e) {}
     setIsSubmitting(false);
-  };  
+  };
 
   const enviarRespuestaCocina = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -537,8 +637,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       const items = typeof modalResolver.carrito === 'string' ? JSON.parse(modalResolver.carrito) : modalResolver.carrito;
       let payloadEstado = { carrito: items, estado_preparacion: modalResolver.estado_preparacion };
-      let textoRespuesta = 'CAJA RESPONDE: Revisado.';  
-
+      let textoRespuesta = 'CAJA RESPONDE: Revisado.';
       if (accionAlerta === 'cancelar') {
         payloadEstado.estado_preparacion = 'Cancelado';
         textoRespuesta = 'CAJA RESPONDE: Se canceló todo el pedido.';
@@ -560,28 +659,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         textoRespuesta = `CAJA RESPONDE: Cambiar por ${ingredienteReemplazo}.`;
       } else if (accionAlerta === 'aceptar') {
         textoRespuesta = 'CAJA RESPONDE: El cliente aceptó tu propuesta.';
-      }  
-
+      }
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadEstado)
-      });  
-
+      });
       await fetch(`${apiUrl}/pedidos/${modalResolver.id}/alerta`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: textoRespuesta })
-      });  
-
+      });
       setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta(''); setIngredienteReemplazo('');
       await cargarDataDinamica();
     } catch (error) {}
     setIsSubmitting(false);
-  };  
+  };
 
   const guardarEdicionPedido = async (id, nuevosDatos) => {
     setIsSubmitting(true);
     try {
       const pedidoRef = pedidos.find(p => p.id === id);
-      let paqueteCompleto = { ...nuevosDatos };  
-
+      let paqueteCompleto = { ...nuevosDatos };
       if (pedidoRef) {
         const carritoArray = typeof pedidoRef.carrito === 'string' ? JSON.parse(pedidoRef.carrito) : (pedidoRef.carrito || []);
         paqueteCompleto = {
@@ -596,62 +691,27 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           mesa: pedidoRef.mesa,
           carrito: carritoArray,
           total: nuevosDatos.total !== undefined ? nuevosDatos.total : pedidoRef.total,
+          costo_envio: nuevosDatos.costo_envio !== undefined ? nuevosDatos.costo_envio : pedidoRef.costo_envio,
           descuento_puntos: pedidoRef.descuento_puntos,
-          cupon_codigo: pedidoRef.cupon_codigo,
-          costo_envio: nuevosDatos.costo_envio !== undefined ? nuevosDatos.costo_envio : pedidoRef.costo_envio
+          cupon_codigo: pedidoRef.cupon_codigo
         };
-      }  
-
-      const res = await fetch(`${apiUrl}/pedidos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paqueteCompleto) });  
-
-      if (res.ok) {
-        if (pedidoRef && pedidoRef.cliente_id && nuevosDatos.direccion_entrega) {
-          const dirLimpia = nuevosDatos.direccion_entrega.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
-          try {
-            const resCli = await fetch(`${apiUrl}/clientes/${pedidoRef.cliente_id}`);
-            if (resCli.ok) {
-              const cliData = await resCli.json();
-              if (!cliData.direccion || cliData.direccion !== dirLimpia) {
-                await fetch(`${apiUrl}/clientes/${pedidoRef.cliente_id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...cliData, direccion: dirLimpia }) });
-              }
-            }
-          } catch(e) {}
-        }
-        setModalEditarPedido(null);
-        await cargarDataDinamica();
       }
-    } catch (error) {}
+      await fetch(`${apiUrl}/pedidos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paqueteCompleto)
+      });
+      setModalEditarPedido(null);
+      await cargarDataDinamica();
+    } catch(e) {}
     setIsSubmitting(false);
-  };  
+  };
 
-  // 👇 FUNCIÓN ORIGINAL RESTAURADA
-  const abrirIdentificador = () => {
-    setOrdenEditandoRapida(null);
-    setModalPuntoVenta(true);
-  };  
-
-  // 👇 FUNCIÓN ORIGINAL RESTAURADA
   const onGoToKioscoLocal = (cliente, orden) => {
     setOrdenEditandoRapida(orden);
     setModalEditarPedido(null);
     setModalPuntoVenta(true);
-  };  
-
-  const forzarLiberacionMesas = async (arrayMesasOcupadas) => {
-    setIsSubmitting(true);
-    try {
-      const promesas = arrayMesasOcupadas.map(m =>
-        fetch(`${apiUrl}/mesas/${m.id}/estado`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ estado: 'Libre' })
-        })
-      );
-      await Promise.all(promesas);
-      await cargarDataDinamica();
-    } catch(e) {}
-    setIsSubmitting(false);
-  };  
+  };
 
   const buscarClienteParaPedido = async (e) => {
     e.preventDefault();
@@ -659,8 +719,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       const res = await fetch(`${apiUrl}/clientes`);
       const clientes = await res.json();
-      const clienteEncontrado = clientes.find(c => c.telefono === telClienteNuevo);  
-
+      const clienteEncontrado = clientes.find(c => c.telefono === telClienteNuevo);
       if (clienteEncontrado) {
         setModalIdentificar(false);
         onGoToKioscoLocal(clienteEncontrado, null);
@@ -669,7 +728,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
     } catch (error) {}
     setIsSubmitting(false);
-  };  
+  };
 
   const registrarClienteParaPedido = async (e) => {
     e.preventDefault();
@@ -683,20 +742,25 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
     } catch (error) {}
     setIsSubmitting(false);
-  };  
+  };
 
-  const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja');  
+  const abrirIdentificador = () => {
+    setOrdenEditandoRapida(null);
+    setModalPuntoVenta(true);
+  };
+
+  const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja');
 
   const pendientesDePago = pedidos.filter(p => {
     if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
     if (p.tipo_consumo === 'Domicilio' && ['Listo', 'En Camino', 'Entregado'].includes(p.estado_preparacion)) return false;
-    if (p.estado_preparacion === 'Pendiente') return false;  
+    if (p.estado_preparacion === 'Pendiente') return false;
     const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
-    if (!noPagado) return false;  
+    if (!noPagado) return false;
     return true;
-  });  
+  });
 
-  const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');  
+  const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
 
   const mesasPagadas = pedidos.filter(p =>
     p.tipo_consumo === 'Local' &&
@@ -704,7 +768,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     p.estado_preparacion === 'Entregado' &&
     p.estado_preparacion !== 'Cancelado' &&
     p.estado_preparacion !== 'Finalizado'
-  );  
+  );
 
   const pedidosPorLiquidar = pedidos.filter(p =>
     p.tipo_consumo === 'Domicilio' &&
@@ -712,13 +776,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       p.estado_preparacion === 'En Camino' ||
       (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago))
     )
-  );  
+  );
 
-  const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion));  
+  const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion));
 
   return {
     vistaActiva, setVistaActiva, subVistaHistorial, setSubVistaHistorial,
-    pedidos, mesas, catalogoIngredientes, configGlobal, insumosDB, gastosDia,
+    pedidos, mesas, catalogoIngredientes, configGlobal, insumosDB, gastosDia, 
     modalPago, setModalPago, montoRecibido, setMontoRecibido,
     modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx,
     accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo,
@@ -731,10 +795,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
     modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
     telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
-    modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, modalComedor, setModalComedor,
+    modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, setOrdenEditandoRapida, modalComedor, setModalComedor, 
     productos, clasificaciones, empleadosPOS,
     isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
-    isSubmitting, fondoCaja, inputFondo, setInputFondo,
+    isSubmitting, fondoCaja, inputFondo, setInputFondo, 
     apiUrl, cargarDataDinamica,
     fondosRepartidores, actualizarFondoRepartidor, fondoRepartidorGlobal, liquidarPedidoRepartidor,
     modalAsistencia, setModalAsistencia,
@@ -747,6 +811,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     limpiarAlerta, abrirModalResolver, enviarRespuestaCocina,
     registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
     onGoToKiosco: onGoToKioscoLocal,
-    forzarLiberacionMesas
+    forzarLiberacionMesas,
+    pedidosAuditados 
   };
 };

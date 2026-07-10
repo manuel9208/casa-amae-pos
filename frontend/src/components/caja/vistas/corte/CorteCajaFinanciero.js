@@ -85,7 +85,7 @@ const CorteCajaFinanciero = (props) => {
           setPedidosGlobales(data);
         }
         
-        // 👇 FIX: Traemos todos los cortes del día (array)
+        // Traemos todos los cortes del día (array)
         const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`);
         if(resCorte.ok) {
             const dataC = await resCorte.json();
@@ -100,16 +100,13 @@ const CorteCajaFinanciero = (props) => {
     return () => clearInterval(int);
   }, [fechaFiltro, esHoy]);  
 
-  // 👇 LÓGICA DE SEPARACIÓN DE TURNOS
   useEffect(() => {
-    // 1. Buscamos qué pedidos YA fueron reportados en turnos cerrados el día de hoy
     const cortesCerrados = datosHistoricos.filter(c => c.turno_cerrado);
     const idsCobrados = cortesCerrados.flatMap(c => {
         try { return typeof c.pedidos_incluidos === 'string' ? JSON.parse(c.pedidos_incluidos) : (c.pedidos_incluidos || []); }
         catch(e) { return []; }
     });
 
-    // 2. Filtramos: Solo nos quedamos con los pedidos que NADIE ha cortado
     const pedidosDelTurnoActivo = pedidosGlobales.filter(p => !idsCobrados.includes(p.id));
 
     let lEfe=0, lTar=0, lTra=0, lPla=0, lExt=0;
@@ -172,7 +169,7 @@ const CorteCajaFinanciero = (props) => {
       lPlatillos: lPla, lExtras: lExt, lEfectivo: lEfe, lTarjeta: lTar, lTransf: lTra,
       dPlatillos: dPla, dExtras: dExt, dEfectivo: dEfe, dTarjeta: dTar, dTransf: dTra, dEnvio: dEnv,
       tEnvio: tEnv, tPlatillos: tPla, tExtras: tExt,
-      pedidos_incluidos: pedidosDelTurnoActivo.map(p => p.id) // Guardamos qué pedidos entran en este corte
+      pedidos_incluidos: pedidosDelTurnoActivo.map(p => p.id)
     });
   }, [pedidosGlobales, datosHistoricos]);  
 
@@ -201,7 +198,7 @@ const CorteCajaFinanciero = (props) => {
             platillos: mathHoy.dPlatillos, extras: mathHoy.dExtras, envio: mathHoy.dEnvio,
             efectivo: mathHoy.dEfectivo, tarjeta: mathHoy.dTarjeta, transf: mathHoy.dTransf
           },
-          turno_cerrado: false // Auto-guardado en vivo, NO CIERRA el turno
+          turno_cerrado: false 
         })
       });
     } catch (error) {}
@@ -244,8 +241,8 @@ const CorteCajaFinanciero = (props) => {
           turno_cerrado: true // 👈 SELLA EL TURNO
         })
       });  
+      
       if (res.ok) {
-        localStorage.removeItem(`fondo_caja_${currentUser?.id}_${hoyStr}`);
         if (props.onLogout) props.onLogout();
         else window.location.reload();
       } else {
@@ -255,7 +252,6 @@ const CorteCajaFinanciero = (props) => {
     setGuardandoCorte(false);
   };  
 
-  // Identificamos el turno activo de este usuario
   const turnoAbierto = datosHistoricos.find(c => !c.turno_cerrado && c.usuario_id === currentUser?.id);
   
   const pFondoCaja = esHoy ? (Number(fondoManual) || 0) : Number(turnoAbierto?.fondo_inicial || 0);

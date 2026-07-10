@@ -8,7 +8,6 @@ exports.obtenerReporteVentas = async (req, res) => {
     const horaAperturaDB = Number(configRes.rows[0]?.hora_apertura !== undefined ? configRes.rows[0].hora_apertura : 17);
     const horaCierreDB = Number(configRes.rows[0]?.hora_cierre !== undefined ? configRes.rows[0].hora_cierre : 23);
 
-    // 👇 QUERY DE COSTOS BLINDADA: Ahora divide el costo del lote entre el rendimiento del producto raíz
     const costosRes = await db.query(`
       WITH RECURSIVE EmpaquesCosto AS (
           SELECT p.id as producto_id,
@@ -104,14 +103,18 @@ exports.obtenerReporteVentas = async (req, res) => {
     const sqlTodos = `SELECT id, nombre FROM productos`;
     const todosProds = await db.query(sqlTodos);
     const productDict = {};
+    const productNameDict = {};
     todosProds.rows.forEach(p => { 
         productDict[p.nombre.toLowerCase().trim()] = p.id; 
+        productNameDict[p.id] = p.nombre.trim();
     });
 
     const ventasObj = {}; 
     const comedorObj = {}; 
     
     let t_efectivo = 0; let t_tarjeta = 0; let t_transf = 0; let t_envio = 0;
+    let t_descuentos = 0;
+    
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
 
     pedidosRes.rows.forEach(p => {
@@ -129,6 +132,8 @@ exports.obtenerReporteVentas = async (req, res) => {
       }
 
       let carrito = [];
+      let order_gross = parseMoney(p.costo_envio);
+
       if (Array.isArray(p.carrito)) {
           carrito = p.carrito;
       } else if (typeof p.carrito === 'string') {
@@ -139,21 +144,45 @@ exports.obtenerReporteVentas = async (req, res) => {
 
       carrito.forEach(item => {
          let baseName = item.nombre || 'Desconocido';
+         baseName = baseName.replace(/^\[.*?\]\s*/, '').trim(); 
          
-         // 🛡️ ESCUDO ANTI-CAMBIOS A FUTURO (REGEX)
-         // Esto extrae y elimina cualquier etiqueta de clasificación al inicio del string (Ej: "[Bebidas] Coca" -> "Coca")
-         // Garantiza unificación de productos en la tabla y match exacto con el diccionario de Recetas.
-         let cleanName = baseName.replace(/^\[.*?\]\s*/, '').trim(); 
-
          let pId = Number(item.id) || 0;
-         if (pId === 0) {
-             pId = productDict[cleanName.toLowerCase()] || 0;
+         if (pId === 0) pId = productDict[baseName.split('(')[0].trim().toLowerCase()] || 0;
+
+         // 👇 SANITIZACIÓN Y AGRUPACIÓN ESTRICTA
+         let realBaseName = baseName.split('(')[0].trim();
+         if (pId > 0 && productNameDict[pId]) {
+             realBaseName = productNameDict[pId];
          }
+
+         let cleanName = realBaseName;
+
+         const parentesisBlocks = baseName.match(/\(([^)]+)\)/g) || [];
+         parentesisBlocks.forEach(block => {
+             const innerText = block.replace(/[()]/g, '').trim().toLowerCase();
+             // Solo conservamos lo que sea estrictamente una presentación, tamaño, sabor, etc.
+             const isVitalVariation = ['tamaño', 'tamano', 'presentacion', 'presentación', 'sabor', 'tipo'].some(k => innerText.includes(k)) ||
+                              ['grande', 'mediano', 'chico', 'jumbo', 'familiar', 'sencillo', 'doble', 'crepa', 'waffle', 'baguette', 'panini', 'tortuga', 'torta', 'taco', 'burrito', 'original', 'clásico', 'clasico'].some(k => innerText === k || innerText.includes(` ${k}`) || innerText.startsWith(`${k} `));
+
+             if (isVitalVariation) {
+                 let cleanBlock = block.replace(/\(|\)/g, '');
+                 cleanBlock = cleanBlock.replace(/PRESENTACION:\s*/i, '')
+                                        .replace(/TAMAÑO:\s*/i, '')
+                                        .replace(/TAMANO:\s*/i, '')
+                                        .replace(/TIPO:\s*/i, '')
+                                        .replace(/SABOR:\s*/i, '');
+                 if (!cleanName.toLowerCase().includes(cleanBlock.toLowerCase().trim())) {
+                     cleanName += ` (${cleanBlock.trim()})`;
+                 }
+             }
+         });
 
          let rawPrice = parseMoney(item.precioFinal || item.precio_base || item.precio);
          let qty = parseMoney(item.cantidad) || 1;
          let exP = 0;
          let extraRows = [];
+         
+         order_gross += rawPrice * qty;
 
          if (Array.isArray(item.extras)) {
              item.extras.forEach(extra => {
@@ -163,13 +192,29 @@ exports.obtenerReporteVentas = async (req, res) => {
 
                  if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
                      return; 
-                 } else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || extra.tipo === 'variacion') {
-                     const cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
-                     cleanName += ` (${cleanVariationName})`;
+                 }
+
+                 const isVitalVariation = ['tamaño', 'tamano', 'presentacion', 'presentación', 'sabor', 'tipo'].some(k => eNameLower.includes(k)) ||
+                              ['grande', 'mediano', 'chico', 'jumbo', 'familiar', 'sencillo', 'doble', 'crepa', 'waffle', 'baguette', 'panini', 'tortuga', 'torta', 'taco', 'burrito', 'original', 'clásico', 'clasico'].some(k => eNameLower === k || eNameLower.includes(` ${k}`) || eNameLower.startsWith(`${k} `));
+
+                 if (isVitalVariation) {
+                     let cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
+                     cleanVariationName = cleanVariationName.replace(/PRESENTACION:\s*/i, '')
+                                        .replace(/TAMAÑO:\s*/i, '')
+                                        .replace(/TAMANO:\s*/i, '')
+                                        .replace(/TIPO:\s*/i, '')
+                                        .replace(/SABOR:\s*/i, '');
+                     if (!cleanName.toLowerCase().includes(cleanVariationName.toLowerCase().trim())) {
+                         cleanName += ` (${cleanVariationName.trim()})`;
+                     }
                  } else {
-                     const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
-                     exP += ePrice;
-                     extraRows.push({ nombre: cleanExtraName, precio: ePrice, id: extra.id || 0 });
+                     // 👇 FIX: Si el extra/ingrediente cuesta $0, lo IGNORAMOS en el reporte financiero.
+                     // Solo los extras que cuestan dinero real se vuelven una fila.
+                     if (ePrice > 0) {
+                         const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
+                         exP += ePrice;
+                         extraRows.push({ nombre: cleanExtraName, precio: ePrice, id: extra.id || 0 });
+                     }
                  }
              });
          }
@@ -212,6 +257,11 @@ exports.obtenerReporteVentas = async (req, res) => {
              });
          }
       });
+      
+      if (!isComedor) {
+          const discount = order_gross - parseMoney(p.total);
+          if (discount > 0) t_descuentos += discount;
+      }
 
       if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Envíos') {
           if (parseMoney(p.costo_envio) > 0) {
@@ -290,8 +340,12 @@ exports.obtenerReporteVentas = async (req, res) => {
         efectivo_en_cajon: (t_fondo + t_efectivo) - t_gastos
     };
 
+    const ventas_brutas_totales = detalles.reduce((sum, r) => sum + r.subtotal_ventas, 0);
+
     const totales = {
-      ventas_totales: detalles.reduce((sum, r) => sum + r.subtotal_ventas, 0),
+      ventas_totales: ventas_brutas_totales,
+      descuentos_otorgados: t_descuentos,
+      ingreso_neto_real: ventas_brutas_totales - t_descuentos,
       inversion_total: detalles.reduce((sum, r) => sum + r.subtotal_inversion, 0),
       ganancia_total: detalles.reduce((sum, r) => sum + r.ganancia_neta, 0),
       productos_vendidos: detalles.reduce((sum, r) => {
