@@ -204,9 +204,12 @@ exports.crearPedido = async (req, res) => {
 
         if (cliente_id && descuento_puntos > 0) {
             await client.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2', [descuento_puntos, cliente_id]);
+        }  
+        if (cupon_codigo) {
+            await client.query('UPDATE cupones SET usos_actuales = COALESCE(usos_actuales, 0) + 1 WHERE codigo = $1', [cupon_codigo]);
         }
 
-        await client.query('COMMIT');
+        await client.query('COMMIT');  
 
         const io = req.app.get('io');
         if (io) {
@@ -238,10 +241,14 @@ exports.crearPedido = async (req, res) => {
 exports.actualizarPedido = async (req, res) => {
     const { id } = req.params;
     const datosPuros = limpiarNulos(req.body);
-    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio } = datosPuros;
+    
+    // 👇 FIX: Extraemos cupon_codigo del payload
+    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio, cupon_codigo } = datosPuros;
+    
     try {
         const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
         let costoEnvioFinal = 0;
+        
         if (costo_envio !== undefined) {
             if (typeof costo_envio === 'object' && costo_envio !== null && costo_envio.costo !== undefined) {
                 costoEnvioFinal = Number(costo_envio.costo);
@@ -249,6 +256,11 @@ exports.actualizarPedido = async (req, res) => {
                 costoEnvioFinal = Number(String(costo_envio).replace(/[^0-9.-]+/g,"")) || 0;
             }
         }
+
+        // 👇 FIX: Consultamos el cupón anterior en la BD para no sumar doble si solo se editó la dirección o algo más.
+        const prevRes = await db.query('SELECT cupon_codigo FROM pedidos WHERE id = $1', [id]);
+        const cuponAnterior = prevRes.rows.length > 0 ? prevRes.rows[0].cupon_codigo : null;
+
         let updateFields = []; let params = []; let paramIndex = 1;
         if (cliente_id !== undefined) { updateFields.push(`cliente_id = $${paramIndex++}`); params.push(cliente_id); }
         if (tipo_consumo !== undefined) { updateFields.push(`tipo_consumo = $${paramIndex++}`); params.push(tipo_consumo); }
@@ -259,19 +271,23 @@ exports.actualizarPedido = async (req, res) => {
         if (estado_preparacion !== undefined) { updateFields.push(`estado_preparacion = $${paramIndex++}`); params.push(estado_preparacion); }
         if (mesa !== undefined) { updateFields.push(`mesa = $${paramIndex++}`); params.push(mesa); }
         if (costo_envio !== undefined) { updateFields.push(`costo_envio = $${paramIndex++}`); params.push(costoEnvioFinal); }
-
+        if (cupon_codigo !== undefined) { updateFields.push(`cupon_codigo = $${paramIndex++}`); params.push(cupon_codigo); }
         if (updateFields.length === 0) return res.json({ success: true, message: 'No hay cambios' });
         params.push(id);
 
         const query = `UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
         const result = await db.query(query, params);
 
-        const io = req.app.get('io');
-        if (io) io.emit('pedido_actualizado');
-        if (result.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
+        // 👇 FIX: Si detectamos que se ingresó un cupón nuevo en esta modificación, incrementamos su uso.
+        if (cupon_codigo && cupon_codigo !== cuponAnterior) {
+            await db.query('UPDATE cupones SET usos_actuales = COALESCE(usos_actuales, 0) + 1 WHERE codigo = $1', [cupon_codigo]);
+        }
 
         res.json(result.rows[0]);
-    } catch (error) { res.status(500).json({ error: 'Error al actualizar pedido completo' }); }
+    } catch (error) {
+        console.error("Error al actualizar pedido:", error);
+        res.status(500).json({ error: 'Error en el servidor al actualizar pedido' });
+    }
 };
 
 // =========================================================

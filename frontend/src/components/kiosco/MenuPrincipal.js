@@ -3,137 +3,134 @@ import CategoriasGrid from './menu/CategoriasGrid';
 import ProductosGrid from './menu/ProductosGrid';
 import CarritoLateral from './menu/CarritoLateral';
 
-const MenuPrincipal = ({ 
-  configGlobal, productos, clasificaciones, carrito, setCarrito, 
-  baseUrl, setPantallaActual, pedidoEditandoId, clienteActivo, 
-  setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar,
-  calcularSubtotal, descuentoPuntosDinero, descuentoPuntosPuntosFisicos, 
-  cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
-  
-  guardarEdicionDirecta, 
-  isSubmitting           
+const MenuPrincipal = ({
+    configGlobal, productos, clasificaciones, carrito, setCarrito,
+    baseUrl, setPantallaActual, pedidoEditandoId, clienteActivo,
+    setModalNip, calcularTotal, setProductoEnEspera, setItemAEditar,
+    calcularSubtotal, descuentoPuntosDinero, descuentoPuntosPuntosFisicos,
+    cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
+    guardarEdicionDirecta,
+    isSubmitting
 }) => {
-  const [categoriaActiva, setCategoriaActiva] = useState(null);
-  const [inputCupon, setInputCupon] = useState('');
-  const [errorCupon, setErrorCupon] = useState('');
-  const [buscandoCupon, setBuscandoCupon] = useState(false);
+    const [categoriaActiva, setCategoriaActiva] = useState(null);
+    const [inputCupon, setInputCupon] = useState('');
+    const [errorCupon, setErrorCupon] = useState('');
+    const [buscandoCupon, setBuscandoCupon] = useState(false);
 
-  const isCerrado = configGlobal.negocio_abierto === false || configGlobal.negocio_abierto === 'false' || configGlobal.negocio_abierto === 0;
-  const mensajeCierre = configGlobal.mensaje_cierre || 'El negocio se encuentra cerrado temporalmente. Por favor, vuelve más tarde.';
+    const isCerrado = configGlobal.negocio_abierto === false || configGlobal.negocio_abierto === 'false' || configGlobal.negocio_abierto === 0;
+    const mensajeCierre = configGlobal.mensaje_cierre || 'El negocio se encuentra cerrado temporalmente. Por favor, vuelve más tarde.';
 
-  const cambiarCantidadCart = (idTicket, delta) => {
-    setCarrito(carrito.map(item => {
-      if (item.idTicket === idTicket) {
-        
-        // 👇 FIX DE CANTIDAD: Candado de Stock Estricto directo en el Carrito Lateral
-        if (delta > 0) {
-           const prodDB = productos.find(p => p.id === (item.id || item.producto_id));
-           if (prodDB) {
-               const isUsaStock = prodDB.usa_stock === true || String(prodDB.usa_stock) === 'true';
-               const stockActual = Number(prodDB.stock_preparado) || 0;
-               
-               if (isUsaStock) {
-                   const enCarrito = carrito.filter(i => (i.id || i.producto_id) === prodDB.id).reduce((s, i) => s + (i.cantidad || 1), 0);
-                   if (enCarrito >= stockActual) {
-                       alert(`Límite alcanzado. Solo hay ${stockActual} unidades disponibles de ${prodDB.nombre}.`);
-                       return item; // Rompe el map y no suma
-                   }
-               }
-           }
+    const cambiarCantidadCart = (idTicket, delta) => {
+        setCarrito(carrito.map(item => {
+            if (item.idTicket === idTicket) {
+                if (delta > 0) {
+                    const prodDB = productos.find(p => p.id === (item.id || item.producto_id));
+                    if (prodDB) {
+                        const isUsaStock = prodDB.usa_stock === true || String(prodDB.usa_stock) === 'true';
+                        const stockActual = Number(prodDB.stock_preparado) || 0;
+                        if (isUsaStock) {
+                            const enCarrito = carrito.filter(i => (i.id || i.producto_id) === prodDB.id).reduce((s, i) => s + (i.cantidad || 1), 0);
+                            if (enCarrito >= stockActual) {
+                                alert(`Límite alcanzado. Solo hay ${stockActual} unidades disponibles de ${prodDB.nombre}.`);
+                                return item;
+                            }
+                        }
+                    }
+                }
+                const nuevaCant = (item.amount || item.cantidad || 1) + delta;
+                return { ...item, cantidad: Math.max(1, nuevaCant) };
+            }
+            return item;
+        }));
+    };
+
+    const quitarDelCarrito = (idTicket) => {
+        setCarrito(carrito.filter(i => i.idTicket !== idTicket));
+    };
+
+    const editarItem = (item) => {
+        const productoOriginal = productos.find(p => p.id === (item.id || item.producto_id) || p.nombre === item.nombre);
+        if (!productoOriginal) return alert("Este producto ya no existe o se ocultó del menú.");
+        setItemAEditar(item);
+        setProductoEnEspera(productoOriginal);
+    };
+
+    const abrirModalProducto = (p) => {
+        setItemAEditar(null);
+        setProductoEnEspera(p);
+    };
+
+    const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
+    const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
+
+    const getPortadaCategoria = (catName) => {
+        const clasifDB = clasificaciones.find(c => c.nombre === catName);
+        return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
+    };
+
+    const validarCupon = async (e) => {
+        e.preventDefault();
+        setErrorCupon('');
+        if (!inputCupon.trim()) return;
+        if (isOffline) return setErrorCupon('No se pueden validar cupones sin Internet.');
+
+        setBuscandoCupon(true);
+        try {
+            const res = await fetch(`${apiUrl}/cupones/validar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ codigo: inputCupon })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setCuponActivo(data);
+                setInputCupon('');
+            } else {
+                setErrorCupon(data.error || "Cupón inválido.");
+            }
+        } catch (error) {
+            setErrorCupon("Error al validar cupón.");
         }
+        setBuscandoCupon(false);
+    };
 
-        const nuevaCant = (item.amount || item.cantidad || 1) + delta;
-        return { ...item, cantidad: Math.max(1, nuevaCant) };
-      }
-      return item;
-    }));
-  };
+    // 👇 FIX: El contenedor cambia su comportamiento en móvil para permitir el scroll natural
+    return (
+        <div className="flex flex-col lg:flex-row gap-6 md:gap-8 h-auto lg:h-[75vh] pb-12 lg:pb-0">
+            {/* CONTENEDOR IZQUIERDO (MENÚ): En móvil tiene alto fijo para poder hacer scroll interno */}
+            <div className="w-full lg:w-2/3 flex flex-col h-[65vh] lg:h-full shrink-0">
+                {isCerrado && (
+                    <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center gap-4 shrink-0">
+                        <span className="text-4xl">⏸️</span>
+                        <div>
+                            <p className="font-black text-red-700 text-lg uppercase tracking-widest">Negocio Cerrado</p>
+                            <p className="font-bold text-red-600 mt-1">{mensajeCierre}</p>
+                        </div>
+                    </div>
+                )}
 
-  const quitarDelCarrito = (idTicket) => {
-    setCarrito(carrito.filter(i => i.idTicket !== idTicket));
-  };
-
-  const editarItem = (item) => {
-    const productoOriginal = productos.find(p => p.id === (item.id || item.producto_id) || p.nombre === item.nombre);
-    if (!productoOriginal) return alert("Este producto ya no existe o se ocultó del menú.");
-    setItemAEditar(item);
-    setProductoEnEspera(productoOriginal);
-  };
-
-  const abrirModalProducto = (p) => {
-    setItemAEditar(null);
-    setProductoEnEspera(p);
-  };
-
-  const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
-  const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
-
-  const getPortadaCategoria = (catName) => {
-    const clasifDB = clasificaciones.find(c => c.nombre === catName);
-    return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
-  };
-
-  const validarCupon = async (e) => {
-    e.preventDefault();
-    setErrorCupon('');
-    if (!inputCupon.trim()) return;
-    if (isOffline) return setErrorCupon('No se pueden validar cupones sin Internet.');
-    
-    setBuscandoCupon(true);
-    try {
-      const res = await fetch(`${apiUrl}/cupones/validar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo: inputCupon })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setCuponActivo(data);
-        setInputCupon('');
-      } else {
-        setErrorCupon(data.error || "Cupón inválido.");
-      }
-    } catch (error) {
-      setErrorCupon("Error al validar cupón.");
-    }
-    setBuscandoCupon(false);
-  };
-
-  return (
-    <div className="flex flex-col lg:flex-row gap-8 h-[75vh]">
-      <div className="w-full lg:w-2/3 flex flex-col h-full">
-        {isCerrado && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center gap-4">
-            <span className="text-4xl">⏸️</span>
-            <div>
-              <p className="font-black text-red-700 text-lg uppercase tracking-widest">Negocio Cerrado</p>
-              <p className="font-bold text-red-600 mt-1">{mensajeCierre}</p>
+                {!categoriaActiva ? (
+                    <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={baseUrl} />
+                ) : (
+                    <ProductosGrid categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva} productosFiltrados={productosFiltrados} abrirModalProducto={abrirModalProducto} baseUrl={baseUrl} />
+                )}
             </div>
-          </div>
-        )}
 
-        {!categoriaActiva ? (
-          <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={baseUrl} />
-        ) : (
-          <ProductosGrid categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva} productosFiltrados={productosFiltrados} abrirModalProducto={abrirModalProducto} baseUrl={baseUrl} />
-        )}
-      </div>
-
-      <CarritoLateral 
-        carrito={carrito} pedidoEditandoId={pedidoEditandoId} cambiarCantidadCart={cambiarCantidadCart} 
-        editarItem={editarItem} quitarDelCarrito={quitarDelCarrito} isOffline={isOffline} 
-        inputCupon={inputCupon} setInputCupon={setInputCupon} errorCupon={errorCupon} 
-        setErrorCupon={setErrorCupon} buscandoCupon={buscandoCupon} validarCupon={validarCupon} 
-        cuponActivo={cuponActivo} setCuponActivo={setCuponActivo} clienteActivo={clienteActivo} 
-        descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos} configGlobal={configGlobal} 
-        setModalNip={setModalNip} descuentoCuponDinero={descuentoCuponDinero} descuentoPuntosDinero={descuentoPuntosDinero} 
-        calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual} 
-        
-        guardarEdicionDirecta={guardarEdicionDirecta} 
-        isSubmitting={isSubmitting} 
-      />
-    </div>
-  );
+            {/* CONTENEDOR DERECHO (CARRITO) */}
+            <CarritoLateral
+                carrito={carrito} pedidoEditandoId={pedidoEditandoId} cambiarCantidadCart={cambiarCantidadCart}
+                editarItem={editarItem} quitarDelCarrito={quitarDelCarrito} isOffline={isOffline}
+                inputCupon={inputCupon} setInputCupon={setInputCupon} errorCupon={errorCupon}
+                setErrorCupon={setErrorCupon} buscandoCupon={buscandoCupon} validarCupon={validarCupon}
+                cuponActivo={cuponActivo} setCuponActivo={setCuponActivo} clienteActivo={clienteActivo}
+                descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos} configGlobal={configGlobal}
+                setModalNip={setModalNip} descuentoCuponDinero={descuentoCuponDinero} descuentoPuntosDinero={descuentoPuntosDinero}
+                calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual}
+                guardarEdicionDirecta={guardarEdicionDirecta}
+                isSubmitting={isSubmitting}
+            />
+        </div>
+    );
 };
 
 export default MenuPrincipal;

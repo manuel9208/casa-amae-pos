@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Search, History, Store, User, TrendingDown, CheckCircle2 } from 'lucide-react';  
+import { Calendar, Search, History, Store, User, TrendingDown, CheckCircle2 } from 'lucide-react';
 
 const CorteDesglosePrincipal = ({
     currentUser,
@@ -12,6 +12,9 @@ const CorteDesglosePrincipal = ({
     fondoManual,
     setFondoManual,
     pFondoCaja,
+    pFondoRepartidor,
+    totalVentasGlobales,
+    totalEfectivoDia,
     pTotalGastos,
     efectivoEsperadoCaja,
     guardarFondoManualBD,
@@ -47,7 +50,7 @@ const CorteDesglosePrincipal = ({
                         </button>
                     )}
                 </div>
-            </div>  
+            </div>
 
             {/* 2. PANEL DE CAJA PRINCIPAL */}
             <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200 relative overflow-hidden mb-8 transition-all duration-300">
@@ -55,7 +58,7 @@ const CorteDesglosePrincipal = ({
                     <div className="absolute top-0 right-0 bg-blue-600 text-white px-6 py-1.5 rounded-bl-2xl font-black text-xs uppercase tracking-widest flex items-center gap-2 shadow-md z-10">
                         <History size={14}/> Viendo Historial
                     </div>
-                )}  
+                )}
 
                 {cargando ? (
                     <div className="py-20 text-center flex flex-col items-center justify-center opacity-50 animate-in fade-in">
@@ -68,47 +71,54 @@ const CorteDesglosePrincipal = ({
                             <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest px-2 mb-3 flex items-center gap-3">
                                 <Store size={24} className="text-blue-500"/> 1. Caja Principal (Mostrador)
                             </h3>
-                        </div>  
+                        </div>
 
                         {/* CUADRÍCULA DE MÉTRICAS */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-slate-300 transition-colors">
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ventas (Mostrador)</p>
-                                <p className="text-2xl font-black text-slate-700">${(mathHoy.lPlatillos + mathHoy.lExtras).toFixed(2)}</p>
-                            </div>  
+                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ventas Brutas</p>
+                                <p className="text-2xl font-black text-slate-700">${(totalVentasGlobales || 0).toFixed(2)}</p>
+                                {(mathHoy.tDescuentos > 0) && (
+                                    <p className="text-[10px] font-bold text-orange-500 mt-1 border-t border-slate-200 pt-1">
+                                        Descuentos: -${mathHoy.tDescuentos.toFixed(2)}
+                                    </p>
+                                )}
+                            </div>
 
                             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-200 transition-colors focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/10 relative">
                                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Fondo Inicial</p>
                                 {esHoy ? (
-                                    <div className="flex items-center text-2xl font-black text-slate-700 mt-0.5">
-                                        <span className="mr-1">$</span>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            step="0.01"
-                                            value={fondoManual}
-                                            onChange={(e) => setFondoManual(e.target.value)}
-                                            className="w-full bg-transparent outline-none border-b-2 border-slate-300 focus:border-blue-500 transition-colors"
-                                        />
-                                        {/* 👇 SOLUCIÓN: Botón Explícito de Guardar Fondo */}
-                                        <button
-                                            disabled={guardandoFondo}
-                                            onClick={() => guardarFondoManualBD(fondoManual)}
-                                            className={`ml-2 p-2 rounded-xl transition shadow-sm active:scale-95 disabled:opacity-50 ${guardandoFondo ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-                                            title="Guardar Fondo Inicial"
-                                        >
-                                            <CheckCircle2 size={20} />
-                                        </button>
+                                    <div className="flex flex-col mt-0.5">
+                                        <div className="flex items-center text-2xl font-black text-slate-700">
+                                            <span className="mr-1">$</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="0.01"
+                                                value={fondoManual}
+                                                onChange={(e) => setFondoManual(e.target.value)}
+                                                className="w-full bg-transparent outline-none border-b-2 border-slate-300 focus:border-blue-500 transition-colors"
+                                            />
+                                            <button
+                                                disabled={guardandoFondo}
+                                                onClick={() => guardarFondoManualBD(fondoManual)}
+                                                className={`ml-2 p-2 rounded-xl transition shadow-sm active:scale-95 disabled:opacity-50 ${guardandoFondo ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                                                title="Guardar Fondo Inicial"
+                                            >
+                                                <CheckCircle2 size={20} />
+                                            </button>
+                                        </div>
+                                        {pFondoRepartidor > 0 && <span className="text-[10px] font-bold text-slate-400">+{pFondoRepartidor} en motos</span>}
                                     </div>
                                 ) : (
-                                    <p className="text-2xl font-black text-slate-700 mt-0.5">${pFondoCaja.toFixed(2)}</p>
+                                    <p className="text-2xl font-black text-slate-700 mt-0.5">${((pFondoCaja || 0) + (pFondoRepartidor || 0)).toFixed(2)}</p>
                                 )}
-                            </div>  
+                            </div>
 
                             <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 hover:border-emerald-300 transition-colors">
                                 <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Ingresos Efectivo</p>
-                                <p className="text-2xl font-black text-emerald-700">+${mathHoy.lEfectivo.toFixed(2)}</p>
-                            </div>  
+                                <p className="text-2xl font-black text-emerald-700">+${(totalEfectivoDia || 0).toFixed(2)}</p>
+                            </div>
 
                             <div className="bg-red-50 p-5 rounded-2xl border border-red-100 relative overflow-hidden group hover:border-red-300 transition-colors">
                                 <div className="absolute top-2 right-2 text-red-200 group-hover:scale-110 group-hover:text-red-300 transition-all duration-300">
@@ -117,16 +127,16 @@ const CorteDesglosePrincipal = ({
                                 <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1 relative z-10">Gastos (Compras)</p>
                                 <p className="text-2xl font-black text-red-700 relative z-10">-${pTotalGastos.toFixed(2)}</p>
                             </div>
-                        </div>  
+                        </div>
 
                         {/* TOTAL EFECTIVO CAJÓN */}
                         <div className={`p-6 md:p-8 rounded-3xl shadow-lg flex flex-col md:flex-row justify-between items-center text-white transition-all duration-500 hover:scale-[1.01] ${!esHoy ? 'bg-slate-800' : 'bg-emerald-600'}`}>
                             <div>
                                 <p className={`${!esHoy ? 'text-slate-400' : 'text-emerald-200'} font-black uppercase tracking-widest mb-1 text-sm md:text-base`}>
-                                    Efectivo Físico en Cajón
+                                    Efectivo Físico Global (Cajón + Motos)
                                 </p>
                                 <p className={`text-[10px] md:text-[11px] font-bold ${!esHoy ? 'text-slate-500' : 'text-emerald-100 opacity-90'} uppercase tracking-wider`}>
-                                    (Fondo Inicial + Ventas Efectivo) - Gastos
+                                    (Fondo Total + Ventas Efectivo) - Gastos
                                 </p>
                             </div>
                             <p className="text-5xl md:text-6xl font-black mt-4 md:mt-0 tracking-tight drop-shadow-md">
@@ -138,6 +148,6 @@ const CorteDesglosePrincipal = ({
             </div>
         </>
     );
-};  
+};
 
 export default CorteDesglosePrincipal;

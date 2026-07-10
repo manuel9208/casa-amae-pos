@@ -113,9 +113,10 @@ exports.obtenerReporteVentas = async (req, res) => {
     const comedorObj = {}; 
     
     let t_efectivo = 0; let t_tarjeta = 0; let t_transf = 0; let t_envio = 0;
-    let t_descuentos = 0;
     
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
+
+    const catFiltro = (clasificacion || 'Todas').trim().toLowerCase();
 
     pedidosRes.rows.forEach(p => {
       t_envio += parseMoney(p.costo_envio);
@@ -141,6 +142,7 @@ exports.obtenerReporteVentas = async (req, res) => {
       }
 
       const isComedor = p.metodo_pago === 'Comida Personal';
+      let itemsTemporales = [];
 
       carrito.forEach(item => {
          let baseName = item.nombre || 'Desconocido';
@@ -149,7 +151,6 @@ exports.obtenerReporteVentas = async (req, res) => {
          let pId = Number(item.id) || 0;
          if (pId === 0) pId = productDict[baseName.split('(')[0].trim().toLowerCase()] || 0;
 
-         // 👇 SANITIZACIÓN Y AGRUPACIÓN ESTRICTA
          let realBaseName = baseName.split('(')[0].trim();
          if (pId > 0 && productNameDict[pId]) {
              realBaseName = productNameDict[pId];
@@ -160,7 +161,6 @@ exports.obtenerReporteVentas = async (req, res) => {
          const parentesisBlocks = baseName.match(/\(([^)]+)\)/g) || [];
          parentesisBlocks.forEach(block => {
              const innerText = block.replace(/[()]/g, '').trim().toLowerCase();
-             // Solo conservamos lo que sea estrictamente una presentación, tamaño, sabor, etc.
              const isVitalVariation = ['tamaño', 'tamano', 'presentacion', 'presentación', 'sabor', 'tipo'].some(k => innerText.includes(k)) ||
                               ['grande', 'mediano', 'chico', 'jumbo', 'familiar', 'sencillo', 'doble', 'crepa', 'waffle', 'baguette', 'panini', 'tortuga', 'torta', 'taco', 'burrito', 'original', 'clásico', 'clasico'].some(k => innerText === k || innerText.includes(` ${k}`) || innerText.startsWith(`${k} `));
 
@@ -208,8 +208,6 @@ exports.obtenerReporteVentas = async (req, res) => {
                          cleanName += ` (${cleanVariationName.trim()})`;
                      }
                  } else {
-                     // 👇 FIX: Si el extra/ingrediente cuesta $0, lo IGNORAMOS en el reporte financiero.
-                     // Solo los extras que cuestan dinero real se vuelven una fila.
                      if (ePrice > 0) {
                          const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
                          exP += ePrice;
@@ -222,57 +220,94 @@ exports.obtenerReporteVentas = async (req, res) => {
          let finalBasePrice = rawPrice - exP;
          if (finalBasePrice < 0) finalBasePrice = 0;
 
-         const itemCat = item.categoria || item.clasificacion || 'Sin Categoría';
-         const targetObj = isComedor ? comedorObj : ventasObj;
-
-         if (!clasificacion || clasificacion === 'Todas' || clasificacion === itemCat) {
-             const itemKey = `ID_${pId}_P_${finalBasePrice}_N_${cleanName}`;
-             if (!targetObj[itemKey]) {
-                 targetObj[itemKey] = {
-                     producto_nombre: cleanName, 
-                     producto_id: pId, 
-                     precio_venta: finalBasePrice, 
-                     categoria: itemCat, 
-                     cantidad_vendida: 0
-                 };
-             }
-             targetObj[itemKey].cantidad_vendida += qty;
+         let itemCat = item.categoria || item.clasificacion;
+         if (!itemCat && item.nombre && item.nombre.startsWith('[')) {
+             const match = item.nombre.match(/\[(.*?)\]/);
+             if (match) itemCat = match[1];
          }
+         itemCat = itemCat || 'Sin Categoría';
 
-         if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Extras') {
-             extraRows.forEach(ext => {
-                 if(ext.precio > 0 || isComedor) { 
-                     const extKey = `EXT_${ext.nombre}_${ext.precio}`;
-                     if (!targetObj[extKey]) {
-                         targetObj[extKey] = {
-                             producto_nombre: ext.nombre, 
-                             producto_id: ext.id,
-                             precio_venta: ext.precio, 
-                             categoria: 'Extras', 
-                             cantidad_vendida: 0
-                         };
-                     }
-                     targetObj[extKey].cantidad_vendida += qty;
-                 }
-             });
-         }
+         itemsTemporales.push({
+             pId, cleanName, finalBasePrice, itemCat, qty, extraRows, rawPrice
+         });
       });
       
-      if (!isComedor) {
-          const discount = order_gross - parseMoney(p.total);
-          if (discount > 0) t_descuentos += discount;
-      }
+      const totalPagado = parseMoney(p.total);
+      const discount = isComedor ? 0 : Math.max(0, order_gross - totalPagado);
 
-      if (!clasificacion || clasificacion === 'Todas' || clasificacion === 'Envíos') {
-          if (parseMoney(p.costo_envio) > 0) {
-              const envKey = `ENV_${p.costo_envio}`;
+      itemsTemporales.forEach(t => {
+          const targetObj = isComedor ? comedorObj : ventasObj;
+          const catItemLimpia = t.itemCat.trim().toLowerCase();
+          const pasaFiltro = catFiltro === 'todas' || catFiltro === catItemLimpia;
+
+          const item_gross_base = t.finalBasePrice * t.qty;
+          const item_gross_total = t.rawPrice * t.qty;
+
+          if (pasaFiltro) {
+              const itemKey = `ID_${t.pId}_P_${t.finalBasePrice}_N_${t.cleanName}`;
+              if (!targetObj[itemKey]) {
+                  targetObj[itemKey] = {
+                      producto_nombre: t.cleanName, 
+                      producto_id: t.pId, 
+                      precio_venta: t.finalBasePrice, 
+                      categoria: t.itemCat, 
+                      cantidad_vendida: 0,
+                      descuentos_aplicados: 0
+                  };
+              }
+              targetObj[itemKey].cantidad_vendida += t.qty;
+
+              if (!isComedor) {
+                  const propGlobal = order_gross > 0 ? (item_gross_total / order_gross) : 0;
+                  const propBase = item_gross_total > 0 ? (item_gross_base / item_gross_total) : 0;
+                  targetObj[itemKey].descuentos_aplicados += (discount * propGlobal * propBase);
+              }
+          }
+
+          if (catFiltro === 'todas' || catFiltro === 'extras') {
+              t.extraRows.forEach(ext => {
+                  if(ext.precio > 0 || isComedor) { 
+                      const extKey = `EXT_${ext.nombre}_${ext.precio}`;
+                      if (!targetObj[extKey]) {
+                          targetObj[extKey] = {
+                              producto_nombre: ext.nombre, 
+                              producto_id: ext.id,
+                              precio_venta: ext.precio, 
+                              categoria: 'Extras', 
+                              cantidad_vendida: 0,
+                              descuentos_aplicados: 0
+                          };
+                      }
+                      targetObj[extKey].cantidad_vendida += t.qty;
+
+                      if (!isComedor) {
+                          const ext_gross = ext.precio * t.qty;
+                          const propGlobal = order_gross > 0 ? (item_gross_total / order_gross) : 0;
+                          const propExt = item_gross_total > 0 ? (ext_gross / item_gross_total) : 0;
+                          targetObj[extKey].descuentos_aplicados += (discount * propGlobal * propExt);
+                      }
+                  }
+              });
+          }
+      });
+
+      if (catFiltro === 'todas' || catFiltro === 'envíos') {
+          const costoEnv = parseMoney(p.costo_envio);
+          if (costoEnv > 0) {
+              const envKey = `ENV_${costoEnv}`;
               if (!ventasObj[envKey]) {
                   ventasObj[envKey] = {
                       producto_nombre: 'Envío a Domicilio', producto_id: 0,
-                      precio_venta: parseMoney(p.costo_envio), categoria: 'Envíos', cantidad_vendida: 0
+                      precio_venta: costoEnv, categoria: 'Envíos', cantidad_vendida: 0,
+                      descuentos_aplicados: 0
                   };
               }
               ventasObj[envKey].cantidad_vendida += 1; 
+
+              if (!isComedor) {
+                  const propGlobal = order_gross > 0 ? (costoEnv / order_gross) : 0;
+                  ventasObj[envKey].descuentos_aplicados += (discount * propGlobal);
+              }
           }
       }
     });
@@ -282,12 +317,18 @@ exports.obtenerReporteVentas = async (req, res) => {
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
             c_unitario = costoMap.get(Number(v.producto_id)) || 0;
         }
+        
+        const descProp = Number(v.descuentos_aplicados || 0);
+        const subVentas = Number(v.cantidad_vendida) * Number(v.precio_venta);
+        const subInversion = Number(v.cantidad_vendida) * Number(c_unitario);
+
         return {
             ...v,
             costo_unitario: Number(c_unitario),
-            subtotal_ventas: Number(v.cantidad_vendida) * Number(v.precio_venta),
-            subtotal_inversion: Number(v.cantidad_vendida) * Number(c_unitario),
-            ganancia_neta: (Number(v.cantidad_vendida) * Number(v.precio_venta)) - (Number(v.cantidad_vendida) * Number(c_unitario))
+            descuentos_aplicados: descProp,
+            subtotal_ventas: subVentas,
+            subtotal_inversion: subInversion,
+            ganancia_neta: subVentas - descProp - subInversion
         };
     });
 
@@ -296,15 +337,19 @@ exports.obtenerReporteVentas = async (req, res) => {
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
             c_unitario = costoMap.get(Number(v.producto_id)) || 0;
         }
+        
+        const subInversion = Number(v.cantidad_vendida) * Number(c_unitario);
+
         return {
             ...v,
             categoria: 'Comedor', 
             categoria_original: v.categoria,
             costo_unitario: Number(c_unitario),
+            descuentos_aplicados: 0,
             subtotal_ventas: 0, 
             valor_prestacion: Number(v.cantidad_vendida) * Number(v.precio_venta), 
-            subtotal_inversion: Number(v.cantidad_vendida) * Number(c_unitario),
-            ganancia_neta: -(Number(v.cantidad_vendida) * Number(c_unitario)) 
+            subtotal_inversion: subInversion,
+            ganancia_neta: -subInversion 
         };
     });
 
@@ -340,12 +385,14 @@ exports.obtenerReporteVentas = async (req, res) => {
         efectivo_en_cajon: (t_fondo + t_efectivo) - t_gastos
     };
 
+    // 👇 FIX APLICADO: Ahora los totales superiores SUMAN ÚNICAMENTE LOS ELEMENTOS QUE ESTÁN EN PANTALLA
     const ventas_brutas_totales = detalles.reduce((sum, r) => sum + r.subtotal_ventas, 0);
+    const descuentos_filtrados = detalles.reduce((sum, r) => sum + Number(r.descuentos_aplicados || 0), 0);
 
     const totales = {
       ventas_totales: ventas_brutas_totales,
-      descuentos_otorgados: t_descuentos,
-      ingreso_neto_real: ventas_brutas_totales - t_descuentos,
+      descuentos_otorgados: descuentos_filtrados,
+      ingreso_neto_real: ventas_brutas_totales - descuentos_filtrados,
       inversion_total: detalles.reduce((sum, r) => sum + r.subtotal_inversion, 0),
       ganancia_total: detalles.reduce((sum, r) => sum + r.ganancia_neta, 0),
       productos_vendidos: detalles.reduce((sum, r) => {
