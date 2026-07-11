@@ -250,7 +250,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     }
 
     const diferenciaCaja = efectivoDeclaradoCaja - efectivoEsperadoCaja;
-    const diferenciaFeria = efectivoDeclaradoCaja + gastosCompras - totalEfectivoDia;
+    const diferenciaFeria = totalEfectivoDia - gastosCompras - efectivoDeclaradoCaja;
 
     const totalTarjetas = lTarjeta + dTarjeta;
     const totalTransferencias = lTransf + dTransf;
@@ -477,30 +477,32 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     {/* SECCIÓN A: AUDITORÍA DE EFECTIVO FÍSICO */}
                     <div className="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm mb-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">A. Auditoría de Efectivo Físico</p>
+                        
                         <div className="space-y-2 mb-4">
                             <div className="flex justify-between text-sm font-bold text-slate-400">
                                 <span>Fondo Inicial (Solo Referencia):</span>
                                 <span>{formaterMoneda(totalFondoGlobal)}</span>
                             </div>
-                            <div className="flex justify-between text-sm font-bold text-blue-600">
-                                <span>+ Efectivo Declarado:</span>
-                                <span>{formaterMoneda(efectivoDeclaradoCaja)}</span>
+                            <div className="flex justify-between text-sm font-bold text-emerald-600">
+                                <span>+ Ingresos Efectivo (Ventas):</span>
+                                <span>{formaterMoneda(totalEfectivoDia)}</span>
                             </div>
                             <div className="flex justify-between text-sm font-bold text-red-500">
-                                <span>+ Gastos Pagados de Caja:</span>
-                                <span>+{formaterMoneda(gastosCompras)}</span>
+                                <span>- Gastos Pagados de Caja:</span>
+                                <span>-{formaterMoneda(gastosCompras)}</span>
                             </div>
-                            <div className="flex justify-between text-sm font-bold text-emerald-600">
-                                <span>- Ingresos Efectivo (Ventas):</span>
-                                <span>-{formaterMoneda(totalEfectivoDia)}</span>
+                            <div className="flex justify-between text-sm font-bold text-blue-600">
+                                <span>- Ingresos Declarados:</span>
+                                <span>-{formaterMoneda(efectivoDeclaradoCaja)}</span>
                             </div>
                         </div>
+
                         <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-xl border border-emerald-100">
                             {corteSeleccionadoId === 'global' ? (
                                 <>
                                     <div>
                                         <span className="text-sm font-black text-emerald-800 uppercase tracking-widest block">Sobrante (Para Feria):</span>
-                                        <span className="text-[9px] text-emerald-600 font-bold">Declarado + Gastos - Ingresos</span>
+                                        <span className="text-[9px] text-emerald-600 font-bold">Ingresos - Gastos - Declarado</span>
                                     </div>
                                     <span className={`text-2xl font-black ${diferenciaFeria < 0 ? 'text-red-500' : 'text-emerald-700'}`}>
                                         {diferenciaFeria < 0 ? '-' : ''}{formaterMoneda(Math.abs(diferenciaFeria))}
@@ -510,10 +512,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                                 <>
                                     <div>
                                         <span className="text-sm font-black text-emerald-800 uppercase tracking-widest block">Feria sig. turno:</span>
-                                        <span className="text-[9px] text-emerald-600 font-bold">(Fondo + Ingresos) - Gastos - Declarado</span>
+                                        <span className="text-[9px] text-emerald-600 font-bold">Ingresos - Gastos - Declarado</span>
                                     </div>
-                                    <span className="text-2xl font-black text-emerald-700">
-                                        {formaterMoneda((totalFondoGlobal + totalEfectivoDia) - gastosCompras - efectivoDeclaradoCaja)}
+                                    <span className={`text-2xl font-black ${diferenciaFeria < 0 ? 'text-red-500' : 'text-emerald-700'}`}>
+                                        {diferenciaFeria < 0 ? '-' : ''}{formaterMoneda(Math.abs(diferenciaFeria))}
                                     </span>
                                 </>
                             )}
