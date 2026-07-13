@@ -63,7 +63,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [modalComedor, setModalComedor] = useState(false);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const hoyStr = getMazatlanDateStr(); // 👈 IMPLEMENTACIÓN DEL RELOJ LOCAL
+  const hoyStr = getMazatlanDateStr(); 
 
   const cargarDataDinamica = useCallback(async () => {
     try {
@@ -123,11 +123,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     }
   }, [apiUrl, hoyStr]);
 
-  // 👇 ESTADO NACIDO ESTRICTAMENTE EN NULL PARA OBLIGAR A PEDIR CAJA SIEMPRE
   const [fondoCaja, setFondoCaja] = useState(null);
   const [inputFondo, setInputFondo] = useState('');
 
-  // 👇 EVALUACIÓN ESTRICTA DEL ÚLTIMO EVENTO DEL CAJERO
   useEffect(() => {
     if (operadorActual && apiUrl) {
         fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true&t=${new Date().getTime()}`)
@@ -135,29 +133,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         .then(dataCortes => {
             const cortesArr = Array.isArray(dataCortes) ? dataCortes : (dataCortes && dataCortes.id ? [dataCortes] : []);
             
-            // Filtramos solo los eventos de ESTE usuario de HOY (Hora Mazatlán)
             const misCortesHoy = cortesArr.filter(c => Number(c.usuario_id) === Number(operadorActual.id));
             
             if (misCortesHoy.length > 0) {
-                // Ordenamos por ID para agarrar siempre el movimiento más reciente
                 misCortesHoy.sort((a, b) => Number(a.id) - Number(b.id));
                 const ultimoEvento = misCortesHoy[misCortesHoy.length - 1];
 
-                // Si su última acción fue abrir turno, lo pasamos directo. 
-                // Si su última acción fue cerrar, le exigimos fondo nuevo (setFondoCaja null).
                 if (ultimoEvento.turno_cerrado === false && ultimoEvento.fondo_inicial !== null) {
                     setFondoCaja(Number(ultimoEvento.fondo_inicial));
                 } else {
                     setFondoCaja(null);
                 }
             } else {
-                setFondoCaja(null); // Primer turno del día
+                setFondoCaja(null); 
             }
         }).catch(()=>{});
     }
   }, [operadorActual, apiUrl, hoyStr]);
 
-  // 👇 APERTURA DE CAJA: Conectado a la BD para asentar la fecha exacta
   const iniciarTurno = async (e) => {
     e.preventDefault();
     const m = Number(inputFondo);
@@ -672,38 +665,63 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };
 
+  // ==========================================
+  // 👇 FIX CRÍTICO AL GUARDADO DE EDICIONES (LIMPIEZA DE CARRITO Y MERGE SEGURO)
+  // ==========================================
   const guardarEdicionPedido = async (id, nuevosDatos) => {
     setIsSubmitting(true);
     try {
       const pedidoRef = pedidos.find(p => p.id === id);
-      let paqueteCompleto = { ...nuevosDatos };
       if (pedidoRef) {
         const carritoArray = typeof pedidoRef.carrito === 'string' ? JSON.parse(pedidoRef.carrito) : (pedidoRef.carrito || []);
-        paqueteCompleto = {
-          cliente_id: pedidoRef.cliente_id,
-          cliente_nombre: pedidoRef.cliente_nombre,
-          cliente_telefono: pedidoRef.cliente_telefono,
-          tipo_consumo: nuevosDatos.tipo_consumo || pedidoRef.tipo_consumo,
-          metodo_pago: pedidoRef.metodo_pago,
-          origen: pedidoRef.origen,
-          direccion_entrega: nuevosDatos.direccion_entrega !== undefined ? nuevosDatos.direccion_entrega : pedidoRef.direccion_entrega,
-          estado_preparacion: nuevosDatos.estado_preparacion || pedidoRef.estado_preparacion,
-          mesa: pedidoRef.mesa,
-          carrito: carritoArray,
-          total: nuevosDatos.total !== undefined ? nuevosDatos.total : pedidoRef.total,
-          costo_envio: nuevosDatos.costo_envio !== undefined ? nuevosDatos.costo_envio : pedidoRef.costo_envio,
+        
+        // 🛡️ Función de validación estricta para no sobrescribir datos valiosos con strings vacíos
+        const mergeSeguro = (nuevo, original) => {
+            if (nuevo === undefined || nuevo === null) return original;
+            if (typeof nuevo === 'string' && nuevo.trim() === '') {
+                return (original !== null && original !== undefined && original !== '') ? original : nuevo;
+            }
+            return nuevo;
+        };
+
+        const paqueteCompleto = {
+          cliente_id: mergeSeguro(nuevosDatos.cliente_id, pedidoRef.cliente_id),
+          cliente_nombre: mergeSeguro(nuevosDatos.cliente_nombre, pedidoRef.cliente_nombre),
+          cliente_telefono: mergeSeguro(nuevosDatos.cliente_telefono, pedidoRef.cliente_telefono),
+          tipo_consumo: mergeSeguro(nuevosDatos.tipo_consumo, pedidoRef.tipo_consumo),
+          metodo_pago: mergeSeguro(nuevosDatos.metodo_pago, pedidoRef.metodo_pago),
+          origen: mergeSeguro(nuevosDatos.origen, pedidoRef.origen),
+          direccion_entrega: mergeSeguro(nuevosDatos.direccion_entrega, pedidoRef.direccion_entrega),
+          estado_preparacion: mergeSeguro(nuevosDatos.estado_preparacion, pedidoRef.estado_preparacion),
+          mesa: mergeSeguro(nuevosDatos.mesa, pedidoRef.mesa),
+          
+          // 👇 FIX MÁGICO: Si el modal manda un carrito limpio (Reactivo), lo guardamos. Si no, protegemos el original.
+          carrito: nuevosDatos.carrito !== undefined ? nuevosDatos.carrito : carritoArray,
+          
+          total: mergeSeguro(nuevosDatos.total, pedidoRef.total),
+          costo_envio: mergeSeguro(nuevosDatos.costo_envio, pedidoRef.costo_envio),
           descuento_puntos: pedidoRef.descuento_puntos,
           cupon_codigo: pedidoRef.cupon_codigo
         };
+
+        const res = await fetch(`${apiUrl}/pedidos/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(paqueteCompleto)
+        });
+
+        if(res.ok) {
+          setModalEditarPedido(null);
+          await cargarDataDinamica(); // 🔄 Sockets / BD se actualizan
+          mostrarAlertaCaja('Edición Exitosa', 'Los cambios se han guardado correctamente.', 'success');
+        } else {
+          mostrarAlertaCaja('Error', 'No se pudo guardar la edición.', 'error');
+        }
       }
-      await fetch(`${apiUrl}/pedidos/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(paqueteCompleto)
-      });
-      setModalEditarPedido(null);
-      await cargarDataDinamica();
-    } catch(e) {}
+    } catch(e) {
+      console.error("Error en guardarEdicionPedido:", e);
+      mostrarAlertaCaja('Error', 'Fallo de conexión al editar.', 'error');
+    }
     setIsSubmitting(false);
   };
 

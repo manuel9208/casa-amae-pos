@@ -95,29 +95,11 @@ const ModalesCaja = ({
             <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />  
             <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />  
             <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />  
-            
-            {/* 👇 AQUÍ SE AGREGÓ setModalEditarPedido */}
             <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} configGlobal={configGlobal} setModalEditarPedido={setModalEditarPedido} />  
-            
-            <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} />  
+            <ModalEditarPedido   modalEditarPedido={modalEditarPedido}   setModalEditarPedido={setModalEditarPedido}   guardarEdicionPedido={guardarEdicionPedido}   onGoToKiosco={onGoToKiosco}   isSubmitting={isSubmitting}   apiUrl={apiUrl}   configGlobal={configGlobal} />
             <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />  
             <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} onSuccess={cargarDataDinamica} />  
-            
-            <ModalComedor
-                modalComedor={modalComedor}
-                setModalComedor={setModalComedor}
-                empleadosPOS={empleadosPOS}
-                pedidos={pedidos}
-                configGlobal={configGlobal}
-                productos={productos}
-                clasificaciones={clasificaciones}
-                catalogoIngredientes={catalogoIngredientes}
-                apiUrl={apiUrl}
-                refrescarDatosCaja={cargarDataDinamica}
-                lanzarImpresion={lanzarImpresion}
-            />
-
-            {/* 👇 NUEVO COMPONENTE MAESTRO DE MERMAS */}
+            <ModalComedor modalComedor={modalComedor} setModalComedor={setModalComedor} empleadosPOS={empleadosPOS} pedidos={pedidos} configGlobal={configGlobal}                productos={productos}                clasificaciones={clasificaciones}                catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} refrescarDatosCaja={cargarDataDinamica} lanzarImpresion={lanzarImpresion} />
             <GestorMermasPrincipal
                 modalMermas={modalMermas}
                 setModalMermas={setModalMermas}

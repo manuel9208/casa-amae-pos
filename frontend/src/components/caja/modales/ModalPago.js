@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft } from 'lucide-react';
+import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft, AlertTriangle } from 'lucide-react';
 
 const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -8,6 +8,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
   const [montoTarjetaMixto, setMontoTarjetaMixto] = useState('');
   const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
   const [toastCopiado, setToastCopiado] = useState(false);
+  
+  // 👇 NUEVO: Estado para proteger la anulación
+  const [confirmarAnular, setConfirmarAnular] = useState(false);
 
   useEffect(() => {
     if (modalPago) {
@@ -16,6 +19,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
       setMontoEfectivoMixto('');
       setMontoTarjetaMixto('');
       setMontoTransferenciaMixto('');
+      setConfirmarAnular(false); // Reset al abrir
     }
   }, [modalPago]);
 
@@ -23,18 +27,15 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
 
   const noSePuedeAnular = modalPago.estado_preparacion === 'Entregado' || modalPago.estado_preparacion === 'En Camino' || modalPago.estado_preparacion === 'Liquidado' || modalPago.estado_preparacion === 'Finalizado';
 
-  // 🛡️ Lógica Anti-Limbo Actualizada:
-  // Al cerrar desde la X, si la orden se puede anular, la destruimos del sistema.
+  // 🛡️ Lógica Anti-Limbo Actualizada con Confirmación:
   const cerrarModalPago = () => {
     if (!noSePuedeAnular) {
-      procesarPago('Cancelado');
+      setConfirmarAnular(true); // 👈 Ya no anula directo, levanta la alerta
     } else {
       setModalPago(null);
     }
   };
 
-  // 🔄 Nuevo Puente de Edición Fluida:
-  // Oculta el pago y nos devuelve a la interfaz del Kiosco con la orden activa
   const handleVolverEditar = () => {
     setModalPago(null);
     if (setModalEditarPedido) {
@@ -107,7 +108,41 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">
       <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto relative">
         
-        {/* Botón de Salida Superior (Anula la orden) */}
+        {/* 👇 CAPA DE CONFIRMACIÓN DE ANULACIÓN (Seguridad) */}
+        {confirmarAnular && (
+          <div className="absolute inset-0 bg-white/90 backdrop-blur-md z-[200] rounded-[40px] flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-200 animate-in zoom-in-95">
+              <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                <AlertTriangle size={40} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 mb-2">¿Anular Orden?</h3>
+              <p className="text-slate-500 font-medium mb-8 leading-relaxed">
+                ¿Estás seguro que deseas cancelar esta orden de forma definitiva? <strong className="text-red-500">Esta acción no se puede deshacer.</strong>
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  disabled={isSubmitting}
+                  onClick={() => setConfirmarAnular(false)} 
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95 disabled:opacity-50"
+                >
+                  Volver
+                </button>
+                <button 
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    procesarPago('Cancelado');
+                    setConfirmarAnular(false);
+                  }} 
+                  className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Cancelando...' : 'Sí, Anular'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Botón de Salida Superior */}
         <button
           onClick={cerrarModalPago}
           disabled={isSubmitting}
@@ -190,7 +225,6 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-100 text-indigo-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28} className="text-indigo-500"/> <span className="text-sm md:text-base text-center leading-tight">Dividir Pago</span></button>
             </div>
             
-            {/* 👇 NUEVO BOTÓN "VOLVER" (Sustituye al viejo Cancelar) */}
             <div className="flex flex-col md:flex-row gap-3 md:gap-4 pt-4 border-t border-slate-100">
               <button disabled={isSubmitting} onClick={handleVolverEditar} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
                 <ArrowLeft size={20}/> Volver / Editar
@@ -203,7 +237,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               )}
 
               {!noSePuedeAnular && (
-                <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
                   Anular Pedido
                 </button>
               )}
@@ -233,7 +267,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (
-                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
+                  <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
                     <XCircle size={24}/>
                   </button>
                 )}
@@ -283,7 +317,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (
-                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
+                  <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
                     <XCircle size={24}/>
                   </button>
                 )}
@@ -305,7 +339,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               </button>
               <div className="flex gap-3 w-full">
                 {!noSePuedeAnular && (
-                  <button disabled={isSubmitting} onClick={() => procesarPago('Cancelado')} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
+                  <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
                     <XCircle size={24}/>
                   </button>
                 )}

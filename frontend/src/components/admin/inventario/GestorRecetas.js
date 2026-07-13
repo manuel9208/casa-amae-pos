@@ -79,6 +79,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
   // ==========================================
   // FUNCIONES DE BASES Y SUBRECETAS
   // ==========================================
+  
   const iniciarCreacionBase = () => {
     if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación donde guardar esta base.", "warning");
     setNombreNuevaBase('');
@@ -89,16 +90,24 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
     e.preventDefault();
     if (!nombreNuevaBase.trim()) return;
     try {
+      // 👇 FIX: Inyectamos "(Base)" automáticamente si el usuario no lo escribió
+      let nombreFinal = nombreNuevaBase.trim();
+      if (!nombreFinal.toLowerCase().includes('(base)')) {
+        nombreFinal = `${nombreFinal} (Base)`;
+      }
+
       const formData = new FormData();
-      formData.append('nombre', nombreNuevaBase);
+      formData.append('nombre', nombreFinal);
       formData.append('categoria', recetaCategoriaFiltro);
       formData.append('precio_base', 0);
       formData.append('disponible', 'false'); // Se guarda oculta
+      formData.append('genera_puntos', 'false'); // 🛡️ Escudo: Evita que aparezca el tag +PTS
 
       const res = await fetch(`${apiUrl}/productos`, {
         method: 'POST',
         body: formData
       });
+
       if(res.ok) {
         showAlert("¡Base Creada!", "Ya puedes seleccionarla para armar su receta.", "success");
         setModalCrearBase(false);
@@ -109,7 +118,6 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
     }
   };
 
-  // 👇 NUEVAS FUNCIONES PARA RENOMBRAR BASE
   const iniciarEdicionBase = () => {
     const prod = productos.find(p => String(p.id) === String(recetaActivaId));
     if(prod) {
@@ -122,12 +130,19 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, apiUrl, refresca
     e.preventDefault();
     if (!nombreEditadoBase.trim()) return;
     try {
+      // 👇 FIX: Garantizamos que "(Base)" se mantenga aunque el usuario lo borre al renombrar
+      let nombreFinal = nombreEditadoBase.trim();
+      if (!nombreFinal.toLowerCase().includes('(base)')) {
+        nombreFinal = `${nombreFinal} (Base)`;
+      }
+
       const prod = productos.find(p => String(p.id) === String(recetaActivaId));
       const formData = new FormData();
-      formData.append('nombre', nombreEditadoBase);
+      formData.append('nombre', nombreFinal);
       formData.append('categoria', prod.categoria || 'General');
       formData.append('precio_base', prod.precio_base || 0);
       formData.append('disponible', 'false'); // Mantenerla oculta
+      formData.append('genera_puntos', 'false'); // 🛡️ Escudo: Evita que aparezca el tag +PTS
 
       const res = await fetch(`${apiUrl}/productos/${recetaActivaId}`, {
         method: 'PUT',
