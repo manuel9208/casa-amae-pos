@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle } from 'lucide-react';
+import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User } from 'lucide-react';
 
 const Repartidor = ({ user, onLogout }) => {
     const [pedidosPool, setPedidosPool] = useState([]);
@@ -9,9 +9,6 @@ const Repartidor = ({ user, onLogout }) => {
     const [cargando, setCargando] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertaUI, setAlertaUI] = useState(null);
-    
-    // 👇 FIX: Eliminamos la variable confirmarEntregaId que causaba el Warning
-    
     const [detallePedido, setDetallePedido] = useState(null);
 
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
@@ -119,10 +116,18 @@ const Repartidor = ({ user, onLogout }) => {
         return tel;
     };
 
-    const abrirMapaOriginal = (direccionBruta) => {
+    // ==========================================
+    // 👇 FIX GOOGLE MAPS INTELIGENTE VIA BACKEND (ORDEN INVERTIDO)
+    // ==========================================
+    const abrirMapaOriginal = (direccionBruta, ciudadContexto) => {
         const dirLimpia = getDireccionLimpia(direccionBruta);
         if (!dirLimpia || dirLimpia === 'Dirección no especificada') return;
-        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dirLimpia)}`;
+        
+        // MÁGIA APLICADA: Ponemos PRIMERO la ciudad (ej. Navolato Sinaloa) y LUEGO la calle.
+        // Esto fuerza a Google Maps a buscar dentro del municipio correcto inmediatamente.
+        const busquedaGoogle = ciudadContexto ? `${ciudadContexto}, ${dirLimpia}` : dirLimpia;
+
+        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(busquedaGoogle)}`;
         window.open(url, '_blank');
     };
 
@@ -191,7 +196,6 @@ const Repartidor = ({ user, onLogout }) => {
                                         <div>
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                                 <h3 className="text-2xl font-black text-white">Orden #{p.numero_pedido}</h3>
-                                                {/* 👇 FIX APLICADO: Botón Revisar Pedido (Verde, Resaltado) */}
                                                 <button onClick={() => setDetallePedido(p)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 md:py-2 rounded-xl transition-all active:scale-95 shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 border border-emerald-400 w-fit" title="Revisar Pedido">
                                                     <Eye size={18} />
                                                     <span className="text-[10px] font-black uppercase tracking-widest">Revisar Pedido</span>
@@ -245,7 +249,6 @@ const Repartidor = ({ user, onLogout }) => {
                                             <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded uppercase tracking-widest">En Ruta</span>
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-1.5">
                                                 <h2 className="text-3xl font-black text-white">#{viaje.numero_pedido}</h2>
-                                                {/* 👇 FIX APLICADO: Botón Revisar Pedido (Verde, Resaltado) */}
                                                 <button onClick={() => setDetallePedido(viaje)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 md:py-2 rounded-xl transition-all active:scale-95 shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 border border-emerald-400 w-fit" title="Revisar Pedido">
                                                     <Eye size={20} />
                                                     <span className="text-[10px] md:text-xs font-black uppercase tracking-widest">Revisar Pedido</span>
@@ -265,7 +268,7 @@ const Repartidor = ({ user, onLogout }) => {
                                     {/* Cliente y Contacto */}
                                     <div className="flex justify-between items-center bg-slate-950 p-4 rounded-2xl border border-slate-800">
                                         <div>
-                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1"><Phone size={10}/> Destinatario</p>
+                                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1"><User size={10}/> Destinatario</p>
                                             <p className="text-base font-black text-slate-200 mt-0.5">{getNombreExtraido(viaje)}</p>
                                             {getTelefonoExtraido(viaje) && (
                                                 <p className="text-xs font-bold text-emerald-500 mt-1 flex items-center gap-1.5"><MessageCircle size={14}/> {getTelefonoExtraido(viaje)}</p>
@@ -297,7 +300,8 @@ const Repartidor = ({ user, onLogout }) => {
                                                 </p>
                                             </div>
                                         )}
-                                        <button onClick={() => abrirMapaOriginal(viaje.direccion_entrega)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs rounded-xl transition border border-slate-700 flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95">
+                                        {/* 👇 APLICANDO LA INYECCIÓN MÁGICA CON EL ORDEN INVERTIDO EN LA FUNCIÓN */}
+                                        <button onClick={() => abrirMapaOriginal(viaje.direccion_entrega, viaje.gps_ciudad_estado)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs rounded-xl transition border border-slate-700 flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95">
                                             <MapPin size={14}/> Ver en Google Maps
                                         </button>
                                     </div>
@@ -336,7 +340,6 @@ const Repartidor = ({ user, onLogout }) => {
                                     <div className="flex justify-between items-start sm:items-center">
                                         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                                             <h3 className="text-xl font-black text-white">#{viaje.numero_pedido}</h3>
-                                            {/* 👇 FIX APLICADO: Botón Revisar Pedido (Verde, Resaltado) */}
                                             <button onClick={() => setDetallePedido(viaje)} className="bg-emerald-500 hover:bg-emerald-400 text-white px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 border border-emerald-400 w-fit" title="Revisar Pedido">
                                                 <Eye size={16} />
                                                 <span className="text-[10px] font-black uppercase tracking-widest">Revisar Pedido</span>
@@ -366,7 +369,7 @@ const Repartidor = ({ user, onLogout }) => {
                 )}
             </div>
 
-            {/* 👇 NUEVO MODAL: VISOR DE DETALLES DEL PEDIDO */}
+            {/* VISOR DE DETALLES DEL PEDIDO */}
             {detallePedido && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-900 rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-800 flex flex-col max-h-[85vh] animate-in zoom-in-95">

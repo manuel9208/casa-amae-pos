@@ -9,7 +9,9 @@ import NotificacionesWA from './configuracion/NotificacionesWA';
 import GestorSeguridad from './configuracion/GestorSeguridad';
 import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
 import GestorAsistencias from './configuracion/GestorAsistencias';
-import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';  
+import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';
+// 👇 IMPORTAMOS EL NUEVO MÓDULO LOGÍSTICO
+import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';  
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [logoBlob, setLogoBlob] = useState(null);
@@ -55,8 +57,6 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     setIsSubmitting(true);
     const formData = new FormData();  
 
-    // 🛡️ Aislamos estos datos para inyectarlos forzosamente abajo y evitar que se pierdan
-    // 👇 INYECCIÓN: Agregada ticket_impresora_parzibyte al escudo
     const llavesManuales = [
       'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos',
       'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
@@ -72,10 +72,9 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       }
     });  
 
-    formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));  
+    formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
     const isBloqueoActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
     const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';  
-
     formData.append('bloqueo_caja_activo', isBloqueoActivo ? 'true' : 'false');
     formData.append('bloqueo_caja_segundos', configGlobal.bloqueo_caja_segundos || 30);
     formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');
@@ -96,12 +95,11 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     formData.append('ticket_modo_impresion', configGlobal.ticket_modo_impresion || 'pdf');
     formData.append('ticket_domicilio', configGlobal.ticket_domicilio || '');
     formData.append('ticket_mensaje_final', configGlobal.ticket_mensaje_final || '');
-    formData.append('ticket_firma_sistema', configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS');
+    formData.append('ticket_firma_sistema', configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS');  
     
-    // 👇 INYECCIÓN: Formatas de IPs y Parzibyte
     formData.append('ticket_impresora_ip', configGlobal.ticket_impresora_ip || '192.168.1.100');
-    formData.append('ticket_impresora_puerto', configGlobal.ticket_impresora_puerto || '9100');  
-    formData.append('ticket_impresora_parzibyte', configGlobal.ticket_impresora_parzibyte || '');
+    formData.append('ticket_impresora_puerto', configGlobal.ticket_impresora_puerto || '9100');
+    formData.append('ticket_impresora_parzibyte', configGlobal.ticket_impresora_parzibyte || '');  
 
     if (logoBlob) formData.append('logo', logoBlob);
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
@@ -161,11 +159,14 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         <GestorComedorPersonal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <PagosContacto configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <BrandingGlobal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
-        <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />  
-        <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />  
+        <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />
+        <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <CostosEnvio configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tarifasEnvio={tarifasEnvio} setTarifasEnvio={setTarifasEnvio} isSubmitting={isSubmitting} />
         <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
         
+        {/* 👇 AQUÍ RENDERIZAMOS EL NUEVO COMPONENTE LOGÍSTICO */}
+        <GestorLogisticaMapas configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
+
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
           <button disabled={isSubmitting} type="button" onClick={restablecerBranding} className="w-full md:w-auto px-6 py-4 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 border border-slate-200 transition disabled:opacity-50">↺ Restablecer Diseño</button>
           <button disabled={isSubmitting} type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-black text-lg shadow-lg shadow-blue-500/30 transition disabled:opacity-50 active:scale-95 flex justify-center items-center gap-2">

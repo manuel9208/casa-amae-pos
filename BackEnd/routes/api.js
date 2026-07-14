@@ -15,7 +15,7 @@ const clasificacionCtrl = require('../controllers/clasificacionController');
 const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
-const reporteCtrl = require('../controllers/reporteController');
+const reporteCtrl = require('../controllers/reporteController'); // 👈 Aquí se define
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController');
 const notificacionCtrl = require('../controllers/notificacionController');
@@ -151,7 +151,7 @@ router.get('/reparto/disponibles', repartidorCtrl.obtenerPedidosDisponiblesParaR
 router.put('/reparto/tomar/:id', repartidorCtrl.tomarPedidoRepartidor);
 router.put('/reparto/entregar/:id', repartidorCtrl.entregarPedidoRepartidor);
 router.get('/reparto/mis-viajes/:repartidor_id', repartidorCtrl.obtenerMisViajesActivos);
-router.get('/reparto/historial/:repartidor_id', repartidorCtrl.obtenerHistorialRepartidor); // 👈 NUEVA RUTA DEL HISTORIAL
+router.get('/reparto/historial/:repartidor_id', repartidorCtrl.obtenerHistorialRepartidor);
 router.get('/reparto/auditoria/repartidores', repartidorCtrl.obtenerRepartidoresAuditoria);
 router.get('/reparto/auditoria/pedidos/:repartidor_id', repartidorCtrl.obtenerPedidosAuditoria);
 router.post('/reparto/auditoria/liquidar', repartidorCtrl.liquidarAuditoria);  
@@ -182,6 +182,8 @@ router.get('/mermas', mermaCtrl.obtenerMermas);
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);  
+// 👇 CORRECCIÓN APLICADA AQUÍ: Se usa reporteCtrl para que concuerde con tu importación
+router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla);
 
 // ==========================================
 // GESTIÓN DE MESAS (MAPEO Y QR)

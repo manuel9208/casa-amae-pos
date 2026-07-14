@@ -469,7 +469,7 @@ const App = () => {
 
     if (entornoActivo === 'caja') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Caja user={usuarioActivo} onLogout={() => cerrarSesion()} onGoToKiosco={() => {}} /></>;
     if (entornoActivo === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={() => cerrarSesion()} /></>;
-    if (entornoActivo === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} onLogout={() => cerrarSesion()} /></>;
+    if (entornoActivo === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} configGlobal={configGlobal} onLogout={() => cerrarSesion()} /></>;
 
   } // <-- FIN DEL ESCUDO PROTECTOR
 

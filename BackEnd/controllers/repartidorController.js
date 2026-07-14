@@ -1,12 +1,14 @@
-const db = require('../config/db');  
+const db = require('../config/db');
 
-// 1. Obtener pedidos listos en cocina que esperan ser recolectados por cualquier repartidor
+// 1. Obtener pedidos listos en cocina (Inyectando Contexto GPS para Google Maps)
 exports.obtenerPedidosDisponiblesParaReparto = async (req, res) => {
   try {
     const query = `
-      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono
+      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
+             conf.gps_ciudad_estado, conf.gps_direccion_local
       FROM pedidos p
       LEFT JOIN clientes c ON p.cliente_id = c.id
+      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE id = 1) AS conf
       WHERE p.estado_preparacion = 'Listo'
       AND p.tipo_consumo = 'Domicilio'
       AND p.repartidor_id IS NULL
@@ -18,26 +20,31 @@ exports.obtenerPedidosDisponiblesParaReparto = async (req, res) => {
     console.error("Error al obtener pool de reparto:", error.message);
     res.status(500).json({ error: 'Error al obtener pedidos disponibles para reparto' });
   }
-};  
+};
 
 // 2. Acción de auto-asignación con transmisión en tiempo real integrada
 exports.tomarPedidoRepartidor = async (req, res) => {
   const { id } = req.params;
-  const { repartidor_id } = req.body;  
+  const { repartidor_id } = req.body;
+  
   if (!repartidor_id) {
     return res.status(400).json({ error: 'El ID del repartidor es obligatorio para la auto-asignación.' });
-  }  
+  }
+  
   try {
     // Bloqueo de concurrencia: Validar que otro conductor no haya tomado la orden hace milisegundos
     const validoRes = await db.query('SELECT estado_preparacion, repartidor_id, numero_pedido FROM pedidos WHERE id = $1', [id]);
-    if (validoRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado.' });  
+    if (validoRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    
     const pedido = validoRes.rows[0];
     if (pedido.repartidor_id) {
       return res.status(400).json({ error: 'Esta orden ya fue tomada por otro repartidor.' });
-    }  
+    }
+    
     // Consultamos el nombre del conductor para enriquecer la alerta visual de la Caja
     const repRes = await db.query('SELECT nombre FROM usuarios WHERE id = $1', [repartidor_id]);
-    const nombreRepartidor = repRes.rows[0]?.nombre || 'Repartidor';  
+    const nombreRepartidor = repRes.rows[0]?.nombre || 'Repartidor';
+    
     const query = `
       UPDATE pedidos
       SET estado_preparacion = 'En Camino',
@@ -47,8 +54,8 @@ exports.tomarPedidoRepartidor = async (req, res) => {
       RETURNING *
     `;
     const result = await db.query(query, [repartidor_id, id]);
-    const pedidoActualizado = result.rows[0];  
-    
+    const pedidoActualizado = result.rows[0];
+
     // 📡 EMISIÓN DEL EVENTO EN TIEMPO REAL HACIA LA CAJA
     const io = req.app.get('io');
     if (io) {
@@ -59,29 +66,37 @@ exports.tomarPedidoRepartidor = async (req, res) => {
         repartidor_nombre: nombreRepartidor,
         pedido: pedidoActualizado
       });
-    }  
+    }
+    
     res.json(pedidoActualizado);
   } catch (error) {
     console.error("Error al auto-asignar pedido:", error.message);
     res.status(500).json({ error: 'Error interno al tomar el pedido.' });
   }
-};  
+};
 
-// 3. Finalizar entrega física en el domicilio del cliente con transmisión Socket.io
+// 3. Finalizar entrega física (Preparado para Fase 2: Recibir y guardar kilómetros reales)
 exports.entregarPedidoRepartidor = async (req, res) => {
-  const { id } = req.params;  
+  const { id } = req.params;
+  const { distancia_km } = req.body; // 👈 NUEVO: Recibe los KM exactos desde el frontend del repartidor
+  
   try {
+    // Aseguramos silenciosamente que la columna exista para evitar bloqueos si no se ha corrido la migración manual
+    await db.query(`ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS distancia_km NUMERIC DEFAULT 0;`).catch(() => {});
+
     const query = `
       UPDATE pedidos
       SET estado_preparacion = 'Entregado',
-      tiempo_entregado = CURRENT_TIMESTAMP
+      tiempo_entregado = CURRENT_TIMESTAMP,
+      distancia_km = $2
       WHERE id = $1
       RETURNING *
     `;
-    const result = await db.query(query, [id]);
+    const result = await db.query(query, [id, distancia_km || 0]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado.' });
-    const pedidoActualizado = result.rows[0];  
     
+    const pedidoActualizado = result.rows[0];
+
     // 📡 EMISIÓN DEL EVENTO EN TIEMPO REAL HACIA LA CAJA (Habilita flujo de liquidación)
     const io = req.app.get('io');
     if (io) {
@@ -90,22 +105,25 @@ exports.entregarPedidoRepartidor = async (req, res) => {
         numero_pedido: pedidoActualizado.numero_pedido,
         pedido: pedidoActualizado
       });
-    }  
+    }
+    
     res.json(pedidoActualizado);
   } catch (error) {
     console.error("Error al finalizar entrega:", error.message);
     res.status(500).json({ error: 'Error interno al entregar el pedido.' });
   }
-};  
+};
 
-// 4. Obtener los viajes que el conductor trae actualmente en ruta
+// 4. Obtener los viajes activos (Inyectando Contexto GPS)
 exports.obtenerMisViajesActivos = async (req, res) => {
   const { repartidor_id } = req.params;
   try {
     const query = `
-      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono
+      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
+             conf.gps_ciudad_estado, conf.gps_direccion_local
       FROM pedidos p
       LEFT JOIN clientes c ON p.cliente_id = c.id
+      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE id = 1) AS conf
       WHERE p.repartidor_id = $1
       AND p.estado_preparacion = 'En Camino'
       ORDER BY p.tiempo_salida_reparto DESC
@@ -116,11 +134,11 @@ exports.obtenerMisViajesActivos = async (req, res) => {
     console.error("Error al obtener ruta activa:", error.message);
     res.status(500).json({ error: 'Error al obtener viajes activos.' });
   }
-};  
+};
 
 // =========================================================================
 // 🛡️ LÓGICA DE AUDITORÍA Y LIQUIDACIÓN FINANCIERA
-// =========================================================================  
+// =========================================================================
 
 exports.obtenerRepartidoresAuditoria = async (req, res) => {
   try {
@@ -144,7 +162,7 @@ exports.obtenerRepartidoresAuditoria = async (req, res) => {
     console.error("Error al obtener auditoría de repartidores:", error.message);
     res.status(500).json({ error: 'Error al obtener pool de repartidores para auditoría.' });
   }
-};  
+};
 
 exports.obtenerPedidosAuditoria = async (req, res) => {
   const { repartidor_id } = req.params;
@@ -163,15 +181,18 @@ exports.obtenerPedidosAuditoria = async (req, res) => {
     console.error("Error al obtener pedidos para auditoría:", error.message);
     res.status(500).json({ error: 'Error al obtener desglose de órdenes.' });
   }
-};  
+};
 
 exports.liquidarAuditoria = async (req, res) => {
-  const { repartidor_id, pedido_ids, monto_liquidado } = req.body;  
+  const { repartidor_id, pedido_ids, monto_liquidado } = req.body;
+  
   if (!repartidor_id || !pedido_ids || pedido_ids.length === 0) {
     return res.status(400).json({ error: 'Faltan datos requeridos para la liquidación.' });
-  }  
+  }
+  
   try {
-    await db.query('BEGIN');  
+    await db.query('BEGIN');
+    
     const updateQuery = `
       UPDATE pedidos
       SET estado_preparacion = 'Liquidado'
@@ -179,9 +200,12 @@ exports.liquidarAuditoria = async (req, res) => {
       AND id = ANY($2::int[])
       AND estado_preparacion = 'Entregado'
       RETURNING id
-    `;  
-    const result = await db.query(updateQuery, [repartidor_id, pedido_ids]);  
-    await db.query('COMMIT');  
+    `;
+    
+    const result = await db.query(updateQuery, [repartidor_id, pedido_ids]);
+    
+    await db.query('COMMIT');
+    
     res.json({
       mensaje: 'Liquidación procesada con éxito',
       pedidos_procesados: result.rows.length,
@@ -194,14 +218,16 @@ exports.liquidarAuditoria = async (req, res) => {
   }
 };
 
-// 8. 👇 NUEVO ENDPOINT: Historial del repartidor del día actual
+// 8. 👇 HISTORIAL CON CONTEXTO GPS INYECTADO
 exports.obtenerHistorialRepartidor = async (req, res) => {
   const { repartidor_id } = req.params;
   try {
     const query = `
-      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono
+      SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
+             conf.gps_ciudad_estado
       FROM pedidos p
       LEFT JOIN clientes c ON p.cliente_id = c.id
+      CROSS JOIN (SELECT gps_ciudad_estado FROM configuracion WHERE id = 1) AS conf
       WHERE p.repartidor_id = $1
       AND p.estado_preparacion IN ('Entregado', 'Liquidado')
       AND DATE(p.tiempo_entregado) = CURRENT_DATE

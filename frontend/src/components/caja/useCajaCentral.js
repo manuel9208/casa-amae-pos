@@ -265,15 +265,51 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const stripEmojis = (str) => {
       return String(str || '')
         .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
-        .replace(/[⭐🔹🔸📝❌]/g, '')
+        .replace(/[⭐🔹🔸📝❌🔄]/g, '')
         .trim();
     };
 
+    // ==========================================
+    // 👇 FIX: NUEVA LÓGICA DE CONSTRUCCIÓN DE TICKET (WORD WRAP)
+    // ==========================================
     const construirTextoTicket = () => {
       let receipt = "";  
+
+      // 🛠️ Función de división inteligente para evitar decapitar palabras
+      const dividirTexto = (texto, maxLen) => {
+        if (!texto) return [];
+        const words = String(texto).split(' ');
+        const lines = [];
+        let currentLine = '';
+
+        words.forEach(word => {
+            if (word.length > maxLen) {
+                if (currentLine.length > 0) { lines.push(currentLine.trim()); currentLine = ''; }
+                lines.push(word.substring(0, maxLen));
+                currentLine = word.substring(maxLen) + ' ';
+            } else if ((currentLine + word).length > maxLen) {
+                if (currentLine.length > 0) lines.push(currentLine.trim());
+                currentLine = word + ' ';
+            } else {
+                currentLine += word + ' ';
+            }
+        });
+        if (currentLine.trim().length > 0) {
+            lines.push(currentLine.trim());
+        }
+        return lines;
+      };
+
+      // 🛠️ Center Refactorizado: Centra y respeta líneas largas
       const center = (text) => {
         const str = String(text || '');
-        if (str.length >= 32) return str.substring(0, 32) + "\n";
+        if (str.length > 32) {
+            const lineas = dividirTexto(str, 32);
+            return lineas.map(line => {
+                const pad = Math.max(0, Math.floor((32 - line.length) / 2));
+                return " ".repeat(pad) + line + "\n";
+            }).join("");
+        }
         const pad = Math.floor((32 - str.length) / 2);
         return " ".repeat(pad) + str + "\n";
       };  
@@ -284,10 +320,18 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       receipt += `--------------------------------\n`;
       receipt += `TICKET: #${pedido.numero_pedido}\n`;
       receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
-      receipt += `CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}\n`;
+      
+      const clienteLineas = dividirTexto(`CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}`, 32);
+      clienteLineas.forEach(line => receipt += `${line}\n`);
+
       receipt += `TIPO: ${stripEmojis(pedido.tipo_consumo)}\n`;
       if (pedido.mesa) receipt += `MESA: ${stripEmojis(pedido.mesa)}\n`;
-      if (pedido.direccion_entrega) receipt += `DIR: ${stripEmojis(pedido.direccion_entrega.substring(0, 50))}\n`;
+      
+      if (pedido.direccion_entrega) {
+          const dirLineas = dividirTexto(`DIR: ${stripEmojis(pedido.direccion_entrega)}`, 32);
+          dirLineas.forEach(line => receipt += `${line}\n`);
+      }
+
       receipt += `--------------------------------\n`;  
       
       const car = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
@@ -295,13 +339,29 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         const qty = item.cantidad || 1;
         const price = (Number(item.precioFinal) * qty).toFixed(2);
         let line = `${qty}x ${stripEmojis(item.nombre)}`;  
-        if (line.length > 24) line = line.substring(0, 24);
-        let spaces = 32 - line.length - price.length - 1;
-        if (spaces < 1) spaces = 1;  
-        receipt += `${line}${" ".repeat(spaces)}$${price}\n`;  
+        
+        // Si el producto tiene nombre largo, hacemos salto de línea
+        if (line.length > 24) { 
+            const itemLineas = dividirTexto(line, 24);
+            itemLineas.forEach((iLine, idx) => {
+                if(idx === 0) {
+                    let spaces = 32 - iLine.length - price.length - 1;
+                    if (spaces < 1) spaces = 1;  
+                    receipt += `${iLine}${" ".repeat(spaces)}$${price}\n`;
+                } else {
+                    receipt += `  ${iLine}\n`;
+                }
+            });
+        } else {
+            let spaces = 32 - line.length - price.length - 1;
+            if (spaces < 1) spaces = 1;  
+            receipt += `${line}${" ".repeat(spaces)}$${price}\n`;  
+        }
+
         if (item.extras && item.extras.length > 0) {
           item.extras.forEach(e => {
-            receipt += `  + ${stripEmojis(e.nombre)}\n`;
+            const extraLineas = dividirTexto(`  + ${stripEmojis(e.nombre)}`, 32);
+            extraLineas.forEach(exLine => receipt += `${exLine}\n`);
           });
         }
       });  
@@ -322,6 +382,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       receipt += `\n\n\n\n`;
       return receipt;
     };
+    // ==========================================
 
     if (modoImpresion === 'impresora') {
       try {

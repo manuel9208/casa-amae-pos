@@ -25,7 +25,7 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // Aseguramos que existan las columnas en la DB
+    // Aseguramos que existan las columnas en la DB, incluyendo las de Logística y Mapas
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
@@ -41,7 +41,10 @@ exports.obtenerConfiguracion = async (req, res) => {
       ADD COLUMN IF NOT EXISTS ticket_mensaje_final TEXT DEFAULT '¡Gracias por su preferencia!',
       ADD COLUMN IF NOT EXISTS ticket_firma_sistema VARCHAR(100) DEFAULT 'Powered by MiSistemaPOS',
       ADD COLUMN IF NOT EXISTS ticket_impresora_ip VARCHAR(50) DEFAULT '192.168.1.100',
-      ADD COLUMN IF NOT EXISTS ticket_impresora_puerto VARCHAR(10) DEFAULT '9100';
+      ADD COLUMN IF NOT EXISTS ticket_impresora_puerto VARCHAR(10) DEFAULT '9100',
+      ADD COLUMN IF NOT EXISTS gps_ciudad_estado TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS gps_direccion_local TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS gps_api_key TEXT DEFAULT '';
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -87,6 +90,7 @@ exports.actualizarConfiguracion = async (req, res) => {
 
   const mergedBody = { ...configActual, ...req.body };
 
+  // 👇 Añadimos las variables de GPS/Logística al destructuring
   const {
     nombre_negocio, whatsapp, banco, cuenta, titular,
     color_primario, color_secundario, color_fondo,
@@ -105,7 +109,8 @@ exports.actualizarConfiguracion = async (req, res) => {
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
     cocina_en_caja_activa, horarios_semana,
     asistencia_pin_caja, asistencia_login, asistencia_huella,
-    politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas
+    politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
+    gps_ciudad_estado, gps_direccion_local, gps_api_key
   } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
@@ -165,6 +170,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   } catch (e) {}
 
   try {
+    // 👇 Inyectamos los 3 nuevos campos al final del QUERY
     await db.query(`
       INSERT INTO configuracion (
         id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
@@ -180,9 +186,10 @@ exports.actualizarConfiguracion = async (req, res) => {
         bloqueo_caja_activo, bloqueo_caja_segundos, comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
         cocina_en_caja_activa, horarios_semana,
         asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion,
-        calendario_anual, limite_vacaciones_simultaneas, ticket_impresora_ip, ticket_impresora_puerto
+        calendario_anual, limite_vacaciones_simultaneas, ticket_impresora_ip, ticket_impresora_puerto,
+        gps_ciudad_estado, gps_direccion_local, gps_api_key
       ) VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57
+        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60
       )
       ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
@@ -241,7 +248,10 @@ exports.actualizarConfiguracion = async (req, res) => {
         asistencia_huella = EXCLUDED.asistencia_huella,
         politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb,
         calendario_anual = EXCLUDED.calendario_anual::jsonb,
-        limite_vacaciones_simultaneas = EXCLUDED.limite_vacaciones_simultaneas
+        limite_vacaciones_simultaneas = EXCLUDED.limite_vacaciones_simultaneas,
+        gps_ciudad_estado = EXCLUDED.gps_ciudad_estado,
+        gps_direccion_local = EXCLUDED.gps_direccion_local,
+        gps_api_key = EXCLUDED.gps_api_key
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -257,7 +267,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       isCocinaCajaActiva, horariosParsed,
       isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed,
       calendarioParsed, limiteVacSeguro,
-      ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100'
+      ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100',
+      gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || ''
     ]);
 
     // Emitimos el socket para que las apps frontales se enteren del cambio manual

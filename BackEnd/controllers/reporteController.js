@@ -572,21 +572,84 @@ exports.obtenerReporteVentas = async (req, res) => {
   }
 };
 
+// ==========================================
+// MÓDULO DE REPORTE DE COMBUSTIBLE E INTELIGENCIA DE RUTAS
+// ==========================================
 exports.obtenerReporteCombustible = async (req, res) => {
-  const { fecha } = req.query;
-  try {
-    let filtroFecha = "TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') = TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD')";
-    let params = [];
-    if (fecha) { filtroFecha = "p.fecha_creacion::DATE = $1::DATE"; params.push(fecha); }
+    const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
 
-    const query = `
-      SELECT u.id AS repartidor_id, u.nombre AS repartidor_nombre, COUNT(p.id) AS total_viajes
-      FROM pedidos p INNER JOIN usuarios u ON p.repartidor_id = u.id
-      WHERE p.tipo_consumo = 'Domicilio' AND p.repartidor_id IS NOT NULL AND (p.estado_preparacion = 'Entregado' OR p.estado_preparacion = 'Liquidado') AND ${filtroFecha}
-      GROUP BY u.id, u.nombre ORDER BY total_viajes DESC
-    `;
+    try {
+        // 🛡️ ESCUDO ANTI-CRASH: Creamos las columnas silenciosamente si no existen
+        await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS vehiculo VARCHAR(100);`).catch(()=>null);
+        await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rendimiento_km_l NUMERIC(10,2) DEFAULT 15.00;`).catch(()=>null);
+        await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS precio_gasolina NUMERIC(10,2) DEFAULT 23.50;`).catch(()=>null);
 
-    const result = await db.query(query, params);
-    res.json({ success: true, fecha_analizada: fecha || 'Hoy', repartidores: result.rows });
-  } catch (error) { res.status(500).json({ error: 'Error al procesar el reporte de rendimiento y combustible.' }); }
+        let queryTimeConsumo = '';
+        let params = [fecha];
+
+        if (periodo === 'dia') {
+            queryTimeConsumo = `p.tiempo_entregado::DATE = $1::DATE`;
+        } else if (periodo === 'semana') {
+            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('week', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('week', $1::TIMESTAMP) + INTERVAL '1 week'`;
+        } else if (periodo === 'mes') {
+            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('month', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('month', $1::TIMESTAMP) + INTERVAL '1 month'`;
+        } else if (periodo === 'anio') {
+            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('year', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('year', $1::TIMESTAMP) + INTERVAL '1 year'`;
+        } else {
+            queryTimeConsumo = `p.tiempo_entregado::DATE = $1::DATE`; 
+        }
+
+        // Consultamos los viajes detallados
+        const queryViajes = `
+            SELECT 
+                p.id, p.numero_pedido, p.direccion_entrega, p.distancia_km,
+                p.tiempo_salida_reparto, p.tiempo_entregado,
+                u.id AS repartidor_id, u.nombre AS repartidor_nombre,
+                u.vehiculo, u.rendimiento_km_l
+            FROM pedidos p
+            INNER JOIN usuarios u ON p.repartidor_id = u.id
+            WHERE p.tipo_consumo = 'Domicilio'
+            AND p.repartidor_id IS NOT NULL 
+            AND p.estado_preparacion IN ('Entregado', 'Liquidado', 'Finalizado')
+            AND p.tiempo_entregado IS NOT NULL
+            AND ${queryTimeConsumo}
+            ORDER BY p.tiempo_entregado DESC
+        `;
+        const resultViajes = await db.query(queryViajes, params);
+
+        // Obtenemos precio de gasolina
+        let precioGasolina = 23.50;
+        const confRes = await db.query('SELECT precio_gasolina FROM configuracion WHERE id = 1');
+        if (confRes.rows.length > 0 && confRes.rows[0].precio_gasolina) {
+            precioGasolina = Number(confRes.rows[0].precio_gasolina);
+        }
+
+        res.json({ 
+            success: true, 
+            viajes: resultViajes.rows,
+            precio_gasolina: precioGasolina
+        });
+
+    } catch (error) {
+        console.error("Error en reporte de combustible:", error);
+        res.status(500).json({ error: 'Error al procesar el reporte de rendimiento y combustible.' });
+    }
+};
+
+exports.guardarConfigFlotilla = async (req, res) => {
+    const { precio_gasolina, conductores } = req.body;
+    try {
+        await db.query(`UPDATE configuracion SET precio_gasolina = $1 WHERE id = 1;`, [precio_gasolina]);
+
+        for (const conductor of conductores) {
+            await db.query(
+                `UPDATE usuarios SET vehiculo = $1, rendimiento_km_l = $2 WHERE id = $3`,
+                [conductor.vehiculo, conductor.rendimiento, conductor.id]
+            );
+        }
+        res.json({ success: true, message: 'Configuración guardada en la base de datos central.' });
+    } catch (error) {
+        console.error("Error guardando config flotilla:", error);
+        res.status(500).json({ error: 'Error interno al guardar la configuración.' });
+    }
 };
