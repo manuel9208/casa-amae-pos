@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User } from 'lucide-react';
+import io from 'socket.io-client';
 
 const Repartidor = ({ user, onLogout }) => {
     const [pedidosPool, setPedidosPool] = useState([]);
@@ -39,9 +40,21 @@ const Repartidor = ({ user, onLogout }) => {
         }
     }, [apiUrl, user.id]);
 
+    // 📡 INTEGRACIÓN DE SOCKETS PARA SINCRONIZACIÓN EN VIVO
+    useEffect(() => {
+        const baseUrl = apiUrl.replace('/api', '');
+        const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+
+        socket.on('nuevo_pedido', cargarDatosLogistica);
+        socket.on('pedido_actualizado', cargarDatosLogistica);
+        socket.on('pedido_eliminado', cargarDatosLogistica);
+
+        return () => socket.disconnect();
+    }, [apiUrl, cargarDatosLogistica]);
+
     useEffect(() => {
         cargarDatosLogistica();
-        const intervalo = setInterval(cargarDatosLogistica, 5000);
+        const intervalo = setInterval(cargarDatosLogistica, 10000); // Se relaja a 10s gracias a los sockets
         return () => clearInterval(intervalo);
     }, [cargarDatosLogistica]);
 
@@ -71,11 +84,19 @@ const Repartidor = ({ user, onLogout }) => {
     const finalizarEntrega = async (pedidoId) => {
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { method: 'PUT' });
+            // 🛠️ FIX APLICADO: Se envía headers y un body por defecto para evitar el crasheo en backend
+            const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
+            });
+            
             if (res.ok) {
                 await cargarDatosLogistica();
                 if (misViajes.length <= 1) setTabActiva('disponibles');
-                mostrarAlerta("¡Entrega finalizada con éxito!", "success");
+                mostrarAlerta("¡Entrega finalizada con éxito! El cliente ha sido notificado.", "success");
+            } else {
+                mostrarAlerta("Hubo un problema al procesar la entrega.", "error");
             }
         } catch (e) {
             mostrarAlerta("Error de conexión al cerrar la entrega.", "error");
@@ -116,17 +137,11 @@ const Repartidor = ({ user, onLogout }) => {
         return tel;
     };
 
-    // ==========================================
-    // 👇 FIX GOOGLE MAPS INTELIGENTE VIA BACKEND (ORDEN INVERTIDO)
-    // ==========================================
     const abrirMapaOriginal = (direccionBruta, ciudadContexto) => {
         const dirLimpia = getDireccionLimpia(direccionBruta);
         if (!dirLimpia || dirLimpia === 'Dirección no especificada') return;
         
-        // MÁGIA APLICADA: Ponemos PRIMERO la ciudad (ej. Navolato Sinaloa) y LUEGO la calle.
-        // Esto fuerza a Google Maps a buscar dentro del municipio correcto inmediatamente.
         const busquedaGoogle = ciudadContexto ? `${ciudadContexto}, ${dirLimpia}` : dirLimpia;
-
         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(busquedaGoogle)}`;
         window.open(url, '_blank');
     };
@@ -300,7 +315,6 @@ const Repartidor = ({ user, onLogout }) => {
                                                 </p>
                                             </div>
                                         )}
-                                        {/* 👇 APLICANDO LA INYECCIÓN MÁGICA CON EL ORDEN INVERTIDO EN LA FUNCIÓN */}
                                         <button onClick={() => abrirMapaOriginal(viaje.direccion_entrega, viaje.gps_ciudad_estado)} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-black text-xs rounded-xl transition border border-slate-700 flex items-center justify-center gap-2 uppercase tracking-wider active:scale-95">
                                             <MapPin size={14}/> Ver en Google Maps
                                         </button>
