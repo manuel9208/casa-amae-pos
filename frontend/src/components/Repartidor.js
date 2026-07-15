@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User } from 'lucide-react';
 import io from 'socket.io-client';
 
-const Repartidor = ({ user, onLogout }) => {
+const Repartidor = ({ user, configGlobal, onLogout }) => {
     const [pedidosPool, setPedidosPool] = useState([]);
     const [misViajes, setMisViajes] = useState([]);
     const [historial, setHistorial] = useState([]);
@@ -54,7 +54,7 @@ const Repartidor = ({ user, onLogout }) => {
 
     useEffect(() => {
         cargarDatosLogistica();
-        const intervalo = setInterval(cargarDatosLogistica, 10000); // Se relaja a 10s gracias a los sockets
+        const intervalo = setInterval(cargarDatosLogistica, 10000); 
         return () => clearInterval(intervalo);
     }, [cargarDatosLogistica]);
 
@@ -84,7 +84,6 @@ const Repartidor = ({ user, onLogout }) => {
     const finalizarEntrega = async (pedidoId) => {
         setIsSubmitting(true);
         try {
-            // 🛠️ FIX APLICADO: Se envía headers y un body por defecto para evitar el crasheo en backend
             const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -137,11 +136,29 @@ const Repartidor = ({ user, onLogout }) => {
         return tel;
     };
 
-    const abrirMapaOriginal = (direccionBruta, ciudadContexto) => {
+    // 👇 FIX GOOGLE MAPS: Orden y Concatenación perfecta
+    const abrirMapaOriginal = (direccionBruta, ciudadContextoViaje) => {
         const dirLimpia = getDireccionLimpia(direccionBruta);
         if (!dirLimpia || dirLimpia === 'Dirección no especificada') return;
         
-        const busquedaGoogle = ciudadContexto ? `${ciudadContexto}, ${dirLimpia}` : dirLimpia;
+        let contextoLocal = ciudadContextoViaje;
+        
+        // 1. Extraemos Municipio y Estado de tu Configuración
+        if (!contextoLocal && configGlobal) {
+            const mun = configGlobal.municipio || configGlobal.ciudad || '';
+            const est = configGlobal.estado || '';
+            
+            if (mun && est) contextoLocal = `${mun}, ${est}`;
+            else if (mun) contextoLocal = mun;
+        }
+        
+        // 2. Red de Seguridad
+        if (!contextoLocal || contextoLocal.trim() === '') {
+            contextoLocal = 'Navolato, Sinaloa'; 
+        }
+
+        // 3. El formato DEBE ser: "Calle y número, Ciudad, Estado" para que Google entienda.
+        const busquedaGoogle = `${dirLimpia}, ${contextoLocal}`.trim();
         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(busquedaGoogle)}`;
         window.open(url, '_blank');
     };

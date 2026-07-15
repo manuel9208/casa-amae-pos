@@ -210,6 +210,12 @@ router.get('/iclock/getrequest', biometricoCtrl.getComandos);
 // ==========================================
 // 🖨️ IMPRESIÓN TCP / RED (TICKETS)
 // ==========================================
-router.post('/imprimir', impresionCtrl.imprimirTicketIP);  
+router.post('/imprimir', impresionCtrl.imprimirTicketIP); 
+
+// 👇 NUEVO: RUTA PARA FORZAR LA ACTUALIZACIÓN MANUAL (Botón del Frontend)
+router.post('/configuracion/actualizar-sistema', configCtrl.forzarActualizacionGlobal);
+
+// 👇 NUEVO: RUTA PARA EL WEBHOOK AUTOMÁTICO DE VERCEL
+router.post('/webhook/vercel-deploy', configCtrl.webhookVercelDeploy);
 
 module.exports = router;

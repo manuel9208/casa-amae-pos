@@ -39,6 +39,12 @@ io.on('connection', (socket) => {
     console.log(`Driver #${repartidorId} suscrito al feed de operaciones.`);
   });
 
+  // 👇 NUEVO: Puente para control de multi-sesiones y pantallas
+  socket.on('solicitar_cierre_pantalla', (data) => {
+    io.emit('forzar_cierre_pantalla', data);
+    console.log(`🔄 Re-enrutando cierre de pantalla ${data.pantalla} para el usuario ID: ${data.usuarioId}`);
+  });
+
   socket.on('disconnect', () => {
     console.log(`❌ Conexión finalizada con el dispositivo: ${socket.id}`);
   });

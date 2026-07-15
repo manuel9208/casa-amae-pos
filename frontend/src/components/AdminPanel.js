@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import io from 'socket.io-client'; // 👈 NUEVO: Importamos Socket.io para el tiempo real
+import io from 'socket.io-client';
 import TopNavAdmin from './admin/TopNavAdmin';
 import AdminConfiguracion from './admin/AdminConfiguracion';
 import AdminUsuarios from './admin/AdminUsuarios';
@@ -90,7 +90,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
   useEffect(() => { cargarDatos(); }, [cargarDatos]);  
 
-  // 👇 NUEVO: EFECTO SOCKET.IO PARA ACTUALIZAR EN VIVO
   useEffect(() => {
     if (!baseUrl) return;
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
@@ -99,7 +98,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       cargarDatos();
     };
 
-    // Escuchamos cuando entra un pedido y resta stock, o cuando alguien edita un producto
     socket.on('nuevo_pedido', actualizarPantalla);
     socket.on('pedido_actualizado', actualizarPantalla);
     socket.on('pedido_eliminado', actualizarPantalla);
@@ -121,10 +119,30 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     return () => clearInterval(intervalo);
   }, [seccion, apiUrl, canViewInventario]);  
 
+  // 👇 NUEVO: FUNCIÓN PARA FORZAR ACTUALIZACIÓN
+  const lanzarActualizacionGlobal = () => {
+    showConfirm(
+      '¿Actualizar Dispositivos?',
+      'Esto forzará a que todos los dispositivos (Cajas, Cocinas, TV) recarguen la aplicación instantáneamente para obtener la última versión de Vercel.',
+      async () => {
+        try {
+          const res = await fetch(`${apiUrl}/configuracion/actualizar-sistema`, { method: 'POST' });
+          if (res.ok) {
+            showAlert('¡Enviado!', 'Orden de actualización enviada a todos los dispositivos.', 'success');
+          } else {
+            showAlert('Error', 'No se pudo enviar la orden de actualización.', 'error');
+          }
+        } catch (e) {
+          showAlert('Error de Red', 'Asegúrate de estar conectado.', 'error');
+        }
+      }
+    );
+  };
+
   const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };  
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden relative">
       <TopNavAdmin
         user={user}
         onLogout={onLogout}
@@ -207,6 +225,21 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           />
         )}
       </main>  
+
+      {/* 👇 NUEVO: BOTÓN FLOTANTE PARA ADMINISTRADORES */}
+      {isGlobalAdmin && (
+        <button
+          onClick={lanzarActualizacionGlobal}
+          className="fixed bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 flex items-center gap-2 group"
+          title="Forzar actualización en todos los dispositivos"
+        >
+          <span className="text-xl">🚀</span>
+          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-500 ease-in-out font-black text-sm pr-2">
+            Forzar Actualización
+          </span>
+        </button>
+      )}
+
       {modalUI.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center">
@@ -220,7 +253,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
               {modalUI.tipo === 'confirm' ? (
                 <>
                   <button onClick={closeModalUI} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition">Cancelar</button>
-                  <button onClick={() => { modalUI.onConfirm(); closeModalUI(); }} className="flex-1 py-3 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition shadow-lg shadow-red-500/30">Confirmar</button>
+                  <button onClick={() => { modalUI.onConfirm(); closeModalUI(); }} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/30">Confirmar</button>
                 </>
               ) : (
                 <button onClick={closeModalUI} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-lg shadow-blue-500/30">Entendido</button>

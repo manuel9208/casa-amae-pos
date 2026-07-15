@@ -365,3 +365,38 @@ exports.validarCupon = async (req, res) => {
     res.status(500).json({ error: 'Error al validar' }); 
   }
 };
+
+// ==========================================
+// FORZAR ACTUALIZACIÓN Y WEBHOOKS (AUTOMATIZACIÓN PWA)
+// ==========================================
+
+exports.forzarActualizacionGlobal = (req, res) => {
+  try {
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('forzar_actualizacion');
+      return res.json({ success: true, mensaje: 'Actualización forzada en todos los clientes conectados.' });
+    }
+    return res.status(500).json({ error: 'Socket.io no está inicializado en el servidor.' });
+  } catch (error) {
+    console.error("Error forzando actualización:", error);
+    return res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+};
+
+exports.webhookVercelDeploy = (req, res) => {
+  try {
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('forzar_actualizacion');
+      console.log("🚀 [WEBHOOK VERCEL] Despliegue detectado. Forzando actualización en todos los clientes.");
+      return res.status(200).json({ success: true, mensaje: 'Señal de actualización enviada a todos los dispositivos.' });
+    } else {
+      console.warn("⚠️ [WEBHOOK VERCEL] No se pudo emitir. Socket.io no está inicializado.");
+      return res.status(500).json({ error: 'Socket.io no está disponible en el servidor.' });
+    }
+  } catch (error) {
+    console.error("❌ Error en Webhook de Vercel:", error);
+    return res.status(500).json({ error: 'Error interno al procesar el webhook.' });
+  }
+};
