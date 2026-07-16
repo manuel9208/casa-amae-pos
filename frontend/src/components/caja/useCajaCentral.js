@@ -833,7 +833,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const pendientesDePago = pedidos.filter(p => {
     if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
     if (p.tipo_consumo === 'Domicilio' && ['Listo', 'En Camino', 'Entregado'].includes(p.estado_preparacion)) return false;
-    if (p.estado_preparacion === 'Pendiente') return false;
+    if (p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja') return false;
     const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
     if (!noPagado) return false;
     return true;
