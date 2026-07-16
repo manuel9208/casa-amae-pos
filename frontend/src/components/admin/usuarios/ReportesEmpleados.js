@@ -111,206 +111,210 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   // ======================================================================
   // 🧠 MOTOR INTELIGENTE DE PROCESAMIENTO MATRICIAL Y FUSIÓN DE CHECADAS
   // ======================================================================
-  const procesarDashboard = () => {
-    const fechasAAnalizar = getFechasPeriodo();
-    
+    const procesarDashboard = () => {
+    const fechasAAnalizar = getFechasPeriodo();  
+
     return empleadosVisibles.map(emp => {
-        const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-        const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-        const descansos = pres.dias_descanso || [];
+      const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+      const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+      const descansos = pres.dias_descanso || [];  
 
-        const oficiales = [];
-        const anomalas = [];
-        const limpiezas = [];
+      const oficiales = [];
+      const anomalas = [];
+      const limpiezas = [];  
 
-        fechasAAnalizar.forEach(fechaStr => {
-            const dateObj = new Date(fechaStr + 'T12:00:00');
-            const nombreDia = diasSemanaMap[dateObj.getDay()];
-            
-            const confDia = hor[fechaStr] || hor[nombreDia] || { activo: false };
-            const esDescanso = descansos.includes(nombreDia);
-            const esDiaLaboral = confDia.activo === true && !esDescanso;
+      fechasAAnalizar.forEach(fechaStr => {
+        const dateObj = new Date(fechaStr + 'T12:00:00');
+        const nombreDia = diasSemanaMap[dateObj.getDay()];  
+        const confDia = hor[fechaStr] || hor[nombreDia] || { activo: false };
+        const esDescanso = descansos.includes(nombreDia);
+        const esDiaLaboral = confDia.activo === true && !esDescanso;  
+        const auditoriaDia = hor[fechaStr]?.auditoria || {};  
 
-            const auditoriaDia = hor[fechaStr]?.auditoria || {};
+        const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));  
 
-            const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));
+        if (checkinsDelDia.length > 0) {
+          let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
+          let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
+          let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
 
-            if (checkinsDelDia.length > 0) {
-                let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
-                let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
-                let tieneNullSalida = !checkinsDelDia[0].hora_salida;
-
-                for (let i = 1; i < checkinsDelDia.length; i++) {
-                    const inD = new Date(checkinsDelDia[i].hora_entrada);
-                    if (inD < minEntrada) minEntrada = inD;
-
-                    if (checkinsDelDia[i].hora_salida) {
-                        const outD = new Date(checkinsDelDia[i].hora_salida);
-                        if (!maxSalida || outD > maxSalida) maxSalida = outD;
-                    } else {
-                        tieneNullSalida = true;
-                    }
-                }
-
-                let outTime;
-                let olvidoSalida = false;
-                let turnoActivo = false;
-                let limiteSalidaTime = null;
-
-                if (confDia.salida) {
-                    const [hOut, mOut] = confDia.salida.split(':').map(Number);
-                    const [hIn] = (confDia.entrada || '00:00').split(':').map(Number);
-                    let dateLimit = new Date(fechaStr + 'T00:00:00');
-                    dateLimit.setHours(hOut, mOut, 0, 0);
-
-                    if (hOut < hIn) {
-                        dateLimit.setDate(dateLimit.getDate() + 1);
-                    }
-                    
-                    dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
-                    limiteSalidaTime = dateLimit.getTime();
-                }
-
-                const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);
-
-                // 👇 FIX DEL CONTADOR INFINITO (>24h)
-                if (tieneNullSalida) {
-                    if (fechaStr === hoyStr) {
-                        outTime = new Date().getTime();
-                        turnoActivo = true;
-                    } else {
-                        olvidoSalida = true;
-                        outTime = limiteSalidaTime || maxOchoHoras; 
-                    }
-                } else {
-                    outTime = maxSalida.getTime();
-                    // Si la diferencia entre entrada y salida reportada es más de 24 horas, es un olvido cruzado
-                    if ((outTime - minEntrada.getTime()) > (24 * 3600000)) {
-                        olvidoSalida = true;
-                        outTime = limiteSalidaTime || maxOchoHoras;
-                    } else if (limiteSalidaTime && outTime > (limiteSalidaTime + (4 * 3600000))) {
-                        // Si checó salida muchísimo tiempo después del límite, lo consideramos olvido/anomalía
-                        olvidoSalida = true;
-                        outTime = limiteSalidaTime;
-                    }
-                }
-
-                let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
-                if (diffHrs < 0) diffHrs = 0;
-
-                const strEntrada = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
-                const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(outTime).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));
-
-                let esRetardo = false;
-                let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;
-
-                if (confDia.entrada) {
-                    [hOfIn, mOfIn] = confDia.entrada.split(':').map(Number);
-                    const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-                    [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
-                    
-                    const minOficiales = (hOfIn * 60) + mOfIn;
-                    const minReales = (hReal * 60) + mReal;
-
-                    if (minReales > (minOficiales + minutosTolerancia)) {
-                        esRetardo = true;
-                    }
-                }
-
-                const record = {
-                    fecha: fechaStr,
-                    dia: nombreDia,
-                    entrada: strEntrada,
-                    salida: strSalida,
-                    horas: diffHrs.toFixed(2),
-                    turnoActivo,
-                    olvidoSalida,
-                    esRetardo,
-                    oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
-                };
-
-                // 👇 NUEVA LÓGICA: FUSIÓN DE ANOMALÍAS E INDEPENDENCIA DE TABLAS
-                let motivosAnomalia = [];
-                let requiereAuditoria = false;
-
-                if (olvidoSalida) {
-                    motivosAnomalia.push(`Olvidó checar salida (Topado a ${confDia.salida ? confDia.salida + ' + Tol.' : '8h'})`);
-                }
-
-                if (!esDiaLaboral) {
-                    // Checó en día inactivo o descanso
-                    requiereAuditoria = true;
-                    motivosAnomalia.push(esDescanso ? 'Trabajó en su Día de Descanso.' : 'Trabajó en un Día Inactivo.');
-                } else {
-                    // Es día oficial y SÍ asistió -> Va a la Tabla de Arriba indiscutiblemente
-                    oficiales.push(record);
-
-                    // Verificamos si tiene errores de horario (Anomalías de día laboral)
-                    if (confDia.entrada) {
-                        if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
-                            requiereAuditoria = true;
-                            motivosAnomalia.push(`Fuera de rango del turno (${confDia.entrada})`);
-                        } else if (confDia.salida) {
-                            const [hSalOf, mSalOf] = confDia.salida.split(':').map(Number);
-                            let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
-                            if (minsOficiales < 0) minsOficiales += 24 * 60;
-                            
-                            const minsTrabajados = diffHrs * 60;
-
-                            if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
-                                requiereAuditoria = true;
-                                const hrsFaltantes = ((minsOficiales - minsTrabajados) / 60).toFixed(2);
-                                motivosAnomalia.push(`Jornada Incompleta (Faltaron ${hrsFaltantes}h)`);
-                            }
-                            if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
-                                requiereAuditoria = true;
-                                const hrsExtra = ((minsTrabajados - minsOficiales) / 60).toFixed(2);
-                                motivosAnomalia.push(`Tiempo Extra (+${hrsExtra}h)`);
-                            }
-                        }
-                    }
-                }
-
-                // Si se juntó al menos un motivo o hubo olvido, empujamos UNA SOLA FILA a la auditoría
-                if (olvidoSalida || requiereAuditoria) {
-                    anomalas.push({
-                        ...record,
-                        tipo: 'auditoria_turno', // Clave única agrupada
-                        motivo: motivosAnomalia.join(' | '),
-                        estadoAuditoria: auditoriaDia['auditoria_turno']
-                    });
-                }
-
+          for (let i = 1; i < checkinsDelDia.length; i++) {
+            const inD = new Date(checkinsDelDia[i].hora_entrada);
+            if (inD < minEntrada) minEntrada = inD;  
+            if (checkinsDelDia[i].hora_salida) {
+              const outD = new Date(checkinsDelDia[i].hora_salida);
+              if (!maxSalida || outD > maxSalida) maxSalida = outD;
             } else {
-                // 👇 LÓGICA DE FALTAS: Si es día laboral oficial, la fecha es estrictamente anterior a hoy, y NO hay checada
-                const isPast = fechaStr < hoyStr;
-                if (esDiaLaboral && isPast) {
-                    const record = {
-                        fecha: fechaStr, dia: nombreDia, entrada: '--:--', salida: '--:--', horas: '0.00',
-                        turnoActivo: false, olvidoSalida: false, esRetardo: false,
-                        oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
-                    };
-                    // Solo lo empuja a la tabla de anomalías (Tabla de Abajo) como Falta
-                    anomalas.push({
-                        ...record,
-                        tipo: 'falta',
-                        motivo: `Falta Injustificada. No se registraron checadas en su turno oficial.`,
-                        estadoAuditoria: auditoriaDia['falta']
-                    });
-                }
+              tieneNullSalida = true;
             }
+          }  
 
-            // PROCESAR AUDITORÍA DE LIMPIEZA CONGELADA (Candados)
-            const evals = matrizLimpiezaGlobal.evaluaciones || {};
-            const asigs = matrizLimpiezaGlobal.asignaciones || {};
-            Object.keys(evals).forEach(area => {
-                if (String(asigs[area]?.[fechaStr]) === String(emp.id)) {
-                    limpiezas.push({ fecha: fechaStr, dia: nombreDia, area: area, status: evals[area][fechaStr] });
-                }
+          let outTime;
+          let olvidoSalida = false;
+          let turnoActivo = false;
+          let limiteSalidaTime = null;  
+
+          if (confDia.salida) {
+            const [hOut, mOut] = confDia.salida.split(':').map(Number);
+            const [hIn] = (confDia.entrada || '00:00').split(':').map(Number);
+            let dateLimit = new Date(fechaStr + 'T00:00:00');
+            dateLimit.setHours(hOut, mOut, 0, 0);  
+            if (hOut < hIn) {
+              dateLimit.setDate(dateLimit.getDate() + 1);
+            }  
+            dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
+            limiteSalidaTime = dateLimit.getTime();
+          }  
+
+          const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);  
+
+          if (tieneNullSalida) {
+            if (fechaStr === hoyStr) {
+              outTime = new Date().getTime();
+              turnoActivo = true;
+            } else {
+              olvidoSalida = true;
+              outTime = limiteSalidaTime || maxOchoHoras;
+            }
+          } else {
+            outTime = maxSalida.getTime();
+            if ((outTime - minEntrada.getTime()) > (24 * 3600000)) {
+              olvidoSalida = true;
+              outTime = limiteSalidaTime || maxOchoHoras;
+            } else if (limiteSalidaTime && outTime > (limiteSalidaTime + (4 * 3600000))) {
+              olvidoSalida = true;
+              outTime = limiteSalidaTime;
+            }
+          }  
+
+          let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
+          if (diffHrs < 0) diffHrs = 0;  
+
+          const strEntrada = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true });
+          const strSalida = turnoActivo ? 'En Turno' : (olvidoSalida ? 'Olvidó Checar' : new Date(outTime).toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour:'2-digit', minute:'2-digit', hour12: true }));  
+
+          let esRetardo = false;
+          let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;  
+
+          if (confDia.entrada) {
+            [hOfIn, mOfIn] = confDia.entrada.split(':').map(Number);
+            const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+            [hReal, mReal] = stringHoraCompleta.split(':').map(Number);  
+            const minOficiales = (hOfIn * 60) + mOfIn;
+            const minReales = (hReal * 60) + mReal;  
+            if (minReales > (minOficiales + minutosTolerancia)) {
+              esRetardo = true;
+            }
+          }  
+
+          const record = {
+            fecha: fechaStr,
+            dia: nombreDia,
+            entrada: strEntrada,
+            salida: strSalida,
+            horas: diffHrs.toFixed(2),
+            turnoActivo,
+            olvidoSalida,
+            esRetardo,
+            oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
+          };  
+
+          let motivosAnomalia = [];
+          let requiereAuditoria = false;  
+
+          if (esRetardo) {
+            motivosAnomalia.push(`Llegada Tarde (Entrada Oficial: ${confDia.entrada})`);
+            requiereAuditoria = true;
+          }
+          if (olvidoSalida) {
+            motivosAnomalia.push(`Olvidó Marcar Salida`);
+            requiereAuditoria = true;
+          }  
+          
+          let hrsOficiales = 8;
+          if (confDia.entrada && confDia.salida) {
+            const [hE, mE] = confDia.entrada.split(':').map(Number);
+            const [hS, mS] = confDia.salida.split(':').map(Number);
+            let minutosTurno = (hS * 60 + mS) - (hE * 60 + mE);
+            if (minutosTurno < 0) minutosTurno += 24 * 60;
+            if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;
+          }  
+
+          if (!olvidoSalida && diffHrs > hrsOficiales + 0.5) {
+            motivosAnomalia.push(`Exceso de Horas (+${(diffHrs - hrsOficiales).toFixed(1)}h extra)`);
+            requiereAuditoria = true;
+          }
+          if (!olvidoSalida && diffHrs < hrsOficiales - 0.5) {
+            motivosAnomalia.push(`Jornada Incompleta (-${(hrsOficiales - diffHrs).toFixed(1)}h faltantes)`);
+            requiereAuditoria = true;
+          }  
+
+          if (turnoActivo) {
+            oficiales.push(record);
+          } else if (!requiereAuditoria) {
+            let estadoAudParsed = { estado: 'aprobado' };
+            if (auditoriaDia['auditoria_turno']) {
+              try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
+            }
+            if (estadoAudParsed.estado === 'rechazado' || estadoAudParsed.horasAprobadas !== undefined) {
+              anomalas.push({
+                ...record,
+                tipo: 'auditoria_turno',
+                motivo: 'Ajuste Manual Aplicado por Administrador',
+                estadoAuditoria: auditoriaDia['auditoria_turno']
+              });
+            } else {
+              oficiales.push(record);
+            }
+          }  
+
+          if (olvidoSalida || requiereAuditoria) {
+            anomalas.push({
+              ...record,
+              tipo: 'auditoria_turno',
+              motivo: motivosAnomalia.join(' | '),
+              estadoAuditoria: auditoriaDia['auditoria_turno']
             });
-        });
+          }  
 
-        return { emp, oficiales, anomalas, limpiezas };
+        } else {
+          const isPast = fechaStr < hoyStr;
+          if (esDiaLaboral && isPast) {
+            const record = {
+              fecha: fechaStr, dia: nombreDia, entrada: '--:--', salida: '--:--', horas: '0.00',
+              turnoActivo: false, olvidoSalida: false, esRetardo: false,
+              oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
+            };
+            anomalas.push({
+              ...record,
+              tipo: 'falta',
+              motivo: `Falta Injustificada. No se registraron checadas en su turno oficial.`,
+              estadoAuditoria: auditoriaDia['falta']
+            });
+          }
+        }  
+
+        // ✅ LOGICA DE LIMPIEZA REPARADA
+        const evals = matrizLimpiezaGlobal.evaluaciones || {};
+        const asigs = matrizLimpiezaGlobal.asignaciones || {};
+
+        Object.keys(asigs).forEach(area_turno => {
+          const asignadosEnFecha = asigs[area_turno]?.[fechaStr] || [];
+          const asignadosStr = asignadosEnFecha.map(String);
+          
+          if (asignadosStr.includes(String(emp.id))) {
+            const val = evals[area_turno]?.[fechaStr];
+            const status = typeof val === 'string' ? val : val?.[emp.id];
+            
+            if (status) {
+              const nombreArea = area_turno.split('_')[0];
+              limpiezas.push({ fecha: fechaStr, dia: nombreDia, area: nombreArea, status: status });
+            }
+          }
+        });
+      });  
+
+      return { emp, oficiales, anomalas, limpiezas };
     }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.limpiezas.length > 0);
   };
 

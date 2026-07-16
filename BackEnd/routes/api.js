@@ -51,6 +51,7 @@ const upload = multer({ storage: storage });
 router.get('/configuracion', configCtrl.obtenerConfiguracion);
 router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
 router.post('/configuracion/evidencia', upload.any(), configCtrl.subirEvidenciaLimpieza);  
+router.post('/configuracion/eliminar-archivos', configCtrl.eliminarArchivosCloudinary);
 
 // ==========================================
 // CUPONES DE DESCUENTO

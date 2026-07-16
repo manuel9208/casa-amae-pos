@@ -86,11 +86,10 @@ exports.actualizarConfiguracion = async (req, res) => {
   try {
     const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
     if (resActual.rows.length > 0) configActual = resActual.rows[0];
-  } catch (e) {}
+  } catch (e) {} 
 
   const mergedBody = { ...configActual, ...req.body };
 
-  // 👇 Añadimos las variables de GPS/Logística al destructuring
   const {
     nombre_negocio, whatsapp, banco, cuenta, titular,
     color_primario, color_secundario, color_fondo,
@@ -106,12 +105,13 @@ exports.actualizarConfiguracion = async (req, res) => {
     wa_api_activa, wa_api_token, wa_phone_id,
     puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
     bloqueo_caja_activo, bloqueo_caja_segundos,
-    comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
+    comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, 
+    matriz_limpieza, matriz_observaciones,
     cocina_en_caja_activa, horarios_semana,
     asistencia_pin_caja, asistencia_login, asistencia_huella,
     politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
     gps_ciudad_estado, gps_direccion_local, gps_api_key
-  } = mergedBody;
+  } = mergedBody; 
 
   let logo_url = configActual.logo_url || null;
   let tv_imagen_1 = configActual.tv_imagen_1 || null;
@@ -148,15 +148,16 @@ exports.actualizarConfiguracion = async (req, res) => {
   const valorPesoSeguro = puntos_valor_peso !== undefined ? Number(puntos_valor_peso) : 1.00;
   const limiteVacSeguro = limite_vacaciones_simultaneas !== undefined ? Number(limite_vacaciones_simultaneas) : 2;
 
-  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', horariosParsed = '{}', politicasParsed = '{}', calendarioParsed = '{}';
+  let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', matrizObsParsed = '{}', horariosParsed = '{}', politicasParsed = '{}', calendarioParsed = '{}';
   
   try { tarifasParsed = (tarifas_envio && typeof tarifas_envio !== 'string') ? JSON.stringify(tarifas_envio) : (tarifas_envio || '[]'); } catch (e) {}
   try { bebidasParsed = (comedor_clasif_bebidas && typeof comedor_clasif_bebidas !== 'string') ? JSON.stringify(comedor_clasif_bebidas) : (comedor_clasif_bebidas || '[]'); } catch (e) {}
   try { platillosParsed = (comedor_clasif_platillos && typeof comedor_clasif_platillos !== 'string') ? JSON.stringify(comedor_clasif_platillos) : (comedor_clasif_platillos || '[]'); } catch (e) {}
   try { matrizParsed = (matriz_limpieza && typeof matriz_limpieza !== 'string') ? JSON.stringify(matriz_limpieza) : (matriz_limpieza || '{}'); } catch (e) {}
+  try { matrizObsParsed = (matriz_observaciones && typeof matriz_observaciones !== 'string') ? JSON.stringify(matriz_observaciones) : (matriz_observaciones || '{}'); } catch (e) {}
   try { horariosParsed = (horarios_semana && typeof horarios_semana !== 'string') ? JSON.stringify(horarios_semana) : (horarios_semana || '{}'); } catch (e) {}
   try { politicasParsed = (politicas_sustitucion && typeof politicas_sustitucion !== 'string') ? JSON.stringify(politicas_sustitucion) : (politicas_sustitucion || '{}'); } catch (e) {}
-
+  
   try {
     if (calendario_anual) {
       if (typeof calendario_anual === 'object') {
@@ -170,7 +171,6 @@ exports.actualizarConfiguracion = async (req, res) => {
   } catch (e) {}
 
   try {
-    // 👇 Inyectamos los 3 nuevos campos al final del QUERY
     await db.query(`
       INSERT INTO configuracion (
         id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
@@ -183,21 +183,39 @@ exports.actualizarConfiguracion = async (req, res) => {
         mensaje_envio, tarifas_envio,
         wa_api_activa, wa_api_token, wa_phone_id,
         puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
-        bloqueo_caja_activo, bloqueo_caja_segundos, comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
+        bloqueo_caja_activo, bloqueo_caja_segundos,
+        comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
         cocina_en_caja_activa, horarios_semana,
         asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion,
-        calendario_anual, limite_vacaciones_simultaneas, ticket_impresora_ip, ticket_impresora_puerto,
-        gps_ciudad_estado, gps_direccion_local, gps_api_key
+        calendario_anual, limite_vacaciones_simultaneas,
+        ticket_impresora_ip, ticket_impresora_puerto,
+        gps_ciudad_estado, gps_direccion_local, gps_api_key,
+        matriz_observaciones
       ) VALUES (
-        1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60
-      )
-      ON CONFLICT (id) DO UPDATE SET
+        1, $1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10,
+        $11, $12, $13, $14,
+        $15, $16, $17, $18, $19,
+        $20, $21, $22, $23, $24, $25,
+        $26, $27,
+        $28, $29, $30, $31, $32,
+        $33, $34,
+        $35, $36, $37,
+        $38, $39, $40, $41,
+        $42, $43, $44, $45, $46, $47,
+        $48, $49,
+        $50, $51, $52, $53,
+        $54, $55,
+        $56, $57,
+        $58, $59, $60,
+        $61
+      ) ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
         banco = EXCLUDED.banco,
         cuenta = EXCLUDED.cuenta,
         titular = EXCLUDED.titular,
-        logo_url = EXCLUDED.logo_url,
+        logo_url = COALESCE(EXCLUDED.logo_url, configuracion.logo_url),
         color_primario = EXCLUDED.color_primario,
         color_secundario = EXCLUDED.color_secundario,
         color_fondo = EXCLUDED.color_fondo,
@@ -213,10 +231,10 @@ exports.actualizarConfiguracion = async (req, res) => {
         tv_msg_listo = EXCLUDED.tv_msg_listo,
         tv_carrusel_activo = EXCLUDED.tv_carrusel_activo,
         tv_carrusel_segundos = EXCLUDED.tv_carrusel_segundos,
-        tv_imagen_1 = EXCLUDED.tv_imagen_1,
-        tv_imagen_2 = EXCLUDED.tv_imagen_2,
-        tv_imagen_3 = EXCLUDED.tv_imagen_3,
-        tv_video = EXCLUDED.tv_video,
+        tv_imagen_1 = COALESCE(EXCLUDED.tv_imagen_1, configuracion.tv_imagen_1),
+        tv_imagen_2 = COALESCE(EXCLUDED.tv_imagen_2, configuracion.tv_imagen_2),
+        tv_imagen_3 = COALESCE(EXCLUDED.tv_imagen_3, configuracion.tv_imagen_3),
+        tv_video = COALESCE(EXCLUDED.tv_video, configuracion.tv_video),
         negocio_abierto = EXCLUDED.negocio_abierto,
         mensaje_cierre = EXCLUDED.mensaje_cierre,
         ticket_impresion_activa = EXCLUDED.ticket_impresion_activa,
@@ -224,8 +242,6 @@ exports.actualizarConfiguracion = async (req, res) => {
         ticket_domicilio = EXCLUDED.ticket_domicilio,
         ticket_mensaje_final = EXCLUDED.ticket_mensaje_final,
         ticket_firma_sistema = EXCLUDED.ticket_firma_sistema,
-        ticket_impresora_ip = EXCLUDED.ticket_impresora_ip,
-        ticket_impresora_puerto = EXCLUDED.ticket_impresora_puerto,
         mensaje_envio = EXCLUDED.mensaje_envio,
         tarifas_envio = EXCLUDED.tarifas_envio::jsonb,
         wa_api_activa = EXCLUDED.wa_api_activa,
@@ -249,9 +265,12 @@ exports.actualizarConfiguracion = async (req, res) => {
         politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb,
         calendario_anual = EXCLUDED.calendario_anual::jsonb,
         limite_vacaciones_simultaneas = EXCLUDED.limite_vacaciones_simultaneas,
+        ticket_impresora_ip = EXCLUDED.ticket_impresora_ip,
+        ticket_impresora_puerto = EXCLUDED.ticket_impresora_puerto,
         gps_ciudad_estado = EXCLUDED.gps_ciudad_estado,
         gps_direccion_local = EXCLUDED.gps_direccion_local,
-        gps_api_key = EXCLUDED.gps_api_key
+        gps_api_key = EXCLUDED.gps_api_key,
+        matriz_observaciones = EXCLUDED.matriz_observaciones::jsonb
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -268,7 +287,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed,
       calendarioParsed, limiteVacSeguro,
       ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100',
-      gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || ''
+      gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
+      matrizObsParsed
     ]);
 
     // Emitimos el socket para que las apps frontales se enteren del cambio manual
@@ -398,5 +418,32 @@ exports.webhookVercelDeploy = (req, res) => {
   } catch (error) {
     console.error("❌ Error en Webhook de Vercel:", error);
     return res.status(500).json({ error: 'Error interno al procesar el webhook.' });
+  }
+};
+
+exports.eliminarArchivosCloudinary = async (req, res) => {
+  const { urls } = req.body;
+  if (!urls || !Array.isArray(urls)) {
+    return res.status(400).json({ error: 'Se requiere un array de URLs' });
+  }
+
+  try {
+    const cloudinary = require('cloudinary').v2;
+    const promises = urls.map(url => {
+      // Extraemos el public_id de la URL. 
+      // Ej: https://res.cloudinary.com/tu-cloud/image/upload/v123456/pos_uploads/archivo.jpg
+      const parts = url.split('/');
+      const filename = parts.pop().split('.')[0]; 
+      const folder = parts.pop();
+      const public_id = `${folder}/${filename}`;
+      
+      return cloudinary.uploader.destroy(public_id);
+    });
+
+    await Promise.all(promises);
+    res.json({ success: true, message: 'Archivos eliminados permanentemente de Cloudinary.' });
+  } catch (error) {
+    console.error('Error al eliminar en Cloudinary:', error);
+    res.status(500).json({ error: 'Error al limpiar los archivos de la nube.' });
   }
 };

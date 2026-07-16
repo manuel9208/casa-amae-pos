@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote } from 'lucide-react';
+import { Save, User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote, ClipboardCheck } from 'lucide-react';
 
 const diasSemanaMap = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -24,6 +24,8 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
     bono_puntualidad_eventos_activo: false, bono_puntualidad_eventos_monto: 0, puntualidad_eventos_tolerancia_minutos: 15, puntualidad_eventos_retardos_permitidos: 0,
     bono_puntualidad_estricta_activo: false, bono_puntualidad_estricta_monto: 0, puntualidad_estricta_limite_minutos_semana: 15,
+    // 👇 NUEVO: ESTADOS PARA BONO OBSERVACIONES
+    bono_observaciones_activo: false, bono_observaciones_monto: 0, bono_observaciones_tolerancia: 0,
     descuento_descanso_activo: true, 
     prima_dominical_activa: true,
     retencion_isr_activa: false, porcentaje_isr: 0,
@@ -298,6 +300,35 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
           </div>
 
           <div className="border-t border-slate-200 my-6"></div>
+
+          {/* 👇 NUEVA LEY: BONO DE OBSERVACIONES GENERALES */}
+          <div className={`p-5 rounded-2xl border-2 transition-all mb-6 ${reglasNomina.bono_observaciones_activo ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h4 className="font-black text-slate-800 flex items-center gap-2"><ClipboardCheck className="text-indigo-500" size={18}/> Bono por Observaciones (Comportamiento)</h4>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Recompensa el cumplimiento de reglas (Uniforme, celular, actitud).</p>
+              </div>
+              <button type="button" onClick={() => setReglasNomina({...reglasNomina, bono_observaciones_activo: !reglasNomina.bono_observaciones_activo})} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition shrink-0 ${reglasNomina.bono_observaciones_activo ? 'bg-indigo-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>
+                {reglasNomina.bono_observaciones_activo ? 'Activado' : 'Apagado'}
+              </button>
+            </div>
+            
+            {reglasNomina.bono_observaciones_activo && (
+              <div className="grid grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
+                <div>
+                  <label className="text-[10px] font-black text-indigo-800 uppercase tracking-widest block mb-2">Monto del Bono ($)</label>
+                  <input type="number" min="0" value={reglasNomina.bono_observaciones_monto || ''} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_monto: Number(e.target.value)})} placeholder="Ej. 100" className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center shadow-sm" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-indigo-800 uppercase tracking-widest block mb-2">Tolerancia (Fallas perdonadas)</label>
+                  <input type="number" min="0" value={reglasNomina.bono_observaciones_tolerancia || 0} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_tolerancia: Number(e.target.value)})} className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center shadow-sm" />
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-indigo-600 font-bold">Si el empleado acumula más de <b>{reglasNomina.bono_observaciones_tolerancia || 0}</b> observaciones negativas (NO), perderá este bono automáticamente.</p>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* BONO 1: LIMPIEZA */}
           <div className={`p-5 rounded-2xl border-2 transition-all ${reglasNomina.bono_limpieza_activo ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>

@@ -244,12 +244,11 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     return fechas;
   };
 
-  const realizarCorteNómina = async () => {
+    const realizarCorteNómina = async () => {
     if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango de fechas para el corte.", "info");
-    if (fechaDesde > fechaHasta) return showAlert("Aviso", "La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'.", "warning");
-
-    const fechasRango = obtenerRangoFechas(fechaDesde, fechaHasta);
-
+    if (fechaDesde > fechaHasta) return showAlert("Aviso", "La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'.", "warning");  
+    
+    const fechasRango = obtenerRangoFechas(fechaDesde, fechaHasta);  
     showConfirm(
       "Corte Parcial",
       `Se procesará el corte desde el ${fechaDesde} hasta el ${fechaHasta}. Los días laborados se marcarán como PAGADOS y se bloquearán para que ya no puedan ser modificados ni vueltos a pagar.`,
@@ -259,31 +258,47 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           const resConfig = await fetch(`${apiUrl}/configuracion`);
           const dataConfig = await resConfig.json();
           const matriz = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
-          const evaluaciones = matriz.evaluaciones || {};
+          
+          const evaluaciones = matriz.evaluaciones || {};  
+          const asigs = matriz.asignaciones || {};
 
           const datosCorte = empleadosVisibles.map(emp => {
             const h = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-            const diasNuevosPagados = fechasRango.filter(fechaStr => h[fechaStr]?.activo && !h[fechaStr]?.pagado).length;
-
-            let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};
-
-            Object.keys(evaluaciones).forEach(area => {
-              Object.keys(evaluaciones[area]).forEach(diaStr => {
-                if (diaStr >= fechaDesde && diaStr <= fechaHasta && String(matriz.asignaciones?.[area]?.[diaStr]) === String(emp.id)) {
-                  const status = evaluaciones[area][diaStr];
-                  if (status === 'cumplio') limpiezasCumplidas++;
-                  if (status === 'no_cumplio') limpiezasIncumplidas++;
-                  if (!limpiezaDetalle[diaStr]) limpiezaDetalle[diaStr] = [];
-                  limpiezaDetalle[diaStr].push({ area, status });
+            const diasNuevosPagados = fechasRango.filter(fechaStr => h[fechaStr]?.activo && !h[fechaStr]?.pagado).length;  
+            
+            let limpiezasCumplidas = 0, limpiezasIncumplidas = 0, limpiezaDetalle = {};  
+            
+            // ✅ VALIDACIÓN INDIVIDUAL REPARADA AL CERRAR NÓMINA
+            Object.keys(asigs).forEach(area_turno => {
+              Object.keys(asigs[area_turno]).forEach(diaStr => {
+                if (diaStr >= fechaDesde && diaStr <= fechaHasta) {
+                  const asignadosEnFecha = asigs[area_turno][diaStr] || [];
+                  if (asignadosEnFecha.map(String).includes(String(emp.id))) {
+                    const val = evaluaciones[area_turno]?.[diaStr];
+                    const status = typeof val === 'string' ? val : val?.[emp.id];
+                    
+                    if (status) {
+                      if (status === 'cumplio') limpiezasCumplidas++;
+                      if (status === 'no_cumplio') limpiezasIncumplidas++;
+                      if (!limpiezaDetalle[diaStr]) limpiezaDetalle[diaStr] = [];
+                      
+                      const nombreArea = area_turno.split('_')[0];
+                      limpiezaDetalle[diaStr].push({ area: nombreArea, status });
+                    }
+                  }
                 }
               });
-            });
+            });  
 
             return {
-              id: emp.id, nombre: emp.nombre, rol: emp.rol, dias_trabajados: diasNuevosPagados, horario: h,
+              id: emp.id, 
+              nombre: emp.nombre, 
+              rol: emp.rol, 
+              dias_trabajados: diasNuevosPagados, 
+              horario: h,
               limpieza: { cumplidas: limpiezasCumplidas, incumplidas: limpiezasIncumplidas, detalle: limpiezaDetalle }
             };
-          });
+          });  
 
           await Promise.all(datosCorte.map(async (data) => {
             if (data.dias_trabajados > 0) {
@@ -294,11 +309,12 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                 }
               });
               await fetch(`${apiUrl}/usuarios/${data.id}/horario`, {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                method: 'PUT', 
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ horario_semanal: nuevosHorarios })
               });
             }
-          }));
+          }));  
 
           showAlert("¡Éxito!", `Se han procesado y bloqueado las horas del rango seleccionado.`, "success");
           refrescarDatos();

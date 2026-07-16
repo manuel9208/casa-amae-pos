@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Sun, Cake } from 'lucide-react';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
-const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
 
 const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const hoyStr = new Date().toISOString().split('T')[0];
@@ -32,390 +32,321 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     });
   }, [apiUrl]);
 
-  const calcularNomina = async () => {
+      const calcularNomina = async () => {
+    if (!fechaInicio || !fechaFin) return showAlert("Aviso", "Selecciona fecha de Inicio y Fin.", "info");
+    if (fechaInicio > fechaFin) return showAlert("Aviso", "Rango de fechas inválido.", "error");
+
     setIsSubmitting(true);
     try {
-      const query = `?periodo=mes&fecha=${fechaInicio.substring(0,7)}-01`;
-      const resRend = await fetch(`${apiUrl}/usuarios/rendimiento${query}`);
-      const dataRend = await resRend.json();
-      const historial = dataRend.historialAsistencias || [];
+      const resHist = await fetch(`${apiUrl}/usuarios/historial?fechaDesde=${fechaInicio}&fechaHasta=${fechaFin}`);
+      const historial = resHist.ok ? await resHist.json() : [];
 
-      const matriz = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
-      const evaluacionesLimpieza = matriz.evaluaciones || {};
-      const calculos = [];
-
-      const toleranciaSalida = 30; 
-      const minTolEntrada = Number(reglasNomina.puntualidad_eventos_tolerancia_minutos) || 15;
+      const reglasNomina = configGlobal.reglas_nomina || {};
+      const matrizLimpieza = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
+      const evaluacionesLimpieza = matrizLimpieza.evaluaciones || {};
       
+      // 👇 LEEMOS LA NUEVA MATRIZ DE OBSERVACIONES
+      const matrizObservaciones = typeof configGlobal.matriz_observaciones === 'string' ? JSON.parse(configGlobal.matriz_observaciones || '{}') : (configGlobal.matriz_observaciones || {});
+      const evaluacionesObservaciones = matrizObservaciones.evaluaciones || {};
+
+      const resultados = [];
+      const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const hoyStr = new Date().toISOString().split('T')[0];
+
       const gApertura = String(configGlobal.hora_apertura || 17).padStart(2, '0') + ':00';
-      const gCierre = String(configGlobal.hora_cierre || 23).padStart(2, '0') + ':00';
+      const gCierre = String(configGlobal.hora_cierre || 23).padStart(2, '0') + ':00';  
 
       for (const emp of empleadosVisibles) {
         const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-        if (pres.generar_nomina === false) continue; 
+        if (pres.generar_nomina === false) continue;  
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-        const arrDescansos = pres.dias_descanso || [];
-        
+        const arrDescansos = pres.dias_descanso || [];  
+
         let diasAsistidos = 0;
         let diasProgramados = 0;
         let diasVacaciones = 0;
         let diasDescanso = 0;
         let domingosTrabajados = 0;
-        let horasTrabajadasTotales = 0; 
+        let horasTrabajadasTotales = 0;
         const diasAuditados = [];
-        const alertasEmpleado = [];
+        const alertasEmpleado = [];  
 
         let fallasLimpieza = 0;
-        let eventosTarde = 0; 
-        let minutesTardeTotales = 0; 
-        let diasFaltaInjustificada = 0;
+        let fallasObservaciones = 0; // 👇 NUEVO CONTADOR DE OBSERVACIONES
+        let eventosTarde = 0;
+        let minutesTardeTotales = 0;
+        let diasFaltaInjustificada = 0;  
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
-        const endDate = new Date(fechaFin + 'T12:00:00');
+        const endDate = new Date(fechaFin + 'T12:00:00');  
 
         if (pres.fecha_ingreso) {
-           const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
-           if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
-               // 👇 CORRECCIÓN 1: Se reemplazó dateStr indefinido por la lectura directa de currentDate
-               alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, fecha: currentDate.toISOString().split('T')[0], msg: `🎉 Aniversario de trabajo detectado (Ingresó en ${fIng.getFullYear()}). Recuerda revisar sus vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
-           }
-        }
+          const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
+          if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
+            alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, fecha: currentDate.toISOString().split('T')[0], msg: `🎉 Aniversario de trabajo detectado (Ingresó en ${fIng.getFullYear()}). Recuerda revisar sus vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
+          }
+        }  
 
         while (currentDate <= endDate) {
           const dateStr = currentDate.toISOString().split('T')[0];
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
-          const esDomingo = currentDate.getDay() === 0;
+          const esDomingo = currentDate.getDay() === 0;  
 
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
-             const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
-             if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
-                 alertasEmpleado.push({ tipo: 'cumpleaños', idUnico: `cumple-${dateStr}`, fecha: dateStr, msg: `🎂 ¡Cumpleaños detectado! ¿Deseas agregarle un bono festivo?`, resuelta: false, estadoAuditoria: 'aprobado' });
-             }
-          }
+            const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
+            if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
+              alertasEmpleado.push({ tipo: 'cumpleaños', idUnico: `cumple-${dateStr}`, fecha: dateStr, msg: `🎂 ¡Cumpleaños detectado! ¿Deseas agregarle un bono festivo?`, resuelta: false, estadoAuditoria: 'aprobado' });
+            }
+          }  
 
-          if (hor[dateStr]?.nomina_pagada === true) { 
-            currentDate.setDate(currentDate.getDate() + 1); 
-            continue; 
-          }
+          if (hor[dateStr]?.nomina_pagada === true) {
+            currentDate.setDate(currentDate.getDate() + 1);
+            continue;
+          }  
 
           const diaActivo = hor[dateStr]?.activo === true;
           const esDescanso = arrDescansos.includes(nombreDiaActual);
           const esDiaLaboral = diaActivo && !esDescanso;
-          const auditoriaDia = hor[dateStr]?.auditoria || {}; 
-          const checkinsDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));
+          const auditoriaDia = hor[dateStr]?.auditoria || {};
+          const checkinsDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));  
 
-          if (esDiaLaboral && !hor[dateStr]?.vacaciones) {
-              diasProgramados++;
-          }
+          if (esDiaLaboral && !hor[dateStr]?.vacaciones) { diasProgramados++; }  
 
           if (hor[dateStr]?.vacaciones === true) {
-              if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); horasTrabajadasTotales += 8; }
-              currentDate.setDate(currentDate.getDate() + 1); 
-              continue;
-          }
+            if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); horasTrabajadasTotales += 8; }
+            currentDate.setDate(currentDate.getDate() + 1);
+            continue;
+          }  
 
           if (esDescanso && checkinsDelDia.length === 0) {
-              if (diaActivo) { diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr); }
-              currentDate.setDate(currentDate.getDate() + 1); 
-              continue;
-          }
+            if (diaActivo) { diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr); }
+            currentDate.setDate(currentDate.getDate() + 1);
+            continue;
+          }  
 
           if (checkinsDelDia.length > 0) {
-              let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
-              let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
-              let tieneNullSalida = !checkinsDelDia[0].hora_salida;
+            let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
+            let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
+            let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
 
-              for (let i = 1; i < checkinsDelDia.length; i++) {
-                  const inD = new Date(checkinsDelDia[i].hora_entrada);
-                  if (inD < minEntrada) minEntrada = inD;
-                  if (checkinsDelDia[i].hora_salida) {
-                      const outD = new Date(checkinsDelDia[i].hora_salida);
-                      if (!maxSalida || outD > maxSalida) maxSalida = outD;
-                  } else {
-                      tieneNullSalida = true;
-                  }
+            for (let i = 1; i < checkinsDelDia.length; i++) {
+              const inD = new Date(checkinsDelDia[i].hora_entrada);
+              if (inD < minEntrada) minEntrada = inD;
+              if (checkinsDelDia[i].hora_salida) {
+                const outD = new Date(checkinsDelDia[i].hora_salida);
+                if (!maxSalida || outD > maxSalida) maxSalida = outD;
+              } else { tieneNullSalida = true; }
+            }  
+
+            const esRetardo = checkinsDelDia.some(h => h.es_retardo === true);
+            let olvidoSalida = tieneNullSalida && checkinsDelDia.some(h => h.olvido_salida === true);
+            if (esRetardo) { eventosTarde++; }  
+
+            let hrsOficiales = 8;
+            const tEntradaOficial = hor[dateStr]?.entrada || gApertura;
+            const tSalidaOficial = hor[dateStr]?.salida || gCierre;
+            const [hE, mE] = tEntradaOficial.split(':').map(Number);
+            const [hS, mS] = tSalidaOficial.split(':').map(Number);
+            let minutosTurno = (hS * 60 + mS) - (hE * 60 + mE);
+            if (minutosTurno < 0) minutosTurno += 24 * 60;
+            if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
+
+            let minsDetectados = 0;
+            if (maxSalida && minEntrada) { minsDetectados = (maxSalida - minEntrada) / 60000; }
+            let horasDetectadas = minsDetectados / 60;  
+
+            let estadoAudParsed = { estado: 'pendiente' };
+            if (auditoriaDia['auditoria_turno']) {
+              try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
+            }  
+
+            const requiereAuditoria = esRetardo || olvidoSalida || Math.abs(horasDetectadas - hrsOficiales) > 0.5;
+            let motivosAnomalia = [];
+            if (esRetardo) motivosAnomalia.push("Llegada Tarde");
+            if (olvidoSalida) motivosAnomalia.push("Olvidó Marcar Salida");
+            if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
+            if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
+
+            let horasFinalesAprobadas = horasDetectadas;
+            let hrsExt = 0;
+            let hrsFaltantes = 0;  
+
+            if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
+              horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
+              olvidoSalida = false;
+              if (esRetardo) {
+                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
               }
-
-              const entradaOficial = hor[dateStr]?.entrada || gApertura;
-              const salidaOficial = hor[dateStr]?.salida || gCierre;
-
-              let limiteSalidaTime = null;
-              if (salidaOficial) {
-                  const [hOut, mOut] = salidaOficial.split(':').map(Number);
-                  const [hIn] = entradaOficial.split(':').map(Number);
-                  let dateLimit = new Date(dateStr + 'T00:00:00');
-                  dateLimit.setHours(hOut, mOut, 0, 0);
-                  if (hOut < hIn) dateLimit.setDate(dateLimit.getDate() + 1); 
-                  dateLimit.setMinutes(dateLimit.getMinutes() + toleranciaSalida);
-                  limiteSalidaTime = dateLimit.getTime();
+            } else if (estadoAudParsed.estado === 'rechazado') {
+              horasFinalesAprobadas = 0;
+            } else if (olvidoSalida) {
+              horasFinalesAprobadas = 0;
+            } else {
+              if (esRetardo) {
+                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
               }
+              if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
+              if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
+            }  
 
-              const maxOchoHoras = minEntrada.getTime() + (8 * 3600000);
-              let outTime, olvidoSalida = false, turnoActivo = false;
-              
-              if (tieneNullSalida) {
-                  if (dateStr === hoyStr) {
-                      outTime = new Date().getTime();
-                      turnoActivo = true;
-                  } else {
-                      olvidoSalida = true;
-                      outTime = limiteSalidaTime || maxOchoHoras;
-                  }
-              } else {
-                  outTime = maxSalida.getTime();
-                  if ((outTime - minEntrada.getTime()) > (24 * 3600000)) {
-                      olvidoSalida = true;
-                      outTime = limiteSalidaTime || maxOchoHoras;
-                  } else if (limiteSalidaTime && outTime > (limiteSalidaTime + (4 * 3600000))) {
-                      olvidoSalida = true;
-                      outTime = limiteSalidaTime;
-                  }
-              }
+            if (olvidoSalida || requiereAuditoria) {
+              alertasEmpleado.push({ tipo: 'auditoria_turno', idUnico: `turno-${dateStr}`, fecha: dateStr, msg: motivosAnomalia.join(' | '), estadoAuditoria: estadoAudParsed.estado, resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado', hrsAuditadas: horasFinalesAprobadas, hrsExt: Number(hrsExt), hrsFaltantes: Number(hrsFaltantes) });
+            }  
 
-              let diffHrs = (outTime - minEntrada.getTime()) / 3600000;
-              if (diffHrs < 0) diffHrs = 0;
-
-              let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;
-              if (entradaOficial) {
-                  [hOfIn, mOfIn] = entradaOficial.split(':').map(Number);
-                  const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-                  [hReal, mReal] = stringHoraCompleta.split(':').map(Number);
-                  
-                  const minOficiales = (hOfIn * 60) + mOfIn;
-                  const minReales = (hReal * 60) + mReal;
-                  if (minReales > (minOficiales + minTolEntrada)) {
-                      eventosTarde++;
-                      minutesTardeTotales += (minReales - minOficiales);
-                  }
-              }
-
-              let motivosAnomalia = [];
-              let requiereAuditoria = false;
-
-              if (olvidoSalida) motivosAnomalia.push(`Olvidó checar salida.`);
-              if (!esDiaLaboral) {
-                  requiereAuditoria = true;
-                  motivosAnomalia.push(esDescanso ? 'Trabajó en su Descanso.' : 'Día Inactivo.');
-              } else {
-                  if (entradaOficial) {
-                      if (hReal < hOfIn - 3 || hReal > hOfIn + 4) {
-                          requiereAuditoria = true;
-                          motivosAnomalia.push(`Fuera de rango (${entradaOficial})`);
-                      } else if (salidaOficial) {
-                          const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
-                          let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn * 60 + mOfIn);
-                          if (minsOficiales < 0) minsOficiales += 24 * 60;
-                          
-                          const minsTrabajados = diffHrs * 60;
-                          if (!turnoActivo && minsTrabajados < (minsOficiales - 15)) {
-                              requiereAuditoria = true;
-                              motivosAnomalia.push(`Jornada Incompleta`);
-                          }
-                          if (!turnoActivo && minsTrabajados > (minsOficiales + 60)) {
-                              requiereAuditoria = true;
-                              motivosAnomalia.push(`Tiempo Extra`);
-                          }
-                      }
-                  }
-              }
-
-              let horasFinalesAprobadas = diffHrs; 
-              let estadoAudParsed = { estado: 'pendiente' };
-              if (auditoriaDia['auditoria_turno']) {
-                  try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } 
-                  catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
-              }
-
-              if (estadoAudParsed.estado === 'rechazado') {
-                  horasFinalesAprobadas = 0; 
-              } else if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
-                  horasFinalesAprobadas = estadoAudParsed.horasAprobadas; 
-              }
-
-              let hrsExt = 0;
-              let hrsFaltantes = 0;
-              if (entradaOficial && salidaOficial) {
-                  const [hSalOf, mSalOf] = salidaOficial.split(':').map(Number);
-                  const [hOfIn2, mOfIn2] = entradaOficial.split(':').map(Number);
-                  let minsOficiales = (hSalOf * 60 + mSalOf) - (hOfIn2 * 60 + mOfIn2);
-                  if (minsOficiales < 0) minsOficiales += 24 * 60;
-                  const hrsOficiales = minsOficiales / 60;
-                  
-                  if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
-                  if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
-              }
-
-              if (olvidoSalida || requiereAuditoria) {
-                  alertasEmpleado.push({
-                      tipo: 'auditoria_turno',
-                      idUnico: `turno-${dateStr}`,
-                      fecha: dateStr,
-                      msg: motivosAnomalia.join(' | '),
-                      estadoAuditoria: estadoAudParsed.estado,
-                      resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado',
-                      hrsAuditadas: horasFinalesAprobadas,
-                      hrsExt: Number(hrsExt),
-                      hrsFaltantes: Number(hrsFaltantes)
-                  });
-              }
-
-              horasTrabajadasTotales += horasFinalesAprobadas;
-              diasAsistidos++;
-              diasAuditados.push(dateStr);
-              if (esDomingo) domingosTrabajados++;
+            horasTrabajadasTotales += horasFinalesAprobadas;
+            diasAsistidos++;
+            diasAuditados.push(dateStr);
+            if (esDomingo) domingosTrabajados++;  
 
           } else {
-              const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
-              if (esDiaLaboral && isPastOrToday) {
-                  let estadoFaltaParsed = { estado: 'pendiente' };
-                  if (auditoriaDia['falta']) {
-                      try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } 
-                      catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
-                  }
-                  
-                  if (estadoFaltaParsed.estado !== 'aprobado') {
-                      diasFaltaInjustificada++;
-                      alertasEmpleado.push({ 
-                          tipo: 'falta', 
-                          idUnico: `falta-${dateStr}`, 
-                          fecha: dateStr, 
-                          msg: `⚠️ Falta Injustificada.`, 
-                          estadoAuditoria: estadoFaltaParsed.estado, 
-                          resuelta: estadoFaltaParsed.estado === 'rechazado'
-                      });
-                      diasAuditados.push(dateStr); 
-                  } else {
-                      diasProgramados++; 
-                      horasTrabajadasTotales += 8;
-                      diasAuditados.push(dateStr);
-                  }
+            const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
+            if (esDiaLaboral && isPastOrToday) {
+              let estadoFaltaParsed = { estado: 'pendiente' };
+              if (auditoriaDia['falta']) {
+                try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
+              }  
+              if (estadoFaltaParsed.estado !== 'aprobado') {
+                diasFaltaInjustificada++;
+                alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
+                diasAuditados.push(dateStr);
+              } else {
+                diasProgramados++;
+                horasTrabajadasTotales += 8;
+                diasAuditados.push(dateStr);
               }
+            }
+          }  
+
+          // EVALUACIÓN DE LIMPIEZA
+          for (const area of Object.keys(matrizLimpieza.asignaciones || {})) {
+            const asignadosEnFecha = matrizLimpieza.asignaciones[area]?.[dateStr] || [];
+            if (asignadosEnFecha.map(String).includes(String(emp.id))) {
+              const val = evaluacionesLimpieza[area]?.[dateStr];
+              const status = typeof val === 'string' ? val : val?.[emp.id];
+              if (status === 'no_cumplio') fallasLimpieza++;
+            }
           }
 
-          for (const area of Object.keys(evaluacionesLimpieza)) {
-              if (String(matriz.asignaciones?.[area]?.[dateStr]) === String(emp.id)) {
-                  if (evaluacionesLimpieza[area][dateStr] === 'no_cumplio') fallasLimpieza++;
-              }
+          // 👇 EVALUACIÓN DE OBSERVACIONES
+          for (const obs of Object.keys(matrizObservaciones.asignaciones || {})) {
+            const asignadosEnFecha = matrizObservaciones.asignaciones[obs]?.[dateStr] || [];
+            if (asignadosEnFecha.map(String).includes(String(emp.id))) {
+              const val = evaluacionesObservaciones[obs]?.[dateStr];
+              const status = typeof val === 'string' ? val : val?.[emp.id];
+              if (status === 'no_cumplio') fallasObservaciones++;
+            }
           }
 
           currentDate.setDate(currentDate.getDate() + 1);
-        }
+        }  
 
         const sueldoBase = Number(pres.sueldo_base) || 0;
         let ingresoSueldo = 0;
-        let sueldoDiarioExacto = 0;
-        
-        if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; } 
-        else if (pres.tipo_sueldo === 'Por Hora') { 
-            sueldoDiarioExacto = sueldoBase * 8; 
-            ingresoSueldo = sueldoBase * horasTrabajadasTotales; 
-        } 
-        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; } 
-        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = (sueldoBase / 15) * diasProgramados; } 
-        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = sueldoBase / 30; ingresoSueldo = (sueldoBase / 30) * diasProgramados; }
+        let sueldoDiarioExacto = 0;  
+
+        if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * horasTrabajadasTotales; }
+        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = (sueldoBase / 15) * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = sueldoBase / 30; ingresoSueldo = (sueldoBase / 30) * diasProgramados; }  
 
         const ingresosList = [];
-        const egresosList = [];
-        
+        const egresosList = [];  
+
         if (pres.tipo_sueldo === 'Por Hora') {
-            ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo });
+          ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo });
         } else {
-            ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
-        }
+          ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
+        }  
 
         if (diasFaltaInjustificada > 0) {
-           let diasADescontar = diasFaltaInjustificada;
-           if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
-              diasADescontar += (diasFaltaInjustificada * (1.0 / 6.0)); 
-           }
-           const montoDescuento = sueldoDiarioExacto * diasADescontar;
-           egresosList.push({ concepto: `Faltas Injustificadas (${diasFaltaInjustificada}d) + Prop. Descanso`, monto: montoDescuento });
-        }
+          let diasADescontar = diasFaltaInjustificada;
+          if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
+            diasADescontar += (diasFaltaInjustificada * 0.1666);
+          }
+          const descuentoMonto = sueldoDiarioExacto * diasADescontar;
+          egresosList.push({ concepto: `Descuento Faltas Injustificadas (${diasADescontar.toFixed(2)} días efectivos)`, monto: descuentoMonto });
+        }  
 
         if (reglasNomina.prima_dominical_activa && domingosTrabajados > 0) {
-           const montoDominical = (sueldoDiarioExacto * 0.25) * domingosTrabajados;
-           ingresosList.push({ concepto: `Prima Dominical (25%) x${domingosTrabajados} domingos`, monto: montoDominical });
+          const montoPrima = (sueldoDiarioExacto * (reglasNomina.prima_dominical_porcentaje / 100)) * domingosTrabajados;
+          ingresosList.push({ concepto: `Prima Dominical (${reglasNomina.prima_dominical_porcentaje}% x ${domingosTrabajados} Dom)`, monto: montoPrima });
+        }  
+
+        let esPuntualidadPerfecta = true;
+        let perdioPuntualidad = false;
+        let motivoPuntualidad = "Perfecta";  
+
+        if (reglasNomina.bono_puntualidad_activo && esPuntualidadPerfecta && diasFaltaInjustificada > 0) {
+          perdioPuntualidad = true; motivoPuntualidad = "Perdido por Falta Injustificada.";
+        }
+        if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
+          perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
+        }
+        if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
+          perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
+        }
+        
+        if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
+          ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
+        } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
+          ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
+        }  
+
+        // CALCULO DE BONO LIMPIEZA
+        if (reglasNomina.bono_limpieza_activo && fallasLimpieza === 0) {
+          ingresosList.push({ concepto: `Bono de Limpieza (0 Faltas)`, monto: reglasNomina.bono_limpieza_monto || 0 });
         }
 
-        if (diasVacaciones > 0) {
-          const porcentajePrima = Number(pres.prima_vacacional) || 25;
-          const montoPrima = (sueldoDiarioExacto * diasVacaciones) * (porcentajePrima / 100);
-          ingresosList.push({ concepto: `Prima Vacacional (${porcentajePrima}%) x${diasVacaciones}d`, monto: montoPrima });
-        }
-
-        if (diasAsistidos > 0) {
-          if (reglasNomina.bono_limpieza_activo && fallasLimpieza <= Number(reglasNomina.limpieza_omisiones_permitidas)) {
-              ingresosList.push({ concepto: `Bono Limpieza (Fallas: ${fallasLimpieza})`, monto: Number(reglasNomina.bono_limpieza_monto) });
+        // 👇 CALCULO DEL NUEVO BONO OBSERVACIONES
+        if (reglasNomina.bono_observaciones_activo) {
+          const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
+          if (fallasObservaciones <= toleranciaFallas) {
+            ingresosList.push({ concepto: `Bono Observaciones (${fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
+          } else {
+             // Opcional: Se puede agregar a métricas para que el admin sepa que lo perdió
+             alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
           }
-          if (reglasNomina.bono_puntualidad_eventos_activo && eventosTarde <= Number(reglasNomina.puntualidad_eventos_retardos_permitidos)) {
-              ingresosList.push({ concepto: `Bono Punt. Clásica (Tardanzas: ${eventosTarde})`, monto: Number(reglasNomina.bono_puntualidad_eventos_monto) });
+        }
+
+        (pres.bonos_recurrentes || []).forEach(b => {
+          if (b.activo) ingresosList.push({ concepto: `Bono Recurrente: ${b.concepto}`, monto: Number(b.monto) });
+        });  
+
+        (pres.prestamos || []).forEach(p => {
+          if (p.activo && p.saldo_restante > 0) {
+            const aDescontar = Math.min(Number(p.descuento_por_nomina), Number(p.saldo_restante));
+            egresosList.push({ concepto: `Abono Préstamo: ${p.concepto}`, monto: aDescontar });
           }
-          if (reglasNomina.bono_puntualidad_estricta_activo && minutesTardeTotales <= Number(reglasNomina.puntualidad_estricta_limite_minutos_semana)) {
-              ingresosList.push({ concepto: `Bono Punt. Estricta (Mins Tarde: ${minutesTardeTotales})`, monto: Number(reglasNomina.bono_puntualidad_estricta_monto) });
-          }
-        }
+        });  
 
-        if (pres.bonos_recurrentes && pres.bonos_recurrentes.length > 0) {
-            pres.bonos_recurrentes.forEach(b => {
-               if (b.activo) {
-                  const inicioBono = new Date(b.fecha_inicio + 'T00:00:00');
-                  const finBono = new Date(b.fecha_fin + 'T23:59:59');
-                  const targetDate = new Date(fechaFin + 'T12:00:00');
-                  if (targetDate >= inicioBono && targetDate <= finBono) {
-                      if (b.tipo === 'bono') ingresosList.push({ concepto: `[Temp] ${b.concepto}`, monto: Number(b.monto) });
-                      else egresosList.push({ concepto: `[Temp] ${b.concepto}`, monto: Number(b.monto) });
-                  }
-               }
-            });
-        }
+        const sumIn = ingresosList.reduce((acc, curr) => acc + curr.monto, 0);
+        const sumEg = egresosList.reduce((acc, curr) => acc + curr.monto, 0);
 
-        const prestamosAplicados = [];
-        if (pres.prestamos && pres.prestamos.length > 0) {
-            pres.prestamos.forEach(p => {
-               if (p.activo && p.saldo_restante > 0) {
-                   const aDescontar = Math.min(Number(p.descuento_por_nomina), Number(p.saldo_restante));
-                   egresosList.push({ concepto: `Abono a Préstamo: ${p.concepto}`, monto: aDescontar });
-                   prestamosAplicados.push({ id: p.id, descontado: aDescontar });
-               }
-            });
-        }
-
-        const subtotalParaImpuestos = ingresosList.reduce((acc, c) => acc + c.monto, 0) - egresosList.reduce((acc, c) => acc + c.monto, 0);
-        if (subtotalParaImpuestos > 0) {
-            if (reglasNomina.retencion_isr_activa && reglasNomina.porcentaje_isr > 0) {
-                const isr = subtotalParaImpuestos * (reglasNomina.porcentaje_isr / 100);
-                egresosList.push({ concepto: `Retención ISR (${reglasNomina.porcentaje_isr}%)`, monto: isr });
-            }
-            if (reglasNomina.retencion_imss_activa && reglasNomina.porcentaje_imss > 0) {
-                const imss = subtotalParaImpuestos * (reglasNomina.porcentaje_imss / 100);
-                egresosList.push({ concepto: `Retención IMSS (${reglasNomina.porcentaje_imss}%)`, monto: imss });
-            }
-        }
-
-        const totalIn = ingresosList.reduce((acc, c) => acc + Number(c.monto), 0);
-        const totalEg = egresosList.reduce((acc, c) => acc + Number(c.monto), 0);
-
-        if (totalIn === 0 && diasProgramados === 0 && diasFaltaInjustificada === 0 && alertasEmpleado.length === 0) continue; 
-
-        calculos.push({
-          empleado_id: emp.id, nombre: emp.nombre, nombre_completo: pres.nombre_completo || emp.nombre, rol: emp.rol, telefono: pres.telefono || emp.telefono,
-          datos_banco: { banco: pres.banco, cuenta: pres.cuenta, rfc: pres.rfc, nss: pres.nss },
-          metricas: { diasProgramados, diasAsistidos, eventosTarde, minutosTardeTotales: minutesTardeTotales, fallasLimpieza, diasAuditados, diasVacaciones, diasDescanso, sueldoDiarioExacto, prestamosAplicados, alertasEmpleado, fechaIngresoBase: pres.fecha_ingreso, horasExtrasAcumulables: 0 },
+        resultados.push({
+          empleado_id: emp.id,
+          nombre: emp.nombre,
+          nombre_completo: pres.nombre_completo || emp.nombre,
+          rol: emp.rol,
+          sueldo_base: pres.sueldo_base,
           ingresos: ingresosList,
-          egresos: egresosList, 
-          nuevos_ingresos: [], 
+          egresos: egresosList,
+          nuevos_ingresos: [],
           nuevos_egresos: [],
-          total_ingresos: totalIn, 
-          total_egresos: totalEg,
-          neto: totalIn - totalEg
+          total_ingresos: sumIn,
+          total_egresos: sumEg,
+          neto: sumIn - sumEg,
+          diasAuditados,
+          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado }
         });
-      }
-      setPreNomina(calculos);
-      if (calculos.length === 0) showAlert("Aviso", "No hay días pendientes de pago o no hubo programaciones en este rango.", "info");
-    } catch (e) {
-      console.error(e);
-      showAlert("Error", "No se pudo calcular la nómina.", "error");
+      }  
+      setPreNomina(resultados);
+      showAlert("¡Simulación Completada!", "La pre-nómina ha sido calculada. Revisa posibles alertas antes de guardar.", "success");
+    } catch(e) { 
+      showAlert("Error", "Error al procesar asistencia.", "error"); 
     }
     setIsSubmitting(false);
   };

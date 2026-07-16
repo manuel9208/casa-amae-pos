@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, TrendingUp, Sparkles, CalendarClock, History, DollarSign, MessageSquare, Calendar } from 'lucide-react';
+import { Users, TrendingUp, Sparkles, CalendarClock, History, DollarSign, MessageSquare, Calendar, ClipboardCheck } from 'lucide-react';
 import DirectorioEmpleados from './usuarios/DirectorioEmpleados';
 import ReportesEmpleados from './usuarios/ReportesEmpleados';
 import ZonasLimpieza from './usuarios/ZonasLimpieza';
+import GestorObservaciones from './usuarios/GestorObservaciones';
 import GestorHorarios from './usuarios/GestorHorarios';
 import VistaHistoricoMeses from './usuarios/VistaHistoricoMeses';
 import VistaNominas from './usuarios/VistaNominas';
@@ -44,6 +45,10 @@ const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConf
           <button onClick={() => setVista('limpieza')} className={`px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-bold transition-all flex items-center gap-2 text-xs sm:text-sm ${vista === 'limpieza' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <Sparkles size={16}/> Limpieza
           </button>
+
+          <button onClick={() => setVista('observaciones')} className={`px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-bold transition-all flex items-center gap-2 text-xs sm:text-sm ${vista === 'observaciones' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <ClipboardCheck size={16}/> Observaciones
+          </button>
           
           <button onClick={() => setVista('reportes')} className={`px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-bold transition-all flex items-center gap-2 text-xs sm:text-sm ${vista === 'reportes' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <TrendingUp size={16}/> Cumplimiento
@@ -69,6 +74,7 @@ const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConf
       {vista === 'calendario' && <GestorCalendarioAnual configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} apiUrl={apiUrl} showAlert={showAlert} refrescarDatos={refrescarDatos} />}
       {vista === 'horarios' && <GestorHorarios usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} configGlobal={configGlobal} />}
       {vista === 'limpieza' && <ZonasLimpieza usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
+      {vista === 'observaciones' && <GestorObservaciones usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
       {vista === 'reportes' && <ReportesEmpleados usuariosDB={usuariosDB} apiUrl={apiUrl} />}
       {vista === 'nominas' && <VistaNominas usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}
       {vista === 'historico_meses' && <VistaHistoricoMeses usuariosDB={usuariosDB} apiUrl={apiUrl} />}
