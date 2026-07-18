@@ -13,7 +13,7 @@ import ModalPuntoVenta from './modales/PuntoDeVenta/PuntoDeVentaPrincipal';
 import ModalAsistencia from './modales/ModalAsistencia';
 import ModalComedor from './modales/ModalComedor';  
 
-// 👇 IMPORTACIÓN DEL NUEVO GESTOR DE MERMAS
+// IMPORTACIÓN DEL NUEVO GESTOR DE MERMAS
 import GestorMermasPrincipal from './modales/mermas/GestorMermasPrincipal';
 
 const ModalesCaja = ({
@@ -29,10 +29,30 @@ const ModalesCaja = ({
     registrarClienteParaPedido, onGoToKiosco, empleadosPOS, mesas,
     modalAsistencia, setModalAsistencia,
     modalComedor, setModalComedor, pedidos,
-    
-    // 👇 RECEPCIÓN DE PROPS PARA MERMAS
     modalMermas, setModalMermas
 }) => {
+
+    // 👇 ESCÁNER DE OPCIÓN A: Detectar si el carrito tiene productos restringidos para pago con puntos
+    let carritoEvaluar = [];
+    if (modalPago && typeof modalPago === 'object') {
+        if (modalPago.pedido && modalPago.pedido.carrito) carritoEvaluar = modalPago.pedido.carrito;
+        else if (Array.isArray(modalPago.carrito)) carritoEvaluar = modalPago.carrito;
+        else if (Array.isArray(modalPago)) carritoEvaluar = modalPago;
+    }
+
+    const bloqueoPuntosActivo = carritoEvaluar.some(item => {
+        // Buscamos el producto en la base de datos
+        const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
+        if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return true;
+        
+        // También revisamos si la categoría completa está bloqueada
+        const catNombre = prodDB?.categoria || item.categoria;
+        const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
+        if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return true;
+
+        return false;
+    });
+
     return (
         <>
             {alertaCaja && (
@@ -95,11 +115,22 @@ const ModalesCaja = ({
             <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />  
             <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />  
             <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />  
-            <ModalPago modalPago={modalPago} setModalPago={setModalPago} procesarPago={procesarPago} isSubmitting={isSubmitting} configGlobal={configGlobal} setModalEditarPedido={setModalEditarPedido} />  
-            <ModalEditarPedido   modalEditarPedido={modalEditarPedido}   setModalEditarPedido={setModalEditarPedido}   guardarEdicionPedido={guardarEdicionPedido}   onGoToKiosco={onGoToKiosco}   isSubmitting={isSubmitting}   apiUrl={apiUrl}   configGlobal={configGlobal} />
+            
+            {/* 👇 PASAMOS EL BLOQUEO COMO PROP A MODAL PAGO */}
+            <ModalPago 
+                modalPago={modalPago} 
+                setModalPago={setModalPago} 
+                procesarPago={procesarPago} 
+                isSubmitting={isSubmitting} 
+                configGlobal={configGlobal} 
+                setModalEditarPedido={setModalEditarPedido} 
+                bloqueoPuntosActivo={bloqueoPuntosActivo} 
+            />  
+            
+            <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} apiUrl={apiUrl} configGlobal={configGlobal} />
             <ModalVerDetalle modalVerDetalle={modalVerDetalle} setModalVerDetalle={setModalVerDetalle} />  
             <ModalAsistencia modalAsistencia={modalAsistencia} setModalAsistencia={setModalAsistencia} apiUrl={apiUrl} setAlertaCaja={setAlertaCaja} onSuccess={cargarDataDinamica} />  
-            <ModalComedor modalComedor={modalComedor} setModalComedor={setModalComedor} empleadosPOS={empleadosPOS} pedidos={pedidos} configGlobal={configGlobal}                productos={productos}                clasificaciones={clasificaciones}                catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} refrescarDatosCaja={cargarDataDinamica} lanzarImpresion={lanzarImpresion} />
+            <ModalComedor modalComedor={modalComedor} setModalComedor={setModalComedor} empleadosPOS={empleadosPOS} pedidos={pedidos} configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} refrescarDatosCaja={cargarDataDinamica} lanzarImpresion={lanzarImpresion} />
             <GestorMermasPrincipal
                 modalMermas={modalMermas}
                 setModalMermas={setModalMermas}

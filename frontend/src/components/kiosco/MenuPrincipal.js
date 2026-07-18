@@ -10,7 +10,8 @@ const MenuPrincipal = ({
     calcularSubtotal, descuentoPuntosDinero, descuentoPuntosPuntosFisicos,
     cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
     guardarEdicionDirecta,
-    isSubmitting
+    isSubmitting,
+    bloqueoPuntosActivo // 👈 1. RECIBIMOS LA PROP DESDE EL KIOSCO
 }) => {
     const [categoriaActiva, setCategoriaActiva] = useState(null);
     const [inputCupon, setInputCupon] = useState('');
@@ -94,10 +95,9 @@ const MenuPrincipal = ({
         setBuscandoCupon(false);
     };
 
-    // 👇 FIX: El contenedor cambia su comportamiento en móvil para permitir el scroll natural
     return (
         <div className="flex flex-col lg:flex-row gap-6 md:gap-8 h-auto lg:h-[75vh] pb-12 lg:pb-0">
-            {/* CONTENEDOR IZQUIERDO (MENÚ): En móvil tiene alto fijo para poder hacer scroll interno */}
+            {/* CONTENEDOR IZQUIERDO (MENÚ) */}
             <div className="w-full lg:w-2/3 flex flex-col h-[65vh] lg:h-full shrink-0">
                 {isCerrado && (
                     <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center gap-4 shrink-0">
@@ -128,6 +128,7 @@ const MenuPrincipal = ({
                 calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual}
                 guardarEdicionDirecta={guardarEdicionDirecta}
                 isSubmitting={isSubmitting}
+                bloqueoPuntosActivo={bloqueoPuntosActivo} // 👈 2. SE LA PASAMOS AL CARRITO
             />
         </div>
     );

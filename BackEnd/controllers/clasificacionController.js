@@ -10,17 +10,20 @@ exports.obtenerClasificaciones = async (req, res) => {
 };
 
 exports.crearClasificacion = async (req, res) => {
-  const { nombre, destino, emoji, genera_puntos } = req.body;
+  // 👇 1. Agregamos permite_canje al body
+  const { nombre, destino, emoji, genera_puntos, permite_canje } = req.body;
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
+  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); // 👈 2. Parseo seguro
 
   try {
+    // 👇 3. Inyectamos permite_canje en el INSERT y en el arreglo de valores ($6)
     const result = await db.query(
-      'INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url, genera_puntos) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos]
+      'INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje]
     );
     
-    // 👇 MEJORA: Sincronización en vivo Kiosco/Caja
+    // Sincronización en vivo Kiosco/Caja
     const io = req.app.get('io');
     if (io) io.emit('catalogo_actualizado');
     
@@ -32,9 +35,10 @@ exports.crearClasificacion = async (req, res) => {
 
 exports.actualizarClasificacion = async (req, res) => {
   const { id } = req.params;
-  const { nombre, destino, emoji, genera_puntos } = req.body;
+  const { nombre, destino, emoji, genera_puntos, permite_canje } = req.body;
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
+  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); // 👈 4. Parseo seguro
 
   try {
     await db.query('BEGIN'); // 🛡️ Iniciamos transacción segura
@@ -44,13 +48,13 @@ exports.actualizarClasificacion = async (req, res) => {
     if (oldRes.rows.length === 0) throw new Error("Clasificación no encontrada");
     const nombreAnterior = oldRes.rows[0].nombre;
 
-    // 2. Actualizar la clasificación principal
+    // 2. 👇 Actualizamos la clasificación inyectando permite_canje ($6)
     const result = await db.query(
-      'UPDATE clasificaciones SET nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url), genera_puntos=$5 WHERE id=$6 RETURNING *',
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos, id]
+      'UPDATE clasificaciones SET nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url), genera_puntos=$5, permite_canje=$6 WHERE id=$7 RETURNING *',
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, id]
     );
 
-    // 3. 👇 MEJORA (Evita desvinculación): Actualizar en cascada si cambió el nombre
+    // 3. MEJORA (Evita desvinculación): Actualizar en cascada si cambió el nombre
     if (nombreAnterior !== nombre) {
       await db.query('UPDATE productos SET categoria = $1 WHERE categoria = $2', [nombre, nombreAnterior]);
       await db.query('UPDATE promociones SET categoria_trigger = $1 WHERE categoria_trigger = $2', [nombre, nombreAnterior]);
@@ -58,7 +62,7 @@ exports.actualizarClasificacion = async (req, res) => {
 
     await db.query('COMMIT'); // 🛡️ Confirmamos transacción
 
-    // 👇 MEJORA: Sincronización en vivo
+    // Sincronización en vivo
     const io = req.app.get('io');
     if (io) io.emit('catalogo_actualizado');
 
@@ -86,7 +90,7 @@ exports.eliminarClasificacion = async (req, res) => {
     
     await db.query('COMMIT');
 
-    // 👇 MEJORA: Sincronización en vivo
+    // Sincronización en vivo
     const io = req.app.get('io');
     if (io) io.emit('catalogo_actualizado');
 

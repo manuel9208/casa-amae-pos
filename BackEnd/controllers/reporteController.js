@@ -71,20 +71,21 @@ exports.obtenerReporteVentas = async (req, res) => {
     let params = [];
     let paramIndex = 1;
 
+    // 👇 ESCUDO DE ZONA HORARIA APLICADO (America/Mazatlan)
     if (tipo === 'dia') {
-      queryTimeConsumo += ` AND p.fecha_creacion::DATE = $${paramIndex}::DATE`;
+      queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = $${paramIndex}::DATE`;
       params.push(fecha || 'NOW()'); paramIndex++;
     } else if (tipo === 'semana') {
-      queryTimeConsumo += ` AND p.fecha_creacion >= DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) AND p.fecha_creacion < DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) + INTERVAL '1 week'`;
+      queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) + INTERVAL '1 week'`;
       params.push(fecha || 'NOW()'); paramIndex++;
     } else if (tipo === 'mes') {
-      queryTimeConsumo += ` AND p.fecha_creacion >= DATE_TRUNC('month', $${paramIndex}::TIMESTAMP) AND p.fecha_creacion < DATE_TRUNC('month', $${paramIndex}::TIMESTAMP) + INTERVAL '1 month'`;
+      queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('month', $${paramIndex}::TIMESTAMP) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('month', $${paramIndex}::TIMESTAMP) + INTERVAL '1 month'`;
       params.push(fecha || 'NOW()'); paramIndex++;
     } else if (tipo === 'anio') {
-      queryTimeConsumo += ` AND p.fecha_creacion >= DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) AND p.fecha_creacion < DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) + INTERVAL '1 year'`;
+      queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) + INTERVAL '1 year'`;
       params.push(fecha || 'NOW()'); paramIndex++;
     } else if (tipo === 'historico') {
-      queryTimeConsumo += ` AND TO_CHAR(p.fecha_creacion, 'MM-DD') = TO_CHAR($${paramIndex}::DATE, 'MM-DD')`;
+      queryTimeConsumo += ` AND TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'MM-DD') = TO_CHAR($${paramIndex}::DATE, 'MM-DD')`;
       params.push(fecha); paramIndex++;
     }
 
@@ -363,6 +364,7 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     let t_fondo = 0; let t_gastos = 0;
     try {
+        // 👇 APLICADO ESCUDO ZONA HORARIA A CORTES HISTORICOS
         const hcRes = await db.query(`SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha_corte')}`);
         hcRes.rows.forEach(row => {
             if(row.fondo_inicial) t_fondo += Number(row.fondo_inicial);
@@ -385,7 +387,6 @@ exports.obtenerReporteVentas = async (req, res) => {
         efectivo_en_cajon: (t_fondo + t_efectivo) - t_gastos
     };
 
-    // 👇 FIX APLICADO: Ahora los totales superiores SUMAN ÚNICAMENTE LOS ELEMENTOS QUE ESTÁN EN PANTALLA
     const ventas_brutas_totales = detalles.reduce((sum, r) => sum + r.subtotal_ventas, 0);
     const descuentos_filtrados = detalles.reduce((sum, r) => sum + Number(r.descuentos_aplicados || 0), 0);
 
@@ -415,12 +416,13 @@ exports.obtenerReporteVentas = async (req, res) => {
     insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
 
     try {
+        // 👇 APLICADO ESCUDO ZONA HORARIA A CÁLCULO DEL DÍA DE AYER
         const ayerRes = await db.query(`
             SELECT carrito FROM pedidos 
             WHERE estado_preparacion != 'Cancelado' 
-            AND fecha_creacion >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE - INTERVAL '1 day' 
-            AND fecha_creacion < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE
-        `);
+            AND (fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = ($1::DATE - INTERVAL '1 day')
+        `, [fecha || 'NOW()']);
+        
         let idsVendidosAyer = new Set();
         ayerRes.rows.forEach(p => {
             let car = []; try { car = typeof p.carrito === 'string' ? JSON.parse(p.carrito): p.carrito; } catch(e){}
@@ -433,7 +435,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     } catch(errAyer) {}
 
     if (['semana', 'mes', 'anio'].includes(tipo)) {
-        const sqlDias = `SELECT TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') as fecha_str, SUM(p.total) as total_dia FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} GROUP BY TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'YYYY-MM-DD') ORDER BY total_dia DESC`;
+        const sqlDias = `SELECT TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'YYYY-MM-DD') as fecha_str, SUM(p.total) as total_dia FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} GROUP BY TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'YYYY-MM-DD') ORDER BY total_dia DESC`;
         const resDias = await db.query(sqlDias, params);
         if(resDias.rows.length > 0){
             insights.mejorDia = resDias.rows[0]; insights.peorDia = resDias.rows[resDias.rows.length - 1];
@@ -442,7 +444,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     }
 
     if (tipo === 'anio') {
-        const sqlMeses = `SELECT TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'MM') as mes, SUM(p.total) as total_mes FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} GROUP BY TO_CHAR(p.fecha_creacion AT TIME ZONE 'America/Mazatlan', 'MM') ORDER BY total_mes DESC`;
+        const sqlMeses = `SELECT TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'MM') as mes, SUM(p.total) as total_mes FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' ${queryTimeConsumo} GROUP BY TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'MM') ORDER BY total_mes DESC`;
         const resMeses = await db.query(sqlMeses, params);
         if(resMeses.rows.length > 0){
              const nombresMeses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -455,7 +457,9 @@ exports.obtenerReporteVentas = async (req, res) => {
     try {
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
             const boundsRes = await db.query(`SELECT TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio, TO_CHAR((${finSql}) - INTERVAL '1 second', 'DD/MM/YYYY') as fecha_fin`, [fecha || 'NOW()']);
-            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, EXTRACT(HOUR FROM p.fecha_creacion AT TIME ZONE 'America/Mazatlan') as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND p.fecha_creacion >= (${inicioSql}) AND p.fecha_creacion < (${finSql})`, [fecha || 'NOW()']);
+            
+            // 👇 APLICADO ESCUDO ZONA HORARIA A RANGOS COMPARATIVOS
+            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql})`, [fecha || 'NOW()']);
 
             let totalPlatillos = 0; let horas = Array(24).fill(0);
             let minHoraDelRango = horaAperturaDB; let maxHoraDelRango = horaCierreDB;
@@ -546,7 +550,7 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             let metaFuturaMensaje = '';
             if (tipo === 'dia' || tipo === 'historico') {
-                const resManana = await db.query(`SELECT p.carrito FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND p.fecha_creacion >= ($1::DATE - INTERVAL '6 days') AND p.fecha_creacion < ($1::DATE - INTERVAL '5 days')`, [fecha || 'NOW()']);
+                const resManana = await db.query(`SELECT p.carrito FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = ($1::DATE - INTERVAL '6 days')`, [fecha || 'NOW()']);
                 let platManana = 0;
                 resManana.rows.forEach(p => {
                     let car = []; try{ car = typeof p.carrito === 'string' ? JSON.parse(p.carrito): p.carrito; }catch(e){}
@@ -572,14 +576,10 @@ exports.obtenerReporteVentas = async (req, res) => {
   }
 };
 
-// ==========================================
-// MÓDULO DE REPORTE DE COMBUSTIBLE E INTELIGENCIA DE RUTAS
-// ==========================================
 exports.obtenerReporteCombustible = async (req, res) => {
     const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
 
     try {
-        // 🛡️ ESCUDO ANTI-CRASH: Creamos las columnas silenciosamente si no existen
         await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS vehiculo VARCHAR(100);`).catch(()=>null);
         await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rendimiento_km_l NUMERIC(10,2) DEFAULT 15.00;`).catch(()=>null);
         await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS precio_gasolina NUMERIC(10,2) DEFAULT 23.50;`).catch(()=>null);
@@ -587,19 +587,19 @@ exports.obtenerReporteCombustible = async (req, res) => {
         let queryTimeConsumo = '';
         let params = [fecha];
 
+        // 👇 FIX: CONVERSIÓN ESTRICTA A LA ZONA HORARIA LOCAL PARA LOGÍSTICA
         if (periodo === 'dia') {
-            queryTimeConsumo = `p.tiempo_entregado::DATE = $1::DATE`;
+            queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan')::DATE = $1::DATE`;
         } else if (periodo === 'semana') {
-            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('week', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('week', $1::TIMESTAMP) + INTERVAL '1 week'`;
+            queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('week', $1::TIMESTAMP) AND (p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('week', $1::TIMESTAMP) + INTERVAL '1 week'`;
         } else if (periodo === 'mes') {
-            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('month', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('month', $1::TIMESTAMP) + INTERVAL '1 month'`;
+            queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('month', $1::TIMESTAMP) AND (p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('month', $1::TIMESTAMP) + INTERVAL '1 month'`;
         } else if (periodo === 'anio') {
-            queryTimeConsumo = `p.tiempo_entregado >= DATE_TRUNC('year', $1::TIMESTAMP) AND p.tiempo_entregado < DATE_TRUNC('year', $1::TIMESTAMP) + INTERVAL '1 year'`;
+            queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('year', $1::TIMESTAMP) AND (p.tiempo_entregado AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('year', $1::TIMESTAMP) + INTERVAL '1 year'`;
         } else {
-            queryTimeConsumo = `p.tiempo_entregado::DATE = $1::DATE`; 
+            queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan')::DATE = $1::DATE`; 
         }
 
-        // Consultamos los viajes detallados
         const queryViajes = `
             SELECT 
                 p.id, p.numero_pedido, p.direccion_entrega, p.distancia_km,
@@ -617,7 +617,6 @@ exports.obtenerReporteCombustible = async (req, res) => {
         `;
         const resultViajes = await db.query(queryViajes, params);
 
-        // Obtenemos precio de gasolina
         let precioGasolina = 23.50;
         const confRes = await db.query('SELECT precio_gasolina FROM configuracion WHERE id = 1');
         if (confRes.rows.length > 0 && confRes.rows[0].precio_gasolina) {

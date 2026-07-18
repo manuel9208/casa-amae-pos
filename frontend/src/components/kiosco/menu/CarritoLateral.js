@@ -1,4 +1,5 @@
 import React from 'react';
+import { AlertTriangle } from 'lucide-react'; // 👈 NUEVO: Importamos el icono de alerta
 import DescuentosCart from './DescuentosCart';  
 
 const CarritoLateral = ({
@@ -7,7 +8,8 @@ const CarritoLateral = ({
     cuponActivo, setCuponActivo, clienteActivo, descuentoPuntosPuntosFisicos, configGlobal, setModalNip,
     descuentoCuponDinero, descuentoPuntosDinero, calcularSubtotal, calcularTotal, isCerrado, setPantallaActual,  
     guardarEdicionDirecta,
-    isSubmitting
+    isSubmitting,
+    bloqueoPuntosActivo // 👈 1. Recibimos la variable desde MenuPrincipal
 }) => {
     return (
         <div className="w-full lg:w-1/3 bg-white rounded-3xl md:rounded-[40px] shadow-xl p-5 md:p-8 border flex flex-col h-[60vh] lg:h-full shrink-0 relative animate-in slide-in-from-right duration-300">
@@ -63,6 +65,19 @@ const CarritoLateral = ({
             </div>
 
             <div className="pt-3 md:pt-4 border-t mt-auto space-y-3 md:space-y-4 shrink-0">
+                {/* 👇 2. ALERTA VISUAL PARA EL CLIENTE */}
+                {bloqueoPuntosActivo && carrito.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-2xl mb-2 flex gap-2 text-left animate-in slide-in-from-top-2">
+                        <AlertTriangle size={20} className="shrink-0" />
+                        <div>
+                            <p className="font-black text-[10px] md:text-xs uppercase tracking-widest">Canje Restringido</p>
+                            <p className="text-[9px] md:text-[10px] font-bold mt-0.5 opacity-90">
+                                Tu carrito contiene productos que no participan en el programa de lealtad. El pago con puntos ha sido deshabilitado para esta orden.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 {carrito.length > 0 && (
                     <DescuentosCart
                         isOffline={isOffline} inputCupon={inputCupon} setInputCupon={setInputCupon}
@@ -70,6 +85,7 @@ const CarritoLateral = ({
                         validarCupon={validarCupon} cuponActivo={cuponActivo} setCuponActivo={setCuponActivo}
                         clienteActivo={clienteActivo} descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos}
                         configGlobal={configGlobal} setModalNip={setModalNip}
+                        bloqueoPuntosActivo={bloqueoPuntosActivo} // 👈 3. LE PASAMOS LA VARIABLE A LOS BOTONES
                     />
                 )}
 

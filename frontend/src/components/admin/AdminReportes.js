@@ -10,16 +10,14 @@ import ReporteCombustible from './reportes/ReporteCombustible';
 import ReporteCompras from './reportes/ReporteCompras';
 import ReporteMermas from './reportes/ReporteMermas';
 import { BarChart3, History, Fuel, ShoppingCart, Trash2 } from 'lucide-react';
-import io from 'socket.io-client'; 
+import io from 'socket.io-client';  
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
   const [cargando, setCargando] = useState(true);  
-  
   const [vistaModulo, setVistaModulo] = useState('ventas');
   const [filtroActivo, setFiltroActivo] = useState('dia');
-  const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);
-  
+  const [fechaCustom, setFechaCustom] = useState(new Date().toISOString().split('T')[0]);  
   const [clasificaciones, setClasificaciones] = useState([]);
   const [filtroClasificacion, setFiltroClasificacion] = useState('Todas');
   const [filtroConsumo, setFiltroConsumo] = useState('Todos');  
@@ -34,21 +32,11 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   const cargarReporte = useCallback(async (tipo, fecha = '') => {
     setCargando(true);
     try {
-      // 👇 FIX: Adaptación inteligente del filtro de clasificación
-      let clasificacionParseada = filtroClasificacion;
-      const esCategoriaDinamica = !['Todas', 'Extras', 'Envíos'].includes(filtroClasificacion);
-
-      // Si es una categoría normal, la envolvemos en corchetes para hacer match con la base de datos
-      // y verificamos que no tenga los corchetes ya puestos por precaución
-      if (esCategoriaDinamica && !filtroClasificacion.includes('[')) {
-        clasificacionParseada = `[${filtroClasificacion}]`;
-      }
-
-      // 👇 FIX: encodeURIComponent codifica los corchetes (ej. %5BSushis%5D) para que la URL no se rompa
-      const urlConsulta = `${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&clasificacion=${encodeURIComponent(clasificacionParseada)}&tipo_consumo=${encodeURIComponent(filtroConsumo)}`;
-
-      const res = await fetch(urlConsulta);
+      // 👇 FIX APLICADO: Eliminamos la inyección forzada de corchetes [].
+      // Ahora se manda la clasificación exacta y limpia (Ej. "Sushis")
+      const urlConsulta = `${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&clasificacion=${encodeURIComponent(filtroClasificacion)}&tipo_consumo=${encodeURIComponent(filtroConsumo)}`;  
       
+      const res = await fetch(urlConsulta);  
       if (res.ok) {
         const data = await res.json();
         setReporte(data);
@@ -104,12 +92,11 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   const handleImprimir = () => window.print();  
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">  
+    <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
       <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-3xl border border-slate-200 shadow-sm print:hidden gap-4">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
           📈 Finanzas
-        </h2>
-        
+        </h2>  
         <div className="flex flex-wrap justify-center bg-slate-100 p-1 rounded-2xl w-full xl:w-auto overflow-hidden">
           <button onClick={() => setVistaModulo('ventas')} className={`flex-1 sm:flex-none px-3 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${vistaModulo === 'ventas' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             <BarChart3 size={16}/> Ventas
@@ -159,9 +146,9 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
       {vistaModulo === 'cortes' && <VistaCortesHistorico apiUrl={apiUrl} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />}
       {vistaModulo === 'combustible' && <ReporteCombustible apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
       {vistaModulo === 'compras' && <ReporteCompras apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
-      {vistaModulo === 'mermas' && <ReporteMermas apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}  
+      {vistaModulo === 'mermas' && <ReporteMermas apiUrl={apiUrl} formaterMoneda={formaterMoneda} />}
     </div>
   );
-};
+};  
 
 export default AdminReportes;

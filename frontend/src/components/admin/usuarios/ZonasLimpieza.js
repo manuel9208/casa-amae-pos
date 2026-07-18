@@ -37,7 +37,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const date = new Date(year, month, i + 1);
     const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
     const nombre = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
-    return { num: i + 1, nombre, fechaStr };
+    return { num: i + 1, nombre, fechaStr, dayIndex: date.getDay() }; // dayIndex: 0=Dom, 1=Lun, etc.
   });
 
   const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
@@ -172,7 +172,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }));
   };
 
-  // EVALUACIÓN A NIVEL EMPLEADO (NUEVA LÓGICA INDIVIDUAL)
+  // EVALUACIÓN A NIVEL EMPLEADO (LÓGICA INDIVIDUAL)
   const evaluarLimpieza = (areaId, turno, fechaStr, empId, status) => {
     if (diasCerrados.includes(fechaStr)) return;
     setHayCambiosSinGuardar(true);
@@ -221,7 +221,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       async () => {
         setIsSubmitting(true);
         try {
-          // 1. Recolectar URLs para borrar de Cloudinary y quitarlas de la base de datos
           let urlsToDelete = [];
           let nuevasEvidencias = JSON.parse(JSON.stringify(evidencias));
 
@@ -231,12 +230,11 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 Object.values(nuevasEvidencias[clave][fecha]).forEach(url => {
                   if (url) urlsToDelete.push(url);
                 });
-                delete nuevasEvidencias[clave][fecha]; // Purgar del JSON local
+                delete nuevasEvidencias[clave][fecha]; 
               }
             });
           });
 
-          // 2. Ejecutar borrado en Backend (Requiere endpoint en Node.js)
           if (urlsToDelete.length > 0) {
             fetch(`${apiUrl}/configuracion/eliminar-archivos`, {
               method: 'POST',
@@ -245,7 +243,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }).catch(() => console.warn("Petición de borrado a Cloudinary omitida o fallida."));
           }
 
-          // 3. Traer la matriz actual para evitar sobreescribir otros datos
           const resConfig = await fetch(`${apiUrl}/configuracion`);
           let matrizActual = {};
           if (resConfig.ok) {
@@ -336,6 +333,24 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       else setModalCelda({ ...modalCelda, seleccionados: nuevos });
     };
 
+    const toggleDiaSemana = (dayIndex) => {
+      if (!isMasivo) return;
+      const nuevosDias = data.diasSemana.includes(dayIndex)
+        ? data.diasSemana.filter(d => d !== dayIndex)
+        : [...data.diasSemana, dayIndex];
+      setModalMasivo({ ...modalMasivo, diasSemana: nuevosDias });
+    };
+
+    const diasSemanaNombres = [
+      { idx: 1, label: 'LUN' },
+      { idx: 2, label: 'MAR' },
+      { idx: 3, label: 'MIÉ' },
+      { idx: 4, label: 'JUE' },
+      { idx: 5, label: 'VIE' },
+      { idx: 6, label: 'SÁB' },
+      { idx: 0, label: 'DOM' }
+    ];
+
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
       const clave = `${data.areaId}_${data.turno}`;
@@ -344,15 +359,31 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const nuevasAsignaciones = { ...asignaciones };
         if (!nuevasAsignaciones[clave]) nuevasAsignaciones[clave] = {};
         let count = 0;
+        
         diasMes.forEach(d => {
+          // Operamos solo si el día no está cerrado por auditoría
           if (!diasCerrados.includes(d.fechaStr)) {
-            nuevasAsignaciones[clave][d.fechaStr] = data.seleccionados;
-            count++;
+            
+            if (data.diasSemana.includes(d.dayIndex)) {
+              // 1. Si el día ESTÁ marcado, asignamos a los empleados seleccionados (Sobrescribe)
+              nuevasAsignaciones[clave][d.fechaStr] = data.seleccionados;
+              count++;
+            } else {
+              // 2. Si el día NO ESTÁ marcado, eliminamos a estos empleados en específico de ese día.
+              // (Así corregimos automáticamente si los habías asignado por error a toda la semana)
+              if (nuevasAsignaciones[clave][d.fechaStr]) {
+                nuevasAsignaciones[clave][d.fechaStr] = nuevasAsignaciones[clave][d.fechaStr].filter(
+                  empId => !data.seleccionados.includes(empId)
+                );
+              }
+            }
+            
           }
         });
+        
         setAsignaciones(nuevasAsignaciones);
         setModalMasivo(null);
-        showAlert('Éxito', `Asignado a ${count} días. ¡Recuerda pulsar Guardar!`, 'success');
+        showAlert('Éxito', `Asignado a ${count} días. Se limpiaron los días no marcados. ¡Recuerda Guardar!`, 'success');
       } else {
         setAsignaciones(prev => ({
           ...prev,
@@ -368,9 +399,36 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           <h3 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">
             {isMasivo ? 'Asignación Masiva Mensual' : `Asignar: ${data.fechaStr}`}
           </h3>
-          <p className="text-sm font-bold text-blue-600 mb-6 bg-blue-50 px-4 py-2 rounded-xl w-fit mt-2 border border-blue-100">
+          <p className="text-sm font-bold text-blue-600 mb-4 bg-blue-50 px-4 py-2 rounded-xl w-fit mt-2 border border-blue-100">
             {data.areaId} - Turno {data.turno}
           </p>
+
+          {isMasivo && (
+            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">
+                Repetir cada semana los días:
+              </label>
+              <div className="flex justify-between gap-1 sm:gap-2">
+                {diasSemanaNombres.map(ds => {
+                  const isSelected = data.diasSemana.includes(ds.idx);
+                  return (
+                    <button
+                      key={ds.idx}
+                      type="button"
+                      onClick={() => toggleDiaSemana(ds.idx)}
+                      className={`flex-1 py-2 rounded-lg font-black text-[10px] sm:text-xs transition-all ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                          : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {ds.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
             {empleadosVisibles.map(emp => (
@@ -606,7 +664,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
                         {/* ACCIÓN MASIVA PARA ESTE TURNO */}
                         <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                          <button onClick={() => setModalMasivo({ areaId: area.id, turno, seleccionados: [] })} className="p-3 bg-white hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
+                          <button onClick={() => setModalMasivo({ areaId: area.id, turno, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="p-3 bg-white hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
                             <Calendar size={18}/>
                           </button>
                         </td>

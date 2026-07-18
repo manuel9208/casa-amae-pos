@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -9,8 +9,7 @@ import AsistentePersonalizacion from './AsistentePersonalizacion';
 import ModalCuentaAbierta from './ModalCuentaAbierta';
 import OfertaUpselling from './OfertaUpselling';
 import PasoIdentificarCliente from './PasoIdentificarCliente';
-
-// 👇 IMPORTACIÓN DEL NUEVO CEREBRO DE BÚSQUEDA
+// IMPORTACIÓN DEL NUEVO CEREBRO DE BÚSQUEDA
 import { useBuscadorClientes } from '../../useBuscadorClientes';
 
 const PuntoDeVentaPrincipal = ({
@@ -24,17 +23,16 @@ const PuntoDeVentaPrincipal = ({
     const [paso, setPaso] = useState('identificar');
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1);
     const [alertaUI, setAlertaUI] = useState(null);
+
     // ==========================================
     // ESTADOS DE DATOS
     // ==========================================
     const [clienteAsignado, setClienteAsignado] = useState(null);
     const [telefonoCliente, setTelefonoCliente] = useState('');
     const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
-
     const [datosNuevoCliente, setDatosNuevoCliente] = useState({
         nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: ''
     });
-
     const [nombreOrden, setNombreOrden] = useState('');
     const [tipoConsumo, setTipoConsumo] = useState('Local');
     const [notaOpcional, setNotaOpcional] = useState('');
@@ -42,7 +40,6 @@ const PuntoDeVentaPrincipal = ({
     const [zonaEnvioCosto, setZonaEnvioCosto] = useState('');
     const [carrito, setCarrito] = useState([]);
     const [categoriaActiva, setCategoriaActiva] = useState(null);
-
     const [cuponInput, setCuponInput] = useState('');
     const [cuponActivo, setCuponActivo] = useState(null);
     const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
@@ -50,10 +47,9 @@ const PuntoDeVentaPrincipal = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // ==========================================
-    // 🧠 INTEGRACIÓN DEL AUTOCOMPLETADO INTELIGENTE (HOOK)
+    // 🧠 INTEGRACIÓN DEL AUTOCOMPLETADO INTELIGENTE
     // ==========================================
     const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
-    // Solo busca si no hay un cliente oficialmente asignado, para ahorrar recursos
     const terminoBusqueda = clienteAsignado ? '' : nombreOrden;
     const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(terminoBusqueda, apiUrl);
 
@@ -84,16 +80,21 @@ const PuntoDeVentaPrincipal = ({
     const [extrasSeleccionados, setExtrasSeleccionados] = useState([]);
     const [notaProducto, setNotaProducto] = useState('');
     const [cantidadProducto, setCantidadProducto] = useState(1);
+
     // ==========================================
-    // CONFIGURACIONES DINÁMICAS
+    // CONFIGURACIONES DINÁMICAS Y PERMISOS
     // ==========================================
     const politicasSustUI = typeof configGlobal?.politicas_sustitucion === 'string'
         ? JSON.parse(configGlobal.politicas_sustitucion || '{}')
         : (configGlobal?.politicas_sustitucion || {});
-
+        
     const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string'
         ? JSON.parse(configGlobal.tarifas_envio || '[]')
         : (configGlobal?.tarifas_envio || []);
+
+    // 👇 NUEVA LÓGICA: Validamos globalmente si el canje está habilitado desde Panel Admin
+    const puntosCanjeActivo = configGlobal?.puntos_canje_activo === undefined ? true : (String(configGlobal?.puntos_canje_activo) === 'true');
+
     // ==========================================
     // CARGA INICIAL Y RESET
     // ==========================================
@@ -101,13 +102,11 @@ const PuntoDeVentaPrincipal = ({
         if (ordenEditandoRapida && modalPuntoVenta) {
             setPaso('menu');
             setPasoFlujoCaja(2);
-
             if (ordenEditandoRapida.cliente_id) {
                 setClienteAsignado({ id: ordenEditandoRapida.cliente_id, nombre: ordenEditandoRapida.cliente_nombre });
             } else {
                 setClienteAsignado(null);
             }
-
             setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
             setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
             setMesaSeleccionada(ordenEditandoRapida.mesa || '');
@@ -149,11 +148,11 @@ const PuntoDeVentaPrincipal = ({
     };
 
     // ==========================================
-    // 👇 ACCIÓN AL SELECCIONAR UNA SUGERENCIA DEL HOOK
+    // ACCIÓN AL SELECCIONAR UNA SUGERENCIA DEL HOOK
     // ==========================================
     const seleccionarSugerencia = (sug) => {
         setNombreOrden(sug.cliente_nombre);
-        
+
         if (sug.cliente_telefono) {
             setTelefonoCliente(sug.cliente_telefono);
             setTelefonoOrdenRapida(sug.cliente_telefono);
@@ -161,8 +160,6 @@ const PuntoDeVentaPrincipal = ({
         if (sug.direccion_entrega && sug.direccion_entrega !== 'Pendiente de dirección') {
             setNotaOpcional(sug.direccion_entrega);
         }
-
-        // MAGIA: Si el cliente está registrado, lo asignamos automáticamente al carrito
         if (sug.tipo === 'registrado') {
             setClienteAsignado({
                 id: sug.cliente_id,
@@ -172,15 +169,52 @@ const PuntoDeVentaPrincipal = ({
                 puntos: sug.puntos
             });
         }
-
         setMostrarSugerencias(false);
     };
 
     // ==========================================
-    // MATEMÁTICAS DEL CARRITO
+    // 🧠 MATEMÁTICAS DEL CARRITO Y PUNTOS FLEXIBLES (BLINDADO)
     // ==========================================
     const calcularSubtotal = () => carrito.reduce((t, i) => t + ((Number(i.precioFinal) || 0) * (Number(i.cantidad) || 1)), 0);
     const subtotal = calcularSubtotal();
+
+    // 👇 ESCÁNER DE BLOQUEO PARCIAL/FLEXIBLE ULTRA-SEGURO
+    const subtotalCanjeable = carrito.reduce((acc, item) => {
+        // 1. Limpiamos el nombre por si trae la categoría entre corchetes (Ej. "[Sushis] Sushi Mar y Tierra")
+        let nombreLimpioCarrito = String(item.nombre || '')
+            .replace(/^\[.*?\]\s*/, '') // Borra los corchetes iniciales
+            .split('(')[0]              // Borra si trae variaciones en paréntesis
+            .toLowerCase().trim();
+        // 2. Búsqueda infalible: Por ID o por Nombre limpio
+        const prodDB = (productos || []).find(p => {
+            const idItem = item.id || item.producto_id;
+            if (idItem && String(p.id) === String(idItem)) return true;
+
+            const cleanNameDB = String(p.nombre).toLowerCase().trim();
+            return cleanNameDB === nombreLimpioCarrito;
+        });
+        // 3. Extraemos la categoría (Si no viene directo, la sacamos de los corchetes del nombre)
+        let catNombre = prodDB?.categoria || item.categoria || item.clasificacion;
+        if (!catNombre && item.nombre && item.nombre.startsWith('[')) {
+             const match = item.nombre.match(/\[(.*?)\]/);
+             if (match) catNombre = match[1];
+        }
+        // 4. Leemos las reglas de la BD
+        const canjeProd = prodDB ? (prodDB.permite_canje !== false && String(prodDB.permite_canje) !== 'false') : true;
+        const catDB = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === String(catNombre || '').trim().toLowerCase());
+        const canjeCat = catDB ? (catDB.permite_canje !== false && String(catDB.permite_canje) !== 'false') : true;
+        
+        // 5. Si ambos dicen que SÍ, sumamos este dinero a la bolsa de lo que sí se puede pagar con puntos
+        if (canjeProd && canjeCat) {
+            return acc + ((Number(item.precioFinal) || 0) * (Number(item.cantidad) || 1));
+        }
+
+        // Si dice que NO, lo ignoramos de la bolsa canjeable
+        return acc;
+    }, 0);
+
+    const bloqueoPuntosActivo = subtotalCanjeable === 0 && carrito.length > 0;
+    const canjeParcialActivo = subtotalCanjeable > 0 && subtotalCanjeable < subtotal && carrito.length > 0;
 
     useEffect(() => {
         let dCup = 0;
@@ -190,31 +224,41 @@ const PuntoDeVentaPrincipal = ({
         }
         if (dCup > subtotal) dCup = subtotal;
         setDescuentoCuponDinero(dCup);
+
         let dPts = 0;
-        if (descuentoPuntosPuntosFisicos > 0) {
+
+        // 👇 PROTECCIÓN DE ESTADO: Si el admin apaga el canje globalmente o el carrito está bloqueado, desestimar puntos previos
+        if ((!puntosCanjeActivo || bloqueoPuntosActivo) && descuentoPuntosPuntosFisicos > 0) {
+            setDescuentoPuntosPuntosFisicos(0);
+        } else if (puntosCanjeActivo && descuentoPuntosPuntosFisicos > 0) {
             const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
             dPts = descuentoPuntosPuntosFisicos * valorPeso;
-            const limitePermitido = subtotal - dCup;
+
+            // 👇 LÍMITE INTELIGENTE MATEMÁTICO: Limita el descuento al "subtotalCanjeable" para no regalar productos prohibidos
+            const limitePermitido = Math.min(subtotal - dCup, subtotalCanjeable);
+
             if (dPts > limitePermitido) dPts = limitePermitido;
         }
+
         setDescuentoPuntosDinero(dPts > 0 ? dPts : 0);
-    }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal]);
+    }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal, bloqueoPuntosActivo, subtotalCanjeable, puntosCanjeActivo]);
+
     const descuentoTotal = descuentoCuponDinero + descuentoPuntosDinero;
     const totalConEnvio = (subtotal - descuentoTotal) + (zonaEnvioCosto ? Number(zonaEnvioCosto) : 0);
-
     const esEdicion = !!ordenEditandoRapida;
     const yaPagado = esEdicion && !['Por Cobrar', 'Pendiente'].includes(ordenEditandoRapida.metodo_pago);
-    
+
     // ==========================================
     // CATÁLOGOS Y WIZARD
     // ==========================================
     const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
     const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
-
+    
     const getPortadaCategoria = (catName) => {
         const clasifDB = clasificaciones.find(c => c.nombre === catName);
         return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
     };
+
     const cambiarCantidadCart = (idTicket, delta) => {
         setCarrito(prev => prev.map(item => {
             if (item.idTicket === idTicket) {
@@ -230,12 +274,15 @@ const PuntoDeVentaPrincipal = ({
             return item;
         }));
     };
+
     const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
+
     const resetWizard = () => {
         setProductoEnEspera(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
         setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({}); setIngredientesBase([]); setIngredientesSustituidos({});
         setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
     };
+
     const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
         if (!politicasSustUI.activa) return 0;
         if (politicasSustUI.modalidad === 'fija') return Number(politicasSustUI.tarifa_fija || 0);
@@ -244,17 +291,20 @@ const PuntoDeVentaPrincipal = ({
         const diff = Number(ingNuevo?.precio_extra || 0) - Number(ingBase?.precio_extra || 0);
         return diff > 0 ? diff : 0;
     };
+
     const evaluarUpsell = (prodId, catName) => {
         const promociones = configGlobal?.promociones || [];
         if (!Array.isArray(promociones)) return null;
         return promociones.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
+
     const handleTerminarPersonalizacion = (nuevoItem) => {
         setCarrito([...carrito, nuevoItem]);
         const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
         if (promo) setPromocionVigente(promo);
         resetWizard();
     };
+
     const agregarUpsellAlCarrito = () => {
         let precioFinal = Number(promocionVigente.valor_descuento);
         let precioBase = 0;
@@ -272,7 +322,6 @@ const PuntoDeVentaPrincipal = ({
         if (promocionVigente.tipo_descuento === 'porcentaje') {
             precioFinal = precioBase - (precioBase * (precioFinal / 100));
         }
-
         const nuevoItem = {
             idTicket: Math.random().toString(36).substr(2, 9),
             id: promocionVigente.producto_oferta_id,
@@ -285,7 +334,6 @@ const PuntoDeVentaPrincipal = ({
             cantidad: 1,
             extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0 }]
         };
-
         setCarrito([...carrito, nuevoItem]);
         setPromocionVigente(null);
     };
@@ -309,6 +357,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de conexión.'); }
         setIsSubmitting(false);
     };
+
     const registrarClienteRapido = async (e) => {
         e.preventDefault(); setErrorMsg('');
         if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
@@ -326,6 +375,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de red al registrar.'); }
         setIsSubmitting(false);
     };
+
     const verificarNip = async (e) => {
         e.preventDefault();
         if (nipInput.length !== 4) return setErrorNip('Ingresa 4 dígitos.');
@@ -344,6 +394,7 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setErrorNip('Error de red.'); }
         setIsSubmitting(false);
     };
+
     const aplicarCupon = async (e) => {
         e.preventDefault();
         if(!cuponInput.trim()) return;
@@ -357,87 +408,98 @@ const PuntoDeVentaPrincipal = ({
                 if(!cup.activo) return setMsgCupon({ texto: 'El cupón está inactivo.', tipo: 'error' });
                 if(cup.fecha_expiracion && new Date(cup.fecha_expiracion) < new Date()) return setMsgCupon({ texto: 'El cupón ha expirado.', tipo: 'error' });
                 if(cup.limite_usos && cup.usos_actuales >= cup.limite_usos) return setMsgCupon({ texto: 'Límite de usos alcanzado.', tipo: 'error' });
-
                 setCuponActivo(cup);
                 setMsgCupon({ texto: `¡Aplicado! -${cup.tipo === 'porcentaje' ? cup.valor + '%' : '$' + cup.valor}`, tipo: 'success' });
             } else setMsgCupon({ texto: 'Error al cargar cupones.', tipo: 'error' });
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
-      const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
-    if (carrito.length === 0 || isSubmitting) return;
-    if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
-    setIsSubmitting(true);  
-    const carritoExpandido = [];
-    carrito.forEach(item => {
-      const qty = item.cantidad || 1;
-      for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
-    });  
-    let stringDireccion = notaOpcional;
-    let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-    const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
-    if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
-    if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
-      stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
-    }  
-    if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-    else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += `| TEL: ${telefonoOrdenRapida}`;
-    else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
-    if (detallesCuentaAbierta) {
-      if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
-      else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
-    }  
-    let estadoInicial = 'Pendiente';
-    if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
-      estadoInicial = 'Pagado';
-    } else if (metodoAcelerado === 'Cobrar Ahora') {
-      estadoInicial = 'Pendiente';
-    } else if (ordenEditandoRapida) {
-      estadoInicial = ordenEditandoRapida.estado_preparacion;
-    }
-    const paquete = {
-      cliente_id: clienteAsignado?.id || null,
-      cliente_nombre: nombreOrden.trim(),
-      tipo_consumo: tipoConsumo,
-      metodo_pago: pagoFinal,
-      total: totalConEnvio,
-      costo_envio: costoEnvioFinal,
-      carrito: carritoExpandido,
-      origen: 'Caja',
-      direccion_entrega: stringDireccion,
-      estado_preparacion: estadoInicial,
-      mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
-      cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
-      descuento_puntos: descuentoPuntosPuntosFisicos
-    };  
-    const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
-    const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
-    try {
-      const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
-      if (res.ok) {
-        const data = await res.json();
-        if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
-          const dirLimpia = notaOpcional.trim();
-          if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-            fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+
+    const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
+        if (carrito.length === 0 || isSubmitting) return;
+        if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
+        setIsSubmitting(true);  
+
+        const carritoExpandido = [];
+        carrito.forEach(item => {
+          const qty = item.cantidad || 1;
+          for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
+        });  
+
+        let stringDireccion = notaOpcional;
+        let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
+        const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
+        if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
+        if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
+          stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
+        }  
+        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += `| TEL: ${telefonoOrdenRapida}`;
+        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
+
+        if (detallesCuentaAbierta) {
+          if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
+          else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
+        }  
+
+        let estadoInicial = 'Pendiente';
+        if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
+          estadoInicial = 'Pagado';
+        } else if (metodoAcelerado === 'Cobrar Ahora') {
+          estadoInicial = 'Pendiente';
+        } else if (ordenEditandoRapida) {
+          estadoInicial = ordenEditandoRapida.estado_preparacion;
+        }
+
+        // 👇 PROTECCIÓN DE PUNTOS: Calculamos los puntos FÍSICOS reales que se le descontarán al cliente
+        const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
+        const puntosEfectivosAUsar = descuentoPuntosDinero > 0 ? Math.ceil(descuentoPuntosDinero / valorPeso) : 0;
+        
+        const paquete = {
+          cliente_id: clienteAsignado?.id || null,
+          cliente_nombre: nombreOrden.trim(),
+          tipo_consumo: tipoConsumo,
+          metodo_pago: pagoFinal,
+          total: totalConEnvio,
+          costo_envio: costoEnvioFinal,
+          carrito: carritoExpandido,
+          origen: 'Caja',
+          direccion_entrega: stringDireccion,
+          estado_preparacion: estadoInicial,
+          mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
+          cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
+          descuento_puntos: puntosEfectivosAUsar // 👈 Solo descontamos los puntos que SI se usaron en el descuento parcial
+        };  
+
+        const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
+        const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
+        try {
+          const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
+          if (res.ok) {
+            const data = await res.json();
+            if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
+              const dirLimpia = notaOpcional.trim();
+              if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
+                fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+              }
+            }
+            refrescarDatosCaja();
+            if (metodoAcelerado === 'Cobrar Ahora') {
+                cerrarModalVenta();
+                setTimeout(() => setModalPago(data), 100);
+            } else {
+                if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
+                cerrarModalVenta();
+            }
+          } else {
+            const errData = await res.json();
+            setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
           }
+        } catch (e) {
+          setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
         }
-        refrescarDatosCaja();
-        if (metodoAcelerado === 'Cobrar Ahora') {
-            cerrarModalVenta();
-            setTimeout(() => setModalPago(data), 100);
-        } else {
-            if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
-            cerrarModalVenta();
-        }
-      } else {
-        const errData = await res.json();
-        setAlertaUI({ titulo: 'Error al Guardar', mensaje: errData.error || 'Problema al guardar la orden.', tipo: 'error' });
-      }
-    } catch (e) {
-      setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
-    }
-    setIsSubmitting(false);
-  };
+        setIsSubmitting(false);
+    };
+
     // ==========================================
     // WIZARD PROPS Y VALIDACIONES
     // ==========================================
@@ -447,19 +509,19 @@ const PuntoDeVentaPrincipal = ({
         const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
         const gruposObligatoriosList = [...new Set((productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
         const objGruposOpcionales = {};
-
+        
         (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
             if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
             objGruposOpcionales[o.categoria].opciones.push(o);
         });
-
+        
         if (tamanosList.length > 0) {
             pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
         }
         if (saboresList.length > 0) {
             pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
         }
-
+        
         gruposObligatoriosList.forEach(g => {
             pasosWiz.push({
                 id: `grupo_obl_${g}`,
@@ -469,7 +531,7 @@ const PuntoDeVentaPrincipal = ({
                 opciones: (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' && o.categoria === g).sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
         });
-
+        
         Object.keys(objGruposOpcionales).forEach(g => {
             pasosWiz.push({
                 id: `grupo_opc_${g}`,
@@ -480,29 +542,29 @@ const PuntoDeVentaPrincipal = ({
                 opciones: objGruposOpcionales[g].opciones.sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
         });
-
+        
         const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
-
         if (bases.length > 0) {
             pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
         }
-
+        
         pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
     }
-
+    
     const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
     const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
     (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
+
     if (!modalPuntoVenta) return null;
+
     // ==========================================
-    // RENDERIZADO VISUAL DEL STEPPER
+    // RENDERIZADO VISUAL
     // ==========================================
     return (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
             <div className="bg-slate-50 w-full max-w-4xl h-[90vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
-
                 {alertaUI && (
                     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
                         <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -517,6 +579,7 @@ const PuntoDeVentaPrincipal = ({
                         </div>
                     </div>
                 )}
+
                 {/* ENCABEZADO GLOBAL */}
                 <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -540,6 +603,7 @@ const PuntoDeVentaPrincipal = ({
                         <XCircle size={28} />
                     </button>
                 </div>
+
                 {/* IDENTIFICACIÓN PREVIA */}
                 {paso === 'identificar' || paso === 'registro' ? (
                     <PasoIdentificarCliente
@@ -553,7 +617,6 @@ const PuntoDeVentaPrincipal = ({
                     <>
                         {/* CUERPO CENTRAL DINÁMICO */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50/50">
-
                             {/* PASO 1: MENÚ */}
                             {pasoFlujoCaja === 1 && (
                                 <MenuCategoriasYProductos
@@ -562,6 +625,7 @@ const PuntoDeVentaPrincipal = ({
                                     getPortadaCategoria={getPortadaCategoria} abrirModalProducto={setProductoEnEspera}
                                 />
                             )}
+
                             {/* PASO 2: CARRITO GRANDE Y HERMOSO */}
                             {pasoFlujoCaja === 2 && (
                                 <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
@@ -591,7 +655,6 @@ const PuntoDeVentaPrincipal = ({
                                                             ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
                                                         </p>
                                                     </div>
-
                                                     <div className="flex items-center gap-3 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
                                                         <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
                                                         <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
@@ -607,11 +670,10 @@ const PuntoDeVentaPrincipal = ({
                                     )}
                                 </div>
                             )}
+
                             {/* PASO 3: LOGÍSTICA Y PAGOS */}
                             {pasoFlujoCaja === 3 && (
                                 <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
-
-                                    {/* Selector de Consumo */}
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4">1. Tipo de Servicio</label>
                                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -627,11 +689,9 @@ const PuntoDeVentaPrincipal = ({
                                             ))}
                                         </div>
                                     </div>
-                                    {/* Formulario Dinámico */}
+
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
-
-                                        {/* 👇 INPUT DE NOMBRE REEMPLAZADO CON AUTOCOMPLETADO FLOTANTE BLINDADO */}
                                         <div className="relative">
                                             <input
                                                 type="text"
@@ -639,21 +699,19 @@ const PuntoDeVentaPrincipal = ({
                                                 value={nombreOrden}
                                                 onChange={e => {
                                                     setNombreOrden(e.target.value);
-                                                    setMostrarSugerencias(true); // 👈 FIX: Abre la caja mientras escribe
-                                                    if (clienteAsignado) setClienteAsignado(null); // 👈 FIX: Desvincula la cuenta si borra o cambia el nombre
+                                                    setMostrarSugerencias(true);
+                                                    if (clienteAsignado) setClienteAsignado(null);
                                                 }}
                                                 onFocus={() => { if(sugerencias.length > 0) setMostrarSugerencias(true); }}
                                                 onBlur={() => setTimeout(() => setMostrarSugerencias(false), 250)}
                                                 className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`}
                                             />
-
                                             {buscandoSugerencias && (
                                                 <div className="absolute right-4 top-1/2 -translate-y-1/2">
                                                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                                 </div>
                                             )}
-                                            
-                                            {/* MENÚ DESPLEGABLE CON BADGES VISUALES */}
+
                                             {mostrarSugerencias && sugerencias.length > 0 && (
                                                 <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
                                                     <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
@@ -668,7 +726,6 @@ const PuntoDeVentaPrincipal = ({
                                                         >
                                                             <div className="flex justify-between items-center w-full">
                                                                 <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
-                                                                {/* 👇 BADGES MÁGICOS */}
                                                                 {sug.tipo === 'registrado' ? (
                                                                     <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md shadow-sm">
                                                                        <Star size={12} className="fill-indigo-700"/> Registrado
@@ -679,7 +736,6 @@ const PuntoDeVentaPrincipal = ({
                                                                     </span>
                                                                 )}
                                                             </div>
-
                                                             <div className="flex flex-wrap items-center gap-4 mt-1">
                                                                 {sug.cliente_telefono && (
                                                                     <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
@@ -697,27 +753,54 @@ const PuntoDeVentaPrincipal = ({
                                                 </div>
                                             )}
                                         </div>
-
                                         {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
                                         {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} clienteAsignado={clienteAsignado} />}
                                         {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} clienteAsignado={clienteAsignado} />}
                                         {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} clienteAsignado={clienteAsignado} />}
                                     </div>
+
                                     {/* Descuentos y Puntos */}
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
-
-                                        {clienteAsignado && (
-                                            <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl flex justify-between items-center shadow-sm animate-in fade-in zoom-in-95">
+                                        
+                                        {/* 👇 ALERTA ROJA O NARANJA INTELIGENTE INYECTADA (Condicionada al permiso general) */}
+                                        {puntosCanjeActivo && (bloqueoPuntosActivo || canjeParcialActivo) && clienteAsignado && carrito.length > 0 && (
+                                            <div className={`border p-3 rounded-2xl mb-2 flex gap-3 text-left animate-in slide-in-from-top-2 ${bloqueoPuntosActivo ? 'bg-red-50 border-red-200 text-red-600' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
+                                                <AlertTriangle size={20} className="shrink-0 mt-0.5" />
                                                 <div>
-                                                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Puntos Disponibles</p>
-                                                    <p className="text-xl font-black text-indigo-800">{clienteAsignado.puntos || 0} pts</p>
+                                                    <p className="font-black text-xs uppercase tracking-widest">{bloqueoPuntosActivo ? 'Canje Restringido' : 'Canje Parcial (Solo aplica en algunos)'}</p>
+                                                    <p className="text-[10px] font-bold mt-0.5 opacity-90">
+                                                        {bloqueoPuntosActivo
+                                                            ? 'El carrito contiene solo productos que NO participan en el programa de lealtad.'
+                                                            : `Los puntos solo aplicarán sobre $${subtotalCanjeable.toFixed(2)} del total de tu orden.`}
+                                                    </p>
                                                 </div>
-                                                {clienteAsignado.puntos > 0 && descuentoPuntosPuntosFisicos === 0 && (
-                                                    <button onClick={() => setModalNip(true)} className="bg-indigo-600 text-white px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md hover:bg-indigo-700 transition active:scale-95">Canjear</button>
+                                            </div>
+                                        )}
+                                        
+                                        {/* 👇 BLOQUE DE PUNTOS DISPONIBLES (Condicionado al permiso general) */}
+                                        {puntosCanjeActivo && clienteAsignado && (
+                                            <div className={`border p-4 rounded-2xl flex justify-between items-center shadow-sm animate-in fade-in zoom-in-95 ${bloqueoPuntosActivo ? 'bg-slate-50 border-slate-200' : 'bg-indigo-50 border-indigo-200'}`}>
+                                                <div>
+                                                    <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${bloqueoPuntosActivo ? 'text-slate-400' : 'text-indigo-500'}`}>Puntos Disponibles</p>
+                                                    <p className={`text-xl font-black ${bloqueoPuntosActivo ? 'text-slate-500' : 'text-indigo-800'}`}>{clienteAsignado.puntos || 0} pts</p>
+                                                </div>
+
+                                                {/* 👇 BOTÓN INTELIGENTE DE CANJE */}
+                                                {clienteAsignado.puntos > 0 && descuentoPuntosDinero === 0 && (
+                                                    <button
+                                                        disabled={bloqueoPuntosActivo}
+                                                        onClick={() => setModalNip(true)}
+                                                        className={`px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md transition active:scale-95 flex items-center gap-1.5 ${bloqueoPuntosActivo ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                                    >
+                                                        {bloqueoPuntosActivo ? <><Lock size={14}/> Bloqueado</> : 'Canjear'}
+                                                    </button>
                                                 )}
-                                                {descuentoPuntosPuntosFisicos > 0 && (
-                                                    <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl text-sm font-black uppercase shadow-sm hover:bg-red-200 transition active:scale-95">Quitar Puntos</button>
+                                                {descuentoPuntosDinero > 0 && (
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-lg">Usando {Math.ceil(descuentoPuntosDinero / (Number(configGlobal?.puntos_valor_peso) || 1))} pts</span>
+                                                        <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl text-sm font-black uppercase shadow-sm hover:bg-red-200 transition active:scale-95">Quitar</button>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
@@ -738,11 +821,11 @@ const PuntoDeVentaPrincipal = ({
                                 </div>
                             )}
                         </div>
+
                         {/* ========================================== */}
                         {/* FOOTER FIJO (NAVEGACIÓN Y COBRO)          */}
                         {/* ========================================== */}
                         <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-
                             {/* Desglose Matemático Superior */}
                             {pasoFlujoCaja > 1 && (
                                 <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
@@ -776,6 +859,7 @@ const PuntoDeVentaPrincipal = ({
                                     </div>
                                 </div>
                             )}
+
                             {/* Botoneras Inteligentes */}
                             <div className="max-w-4xl mx-auto flex gap-3 md:gap-4">
                                 {pasoFlujoCaja === 1 && (
@@ -819,7 +903,6 @@ const PuntoDeVentaPrincipal = ({
                                                 >
                                                     Cobrar Ahora
                                                 </button>
-
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => {
@@ -842,7 +925,6 @@ const PuntoDeVentaPrincipal = ({
                                                 >
                                                     Cuenta Abierta
                                                 </button>
-
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
                                                     onClick={() => generarPedidoBD('Cobrar Ahora')}
@@ -892,7 +974,6 @@ const PuntoDeVentaPrincipal = ({
                     resetWizard={resetWizard}
                     onTerminarPersonalizacion={handleTerminarPersonalizacion}
                 />
-
                 <ModalCuentaAbierta
                     isOpen={modalCuentaAbierta}
                     onClose={() => setModalCuentaAbierta(false)}
@@ -904,7 +985,6 @@ const PuntoDeVentaPrincipal = ({
                     configGlobal={configGlobal}
                     telefonoCliente={telefonoCliente || telefonoOrdenRapida}
                 />
-
                 <OfertaUpselling
                     promocionVigente={promocionVigente}
                     setPromocionVigente={setPromocionVigente}
@@ -917,7 +997,6 @@ const PuntoDeVentaPrincipal = ({
                             <span className="text-6xl mb-4 block">🎁</span>
                             <h2 className="text-2xl font-black text-slate-800 mb-2">Seguridad de Puntos</h2>
                             <p className="text-slate-500 font-medium mb-6">Pídele al cliente que ingrese su NIP para usar sus <strong className="text-indigo-600">{clienteAsignado?.puntos || 0} pts</strong>.</p>
-
                             <input
                                 type="password"
                                 maxLength="4"
@@ -927,9 +1006,7 @@ const PuntoDeVentaPrincipal = ({
                                 className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black tracking-[1em] outline-none focus:border-indigo-500 mb-4 text-slate-800"
                                 placeholder="••••"
                             />
-
                             {errorNip && <p className="text-red-500 text-xs font-bold bg-red-50 p-2 rounded-xl mb-4">{errorNip}</p>}
-
                             <div className="flex gap-4">
                                 <button type="button" onClick={() => { setModalNip(false); setNipInput(''); setErrorNip(''); }} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
                                 <button type="submit" disabled={nipInput.length !== 4 || isSubmitting} className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl disabled:opacity-50 transition active:scale-95 shadow-lg shadow-indigo-500/30">Autorizar</button>
@@ -941,4 +1018,5 @@ const PuntoDeVentaPrincipal = ({
         </div>
     );
 };
+
 export default PuntoDeVentaPrincipal;

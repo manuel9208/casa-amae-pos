@@ -122,7 +122,7 @@ const Cocina = ({ user, onLogout }) => {
             if (!res.ok) throw new Error("Error en petición");
             let data = await res.json();  
             
-            data = data.filter(p => ['Pendiente', 'Pagado', 'Preparando'].includes(p.estado_preparacion));
+            data = data.filter(p => ['Pagado', 'Preparando'].includes(p.estado_preparacion));
             
             if (data.length > prevPedidosCount.current) {
                 audioRef.current.play().catch(() => console.log('Bloqueo de audio por navegador'));

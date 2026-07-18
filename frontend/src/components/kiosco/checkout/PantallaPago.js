@@ -4,7 +4,8 @@ import { Clock } from 'lucide-react';
 const PantallaPago = ({
   pantallaActual, setPantallaActual, isSubmitting, seleccionarPago, getBackRuta,
   tipoConsumo, esPersonalInterno, calcularTotal, configGlobal, numeroPedidoReal,
-  procesarTransferencia
+  procesarTransferencia,
+  bloqueoPuntosActivo // 👈 Recibimos la propiedad aquí por compatibilidad de flujo
 }) => {
 
   if (pantallaActual === 'pago') {

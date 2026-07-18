@@ -1,5 +1,18 @@
 const db = require('../config/db');
 
+// 👇 ESCUDO DE ZONA HORARIA PARA EL SERVIDOR (Node.js)
+const getMazatlanDateStr = () => {
+  const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const parts = formatter.formatToParts(new Date());
+  let dDay, dMonth, dYear;
+  parts.forEach(part => {
+      if(part.type === 'day') dDay = part.value;
+      if(part.type === 'month') dMonth = part.value;
+      if(part.type === 'year') dYear = part.value;
+  });
+  return `${dYear}-${dMonth}-${dDay}`;
+};
+
 exports.guardarCorte = async (req, res) => {
   const {
     fecha, 
@@ -16,7 +29,7 @@ exports.guardarCorte = async (req, res) => {
     efectivo_cajon,
     pedidos_incluidos,
     detalles_envio,
-    turno_cerrado // 👈 NUEVO: Bandera para saber si se sella el turno
+    turno_cerrado // 👈 Bandera para saber si se sella el turno
   } = req.body;
 
   // 🛡️ ESCUDO ANTI-NULL
@@ -32,12 +45,13 @@ exports.guardarCorte = async (req, res) => {
   const e_cajon = Number(efectivo_cajon) || 0;
   const isCerrado = turno_cerrado === true;
   
-  const fechaCorte = fecha || new Date().toISOString().split('T')[0];
+  // 👇 FIX: Evita que el servidor UTC asigne la fecha de "mañana" después de las 6:00 PM
+  const fechaCorte = fecha || getMazatlanDateStr();
 
   try {
-    // 👇 FIX: Buscamos si el CAJERO EXACTO ya tiene un corte ABIERTO hoy
+    // 👇 FIX: Casteo a ::DATE para ignorar horas y evitar desfaces
     const existeCorte = await db.query(
-      'SELECT id FROM historico_cortes WHERE fecha_corte = $1 AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false ORDER BY id DESC LIMIT 1', 
+      'SELECT id FROM historico_cortes WHERE fecha_corte::DATE = $1::DATE AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false ORDER BY id DESC LIMIT 1', 
       [fechaCorte, usuario_id || null]
     );
 
@@ -97,11 +111,12 @@ exports.obtenerHistorial = async (req, res) => {
   try {
     let result;
     if (fecha) {
+        // 👇 FIX: Casteo a ::DATE para garantizar que matché solo el día
         result = await db.query(`
           SELECT c.*, u.nombre as usuario_nombre 
           FROM historico_cortes c 
           LEFT JOIN usuarios u ON c.usuario_id = u.id 
-          WHERE c.fecha_corte = $1
+          WHERE c.fecha_corte::DATE = $1::DATE
           ORDER BY c.id ASC
         `, [fecha]);
     } else {

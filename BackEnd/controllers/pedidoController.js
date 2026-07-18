@@ -63,7 +63,7 @@ exports.obtenerPedidosHoy = async (req, res) => {
         SELECT p.*, c.nombre as cliente_nombre
         FROM pedidos p
         LEFT JOIN clientes c ON p.cliente_id = c.id
-        WHERE DATE(p.fecha_creacion) = CURRENT_DATE
+        WHERE (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE
         ORDER BY p.fecha_creacion DESC
         `;
         const result = await db.query(query);
@@ -106,7 +106,7 @@ exports.crearPedido = async (req, res) => {
             }
         }
 
-        const nroRes = await client.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE DATE(fecha_creacion) = CURRENT_DATE");
+        const nroRes = await client.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE (fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE");
         const sigNumero = nroRes.rows[0].num;
         const estadoReal = estado_preparacion || 'Pendiente';
         const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
@@ -217,8 +217,45 @@ exports.crearPedido = async (req, res) => {
             io.emit('nuevo_pedido');
         }
 
-        // 👇 FIX APLICADO: Inclusión de TODOS los roles que operan u observan la operación (admin, cajero)
         if (estadoReal === 'Pagado') {
+            // 👇 SOLUCIÓN PUNTOS FANTASMAS (Crear Pedido Directo)
+            if (cliente_id) {
+                try {
+                    const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
+                    if (confRes.rows.length > 0) {
+                        const config = confRes.rows[0];
+                        if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
+                            const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
+                            const valorPeso = config.puntos_valor_peso !== undefined ? Number(config.puntos_valor_peso) : 1;
+                            
+                            let totalElegible = 0;
+                            const carritoItems = typeof pedidoInsertado.carrito === 'string' ? JSON.parse(pedidoInsertado.carrito) : pedidoInsertado.carrito;
+                            if (carritoItems && carritoItems.length > 0) {
+                                for (const item of carritoItems) {
+                                    let genera = true;
+                                    if (item.id) {
+                                        const prodRes = await db.query(`SELECT p.genera_puntos as p_genera, c.genera_puntos as c_genera FROM productos p LEFT JOIN clasificaciones c ON p.categoria = c.nombre WHERE p.id = $1`, [item.id]);
+                                        if (prodRes.rows.length > 0) {
+                                            const data = prodRes.rows[0];
+                                            if (data.p_genera === false || data.c_genera === false) genera = false;
+                                        }
+                                    }
+                                    if (genera) totalElegible += Number(item.precioFinal || 0) * Number(item.cantidad || 1);
+                                }
+                            }
+                            
+                            // Restar lo que se pagó con puntos para no ganar puntos sobre lo regalado
+                            const puntosAplicados = Number(pedidoInsertado.descuento_puntos) || 0;
+                            totalElegible -= (puntosAplicados * valorPeso);
+                            if (totalElegible < 0) totalElegible = 0;
+
+                            const puntosAGanar = Math.floor(totalElegible * (porcentaje / 100));
+                            if (puntosAGanar > 0) await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, cliente_id]);
+                        }
+                    }
+                } catch(e) {}
+            }
+
             if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda (Comedor)', `La orden #${pedidoInsertado.numero_pedido} entró directo a cocina.`);
             if (cliente_id && typeof notificarCliente !== 'undefined') notificarCliente(cliente_id, 'Orden Confirmada ✅', `Tu orden #${pedidoInsertado.numero_pedido} ha sido recibida y enviada a cocina.`);
         } else {
@@ -242,8 +279,7 @@ exports.actualizarPedido = async (req, res) => {
     const { id } = req.params;
     const datosPuros = limpiarNulos(req.body);
     
-    // 👇 FIX: Extraemos cupon_codigo del payload
-    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio, cupon_codigo } = datosPuros;
+    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio, cupon_codigo, descuento_puntos } = datosPuros;
     
     try {
         const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
@@ -257,9 +293,10 @@ exports.actualizarPedido = async (req, res) => {
             }
         }
 
-        // 👇 FIX: Consultamos el cupón anterior en la BD para no sumar doble si solo se editó la dirección o algo más.
-        const prevRes = await db.query('SELECT cupon_codigo FROM pedidos WHERE id = $1', [id]);
+        const prevRes = await db.query('SELECT cupon_codigo, descuento_puntos, cliente_id FROM pedidos WHERE id = $1', [id]);
         const cuponAnterior = prevRes.rows.length > 0 ? prevRes.rows[0].cupon_codigo : null;
+        const puntosAnteriores = prevRes.rows.length > 0 ? Number(prevRes.rows[0].descuento_puntos || 0) : 0;
+        const dbClienteId = prevRes.rows.length > 0 ? prevRes.rows[0].cliente_id : null;
 
         let updateFields = []; let params = []; let paramIndex = 1;
         if (cliente_id !== undefined) { updateFields.push(`cliente_id = $${paramIndex++}`); params.push(cliente_id); }
@@ -272,13 +309,24 @@ exports.actualizarPedido = async (req, res) => {
         if (mesa !== undefined) { updateFields.push(`mesa = $${paramIndex++}`); params.push(mesa); }
         if (costo_envio !== undefined) { updateFields.push(`costo_envio = $${paramIndex++}`); params.push(costoEnvioFinal); }
         if (cupon_codigo !== undefined) { updateFields.push(`cupon_codigo = $${paramIndex++}`); params.push(cupon_codigo); }
+        
+        if (descuento_puntos !== undefined) {
+            const puntosNuevos = Number(descuento_puntos);
+            const targetClient = cliente_id || dbClienteId;
+            if (targetClient && puntosNuevos !== puntosAnteriores) {
+                const diff = puntosNuevos - puntosAnteriores;
+                await db.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2', [diff, targetClient]);
+            }
+            updateFields.push(`descuento_puntos = $${paramIndex++}`);
+            params.push(puntosNuevos);
+        }
+
         if (updateFields.length === 0) return res.json({ success: true, message: 'No hay cambios' });
         params.push(id);
 
         const query = `UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = $${paramIndex} RETURNING *`;
         const result = await db.query(query, params);
 
-        // 👇 FIX: Si detectamos que se ingresó un cupón nuevo en esta modificación, incrementamos su uso.
         if (cupon_codigo && cupon_codigo !== cuponAnterior) {
             await db.query('UPDATE cupones SET usos_actuales = COALESCE(usos_actuales, 0) + 1 WHERE codigo = $1', [cupon_codigo]);
         }
@@ -295,7 +343,7 @@ exports.actualizarPedido = async (req, res) => {
 // =========================================================
 exports.actualizarEstado = async (req, res) => {
     const { id } = req.params;
-    const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos, repartidor_id } = req.body;
+    const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos, repartidor_id, descuento_puntos } = req.body;
     try {
         const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa, chef_id, tipo_consumo, metodo_pago FROM pedidos WHERE id = $1', [id]);
         if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
@@ -303,15 +351,23 @@ exports.actualizarEstado = async (req, res) => {
 
         let estadoReal = estado_preparacion;
         const metodoPagoAct = metodo_pago !== undefined ? metodo_pago : pedidoPrevio.metodo_pago;
-        const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto'].includes(metodoPagoAct);
+        
+        const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto', 'Puntos'].includes(metodoPagoAct);
 
         if (estadoReal === 'Entregado' && pedidoPrevio.tipo_consumo === 'Local' && !pedidoPrevio.mesa && isPagadoDinero) {
-            estadoReal = 'Finalizado';
+            estadoReal = 'Finalizado'; 
         }
 
         let updateFields = ['estado_preparacion = $1'];
         let params = [estadoReal];
         let queryIndex = 2;
+
+        if (descuento_puntos && Number(descuento_puntos) > 0 && pedidoPrevio.cliente_id) {
+            await db.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2', [descuento_puntos, pedidoPrevio.cliente_id]);
+            updateFields.push(`descuento_puntos = COALESCE(descuento_puntos, 0) + $${queryIndex}`);
+            params.push(descuento_puntos);
+            queryIndex++;
+        }
 
         if (chef_id !== undefined) { updateFields.push(`chef_id = $${queryIndex}`); params.push(chef_id); queryIndex++; }
         if (repartidor_id !== undefined) { updateFields.push(`repartidor_id = $${queryIndex}`); params.push(repartidor_id); queryIndex++; }
@@ -376,6 +432,7 @@ exports.actualizarEstado = async (req, res) => {
         if (pedidoActual.cliente_id && estadoReal !== 'Cancelado') {
             const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
             const ahoraEstaPagado = (estadoReal === 'Pagado' || estadoReal === 'Entregado' || estadoReal === 'Finalizado');
+            
             if (!yaEstabaPagado && ahoraEstaPagado) {
                 try {
                     const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -383,6 +440,8 @@ exports.actualizarEstado = async (req, res) => {
                         const config = confRes.rows[0];
                         if (config.puntos_activos === true || config.puntos_activos === 'true' || config.puntos_activos === undefined) {
                             const porcentaje = config.puntos_porcentaje !== undefined ? Number(config.puntos_porcentaje) : 10;
+                            const valorPeso = config.puntos_valor_peso !== undefined ? Number(config.puntos_valor_peso) : 1;
+                            
                             let totalElegible = 0;
                             const carritoItems = typeof pedidoActual.carrito === 'string' ? JSON.parse(pedidoActual.carrito) : pedidoActual.carrito;
                             if (carritoItems && carritoItems.length > 0) {
@@ -398,6 +457,13 @@ exports.actualizarEstado = async (req, res) => {
                                     if (genera) totalElegible += Number(item.precioFinal || 0) * Number(item.cantidad || 1);
                                 }
                             }
+
+                            // 👇 SOLUCIÓN PUNTOS FANTASMAS (Actualizar Estado / Cobrar Cuenta Abierta)
+                            // Restar lo que se pagó con puntos para no ganar puntos sobre lo que salió gratis
+                            const puntosAplicados = Number(pedidoActual.descuento_puntos) || 0;
+                            totalElegible -= (puntosAplicados * valorPeso);
+                            if (totalElegible < 0) totalElegible = 0;
+
                             const puntosAGanar = Math.floor(totalElegible * (porcentaje / 100));
                             if (puntosAGanar > 0) await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [puntosAGanar, pedidoActual.cliente_id]);
                         }
@@ -444,7 +510,6 @@ exports.actualizarEstado = async (req, res) => {
         const io = req.app.get('io');
         if (io) io.emit('pedido_actualizado');
 
-        // 👇 FIX APLICADO: Inclusión de TODOS los roles que operan u observan la operación
         if (estadoReal === 'Pagado' || estadoReal === 'Por Confirmar') {
             if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`);
             if (typeof notificarCliente !== 'undefined') notificarCliente(pedidoActual.cliente_id, 'Orden Confirmada ✅', `Tu orden #${pedidoActual.numero_pedido} ha sido autorizada y enviada a cocina.`);
@@ -465,9 +530,6 @@ exports.actualizarEstado = async (req, res) => {
     }
 };
 
-// =========================================================
-// MANEJADOR DE ALERTAS Y COMUNICACIÓN ENTRE MÓDULOS
-// =========================================================
 exports.actualizarAlerta = async (req, res) => {
     try {
         let result;
@@ -477,7 +539,6 @@ exports.actualizarAlerta = async (req, res) => {
             result = await db.query('SELECT * FROM pedidos WHERE id = $1', [req.params.id]);
         }
 
-        // Si la petición viene de la app del Repartidor para avisar que ya está afuera
         if (req.body.notificar_cliente && result.rows.length > 0) {
             const p = result.rows[0];
             if (p.cliente_id && typeof notificarCliente !== 'undefined') {
@@ -498,7 +559,7 @@ exports.obtenerHistorialAuditoria = async (req, res) => {
         SELECT p.*, c.nombre AS cliente_nombre
         FROM pedidos p
         LEFT JOIN clientes c ON p.cliente_id = c.id
-        ORDER BY p.id DESC LIMIT 200
+        ORDER BY p.id DESC LIMIT 3000
         `;
         const result = await db.query(query);
         res.json(result.rows);

@@ -87,6 +87,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
   }, []);
 
+  // 👇 CORREGIDO: Se restauró apiUrl dentro del texto de la URL
   const fetchCatalogoProductos = useCallback(() => {
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
@@ -95,7 +96,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
         setProductos(arr.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0));
       })
       .catch(console.error); 
-  }, []); // 👈 FIX: Limpio de variables de entorno globales
+  }, []); 
 
   useEffect(() => { 
     fetchCatalogoProductos();
@@ -153,7 +154,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       } 
     } catch (error) {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteActivo, ordenExterna, esCargaInicial]); // 👈 FIX: Limpio de variables de entorno globales
+  }, [clienteActivo, ordenExterna, esCargaInicial]); 
 
   useEffect(() => {
     if (!baseUrl || isOffline) return;
@@ -167,7 +168,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     });
     
     return () => socket.disconnect();
-  }, [fetchCatalogoProductos, isOffline, clienteActivo, verificarMisPedidos]); // 👈 FIX: Limpio de variables de entorno globales
+  }, [fetchCatalogoProductos, isOffline, clienteActivo, verificarMisPedidos]);
 
   useEffect(() => {
     if (clienteActivo && clienteActivo.id) {
@@ -425,6 +426,17 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     setIsSubmitting(false);
   };
 
+  const bloqueoPuntosActivo = carrito.some(item => {
+      const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
+      if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return true;
+      
+      const catNombre = prodDB?.categoria || item.categoria;
+      const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
+      if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return true;
+
+      return false;
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-4 md:p-8 relative overflow-x-hidden">
       
@@ -515,6 +527,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           setPromocionVigente={setPromocionVigente}
           guardarEdicionDirecta={guardarEdicionDirecta} 
           isSubmitting={isSubmitting} 
+          
+          /* PASAMOS EL PROP AL MENU PRINCIPAL */
+          bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
       )}
 
@@ -533,6 +548,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
           metodoPagoFinal={metodoPagoFinal} mesaQR={mesaQR} isOffline={isOffline} 
           setPromocionVigente={setPromocionVigente}
+
+          /* PASAMOS EL PROP AL CHECKOUT (POR SI ALLÁ TAMBIÉN ELIGE PAGAR) */
+          bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
       )}
 

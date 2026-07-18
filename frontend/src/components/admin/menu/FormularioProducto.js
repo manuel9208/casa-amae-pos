@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { XCircle, Star, ListChecks, Trash2 } from 'lucide-react';  
+import { XCircle, Star, ListChecks, Trash2, Gift } from 'lucide-react';  
 
 const FormularioProducto = ({
   productos, clasificaciones, catalogoIngredientes, EMOJIS_POR_GIRO,
@@ -18,11 +18,12 @@ const FormularioProducto = ({
 
   const [disponible, setDisponible] = useState(true);
   const [generaPuntos, setGeneraPuntos] = useState(true);  
+  const [permiteCanje, setPermiteCanje] = useState(true); // 👈 NUEVO ESTADO PARA CANJE
   
   const [usaStock, setUsaStock] = useState(false);
   const [stockPreparado, setStockPreparado] = useState(0);
 
-  // 👇 NUEVO: Rastrear el stock previo para detectar cuando cruza el cero hacia arriba
+  // Rastrear el stock previo para detectar cuando cruza el cero hacia arriba
   const prevStockRef = useRef(stockPreparado);
 
   useEffect(() => {
@@ -123,7 +124,10 @@ const FormularioProducto = ({
   const limpiarFormularioMenu = () => {
     setProductoEditando(null);
     setNombre(''); setDescripcion(''); setPrecio(''); setTiempoPreparacion(15); setEmoji('🍽️');
-    setImagenBlob(null); setDisponible(true); setGeneraPuntos(true);
+    setImagenBlob(null); 
+    setDisponible(true); 
+    setGeneraPuntos(true);
+    setPermiteCanje(true); // 👈 NUEVO: Resetear canje a true
     
     setUsaStock(false);
     setStockPreparado(0);
@@ -161,6 +165,7 @@ const FormularioProducto = ({
       
       setDisponible(p.disponible !== false);
       setGeneraPuntos(p.genera_puntos === false || p.genera_puntos === 'false' ? false : true);  
+      setPermiteCanje(p.permite_canje === false || p.permite_canje === 'false' ? false : true); // 👈 LECTURA NUEVA
       
       setUsaStock(p.usa_stock === true || p.usa_stock === 'true');
       const sPrep = Number(p.stock_preparado) || 0;
@@ -329,6 +334,7 @@ const FormularioProducto = ({
     formData.append('opciones', JSON.stringify(opcionesArmadas));
     formData.append('disponible', disponible);
     formData.append('genera_puntos', generaPuntos);
+    formData.append('permite_canje', permiteCanje); // 👈 NUEVO: Enviar flag al backend
     
     formData.append('usa_stock', usaStock);
     formData.append('stock_preparado', stockPreparado);
@@ -427,29 +433,33 @@ const FormularioProducto = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className={`p-5 rounded-3xl border transition-all flex items-center justify-center ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
-             <label className="flex items-center gap-3 cursor-pointer text-sm font-bold text-slate-700">
-               <input type="checkbox" checked={disponible} onChange={e=>setDisponible(e.target.checked)} className="w-5 h-5 accent-emerald-500" />
-               ✅ Disponible Menú
+        {/* 👇 NUEVA REJILLA: SWITCHES CON PERMITE CANJE */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className={`p-4 rounded-3xl border transition-all flex items-center justify-center ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+             <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
+               <input type="checkbox" checked={disponible} onChange={e=>setDisponible(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
+               Disponible
              </label>
           </div>
-          <div className={`p-5 rounded-3xl border transition-all flex items-center justify-center ${generaPuntos ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
-             <label className="flex items-center gap-3 cursor-pointer text-sm font-bold text-indigo-900">
-               <input type="checkbox" checked={generaPuntos} onChange={e=>setGeneraPuntos(e.target.checked)} className="w-5 h-5 accent-indigo-600" />
-               <Star size={18} className="fill-indigo-600"/> Genera Puntos
+          <div className={`p-4 rounded-3xl border transition-all flex items-center justify-center ${generaPuntos ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+             <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-indigo-900 select-none">
+               <input type="checkbox" checked={generaPuntos} onChange={e=>setGeneraPuntos(e.target.checked)} className="w-4 h-4 accent-indigo-600" />
+               <Star size={14} className="fill-indigo-600"/> Puntos
              </label>
           </div>
-          <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-center ${usaStock ? 'bg-amber-50 border-amber-300 shadow-inner' : 'bg-slate-50 border-slate-200 opacity-80'}`}>
-             <label className="flex items-center gap-2 cursor-pointer text-xs font-black uppercase text-amber-900 mb-2">
-               <input type="checkbox" checked={usaStock} onChange={e=>setUsaStock(e.target.checked)} className="w-4 h-4 accent-amber-600" />
-               📦 Controlar Stock
+          <div className={`p-4 rounded-3xl border transition-all flex items-center justify-center ${permiteCanje ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+             <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-indigo-900 select-none">
+               <input type="checkbox" checked={permiteCanje} onChange={e=>setPermiteCanje(e.target.checked)} className="w-4 h-4 accent-indigo-600" />
+               <Gift size={14} className="text-indigo-600"/> Canje
+             </label>
+          </div>
+          <div className={`p-4 rounded-3xl border transition-all flex flex-col justify-center ${usaStock ? 'bg-amber-50 border-amber-300 shadow-inner' : 'bg-slate-50 border-slate-200 opacity-80'}`}>
+             <label className="flex items-center gap-2 cursor-pointer text-[10px] font-black uppercase text-amber-900 mb-1 select-none">
+               <input type="checkbox" checked={usaStock} onChange={e=>setUsaStock(e.target.checked)} className="w-3 h-3 accent-amber-600" />
+               Stock
              </label>
              {usaStock && (
-               <div className="flex items-center gap-2 animate-in fade-in zoom-in-95">
-                  <span className="text-[10px] font-black text-amber-700 uppercase">Total:</span>
-                  <input type="number" min="0" value={stockPreparado} onChange={e => setStockPreparado(Number(e.target.value))} className="w-full p-2 border border-amber-300 rounded-lg outline-none focus:border-amber-500 font-black text-center text-sm shadow-sm" />
-               </div>
+               <input type="number" min="0" value={stockPreparado} onChange={e => setStockPreparado(Number(e.target.value))} className="w-full p-1 border border-amber-300 rounded-lg outline-none focus:border-amber-500 font-black text-center text-xs shadow-sm bg-white" />
              )}
           </div>
         </div>

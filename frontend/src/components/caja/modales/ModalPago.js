@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft, AlertTriangle, Star } from 'lucide-react';
 
-const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido }) => {
+const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido, bloqueoPuntosActivo }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modoMixto, setModoMixto] = useState(false);
   const [montoEfectivoMixto, setMontoEfectivoMixto] = useState('');
@@ -9,7 +9,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
   const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
   const [toastCopiado, setToastCopiado] = useState(false);
   
-  // 👇 NUEVO: Estado para proteger la anulación
+  // Estado para proteger la anulación
   const [confirmarAnular, setConfirmarAnular] = useState(false);
 
   useEffect(() => {
@@ -30,7 +30,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
   // 🛡️ Lógica Anti-Limbo Actualizada con Confirmación:
   const cerrarModalPago = () => {
     if (!noSePuedeAnular) {
-      setConfirmarAnular(true); // 👈 Ya no anula directo, levanta la alerta
+      setConfirmarAnular(true); // Ya no anula directo, levanta la alerta
     } else {
       setModalPago(null);
     }
@@ -48,6 +48,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     if (metodo === 'Tarjeta') return <CreditCard size={20} />;
     if (metodo === 'Transferencia') return <Smartphone size={20} />;
     if (metodo === 'Mixto') return <Wallet size={20} />;
+    if (metodo === 'Puntos') return <Star size={20} className="fill-amber-500 text-amber-500" />;
     return <Wallet size={20} />;
   };
 
@@ -104,11 +105,15 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     setModalPago({ ...modalPago, metodo_pago: metodo });
   };
 
+  // 🚀 CÁLCULO UI Reactivo (Mejora visual de transparencia para el cajero)
+  const valorPesoGlobal = Number(configGlobal?.puntos_valor_peso) || 1;
+  const puntosEstimados = Math.ceil((Number(modalPago.total) || 0) / valorPesoGlobal);
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">
       <div className="bg-white p-6 md:p-10 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-2xl animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto relative">
         
-        {/* 👇 CAPA DE CONFIRMACIÓN DE ANULACIÓN (Seguridad) */}
+        {/* CAPA DE CONFIRMACIÓN DE ANULACIÓN (Seguridad) */}
         {confirmarAnular && (
           <div className="absolute inset-0 bg-white/90 backdrop-blur-md z-[200] rounded-[40px] flex items-center justify-center p-6 animate-in fade-in duration-200">
             <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-200 animate-in zoom-in-95">
@@ -217,6 +222,18 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
           </div>
         ) : modalPago.metodo_pago === 'Pendiente' || modalPago.metodo_pago === 'Por Cobrar' ? (
           <div className="space-y-6 animate-in fade-in">
+            
+            {/* ALERTA VISUAL DE RESTRICCIÓN DE PUNTOS */}
+            {bloqueoPuntosActivo && (
+              <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-2xl mb-4 flex gap-3 text-left animate-in slide-in-from-top-2">
+                <AlertTriangle size={24} className="shrink-0" />
+                <div>
+                  <p className="font-black text-sm uppercase tracking-widest">Canje Restringido</p>
+                  <p className="text-xs font-bold mt-1 opacity-90">Este pedido contiene artículos que NO participan en el programa de lealtad. No se puede pagar con puntos.</p>
+                </div>
+              </div>
+            )}
+
             <p className="text-center font-black text-slate-400 uppercase tracking-widest mb-4">Selecciona el método de pago final:</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <button disabled={isSubmitting} onClick={() => procesarSeleccionPago('Efectivo')} className="bg-emerald-50 border-2 border-emerald-100 hover:border-emerald-500 hover:bg-emerald-100 text-emerald-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><DollarSign size={28} className="text-emerald-500"/> <span className="text-sm md:text-base">Efectivo</span></button>
@@ -225,6 +242,18 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-100 text-indigo-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28} className="text-indigo-500"/> <span className="text-sm md:text-base text-center leading-tight">Dividir Pago</span></button>
             </div>
             
+            {/* BOTÓN ESPECIAL PARA PAGO CON PUNTOS (Solo visible si está activo en DB) */}
+            {(configGlobal?.puntos_activos && configGlobal?.puntos_canje_activo) && (
+              <button 
+                disabled={isSubmitting || bloqueoPuntosActivo} 
+                onClick={() => procesarSeleccionPago('Puntos')} 
+                className={`w-full mt-3 p-4 rounded-2xl font-black flex items-center justify-center gap-2 transition active:scale-95 ${bloqueoPuntosActivo ? 'bg-slate-100 border-2 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-amber-50 border-2 border-amber-200 hover:border-amber-500 hover:bg-amber-100 text-amber-600'}`}
+              >
+                <Star size={24} className={bloqueoPuntosActivo ? 'text-slate-400' : 'fill-amber-500 text-amber-500'}/> 
+                {bloqueoPuntosActivo ? 'Pago con Puntos (Bloqueado)' : 'Pagar con Puntos (Monedero)'}
+              </button>
+            )}
+
             <div className="flex flex-col md:flex-row gap-3 md:gap-4 pt-4 border-t border-slate-100">
               <button disabled={isSubmitting} onClick={handleVolverEditar} className="flex-1 py-4 md:py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
                 <ArrowLeft size={20}/> Volver / Editar
@@ -241,6 +270,43 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
                   Anular Pedido
                 </button>
               )}
+            </div>
+          </div>
+        ) : modalPago.metodo_pago === 'Puntos' ? (
+          <div className="text-center space-y-5 animate-in fade-in">
+            <div className="bg-amber-50 border border-amber-200 p-8 rounded-3xl text-amber-800 shadow-inner">
+              <Star size={64} className="mx-auto mb-4 opacity-80 text-amber-500 fill-amber-500" />
+              <h3 className="text-2xl font-black mb-2 tracking-tight">Cobro con Puntos</h3>
+              
+              {/* 🚀 MEJORA VISUAL UX: Mostramos el monto Y los puntos estimados a usar */}
+              <p className="font-bold text-lg text-amber-700">
+                Se descontarán <b>{puntosEstimados} pts</b> del monedero del cliente para cubrir el total de <b>${Number(modalPago.total).toFixed(2)}</b>.
+              </p>
+              
+              <p className="text-xs font-bold text-amber-600/70 mt-4 uppercase tracking-widest">El sistema validará si el cliente tiene saldo suficiente.</p>
+            </div>
+            <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
+              <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto flex items-center justify-center gap-2">
+                <ArrowLeft size={20}/> Atrás
+              </button>
+              <div className="flex gap-3 w-full">
+                {!noSePuedeAnular && (
+                  <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="w-16 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center shrink-0" title="Rechazar y Borrar Pedido">
+                    <XCircle size={24}/>
+                  </button>
+                )}
+                
+                {/* 👇 FIX: INYECTAMOS EL CÁLCULO DE PUNTOS AQUÍ PARA MANDARLO AL BACKEND */}
+                <button 
+                  disabled={isSubmitting} 
+                  onClick={() => procesarPago(null, false, null, puntosEstimados)} 
+                  className="flex-1 py-4 md:py-5 bg-amber-500 text-white font-black text-lg md:text-xl rounded-2xl disabled:opacity-50 hover:bg-amber-600 shadow-lg transition flex items-center justify-center gap-2 relative overflow-hidden"
+                >
+                  <span className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none rounded-2xl"></span>
+                  <CheckCircle2 size={24} className="relative z-10"/> 
+                  <span className="relative z-10">{isSubmitting ? 'Procesando...' : 'Confirmar Canje'}</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : modalPago.metodo_pago === 'Efectivo' ? (

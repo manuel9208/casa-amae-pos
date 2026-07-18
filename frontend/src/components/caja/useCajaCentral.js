@@ -269,13 +269,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         .trim();
     };
 
-    // ==========================================
-    // 👇 FIX: NUEVA LÓGICA DE CONSTRUCCIÓN DE TICKET (WORD WRAP)
-    // ==========================================
     const construirTextoTicket = () => {
       let receipt = "";  
-
-      // 🛠️ Función de división inteligente para evitar decapitar palabras
       const dividirTexto = (texto, maxLen) => {
         if (!texto) return [];
         const words = String(texto).split(' ');
@@ -300,7 +295,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         return lines;
       };
 
-      // 🛠️ Center Refactorizado: Centra y respeta líneas largas
       const center = (text) => {
         const str = String(text || '');
         if (str.length > 32) {
@@ -340,7 +334,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         const price = (Number(item.precioFinal) * qty).toFixed(2);
         let line = `${qty}x ${stripEmojis(item.nombre)}`;  
         
-        // Si el producto tiene nombre largo, hacemos salto de línea
         if (line.length > 24) { 
             const itemLineas = dividirTexto(line, 24);
             itemLineas.forEach((iLine, idx) => {
@@ -382,7 +375,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       receipt += `\n\n\n\n`;
       return receipt;
     };
-    // ==========================================
 
     if (modoImpresion === 'impresora') {
       try {
@@ -486,7 +478,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     } catch (e) {}
   };
 
-  const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null) => {
+  const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosUsados = 0) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     let estadoFinal;
@@ -515,12 +507,38 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, cajero_id: operadorActual?.id };
       if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
 
+      if (puntosUsados > 0) {
+          payload.descuento_puntos = puntosUsados;
+          payload.cliente_id = modalPago.cliente_id;
+      }
+
+      if (puntosUsados > 0 && modalPago.cliente_id) {
+          try {
+              await fetch(`${apiUrl}/pedidos/${modalPago.id}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                      descuento_puntos: puntosUsados, 
+                      cliente_id: modalPago.cliente_id,
+                      metodo_pago: metodoPagoFinal
+                  })
+              });
+          } catch (err) {
+              console.warn("Aviso: Fallo al inyectar puntos en la ruta principal", err);
+          }
+      }
+
       const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
 
       if (res.ok) {
         if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) lanzarImpresion(modalPago);
+        
+        if (puntosUsados > 0) {
+            mostrarAlertaCaja('Cobro Exitoso', `Se descontaron ${puntosUsados} puntos del monedero del cliente.`, 'success');
+        }
+
         setModalPago(null);
         setMontoRecibido('');
         await cargarDataDinamica();
@@ -570,6 +588,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
       estadoSeguro = 'Pagado';
     }
+
+    if (estadoSeguro === 'Entregado' && pedidoFull?.tipo_consumo === 'Local' && !pedidoFull?.mesa) {
+        estadoSeguro = 'Finalizado';
+    }
+    
     try {
       let payload = { estado_preparacion: estadoSeguro, ...extraData };
       if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
@@ -602,28 +625,63 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };
 
+  // ==========================================
+  // 👇 FIX: PROTECCIÓN FINANCIERA PARA PEDIDOS RECOGER
+  // ==========================================
   const confirmarPedidoRecoger = async (id) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
+      const pedidoRecoger = pedidos.find(p => p.id === id);
+      let metodoPagoAjustado = pedidoRecoger?.metodo_pago;
+
+      // Si el cliente indicó que pagará en Efectivo desde el Kiosco, 
+      // cambiamos a 'Por Cobrar' porque el cajero AÚN no tiene el dinero físicamente en la gaveta.
+      if (metodoPagoAjustado === 'Efectivo') {
+          metodoPagoAjustado = 'Por Cobrar';
+      }
+
       await fetch(`${apiUrl}/pedidos/${id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ estado_preparacion: 'Pagado', cajero_id: operadorActual?.id }) 
+        body: JSON.stringify({ 
+            estado_preparacion: 'Pagado', 
+            metodo_pago: metodoPagoAjustado, 
+            cajero_id: operadorActual?.id 
+        }) 
       });
       await cargarDataDinamica();
     } catch (error) {}
     setIsSubmitting(false);
   };
 
+  // ==========================================
+  // 👇 FIX CRÍTICO: PROTECCIÓN FINANCIERA PARA PEDIDOS DOMICILIO
+  // ==========================================
   const confirmarPedidoDomicilio = async (pedidoModificado) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       const { costo_envio } = pedidoModificado;
       const t = Number(pedidoModificado.total) + Number(costo_envio);
+      
+      let metodoPagoAjustado = pedidoModificado.metodo_pago;
+
+      // Si viene desde Kiosco como Efectivo, el cliente va a pagar en casa.
+      // Se obliga al sistema a registrarlo como 'Por Cobrar' para que vaya a 
+      // la pestaña de liquidación y el dinero no descuadre la caja del turno.
+      if (metodoPagoAjustado === 'Efectivo') {
+          metodoPagoAjustado = 'Por Cobrar';
+      }
+
       await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ estado_preparacion: 'Pagado', costo_envio, total: t, cajero_id: operadorActual?.id }) 
+        body: JSON.stringify({ 
+            estado_preparacion: 'Pagado', // En este POS 'Pagado' = Enviado a KDS Cocina
+            metodo_pago: metodoPagoAjustado, // 👈 Corrección inyectada
+            costo_envio, 
+            total: t, 
+            cajero_id: operadorActual?.id 
+        }) 
       });
       setModalZonaEnvio(null);
       await cargarDataDinamica();
@@ -726,9 +784,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };
 
-  // ==========================================
-  // 👇 FIX CRÍTICO AL GUARDADO DE EDICIONES (LIMPIEZA DE CARRITO Y MERGE SEGURO)
-  // ==========================================
   const guardarEdicionPedido = async (id, nuevosDatos) => {
     setIsSubmitting(true);
     try {
@@ -736,7 +791,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       if (pedidoRef) {
         const carritoArray = typeof pedidoRef.carrito === 'string' ? JSON.parse(pedidoRef.carrito) : (pedidoRef.carrito || []);
         
-        // 🛡️ Función de validación estricta para no sobrescribir datos valiosos con strings vacíos
         const mergeSeguro = (nuevo, original) => {
             if (nuevo === undefined || nuevo === null) return original;
             if (typeof nuevo === 'string' && nuevo.trim() === '') {
@@ -756,7 +810,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           estado_preparacion: mergeSeguro(nuevosDatos.estado_preparacion, pedidoRef.estado_preparacion),
           mesa: mergeSeguro(nuevosDatos.mesa, pedidoRef.mesa),
           
-          // 👇 FIX MÁGICO: Si el modal manda un carrito limpio (Reactivo), lo guardamos. Si no, protegemos el original.
           carrito: nuevosDatos.carrito !== undefined ? nuevosDatos.carrito : carritoArray,
           
           total: mergeSeguro(nuevosDatos.total, pedidoRef.total),
@@ -773,7 +826,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
         if(res.ok) {
           setModalEditarPedido(null);
-          await cargarDataDinamica(); // 🔄 Sockets / BD se actualizan
+          await cargarDataDinamica(); 
           mostrarAlertaCaja('Edición Exitosa', 'Los cambios se han guardado correctamente.', 'success');
         } else {
           mostrarAlertaCaja('Error', 'No se pudo guardar la edición.', 'error');
