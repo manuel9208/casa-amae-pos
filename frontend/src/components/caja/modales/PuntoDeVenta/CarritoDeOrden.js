@@ -1,10 +1,11 @@
 import React from 'react';
-import { XCircle } from 'lucide-react';
+import { XCircle, Edit } from 'lucide-react';
 
 const CarritoDeOrden = ({
     carrito,
     cambiarCantidadCart,
     quitarDelCarrito,
+    iniciarEdicion, // 👇 NUEVO: Prop inyectado
     subtotal,
     descuento,
     cuponActivo,
@@ -33,13 +34,13 @@ const CarritoDeOrden = ({
 
                 {carrito.map(item => (
                     <div key={item.idTicket} className="bg-white p-3 md:p-4 rounded-2xl border border-slate-200 shadow-sm relative transition-all hover:shadow-md animate-in slide-in-from-right-4 duration-200">
-                        <p className="font-black text-xs md:text-sm leading-tight pr-4">
+                        <p className="font-black text-xs md:text-sm leading-tight pr-14">
                             {item.cantidad > 1 && <span className="text-blue-600 mr-1">{item.cantidad}x</span>}
                             {item.nombre}
                         </p>
 
                         {item.extras && item.extras.length > 0 && (
-                            <ul className="text-[9px] md:text-[10px] space-y-0.5 mb-2 md:mb-3 mt-1">
+                            <ul className="text-[9px] md:text-[10px] space-y-0.5 mb-2 md:mb-3 mt-1 pr-14">
                                 {item.extras.map((e, idx) => (
                                     <li key={idx} className="text-slate-500 font-bold leading-tight">{e.nombre}</li>
                                 ))}
@@ -58,9 +59,17 @@ const CarritoDeOrden = ({
                             </div>
                         </div>
 
-                        <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="absolute right-2 top-2 text-slate-300 hover:text-red-500 transition-colors disabled:opacity-50">
-                            <XCircle size={18} className="md:w-5 md:h-5"/>
-                        </button>
+                        {/* 👇 MODIFICADO: Agrupación de controles de Editar y Eliminar */}
+                        <div className="absolute right-2 top-2 flex items-center gap-1">
+                            {iniciarEdicion && (
+                                <button disabled={isSubmitting} onClick={() => iniciarEdicion(item)} className="p-1.5 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all disabled:opacity-50" title="Editar Platillo">
+                                    <Edit size={18} className="md:w-5 md:h-5"/>
+                                </button>
+                            )}
+                            <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50" title="Quitar Platillo">
+                                <XCircle size={18} className="md:w-5 md:h-5"/>
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>

@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ArrowLeft, CheckSquare, Square } from 'lucide-react';
 
 const AsistentePersonalizacion = ({
-    productoEnEspera, pasosWiz, pasoActualObj, pasoPersonalizacion, setPasoPersonalizacion,
+    productoEnEspera, itemEditando, pasosWiz, pasoActualObj, pasoPersonalizacion, setPasoPersonalizacion,
     opcionSeleccionada, setOpcionSeleccionada, saborSeleccionado, setSaborSeleccionado,
     gruposSeleccionados, setGruposSeleccionados, gruposOpcionalesSeleccionados, setGruposOpcionalesSeleccionados,
     ingredientesBase, setIngredientesBase, ingredientesSustituidos, setIngredientesSustituidos,
@@ -12,6 +12,25 @@ const AsistentePersonalizacion = ({
     clasificaciones
 }) => {
     
+    // 👇 NUEVO: Efecto Hidratador (Precarga los datos si estamos editando)
+    useEffect(() => {
+        if (itemEditando) {
+            setCantidadProducto(itemEditando.cantidad || 1);
+            if (itemEditando.configuracionOriginal) {
+                const cfg = itemEditando.configuracionOriginal;
+                setOpcionSeleccionada(cfg.opcionSeleccionada || null);
+                setSaborSeleccionado(cfg.saborSeleccionado || null);
+                setGruposSeleccionados(cfg.gruposSeleccionados || {});
+                setGruposOpcionalesSeleccionados(cfg.gruposOpcionalesSeleccionados || {});
+                setIngredientesBase(cfg.ingredientesBase || []);
+                setIngredientesSustituidos(cfg.ingredientesSustituidos || {});
+                setExtrasSeleccionados(cfg.extrasSeleccionados || []);
+                setNotaProducto(cfg.notaProducto || '');
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [itemEditando?.idTicket]);
+
     if (!productoEnEspera || !pasoActualObj) return null;
 
     const isUsaStock = productoEnEspera.usa_stock === true || String(productoEnEspera.usa_stock) === 'true';
@@ -43,8 +62,20 @@ const AsistentePersonalizacion = ({
         const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
         const destinoReal = clasifObj?.destino || 'Cocina';
 
+        // 👇 NUEVO: Empaquetamos la configuración para que pueda ser re-editada en el futuro
+        const configuracionOriginal = {
+            opcionSeleccionada,
+            saborSeleccionado,
+            gruposSeleccionados,
+            gruposOpcionalesSeleccionados,
+            ingredientesBase,
+            ingredientesSustituidos,
+            extrasSeleccionados,
+            notaProducto
+        };
+
         const nuevoItem = {
-            idTicket: Date.now().toString(),
+            idTicket: itemEditando ? itemEditando.idTicket : Date.now().toString(), // Mantenemos la firma original si es edición
             id: productoEnEspera.id,
             producto_id: productoEnEspera.id,
             nombre: nombreCompleto,
@@ -57,7 +88,8 @@ const AsistentePersonalizacion = ({
             opciones: productoEnEspera.opciones || [],
             extras: extrasFinales,
             usa_stock: isUsaStock,
-            stock_preparado: stockActual
+            stock_preparado: stockActual,
+            configuracionOriginal // 👈 Inyección del estado semilla
         };
 
         onTerminarPersonalizacion(nuevoItem);
@@ -89,7 +121,11 @@ const AsistentePersonalizacion = ({
             <div className="bg-slate-50 rounded-[32px] md:rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100">
                 {/* ENCABEZADO */}
                 <div className="p-6 md:p-8 text-center shrink-0 bg-white border-b border-slate-200">
-                    <h3 className="text-2xl md:text-3xl font-black text-slate-800">{productoEnEspera.nombre}</h3>
+                    <h3 className="text-2xl md:text-3xl font-black text-slate-800">
+                        {productoEnEspera.nombre} 
+                        {/* 👇 NUEVO: Etiqueta sutil de edición */}
+                        {itemEditando && <span className="text-emerald-500 text-sm md:text-lg align-middle ml-2 font-bold">(Editando)</span>}
+                    </h3>
                     {productoEnEspera.descripcion && (
                         <div className="bg-slate-50 border border-slate-100 p-3 md:p-4 rounded-xl mt-3 mx-auto shadow-sm inline-block max-w-sm">
                             <p className="text-slate-600 font-medium text-xs md:text-sm leading-relaxed text-center">
@@ -97,7 +133,6 @@ const AsistentePersonalizacion = ({
                             </p>
                         </div>
                     )}
-                    {/* 👇 FIX: Eliminada la barra de progreso de "pasitos" visuales */}
                 </div>
 
                 {/* CUERPO DEL WIZARD */}
@@ -304,7 +339,6 @@ const AsistentePersonalizacion = ({
                         </div>
                     </div>
 
-                    {/* 👇 FIX APLICADO: Botón de Cancelar SIEMPRE anclado en todos los pasos */}
                     <div className="flex gap-2 md:gap-4">
                         <button onClick={resetWizard} className="px-4 md:px-6 py-4 md:py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-sm md:text-base">
                             Cancelar
@@ -319,8 +353,9 @@ const AsistentePersonalizacion = ({
                                 Siguiente Paso
                             </button>
                         ) : (
-                            <button onClick={handleTerminarPersonalizacion} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-black py-4 md:py-5 rounded-xl shadow-lg shadow-emerald-500/30 transition text-base md:text-xl active:scale-95">
-                                ✔ Agregar a Orden
+                            // 👇 NUEVO: Botón inteligente que cambia de texto si estás editando
+                            <button onClick={handleTerminarPersonalizacion} className={`flex-1 text-white font-black py-4 md:py-5 rounded-xl shadow-lg transition text-base md:text-xl active:scale-95 ${itemEditando ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
+                                {itemEditando ? '✔ Actualizar Platillo' : '✔ Agregar a Orden'}
                             </button>
                         )}
                     </div>

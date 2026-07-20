@@ -127,7 +127,9 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const canEditCart = isEnCola && !isCancelado && !isTerminado;
   const canEditConsumo = (isEnCola || isEnCocina || isTerminado) && !isTerminado && !isCancelado;  
   const isPagado = !['Pendiente', 'Por Cobrar'].includes(modalEditarPedido?.metodo_pago);
-  const canEditMetodo = isPagado && !isCancelado;  
+  
+  // 👇 FIX APLICADO: Liberamos la edición de método de cobro ignorando si es "Por Cobrar" (esencial para logística)
+  const canEditMetodo = !isCancelado && estado !== 'Pendiente';  
   
   const totalActualizado = totalBase + (editConsumo === 'Domicilio' ? Number(editCostoEnvio || 0) : 0);
 
@@ -430,6 +432,9 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta / Terminal</option>
                   <option value="Transferencia">Transferencia</option>
+                  {/* 👇 FIX APLICADO: Opciones añadidas para permitir la compatibilidad omnicanal y de logística */}
+                  <option value="Por Cobrar">Por Cobrar (Repartidor)</option>
+                  <option value="Mixto">Pago Mixto</option>
                 </select>
               </div>
             )}  

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock, Edit } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -23,7 +23,6 @@ const PuntoDeVentaPrincipal = ({
     const [paso, setPaso] = useState('identificar');
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1);
     const [alertaUI, setAlertaUI] = useState(null);
-
     // ==========================================
     // ESTADOS DE DATOS
     // ==========================================
@@ -45,14 +44,12 @@ const PuntoDeVentaPrincipal = ({
     const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
     const [errorMsg, setErrorMsg] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-
     // ==========================================
     // 🧠 INTEGRACIÓN DEL AUTOCOMPLETADO INTELIGENTE
     // ==========================================
     const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
     const terminoBusqueda = clienteAsignado ? '' : nombreOrden;
     const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(terminoBusqueda, apiUrl);
-
     // ==========================================
     // ESTADOS DE MODALES Y PUNTOS
     // ==========================================
@@ -64,11 +61,11 @@ const PuntoDeVentaPrincipal = ({
     const [descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos] = useState(0);
     const [descuentoPuntosDinero, setDescuentoPuntosDinero] = useState(0);
     const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0);
-
     // ==========================================
-    // ESTADOS DEL WIZARD DE PERSONALIZACIÓN
+    // ESTADOS DEL WIZARD DE PERSONALIZACIÓN Y EDICIÓN
     // ==========================================
     const [productoEnEspera, setProductoEnEspera] = useState(null);
+    const [itemEditandoId, setItemEditandoId] = useState(null); // NUEVO: Rastreador de edición
     const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
     const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
     const [saborSeleccionado, setSaborSeleccionado] = useState(null);
@@ -80,21 +77,18 @@ const PuntoDeVentaPrincipal = ({
     const [extrasSeleccionados, setExtrasSeleccionados] = useState([]);
     const [notaProducto, setNotaProducto] = useState('');
     const [cantidadProducto, setCantidadProducto] = useState(1);
-
     // ==========================================
     // CONFIGURACIONES DINÁMICAS Y PERMISOS
     // ==========================================
     const politicasSustUI = typeof configGlobal?.politicas_sustitucion === 'string'
         ? JSON.parse(configGlobal.politicas_sustitucion || '{}')
         : (configGlobal?.politicas_sustitucion || {});
-        
+
     const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string'
         ? JSON.parse(configGlobal.tarifas_envio || '[]')
         : (configGlobal?.tarifas_envio || []);
-
     // 👇 NUEVA LÓGICA: Validamos globalmente si el canje está habilitado desde Panel Admin
     const puntosCanjeActivo = configGlobal?.puntos_canje_activo === undefined ? true : (String(configGlobal?.puntos_canje_activo) === 'true');
-
     // ==========================================
     // CARGA INICIAL Y RESET
     // ==========================================
@@ -152,7 +146,6 @@ const PuntoDeVentaPrincipal = ({
     // ==========================================
     const seleccionarSugerencia = (sug) => {
         setNombreOrden(sug.cliente_nombre);
-
         if (sug.cliente_telefono) {
             setTelefonoCliente(sug.cliente_telefono);
             setTelefonoOrdenRapida(sug.cliente_telefono);
@@ -177,45 +170,40 @@ const PuntoDeVentaPrincipal = ({
     // ==========================================
     const calcularSubtotal = () => carrito.reduce((t, i) => t + ((Number(i.precioFinal) || 0) * (Number(i.cantidad) || 1)), 0);
     const subtotal = calcularSubtotal();
-
+    
     // 👇 ESCÁNER DE BLOQUEO PARCIAL/FLEXIBLE ULTRA-SEGURO
     const subtotalCanjeable = carrito.reduce((acc, item) => {
-        // 1. Limpiamos el nombre por si trae la categoría entre corchetes (Ej. "[Sushis] Sushi Mar y Tierra")
         let nombreLimpioCarrito = String(item.nombre || '')
-            .replace(/^\[.*?\]\s*/, '') // Borra los corchetes iniciales
-            .split('(')[0]              // Borra si trae variaciones en paréntesis
+            .replace(/^\[.*?\]\s*/, '')
+            .split('(')[0]
             .toLowerCase().trim();
-        // 2. Búsqueda infalible: Por ID o por Nombre limpio
+        
         const prodDB = (productos || []).find(p => {
             const idItem = item.id || item.producto_id;
             if (idItem && String(p.id) === String(idItem)) return true;
-
             const cleanNameDB = String(p.nombre).toLowerCase().trim();
             return cleanNameDB === nombreLimpioCarrito;
         });
-        // 3. Extraemos la categoría (Si no viene directo, la sacamos de los corchetes del nombre)
+        
         let catNombre = prodDB?.categoria || item.categoria || item.clasificacion;
         if (!catNombre && item.nombre && item.nombre.startsWith('[')) {
              const match = item.nombre.match(/\[(.*?)\]/);
              if (match) catNombre = match[1];
         }
-        // 4. Leemos las reglas de la BD
+        
         const canjeProd = prodDB ? (prodDB.permite_canje !== false && String(prodDB.permite_canje) !== 'false') : true;
         const catDB = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === String(catNombre || '').trim().toLowerCase());
         const canjeCat = catDB ? (catDB.permite_canje !== false && String(catDB.permite_canje) !== 'false') : true;
-        
-        // 5. Si ambos dicen que SÍ, sumamos este dinero a la bolsa de lo que sí se puede pagar con puntos
+
         if (canjeProd && canjeCat) {
             return acc + ((Number(item.precioFinal) || 0) * (Number(item.cantidad) || 1));
         }
-
-        // Si dice que NO, lo ignoramos de la bolsa canjeable
         return acc;
     }, 0);
-
+    
     const bloqueoPuntosActivo = subtotalCanjeable === 0 && carrito.length > 0;
     const canjeParcialActivo = subtotalCanjeable > 0 && subtotalCanjeable < subtotal && carrito.length > 0;
-
+    
     useEffect(() => {
         let dCup = 0;
         if (cuponActivo) {
@@ -224,41 +212,34 @@ const PuntoDeVentaPrincipal = ({
         }
         if (dCup > subtotal) dCup = subtotal;
         setDescuentoCuponDinero(dCup);
-
         let dPts = 0;
-
-        // 👇 PROTECCIÓN DE ESTADO: Si el admin apaga el canje globalmente o el carrito está bloqueado, desestimar puntos previos
         if ((!puntosCanjeActivo || bloqueoPuntosActivo) && descuentoPuntosPuntosFisicos > 0) {
             setDescuentoPuntosPuntosFisicos(0);
         } else if (puntosCanjeActivo && descuentoPuntosPuntosFisicos > 0) {
             const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
             dPts = descuentoPuntosPuntosFisicos * valorPeso;
-
-            // 👇 LÍMITE INTELIGENTE MATEMÁTICO: Limita el descuento al "subtotalCanjeable" para no regalar productos prohibidos
             const limitePermitido = Math.min(subtotal - dCup, subtotalCanjeable);
-
             if (dPts > limitePermitido) dPts = limitePermitido;
         }
-
         setDescuentoPuntosDinero(dPts > 0 ? dPts : 0);
     }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal, bloqueoPuntosActivo, subtotalCanjeable, puntosCanjeActivo]);
-
+    
     const descuentoTotal = descuentoCuponDinero + descuentoPuntosDinero;
     const totalConEnvio = (subtotal - descuentoTotal) + (zonaEnvioCosto ? Number(zonaEnvioCosto) : 0);
     const esEdicion = !!ordenEditandoRapida;
     const yaPagado = esEdicion && !['Por Cobrar', 'Pendiente'].includes(ordenEditandoRapida.metodo_pago);
-
+    
     // ==========================================
     // CATÁLOGOS Y WIZARD
     // ==========================================
     const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
     const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
-    
+
     const getPortadaCategoria = (catName) => {
         const clasifDB = clasificaciones.find(c => c.nombre === catName);
         return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
     };
-
+    
     const cambiarCantidadCart = (idTicket, delta) => {
         setCarrito(prev => prev.map(item => {
             if (item.idTicket === idTicket) {
@@ -274,15 +255,28 @@ const PuntoDeVentaPrincipal = ({
             return item;
         }));
     };
-
+    
     const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
+    
+    // 👇 NUEVO: Función para iniciar la edición de un platillo del carrito
+    const iniciarEdicion = (item) => {
+        const idOriginal = item.producto_id || item.id;
+        const productoOriginal = productos.find(p => String(p.id) === String(idOriginal));
+        
+        if (productoOriginal) {
+            setItemEditandoId(item.idTicket); // Guardamos la firma del item que vamos a reemplazar
+            setProductoEnEspera(productoOriginal); // Abrimos el Wizard con su config original
+        } else {
+            setAlertaUI({ titulo: 'No se puede editar', mensaje: 'El producto original ya no existe en el catálogo actual.', tipo: 'error' });
+        }
+    };
 
     const resetWizard = () => {
-        setProductoEnEspera(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
+        setProductoEnEspera(null); setItemEditandoId(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
         setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({}); setIngredientesBase([]); setIngredientesSustituidos({});
         setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
     };
-
+    
     const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
         if (!politicasSustUI.activa) return 0;
         if (politicasSustUI.modalidad === 'fija') return Number(politicasSustUI.tarifa_fija || 0);
@@ -291,20 +285,27 @@ const PuntoDeVentaPrincipal = ({
         const diff = Number(ingNuevo?.precio_extra || 0) - Number(ingBase?.precio_extra || 0);
         return diff > 0 ? diff : 0;
     };
-
+    
     const evaluarUpsell = (prodId, catName) => {
         const promociones = configGlobal?.promociones || [];
         if (!Array.isArray(promociones)) return null;
         return promociones.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
-
+    
+    // 👇 MODIFICADO: Inyección Quirúrgica al carrito
     const handleTerminarPersonalizacion = (nuevoItem) => {
-        setCarrito([...carrito, nuevoItem]);
-        const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
-        if (promo) setPromocionVigente(promo);
+        if (itemEditandoId) {
+            // Reemplazamos el item exacto manteniendo su posición
+            setCarrito(prev => prev.map(i => i.idTicket === itemEditandoId ? { ...nuevoItem, idTicket: i.idTicket } : i));
+        } else {
+            // Flujo Normal: Agregamos al final y revisamos upsells
+            setCarrito([...carrito, nuevoItem]);
+            const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
+            if (promo) setPromocionVigente(promo);
+        }
         resetWizard();
     };
-
+    
     const agregarUpsellAlCarrito = () => {
         let precioFinal = Number(promocionVigente.valor_descuento);
         let precioBase = 0;
@@ -337,7 +338,7 @@ const PuntoDeVentaPrincipal = ({
         setCarrito([...carrito, nuevoItem]);
         setPromocionVigente(null);
     };
-
+    
     // ==========================================
     // LÓGICA DE CLIENTES Y PAGOS
     // ==========================================
@@ -357,7 +358,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de conexión.'); }
         setIsSubmitting(false);
     };
-
+    
     const registrarClienteRapido = async (e) => {
         e.preventDefault(); setErrorMsg('');
         if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
@@ -375,7 +376,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de red al registrar.'); }
         setIsSubmitting(false);
     };
-
+    
     const verificarNip = async (e) => {
         e.preventDefault();
         if (nipInput.length !== 4) return setErrorNip('Ingresa 4 dígitos.');
@@ -394,7 +395,7 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setErrorNip('Error de red.'); }
         setIsSubmitting(false);
     };
-
+    
     const aplicarCupon = async (e) => {
         e.preventDefault();
         if(!cuponInput.trim()) return;
@@ -413,18 +414,16 @@ const PuntoDeVentaPrincipal = ({
             } else setMsgCupon({ texto: 'Error al cargar cupones.', tipo: 'error' });
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
-
+    
     const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null) => {
         if (carrito.length === 0 || isSubmitting) return;
         if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
         setIsSubmitting(true);  
-
         const carritoExpandido = [];
         carrito.forEach(item => {
           const qty = item.cantidad || 1;
           for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
         });  
-
         let stringDireccion = notaOpcional;
         let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
         const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
@@ -435,12 +434,10 @@ const PuntoDeVentaPrincipal = ({
         if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;
         else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += `| TEL: ${telefonoOrdenRapida}`;
         else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
-
         if (detallesCuentaAbierta) {
           if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
           else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
         }  
-
         let estadoInicial = 'Pendiente';
         if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
           estadoInicial = 'Pagado';
@@ -449,11 +446,10 @@ const PuntoDeVentaPrincipal = ({
         } else if (ordenEditandoRapida) {
           estadoInicial = ordenEditandoRapida.estado_preparacion;
         }
-
-        // 👇 PROTECCIÓN DE PUNTOS: Calculamos los puntos FÍSICOS reales que se le descontarán al cliente
+        
         const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
         const puntosEfectivosAUsar = descuentoPuntosDinero > 0 ? Math.ceil(descuentoPuntosDinero / valorPeso) : 0;
-        
+
         const paquete = {
           cliente_id: clienteAsignado?.id || null,
           cliente_nombre: nombreOrden.trim(),
@@ -467,9 +463,8 @@ const PuntoDeVentaPrincipal = ({
           estado_preparacion: estadoInicial,
           mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
           cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
-          descuento_puntos: puntosEfectivosAUsar // 👈 Solo descontamos los puntos que SI se usaron en el descuento parcial
+          descuento_puntos: puntosEfectivosAUsar
         };  
-
         const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
         const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
         try {
@@ -499,7 +494,7 @@ const PuntoDeVentaPrincipal = ({
         }
         setIsSubmitting(false);
     };
-
+    
     // ==========================================
     // WIZARD PROPS Y VALIDACIONES
     // ==========================================
@@ -509,19 +504,19 @@ const PuntoDeVentaPrincipal = ({
         const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
         const gruposObligatoriosList = [...new Set((productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
         const objGruposOpcionales = {};
-        
+
         (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
             if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
             objGruposOpcionales[o.categoria].opciones.push(o);
         });
-        
+
         if (tamanosList.length > 0) {
             pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
         }
         if (saboresList.length > 0) {
             pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
         }
-        
+
         gruposObligatoriosList.forEach(g => {
             pasosWiz.push({
                 id: `grupo_obl_${g}`,
@@ -531,7 +526,7 @@ const PuntoDeVentaPrincipal = ({
                 opciones: (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' && o.categoria === g).sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
         });
-        
+
         Object.keys(objGruposOpcionales).forEach(g => {
             pasosWiz.push({
                 id: `grupo_opc_${g}`,
@@ -542,23 +537,23 @@ const PuntoDeVentaPrincipal = ({
                 opciones: objGruposOpcionales[g].opciones.sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
         });
-        
+
         const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
         if (bases.length > 0) {
             pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
         }
-        
+
         pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
     }
-    
+
     const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
     const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
     (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
-
+    
     if (!modalPuntoVenta) return null;
-
+    
     // ==========================================
     // RENDERIZADO VISUAL
     // ==========================================
@@ -579,7 +574,6 @@ const PuntoDeVentaPrincipal = ({
                         </div>
                     </div>
                 )}
-
                 {/* ENCABEZADO GLOBAL */}
                 <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
                     <div className="flex items-center gap-3">
@@ -603,7 +597,7 @@ const PuntoDeVentaPrincipal = ({
                         <XCircle size={28} />
                     </button>
                 </div>
-
+                
                 {/* IDENTIFICACIÓN PREVIA */}
                 {paso === 'identificar' || paso === 'registro' ? (
                     <PasoIdentificarCliente
@@ -625,7 +619,7 @@ const PuntoDeVentaPrincipal = ({
                                     getPortadaCategoria={getPortadaCategoria} abrirModalProducto={setProductoEnEspera}
                                 />
                             )}
-
+                            
                             {/* PASO 2: CARRITO GRANDE Y HERMOSO */}
                             {pasoFlujoCaja === 2 && (
                                 <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
@@ -655,12 +649,21 @@ const PuntoDeVentaPrincipal = ({
                                                             ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
                                                         </p>
                                                     </div>
-                                                    <div className="flex items-center gap-3 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
+                                                    
+                                                    {/* 👇 MODIFICADO: Controles del Carrito con botón Editar integrado */}
+                                                    <div className="flex items-center gap-2 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
                                                         <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
                                                         <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
                                                         <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-blue-600 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Plus size={20}/></button>
+                                                        
                                                         <div className="w-px h-8 bg-slate-200 mx-1"></div>
-                                                        <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50">
+                                                        
+                                                        {/* Botón Editar Inyectado */}
+                                                        <button disabled={isSubmitting} onClick={() => iniciarEdicion(item)} className="w-10 h-10 bg-blue-50 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Editar Platillo">
+                                                            <Edit size={20}/>
+                                                        </button>
+                                                        
+                                                        <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Quitar Platillo">
                                                             <Trash2 size={20}/>
                                                         </button>
                                                     </div>
@@ -670,7 +673,7 @@ const PuntoDeVentaPrincipal = ({
                                     )}
                                 </div>
                             )}
-
+                            
                             {/* PASO 3: LOGÍSTICA Y PAGOS */}
                             {pasoFlujoCaja === 3 && (
                                 <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
@@ -689,7 +692,6 @@ const PuntoDeVentaPrincipal = ({
                                             ))}
                                         </div>
                                     </div>
-
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
                                         <div className="relative">
@@ -711,7 +713,6 @@ const PuntoDeVentaPrincipal = ({
                                                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                                 </div>
                                             )}
-
                                             {mostrarSugerencias && sugerencias.length > 0 && (
                                                 <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
                                                     <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
@@ -758,12 +759,8 @@ const PuntoDeVentaPrincipal = ({
                                         {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} clienteAsignado={clienteAsignado} />}
                                         {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} clienteAsignado={clienteAsignado} />}
                                     </div>
-
-                                    {/* Descuentos y Puntos */}
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
-                                        
-                                        {/* 👇 ALERTA ROJA O NARANJA INTELIGENTE INYECTADA (Condicionada al permiso general) */}
                                         {puntosCanjeActivo && (bloqueoPuntosActivo || canjeParcialActivo) && clienteAsignado && carrito.length > 0 && (
                                             <div className={`border p-3 rounded-2xl mb-2 flex gap-3 text-left animate-in slide-in-from-top-2 ${bloqueoPuntosActivo ? 'bg-red-50 border-red-200 text-red-600' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
                                                 <AlertTriangle size={20} className="shrink-0 mt-0.5" />
@@ -777,16 +774,12 @@ const PuntoDeVentaPrincipal = ({
                                                 </div>
                                             </div>
                                         )}
-                                        
-                                        {/* 👇 BLOQUE DE PUNTOS DISPONIBLES (Condicionado al permiso general) */}
                                         {puntosCanjeActivo && clienteAsignado && (
                                             <div className={`border p-4 rounded-2xl flex justify-between items-center shadow-sm animate-in fade-in zoom-in-95 ${bloqueoPuntosActivo ? 'bg-slate-50 border-slate-200' : 'bg-indigo-50 border-indigo-200'}`}>
                                                 <div>
                                                     <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${bloqueoPuntosActivo ? 'text-slate-400' : 'text-indigo-500'}`}>Puntos Disponibles</p>
                                                     <p className={`text-xl font-black ${bloqueoPuntosActivo ? 'text-slate-500' : 'text-indigo-800'}`}>{clienteAsignado.puntos || 0} pts</p>
                                                 </div>
-
-                                                {/* 👇 BOTÓN INTELIGENTE DE CANJE */}
                                                 {clienteAsignado.puntos > 0 && descuentoPuntosDinero === 0 && (
                                                     <button
                                                         disabled={bloqueoPuntosActivo}
@@ -821,12 +814,10 @@ const PuntoDeVentaPrincipal = ({
                                 </div>
                             )}
                         </div>
-
                         {/* ========================================== */}
                         {/* FOOTER FIJO (NAVEGACIÓN Y COBRO)          */}
                         {/* ========================================== */}
                         <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-                            {/* Desglose Matemático Superior */}
                             {pasoFlujoCaja > 1 && (
                                 <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
                                     <div className="flex gap-6">
@@ -859,8 +850,6 @@ const PuntoDeVentaPrincipal = ({
                                     </div>
                                 </div>
                             )}
-
-                            {/* Botoneras Inteligentes */}
                             <div className="max-w-4xl mx-auto flex gap-3 md:gap-4">
                                 {pasoFlujoCaja === 1 && (
                                     <button
@@ -940,9 +929,12 @@ const PuntoDeVentaPrincipal = ({
                         </div>
                     </>
                 )}
+                
                 {/* MODALES EXTERNOS FLOTANTES (WIZARD, UPSELL, NIP) */}
                 <AsistentePersonalizacion
                     productoEnEspera={productoEnEspera}
+                    // 👇 NUEVO: Inyectamos el ítem que se está editando para que el Wizard se hidrate
+                    itemEditando={itemEditandoId ? carrito.find(i => i.idTicket === itemEditandoId) : null}
                     pasosWiz={pasosWiz}
                     pasoActualObj={pasoActualObj}
                     pasoPersonalizacion={pasoPersonalizacion}
@@ -974,6 +966,7 @@ const PuntoDeVentaPrincipal = ({
                     resetWizard={resetWizard}
                     onTerminarPersonalizacion={handleTerminarPersonalizacion}
                 />
+                
                 <ModalCuentaAbierta
                     isOpen={modalCuentaAbierta}
                     onClose={() => setModalCuentaAbierta(false)}
@@ -1018,5 +1011,4 @@ const PuntoDeVentaPrincipal = ({
         </div>
     );
 };
-
 export default PuntoDeVentaPrincipal;
