@@ -3,8 +3,25 @@ import { Gift } from 'lucide-react';
 
 const PantallaConsumo = ({
   esPersonalInterno, mesaQR, promocionVigente, setPromocionVigente, 
-  agregarUpsellAlCarrito, setPantallaActual, procesarTipoConsumo, apiUrl
+  agregarUpsellAlCarrito, setPantallaActual, procesarTipoConsumo, apiUrl,
+  modoKiosco = 'web' // 👈 NUEVO: Recibimos el modo
 }) => {
+
+  // 👇 NUEVA LÓGICA INTELIGENTE DE BOTONES
+  const isTotem = modoKiosco === 'totem';
+
+  // El cajero ve todo. El Tótem solo ve Local/Llevar. La Web solo ve Domicilio/Recoger.
+  const showLocal = esPersonalInterno || isTotem;
+  const showLlevar = esPersonalInterno || isTotem;
+  const showDomicilio = esPersonalInterno || (!isTotem && modoKiosco === 'web');
+  const showRecoger = esPersonalInterno || (!isTotem && modoKiosco === 'web');
+
+  // Ajuste dinámico de columnas (Si hay 4 usa grid-cols-4, si hay 2 usa grid-cols-2)
+  const totalBotones = [showLocal, showLlevar, showDomicilio, showRecoger].filter(Boolean).length;
+  const gridClass = totalBotones === 4 
+    ? 'grid-cols-1 md:grid-cols-4' 
+    : 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto';
+
   return (
     <div className="max-w-5xl mx-auto mt-10 text-center animate-in fade-in relative">
       
@@ -60,42 +77,47 @@ const PantallaConsumo = ({
       
       <h2 className="text-4xl font-black mb-4 texto-destacado mt-4">¿Cómo disfrutarás tu pedido?</h2>
       
-      <div className={`grid gap-6 mt-12 ${esPersonalInterno ? 'grid-cols-1 md:grid-cols-4' : 'grid-cols-1 md:grid-cols-2 max-w-3xl mx-auto'}`}>
-        {esPersonalInterno && (
-          <>
+      <div className={`grid gap-6 mt-12 ${gridClass}`}>
+        
+        {showLocal && (
             <button 
                 onClick={() => procesarTipoConsumo('Local')} 
-                className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2"
+                className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2 group"
             >
-                <span className="text-7xl block mb-6">🍽️</span>
+                <span className="text-7xl block mb-6 group-hover:scale-110 transition-transform">🍽️</span>
                 <span className="text-xl font-black text-slate-700">Comer aquí</span>
             </button>
-            
-            <button 
-                onClick={() => procesarTipoConsumo('Para llevar')} 
-                className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2"
-            >
-                <span className="text-7xl block mb-6">🛍️</span>
-                <span className="text-xl font-black text-slate-700">Para llevar</span>
-            </button>
-          </>
         )}
         
-        <button 
-          onClick={() => procesarTipoConsumo('Domicilio')} 
-          className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2"
-        >
-            <span className="text-7xl block mb-6">🛵</span>
-            <span className="text-xl font-black text-slate-700">A Domicilio</span>
-        </button>
+        {showLlevar && (
+            <button 
+                onClick={() => procesarTipoConsumo('Para llevar')} 
+                className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2 group"
+            >
+                <span className="text-7xl block mb-6 group-hover:scale-110 transition-transform">🛍️</span>
+                <span className="text-xl font-black text-slate-700">Para llevar</span>
+            </button>
+        )}
         
-        <button 
-          onClick={() => procesarTipoConsumo('Recoger')} 
-          className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-orange-500 transition-all hover:-translate-y-2"
-        >
-            <span className="text-7xl block mb-6">📞</span>
-            <span className="text-xl font-black text-slate-700">Recoger en Local</span>
-        </button>
+        {showDomicilio && (
+            <button 
+              onClick={() => procesarTipoConsumo('Domicilio')} 
+              className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-blue-600 transition-all hover:-translate-y-2 group"
+            >
+                <span className="text-7xl block mb-6 group-hover:scale-110 transition-transform">🛵</span>
+                <span className="text-xl font-black text-slate-700">A Domicilio</span>
+            </button>
+        )}
+        
+        {showRecoger && (
+            <button 
+              onClick={() => procesarTipoConsumo('Recoger')} 
+              className="bg-white p-10 rounded-[40px] shadow-lg border-4 border-transparent hover:border-orange-500 transition-all hover:-translate-y-2 group"
+            >
+                <span className="text-7xl block mb-6 group-hover:scale-110 transition-transform">📞</span>
+                <span className="text-xl font-black text-slate-700">Recoger en Local</span>
+            </button>
+        )}
       </div>
     </div>
   );

@@ -25,7 +25,7 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // Aseguramos que existan las columnas en la DB, incluyendo las de Logística y Mapas
+    // 👇 AÑADIDA LA LÍNEA PARA CREAR LA COLUMNA DE KIOSCO_PIN_MAESTRO AUTOMÁTICAMENTE
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
@@ -44,7 +44,8 @@ exports.obtenerConfiguracion = async (req, res) => {
       ADD COLUMN IF NOT EXISTS ticket_impresora_puerto VARCHAR(10) DEFAULT '9100',
       ADD COLUMN IF NOT EXISTS gps_ciudad_estado TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS gps_direccion_local TEXT DEFAULT '',
-      ADD COLUMN IF NOT EXISTS gps_api_key TEXT DEFAULT '';
+      ADD COLUMN IF NOT EXISTS gps_api_key TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS kiosco_pin_maestro VARCHAR(10) DEFAULT '1234';
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -65,8 +66,8 @@ exports.obtenerConfiguracion = async (req, res) => {
     // Inyectamos las promociones activas a la configuración global
     const promoRes = await db.query(`
       SELECT p.*,
-      t.nombre AS trigger_nombre,
-      o.nombre AS oferta_nombre, o.imagen_url AS oferta_imagen
+        t.nombre AS trigger_nombre,
+        o.nombre AS oferta_nombre, o.imagen_url AS oferta_imagen
       FROM promociones p
       LEFT JOIN productos t ON p.producto_trigger_id = t.id
       LEFT JOIN productos o ON p.producto_oferta_id = o.id
@@ -86,7 +87,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   try {
     const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
     if (resActual.rows.length > 0) configActual = resActual.rows[0];
-  } catch (e) {} 
+  } catch (e) {}
 
   const mergedBody = { ...configActual, ...req.body };
 
@@ -105,13 +106,14 @@ exports.actualizarConfiguracion = async (req, res) => {
     wa_api_activa, wa_api_token, wa_phone_id,
     puntos_porcentaje, puntos_valor_peso, puntos_activos, puntos_canje_activo,
     bloqueo_caja_activo, bloqueo_caja_segundos,
-    comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, 
+    comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos,
     matriz_limpieza, matriz_observaciones,
     cocina_en_caja_activa, horarios_semana,
     asistencia_pin_caja, asistencia_login, asistencia_huella,
     politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
-    gps_ciudad_estado, gps_direccion_local, gps_api_key
-  } = mergedBody; 
+    gps_ciudad_estado, gps_direccion_local, gps_api_key,
+    kiosco_pin_maestro // 👈 AÑADIDO AL DESTRUCTURING
+  } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
   let tv_imagen_1 = configActual.tv_imagen_1 || null;
@@ -129,7 +131,6 @@ exports.actualizarConfiguracion = async (req, res) => {
     });
   }
 
-  // Parseos seguros
   const isCarruselActivo = tv_carrusel_activo === 'true' || tv_carrusel_activo === true;
   const isNegocioAbierto = negocio_abierto === undefined ? true : (negocio_abierto === 'true' || negocio_abierto === true);
   const isTicketActivo = ticket_impresion_activa === 'true' || ticket_impresion_activa === true;
@@ -149,7 +150,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   const limiteVacSeguro = limite_vacaciones_simultaneas !== undefined ? Number(limite_vacaciones_simultaneas) : 2;
 
   let tarifasParsed = '[]', bebidasParsed = '[]', platillosParsed = '[]', matrizParsed = '{}', matrizObsParsed = '{}', horariosParsed = '{}', politicasParsed = '{}', calendarioParsed = '{}';
-  
+
   try { tarifasParsed = (tarifas_envio && typeof tarifas_envio !== 'string') ? JSON.stringify(tarifas_envio) : (tarifas_envio || '[]'); } catch (e) {}
   try { bebidasParsed = (comedor_clasif_bebidas && typeof comedor_clasif_bebidas !== 'string') ? JSON.stringify(comedor_clasif_bebidas) : (comedor_clasif_bebidas || '[]'); } catch (e) {}
   try { platillosParsed = (comedor_clasif_platillos && typeof comedor_clasif_platillos !== 'string') ? JSON.stringify(comedor_clasif_platillos) : (comedor_clasif_platillos || '[]'); } catch (e) {}
@@ -157,7 +158,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   try { matrizObsParsed = (matriz_observaciones && typeof matriz_observaciones !== 'string') ? JSON.stringify(matriz_observaciones) : (matriz_observaciones || '{}'); } catch (e) {}
   try { horariosParsed = (horarios_semana && typeof horarios_semana !== 'string') ? JSON.stringify(horarios_semana) : (horarios_semana || '{}'); } catch (e) {}
   try { politicasParsed = (politicas_sustitucion && typeof politicas_sustitucion !== 'string') ? JSON.stringify(politicas_sustitucion) : (politicas_sustitucion || '{}'); } catch (e) {}
-  
+
   try {
     if (calendario_anual) {
       if (typeof calendario_anual === 'object') {
@@ -190,7 +191,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         calendario_anual, limite_vacaciones_simultaneas,
         ticket_impresora_ip, ticket_impresora_puerto,
         gps_ciudad_estado, gps_direccion_local, gps_api_key,
-        matriz_observaciones
+        matriz_observaciones,
+        kiosco_pin_maestro -- 👈 AÑADIDO AQUÍ
       ) VALUES (
         1, $1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10,
@@ -202,13 +204,15 @@ exports.actualizarConfiguracion = async (req, res) => {
         $33, $34,
         $35, $36, $37,
         $38, $39, $40, $41,
-        $42, $43, $44, $45, $46, $47,
+        $42, $43,
+        $44, $45, $46, $47,
         $48, $49,
         $50, $51, $52, $53,
         $54, $55,
         $56, $57,
         $58, $59, $60,
-        $61
+        $61,
+        $62 -- 👈 AÑADIDO PARÁMETRO #62
       ) ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
@@ -270,7 +274,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         gps_ciudad_estado = EXCLUDED.gps_ciudad_estado,
         gps_direccion_local = EXCLUDED.gps_direccion_local,
         gps_api_key = EXCLUDED.gps_api_key,
-        matriz_observaciones = EXCLUDED.matriz_observaciones::jsonb
+        matriz_observaciones = EXCLUDED.matriz_observaciones::jsonb,
+        kiosco_pin_maestro = COALESCE(EXCLUDED.kiosco_pin_maestro, '1234') -- 👈 AÑADIDO PARA EVITAR NULOS
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -288,7 +293,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       calendarioParsed, limiteVacSeguro,
       ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100',
       gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
-      matrizObsParsed
+      matrizObsParsed,
+      kiosco_pin_maestro || '1234' // 👈 AÑADIDO AL ARREGLO DE VARIABLES PARA GUARDAR EN DB
     ]);
 
     // Emitimos el socket para que las apps frontales se enteren del cambio manual

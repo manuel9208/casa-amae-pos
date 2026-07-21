@@ -5,12 +5,31 @@ const PantallaPago = ({
   pantallaActual, setPantallaActual, isSubmitting, seleccionarPago, getBackRuta,
   tipoConsumo, esPersonalInterno, calcularTotal, configGlobal, numeroPedidoReal,
   procesarTransferencia,
-  bloqueoPuntosActivo // 👈 Recibimos la propiedad aquí por compatibilidad de flujo
+  bloqueoPuntosActivo,
+  modoKiosco = 'web' // 👈 Recibimos el modo del kiosco
 }) => {
+
+  const isTerminalFisica = ['totem', 'drive-thru', 'mesa'].includes(modoKiosco);
+
+  // 👇 Lógica adaptativa para el texto del botón de efectivo
+  let textoEfectivo = "💵 Pago en Efectivo";
+  if (modoKiosco === 'totem') textoEfectivo = "💵 Pagaré en Caja";
+  if (modoKiosco === 'drive-thru') textoEfectivo = "💵 Pagaré en Ventanilla";
+  if (modoKiosco === 'mesa') textoEfectivo = "💵 Solicitar Cobro a Mesa";
+
+  // 👇 Bypass Inteligente: Solo pide cambio si es a Domicilio
+  const handleEfectivoClick = () => {
+    if (tipoConsumo === 'Domicilio' && !isTerminalFisica) {
+      setPantallaActual('cambio_efectivo_domicilio');
+    } else {
+      // Si está físicamente en el local o pasa a recoger, no hay cambio por calcular
+      seleccionarPago('Efectivo', 'Exacto');
+    }
+  };
 
   if (pantallaActual === 'pago') {
     return (
-      <div className="max-w-3xl mx-auto mt-10 animate-in fade-in">
+      <div className={`mx-auto mt-10 animate-in fade-in ${isTerminalFisica ? 'max-w-4xl' : 'max-w-3xl'}`}>
         <div className="flex justify-start mb-6">
            <button 
                disabled={isSubmitting} 
@@ -21,32 +40,38 @@ const PantallaPago = ({
            </button>
         </div>
         
-        <h2 className="text-4xl font-black text-center mb-12 texto-destacado">Método de Pago</h2>
+        <h2 className={`${isTerminalFisica ? 'text-5xl mb-16' : 'text-4xl mb-12'} font-black text-center texto-destacado tracking-tight`}>
+           ¿Cómo deseas pagar?
+        </h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <button 
               disabled={isSubmitting} 
-              onClick={() => setPantallaActual('cambio_efectivo_domicilio')} 
-              className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-emerald-50 hover:border-emerald-200'}`}
+              onClick={handleEfectivoClick} 
+              className={`bg-white rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isTerminalFisica ? 'p-10' : 'p-8'} ${isSubmitting ? 'opacity-50' : 'hover:bg-emerald-50 hover:border-emerald-200'}`}
           >
-              <span className="text-3xl font-black text-slate-700">💵 Pago en Efectivo</span>
+              <span className={`${isTerminalFisica ? 'text-4xl' : 'text-3xl'} font-black text-slate-700`}>
+                 {isSubmitting ? 'Procesando...' : textoEfectivo}
+              </span>
           </button>
           
           <button 
               disabled={isSubmitting} 
               onClick={() => seleccionarPago('Transferencia')} 
-              className={`bg-white p-8 rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-purple-50 hover:border-purple-200'}`}
+              className={`bg-white rounded-[30px] shadow-md border border-slate-100 flex items-center justify-between transition-all active:scale-95 ${isTerminalFisica ? 'p-10' : 'p-8'} ${isSubmitting ? 'opacity-50' : 'hover:bg-purple-50 hover:border-purple-200'}`}
           >
-              <span className="text-3xl font-black text-slate-700">{isSubmitting ? 'Procesando...' : '📱 Transferencia'}</span>
+              <span className={`${isTerminalFisica ? 'text-4xl' : 'text-3xl'} font-black text-slate-700`}>
+                 {isSubmitting ? 'Procesando...' : '📱 Transferencia'}
+              </span>
           </button>
 
           {esPersonalInterno && (tipoConsumo === 'Local' || tipoConsumo === 'Para llevar') && (
             <button 
                 disabled={isSubmitting} 
                 onClick={() => seleccionarPago('Por Cobrar')} 
-                className={`md:col-span-2 bg-orange-50 p-8 rounded-[30px] shadow-md border border-orange-200 flex items-center justify-between transition-all active:scale-95 ${isSubmitting ? 'opacity-50' : 'hover:bg-orange-100 hover:border-orange-300'}`}
+                className={`md:col-span-2 bg-orange-50 rounded-[30px] shadow-md border border-orange-200 flex items-center justify-between transition-all active:scale-95 ${isTerminalFisica ? 'p-10' : 'p-8'} ${isSubmitting ? 'opacity-50' : 'hover:bg-orange-100 hover:border-orange-300'}`}
             >
-                <span className="text-3xl font-black text-orange-700 flex items-center gap-3">
+                <span className={`${isTerminalFisica ? 'text-4xl' : 'text-3xl'} font-black text-orange-700 flex items-center gap-3`}>
                     <Clock size={32}/> Dejar Cuenta Abierta (Mandar a Cocina)
                 </span>
             </button>
@@ -100,7 +125,7 @@ const PantallaPago = ({
 
   if (pantallaActual === 'detalles_transferencia') {
     return (
-      <div className="max-w-md mx-auto mt-10 bg-white p-10 rounded-[40px] shadow-2xl border border-blue-100 text-center animate-in zoom-in">
+      <div className={`mx-auto mt-10 bg-white p-10 rounded-[40px] shadow-2xl border border-blue-100 text-center animate-in zoom-in ${isTerminalFisica ? 'max-w-xl' : 'max-w-md'}`}>
         <span className="text-6xl block mb-6">🏦</span>
         <h2 className="text-3xl font-black mb-2 text-slate-800">Datos para tu pago</h2>
         <p className="text-slate-500 font-medium mb-6">Transfiere el total exacto y envía comprobante por WhatsApp.</p>
@@ -112,7 +137,7 @@ const PantallaPago = ({
           </div>
           <div>
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Cuenta / CLABE</p>
-              <p className="font-black text-xl text-blue-600 tracking-wider">{configGlobal.cuenta}</p>
+              <p className="font-black text-2xl text-blue-600 tracking-wider">{configGlobal.cuenta}</p>
           </div>
           <div>
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest">A nombre de</p>
@@ -120,7 +145,7 @@ const PantallaPago = ({
           </div>
           <div className="pt-4 border-t border-slate-200">
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total a pagar</p>
-              <p className="font-black text-3xl text-slate-800">${calcularTotal()}</p>
+              <p className="font-black text-4xl text-slate-800">${calcularTotal()}</p>
           </div>
         </div>
         
@@ -132,7 +157,7 @@ const PantallaPago = ({
         
         <button 
             onClick={procesarTransferencia} 
-            className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg hover:bg-blue-700 transition active:scale-95"
+            className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-2xl shadow-lg hover:bg-blue-700 transition active:scale-95"
         >
             Ya envié mi comprobante
         </button>

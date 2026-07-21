@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle, Banknote, ChefHat, DollarSign } from 'lucide-react';
+import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle, Banknote, ChefHat, DollarSign } from 'lucide-react';  
 
 const TarjetaPedidoCobrar = ({
   pedido,
@@ -13,49 +13,61 @@ const TarjetaPedidoCobrar = ({
   renderBotonEditar,
   renderBotonAgregarExtra
 }) => {
-  const [confirmarAnular, setConfirmarAnular] = useState(false);
+  const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
-  const telefono = getTelefonoExtraido(pedido);
+  // 👇 FIX: Extracción de teléfono súper robusta (Soporta espacios, guiones y diferentes etiquetas)
+  let telefono = pedido.cliente_telefono || pedido.telefono || '';
+  if (!telefono && typeof getTelefonoExtraido === 'function') {
+      telefono = getTelefonoExtraido(pedido) || '';
+  }
+  if (!telefono && pedido.direccion_entrega) {
+      // Capturamos variaciones comunes asegurando que los espacios y guiones no corten el número
+      // (Warning corregido: se removió el escape innecesario del guion)
+      const matchTel = pedido.direccion_entrega.match(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*([0-9\s-]+)/i);
+      if (matchTel && matchTel[1]) {
+          telefono = matchTel[1].trim();
+      }
+  }
+
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';
-  const esLocal = pedido.tipo_consumo === 'Local';
+  const esLocal = pedido.tipo_consumo === 'Local';  
 
   const obtenerEstiloConsumo = () => {
     if (esDomicilio) return { bg: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-200', icon: <Bike size={12} /> };
     if (esLocal) return { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-200', icon: <Utensils size={12} /> };
     return { bg: 'bg-orange-50', text: 'text-orange-600', border: 'border-orange-200', icon: <Store size={12} /> };
   };
-  const estiloConsumo = obtenerEstiloConsumo();
+  const estiloConsumo = obtenerEstiloConsumo();  
 
   // EXTRACCIÓN INTELIGENTE DE DATOS
   const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
   let direccionLimpia = pedido.direccion_entrega || '';
-  let clienteExtraido = pedido.cliente_nombre || 'Invitado';
+  let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
   if (direccionLimpia.includes('A NOMBRE DE:')) {
     const match = direccionLimpia.match(/A NOMBRE DE:\s*([^|]+)/i);
     if (match && match[1]) {
       clienteExtraido = match[1].trim();
     }
-  }
+  }  
 
+  // 👇 FIX: Limpieza profunda de la dirección sin llevarse texto útil
+  // (Warning corregido: se removió el escape innecesario del guion)
   direccionLimpia = direccionLimpia
     .replace(/\[.*?\]/g, '')
     .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-    .replace(/TEL:\s*\d*/gi, '')
-    .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono completo para no mostrarlo duplicado
     .split('|')
     .map(parte => parte.trim())
     .filter(parte => parte.length > 0)
     .join(', ')
-    .trim();
+    .trim();  
 
-  // 👇 NUEVO: Identificamos si es un pedido "Fantasma" (No cobrado y no mandado a cocina)
-  const esPedidoFantasma = pedido.estado_preparacion === 'Pendiente';
+  const esPedidoFantasma = pedido.estado_preparacion === 'Pendiente';  
 
   return (
     <>
-      <div className={`bg-white p-5 md:p-6 rounded-3xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md animate-in slide-in-from-bottom-4 group ${esPedidoFantasma ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-blue-200'}`}>
-        
+      <div className={`bg-white p-5 md:p-6 rounded-3xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md animate-in slide-in-from-bottom-4 group ${esPedidoFantasma ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-blue-200'}`}>  
         {/* 1. ENCABEZADO */}
         <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
           <div>
@@ -73,18 +85,21 @@ const TarjetaPedidoCobrar = ({
               ${Number(pedido.total || 0).toFixed(2)}
             </p>
           </div>
-        </div>
+        </div>  
 
         {/* 2. DETALLES DEL CLIENTE Y CONTACTO */}
         <div className="space-y-2 mb-6 flex-1">
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
+
+          {/* 👇 BOTÓN WHATSAPP ACTIVO SIEMPRE QUE HAYA TELÉFONO - STRING(telefono) previene crashes */}
           {telefono && (
-            <a href={`https://wa.me/52${telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
-              <Phone size={14} className="text-blue-400" /> {telefono}
+            <a href={`https://wa.me/52${String(telefono).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
+              <Phone size={14} className="text-emerald-500" /> {telefono}
             </a>
           )}
+
           {esDomicilio && direccionLimpia && direccionLimpia !== 'Pendiente de dirección' && (
             <div className="space-y-2 mt-2">
               <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">
@@ -98,9 +113,9 @@ const TarjetaPedidoCobrar = ({
               )}
             </div>
           )}
-        </div>
+        </div>  
 
-        {/* 👇 NUEVO: ALERTA ROJA PARA PEDIDOS NO MANDADOS A COCINA */}
+        {/* ALERTA ROJA PARA PEDIDOS NO MANDADOS A COCINA */}
         {esPedidoFantasma && (
           <div className="mb-4 bg-red-50 border border-red-200 p-3 rounded-xl flex items-start gap-2 animate-pulse">
             <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5" />
@@ -109,29 +124,26 @@ const TarjetaPedidoCobrar = ({
               <p className="text-[10px] font-bold text-red-500 mt-0.5 leading-tight">Esta orden está en pausa. Elige qué hacer con ella.</p>
             </div>
           </div>
-        )}
+        )}  
 
-        {/* 3. BOTONES SECUNDARIOS (Ver detalle, editar, agregar extra) */}
+        {/* 3. BOTONES SECUNDARIOS */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           {renderBotonVerDetalle(pedido)}
           {renderBotonEditar(pedido)}
           {renderBotonAgregarExtra && renderBotonAgregarExtra(pedido)}
-        </div>
+        </div>  
 
         {/* 4. BOTONERA PRINCIPAL CONDICIONAL */}
         {esPedidoFantasma ? (
           <div className="grid grid-cols-3 gap-2 mt-auto">
-            {/* BOTÓN 1: ELIMINAR */}
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => setConfirmarAnular(true)} className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-red-200 group shadow-sm" title="Eliminar Orden">
               <Trash2 size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Eliminar</span>
             </button>
-            {/* BOTÓN 2: MANDAR A COCINA (Cambia estado a 'Pagado' pero método a 'Por Cobrar' para no perderlo de aquí) */}
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Pagado', { metodo_pago: 'Por Cobrar' })} className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-orange-200 group shadow-sm" title="Mandar a Cocina">
               <ChefHat size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Cocinar</span>
             </button>
-            {/* BOTÓN 3: COBRAR AHORA (Abre el modal de pago normal) */}
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago(pedido)} className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-500/20 group" title="Cobrar Ahora">
               <DollarSign size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Cobrar</span>
@@ -147,7 +159,7 @@ const TarjetaPedidoCobrar = ({
             </button>
           </div>
         )}
-      </div>
+      </div>  
 
       {/* MODAL CONFIRMAR ANULAR */}
       {confirmarAnular && (
@@ -169,6 +181,6 @@ const TarjetaPedidoCobrar = ({
       )}
     </>
   );
-};
+};  
 
 export default TarjetaPedidoCobrar;

@@ -22,6 +22,16 @@ const App = () => {
   const [vistaAdmin, setVistaAdmin] = useState('panel');
   const [vistaTV, setVistaTV] = useState(false);
 
+  // ==========================================
+  // ESTADOS NUEVOS: OMNICANALIDAD (Kiosco)
+  // ==========================================
+  const [modoKiosco, setModoKiosco] = useState('web'); // 'web', 'totem', 'drive-thru', 'mesa'
+  const [mesaQR, setMesaQR] = useState(null);
+  const [showConfigTerminal, setShowConfigTerminal] = useState(false);
+  const [pinTerminal, setPinTerminal] = useState('');
+  const [errorPin, setErrorPin] = useState('');
+  const pressTimer = useRef(null); // Para el botón secreto en el logo
+
   // ESTADOS: Para control dinámico de pantallas y persistencia F5
   const [entornoActivo, setEntornoActivo] = useState(null);
   const [segundaSesionActiva, setSegundaSesionActiva] = useState(false);
@@ -46,7 +56,8 @@ const App = () => {
   const [nipNuevo, setNipNuevo] = useState('');
 
   const [configGlobal, setConfigGlobal] = useState({
-    nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b'
+    nombre_negocio: '', logo_url: null, color_primario: '#2563eb', color_secundario: '#10b981', color_fondo: '#f1f5f9', color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b', fuente_titulos: 'system-ui', fuente_textos: 'system-ui', kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b',
+    kiosco_pin_maestro: '1234' // 👈 Variable por defecto por si no viene en DB
   });
 
   const prevDentroDeHorario = useRef(null);
@@ -115,6 +126,24 @@ const App = () => {
   // LIFECYCLE (EFECTOS DE ARRANQUE Y VIGILANCIA)
   // ==========================================
   
+  // NÚCLEO OMNICANAL: Detectar URL y Configuración Local
+  useEffect(() => {
+    // 1. Detectar si viene de un QR de Mesa (Sobrescribe cualquier modo)
+    const params = new URLSearchParams(window.location.search);
+    const mesaParam = params.get('mesa');
+    
+    if (mesaParam) {
+      setMesaQR(mesaParam);
+      setModoKiosco('mesa');
+    } else {
+      // 2. Si no es mesa, leer el modo de la terminal (Tablet Local)
+      const modoGuardado = localStorage.getItem('pos_kiosco_modo');
+      if (modoGuardado) {
+        setModoKiosco(modoGuardado);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const vigiaSesion = setInterval(() => {
         const sesionGuardada = localStorage.getItem('pos_sesion');
@@ -208,9 +237,7 @@ const App = () => {
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
-    // 👇 NUEVO: LISTENER PARA RECARGAR EL NAVEGADOR Y VACIAR CACHÉ
     socket.on('forzar_actualizacion', () => {
-      // Recarga forzada de página
       window.location.reload(true);
     });
 
@@ -340,6 +367,41 @@ const App = () => {
     const interval = setInterval(checkHorarioCron, 60000);
     return () => clearInterval(interval);
   }, [configGlobal]);
+
+  // ==========================================
+  // MANEJADORES DE EVENTOS TERMINAL (TRIGGER SECRETO)
+  // ==========================================
+  const startPressTimer = () => {
+    pressTimer.current = setTimeout(() => {
+      setShowConfigTerminal(true);
+    }, 3000); // 3 segundos presionado para abrir menú maestro
+  };
+  
+  const clearPressTimer = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+  };
+
+  const guardarModoTerminal = (modo) => {
+    // 👇 NUEVO: Validación Dinámica. Si no está en BD, usa 1234
+    const pinCorrecto = configGlobal.kiosco_pin_maestro || '1234';
+    
+    if (pinTerminal !== pinCorrecto) { 
+      setErrorPin('PIN incorrecto.');
+      return;
+    }
+    
+    if (modo === 'web') {
+      localStorage.removeItem('pos_kiosco_modo');
+    } else {
+      localStorage.setItem('pos_kiosco_modo', modo);
+    }
+    
+    setModoKiosco(modo);
+    setShowConfigTerminal(false);
+    setPinTerminal('');
+    setErrorPin('');
+  };
+
 
   // ==========================================
   // MANEJADORES DE LOGUEO Y REGISTRO
@@ -521,7 +583,7 @@ const App = () => {
     );
   }
 
-  // 🛡️ ESCUDO PROTECTOR
+  // 🛡️ ESCUDO PROTECTOR DE EMPLEADOS
   if (usuarioActivo) {
     
     if (usuarioActivo.rol === 'tv') {
@@ -529,7 +591,8 @@ const App = () => {
     }
 
     if (usuarioActivo.usuario === 'admin') {
-      if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={() => cerrarSesion()} /></div></>;
+      // AQUÍ PROPAGAMOS LOS NUEVOS PROPS HACIA EL KIOSCO EN MODO ADMIN
+      if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} modoKiosco={modoKiosco} mesaQR={mesaQR} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={() => cerrarSesion()} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={() => cerrarSesion()} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
     }
 
@@ -627,7 +690,8 @@ const App = () => {
     }
 
     if (entornoActivo === 'admin') {
-      if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={() => cerrarSesion()} /></div></>;
+      // AQUÍ PROPAGAMOS LOS NUEVOS PROPS HACIA EL KIOSCO EN MODO ADMIN
+      if (vistaAdmin === 'kiosco') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={usuarioActivo} clienteActivo={null} modoKiosco={modoKiosco} mesaQR={mesaQR} onVolverAdmin={() => setVistaAdmin('panel')} onLogout={() => cerrarSesion()} /></div></>;
       return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><AdminPanel user={usuarioActivo} onLogout={() => cerrarSesion()} onGoToKiosco={() => setVistaAdmin('kiosco')} /></>;
     }
 
@@ -635,15 +699,64 @@ const App = () => {
     if (entornoActivo === 'cocina') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Cocina user={usuarioActivo} onLogout={() => cerrarSesion()} /></>;
     if (entornoActivo === 'repartidor') return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><Repartidor user={usuarioActivo} configGlobal={configGlobal} onLogout={() => cerrarSesion()} /></>;
 
-  } // <-- FIN DEL ESCUDO PROTECTOR
+  } 
+  // <-- FIN DEL ESCUDO PROTECTOR
 
+  // RENDER: KIOSCO ACTIVO (CLIENTE LOGUEADO O INVITADO)
   if (clienteActivo || modoInvitado) {
-    return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} onLogout={() => cerrarSesion()} /></div></>;
+    // AQUÍ PROPAGAMOS LOS NUEVOS PROPS HACIA EL KIOSCO
+    return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} modoKiosco={modoKiosco} mesaQR={mesaQR} onLogout={() => cerrarSesion()} /></div></>;
   }
+
+
+  // ==========================================
+  // RENDER: PANTALLA DE AUTENTICACIÓN (LOGIN PÚBLICO)
+  // ==========================================
+  const isTerminalFisica = modoKiosco === 'totem' || modoKiosco === 'drive-thru';
 
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
+      
+      {/* MODAL MAESTRO: CONFIGURACIÓN DE TERMINAL */}
+      {showConfigTerminal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-[40px] p-8 md:p-12 max-w-md w-full shadow-2xl text-center border border-slate-100">
+            <div className="w-20 h-20 bg-slate-100 text-slate-700 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-4xl">⚙️</span>
+            </div>
+            <h3 className="text-2xl font-black text-slate-800 mb-2">Modo Terminal</h3>
+            <p className="text-slate-500 mb-8 font-bold text-sm">Ingresa el PIN maestro para configurar este dispositivo. (Contacta al administrador si no lo tienes)</p>
+            
+            <input 
+              type="password" 
+              value={pinTerminal} 
+              onChange={(e) => setPinTerminal(e.target.value.replace(/\D/g, ''))}
+              className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black outline-none mb-4 tracking-[0.5em] focus:border-blue-500 transition-colors"
+              placeholder="••••"
+              maxLength="4"
+              autoFocus
+            />
+            {errorPin && <p className="text-red-500 font-bold mb-6 text-sm bg-red-50 p-2 rounded-xl">{errorPin}</p>}
+            
+            <div className="flex flex-col gap-3">
+              <button onClick={() => guardarModoTerminal('totem')} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition-transform active:scale-95 shadow-lg shadow-blue-500/30">
+                Establecer como Tótem (Entrada)
+              </button>
+              <button onClick={() => guardarModoTerminal('drive-thru')} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-xl transition-transform active:scale-95 shadow-lg shadow-orange-500/30">
+                Establecer como Drive-Thru
+              </button>
+              <button onClick={() => guardarModoTerminal('web')} className="w-full bg-slate-800 hover:bg-slate-900 text-white font-black py-4 rounded-xl transition-transform active:scale-95">
+                Modo Web Normal (Reset)
+              </button>
+              <button onClick={() => { setShowConfigTerminal(false); setErrorPin(''); setPinTerminal(''); }} className="w-full mt-4 text-slate-400 hover:text-slate-600 font-bold underline transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="tema-cliente min-h-screen flex items-center justify-center p-4 font-sans text-slate-800 relative">
         
         {sesionExpirada && (
@@ -678,21 +791,37 @@ const App = () => {
             </div>
         )}
 
-        <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-2xl max-w-lg w-full text-center border relative overflow-hidden">
+        {/* CONTENEDOR DINÁMICO: Si es Terminal se hace más grande para Touch */}
+        <div className={`bg-white p-8 md:p-12 rounded-[40px] shadow-2xl w-full text-center border relative overflow-hidden transition-all duration-500 ${isTerminalFisica ? 'max-w-2xl py-16' : 'max-w-lg'}`}>
           <div className="absolute -top-32 -left-32 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
           <div className="absolute -bottom-32 -right-32 w-64 h-64 bg-emerald-50 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
 
           <div className="relative z-10">
-            {configGlobal.logo_url ? (
-              <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
-                <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" />
-              </div>
-            ) : (
-              <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30">🍔</div>
-            )}
+            
+            {/* LOGO CON TRIGGER SECRETO INYECTADO */}
+            <div 
+              className="select-none cursor-pointer"
+              onMouseDown={startPressTimer}
+              onMouseUp={clearPressTimer}
+              onMouseLeave={clearPressTimer}
+              onTouchStart={startPressTimer}
+              onTouchEnd={clearPressTimer}
+            >
+              {configGlobal.logo_url ? (
+                <div className="flex justify-center items-center h-28 md:h-36 mb-8 mt-4">
+                  <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300 pointer-events-none" />
+                </div>
+              ) : (
+                <div className="bg-blue-600 text-white w-32 h-32 flex items-center justify-center rounded-[36px] mx-auto mb-8 text-6xl shadow-xl shadow-blue-500/30 pointer-events-none">🍔</div>
+              )}
+            </div>
 
-            <h1 className="text-4xl font-black mb-2 tracking-tight texto-destacado">{configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}</h1>
-            <p className="font-medium mb-8 text-lg texto-destacado">{empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}</p>
+            <h1 className={`font-black mb-2 tracking-tight texto-destacado ${isTerminalFisica ? 'text-5xl' : 'text-4xl'}`}>
+              {configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}
+            </h1>
+            <p className={`font-medium mb-8 texto-destacado ${isTerminalFisica ? 'text-2xl' : 'text-lg'}`}>
+              {empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}
+            </p>
 
             {empleadoFase2 ? (
               <form onSubmit={handleLoginEmpleado} className="space-y-6 text-left animate-in slide-in-from-right">
@@ -711,46 +840,62 @@ const App = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Nombre *</label>
-                    <input type="text" required autoFocus value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 font-bold outline-none" placeholder="Juan" />
+                    <input type="text" required autoFocus value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} className={`w-full bg-slate-50 border-2 border-emerald-500 rounded-xl font-bold outline-none ${isTerminalFisica ? 'p-5 text-xl' : 'p-3'}`} placeholder="Juan" />
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Apellido *</label>
-                    <input type="text" required value={apellidoNuevo} onChange={(e) => setApellidoNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 font-bold outline-none" placeholder="Pérez" />
+                    <input type="text" required value={apellidoNuevo} onChange={(e) => setApellidoNuevo(e.target.value)} className={`w-full bg-slate-50 border-2 border-emerald-500 rounded-xl font-bold outline-none ${isTerminalFisica ? 'p-5 text-xl' : 'p-3'}`} placeholder="Pérez" />
                   </div>
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Correo Electrónico (Opcional)</label>
-                  <input type="email" value={correoNuevo} onChange={(e) => setCorreoNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 font-bold outline-none" placeholder="correo@ejemplo.com" />
+                  <input type="email" value={correoNuevo} onChange={(e) => setCorreoNuevo(e.target.value)} className={`w-full bg-slate-50 border-2 border-emerald-500 rounded-xl font-bold outline-none ${isTerminalFisica ? 'p-5 text-xl' : 'p-3'}`} placeholder="correo@ejemplo.com" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">Fecha Nacimiento</label>
-                    <input type="date" value={fechaNacNuevo} onChange={(e) => setFechaNacNuevo(e.target.value)} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-bold outline-none" />
+                    <input type="date" value={fechaNacNuevo} onChange={(e) => setFechaNacNuevo(e.target.value)} className={`w-full bg-slate-50 border-2 border-emerald-500 rounded-xl text-center font-bold outline-none ${isTerminalFisica ? 'p-5 text-xl' : 'p-3'}`} />
                   </div>
                   <div className="flex flex-col justify-end">
                     <label className="text-[10px] font-black text-slate-400 uppercase text-center mb-1">NIP de Seguridad *</label>
-                    <input type="password" maxLength="4" required value={nipNuevo} onChange={(e) => setNipNuevo(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-emerald-500 rounded-xl p-3 text-center font-black outline-none tracking-[0.5em]" placeholder="••••" />
+                    <input type="password" maxLength="4" required value={nipNuevo} onChange={(e) => setNipNuevo(e.target.value.replace(/\D/g, ''))} className={`w-full bg-slate-50 border-2 border-emerald-500 rounded-xl text-center font-black outline-none tracking-[0.5em] ${isTerminalFisica ? 'p-5 text-2xl' : 'p-3'}`} placeholder="••••" />
                   </div>
                 </div>
                 <p className="text-[10px] text-center text-slate-400 font-bold uppercase tracking-widest mt-2">Te pediremos el NIP solo para canjear puntos.</p>
                 {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-2 rounded-xl border border-red-100">{error}</p>}
                 <div className="flex gap-4 pt-2">
-                  <button type="button" onClick={() => { setNecesitaRegistro(false); setError(''); setNipNuevo(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-4 rounded-2xl font-black text-lg transition-all">Volver</button>
-                  <button type="submit" className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg shadow-lg shadow-emerald-500/30 transition-all">Empezar</button>
+                  <button type="button" onClick={() => { setNecesitaRegistro(false); setError(''); setNipNuevo(''); }} className={`flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-2xl font-black transition-all ${isTerminalFisica ? 'py-6 text-xl' : 'py-4 text-lg'}`}>Volver</button>
+                  <button type="submit" className={`flex-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/30 transition-all ${isTerminalFisica ? 'py-6 text-xl' : 'py-4 text-lg'}`}>Empezar</button>
                 </div>
               </form>
             ) : (
               <form onSubmit={handleIdentificar} className="space-y-6 text-left animate-in fade-in">
                 <div>
                   <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Celular a 10 dígitos</label>
-                  <input type="tel" maxLength="10" required autoFocus value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl p-5 text-center text-2xl font-black outline-none focus:border-blue-500 transition-all tracking-widest placeholder-slate-400" placeholder="000 000 0000" />
+                  <input type="tel" maxLength="10" required autoFocus value={telefono} onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))} className={`w-full bg-slate-50 border-2 border-slate-100 rounded-2xl text-center font-black outline-none focus:border-blue-500 transition-all tracking-widest placeholder-slate-400 ${isTerminalFisica ? 'p-8 text-4xl' : 'p-5 text-2xl'}`} placeholder="000 000 0000" />
                 </div>
                 {error && <p className="text-red-500 text-sm font-bold text-center bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
-                <button type="submit" disabled={telefono.length !== 10} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-5 rounded-2xl font-black text-xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 disabled:shadow-none active:scale-95">Continuar</button>
+                
+                <button type="submit" disabled={telefono.length !== 10} className={`w-full bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black shadow-lg shadow-blue-500/30 transition-all disabled:opacity-50 disabled:shadow-none active:scale-95 ${isTerminalFisica ? 'py-8 text-3xl' : 'py-5 text-xl'}`}>
+                  Identificarme
+                </button>
               </form>
             )}
 
-            {!necesitaRegistro && !empleadoFase2 && (<div className="mt-8 flex flex-col gap-4"><button onClick={() => setModoInvitado(true)} className="text-slate-400 hover:text-slate-500 font-bold text-sm transition-colors underline">Entrar directo como Invitado</button></div>)}
+            {/* BOTÓN GIGANTE PARA INVITADOS EN MODO TERMINAL */}
+            {!necesitaRegistro && !empleadoFase2 && (
+              <div className="mt-8 flex flex-col gap-4">
+                {isTerminalFisica ? (
+                   <button onClick={() => setModoInvitado(true)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-8 rounded-2xl font-black text-2xl border-2 border-slate-200 transition-all active:scale-95">
+                     Entrar directo como Invitado
+                   </button>
+                ) : (
+                   <button onClick={() => setModoInvitado(true)} className="text-slate-400 hover:text-slate-500 font-bold text-sm transition-colors underline">
+                     Entrar directo como Invitado
+                   </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

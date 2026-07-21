@@ -424,16 +424,23 @@ const PuntoDeVentaPrincipal = ({
           const qty = item.cantidad || 1;
           for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
         });  
+        
         let stringDireccion = notaOpcional;
         let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
         const costoEnvioFinal = zonaEnvioCosto ? Number(zonaEnvioCosto) : 0;  
+        
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
+        
         if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
           stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
         }  
-        if (tipoConsumo === 'Domicilio' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida) stringDireccion += `| TEL: ${telefonoOrdenRapida}`;
-        else if (tipoConsumo === 'Recoger' && !clienteAsignado && (telefonoCliente || telefonoOrdenRapida)) stringDireccion += `| TEL: ${telefonoCliente || telefonoOrdenRapida}`;  
+        
+        // 👇 FIX: Aseguramos que CUALQUIER teléfono registrado SIEMPRE sea anexado a la dirección para que Historial y Cobranza lo muestren
+        const telParaAnexar = telefonoCliente || telefonoOrdenRapida || clienteAsignado?.telefono;
+        if (telParaAnexar) {
+            stringDireccion += ` | TEL: ${telParaAnexar}`;
+        }
+        
         if (detallesCuentaAbierta) {
           if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
           else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
@@ -453,6 +460,7 @@ const PuntoDeVentaPrincipal = ({
         const paquete = {
           cliente_id: clienteAsignado?.id || null,
           cliente_nombre: nombreOrden.trim(),
+          cliente_telefono: telefonoCliente || telefonoOrdenRapida || clienteAsignado?.telefono || null,
           tipo_consumo: tipoConsumo,
           metodo_pago: pagoFinal,
           total: totalConEnvio,
@@ -547,11 +555,10 @@ const PuntoDeVentaPrincipal = ({
     }
 
     const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
-    const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
-    (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (!clienteAsignado && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)))) ||
-    (tipoConsumo === 'Recoger' && (!clienteAsignado && telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
-    (tipoConsumo === 'Para llevar' && !clienteAsignado && telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10);
-    
+        const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
+    (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10))) ||
+    (tipoConsumo === 'Recoger' && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
+    (tipoConsumo === 'Para llevar' && ((telefonoCliente.length > 0 && telefonoCliente.length < 10) || (telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10)));
     if (!modalPuntoVenta) return null;
     
     // ==========================================
@@ -755,9 +762,9 @@ const PuntoDeVentaPrincipal = ({
                                             )}
                                         </div>
                                         {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
-                                        {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} clienteAsignado={clienteAsignado} />}
-                                        {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} clienteAsignado={clienteAsignado} />}
-                                        {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} clienteAsignado={clienteAsignado} />}
+                                        {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} />}
+                                        {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} />}
+                                        {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} />}
                                     </div>
                                     <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                         <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>

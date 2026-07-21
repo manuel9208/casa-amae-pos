@@ -1,24 +1,26 @@
-import React from 'react';
-import { ShieldAlert, Clock, Lock, ChefHat } from 'lucide-react';
+import React, { useState } from 'react';
+import { ShieldAlert, Clock, Lock, ChefHat, Key, Eye, EyeOff } from 'lucide-react';
 
 const GestorSeguridad = ({ configGlobal, setConfigGlobal, isSubmitting }) => {
   
   const isActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
   const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';
+  
+  const [showPin, setShowPin] = useState(false);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
         <div className="bg-red-100 text-red-600 p-2 rounded-xl"><ShieldAlert size={24}/></div>
         <div>
-            <h3 className="text-xl font-black text-slate-800">Seguridad y Operación (Caja)</h3>
+            <h3 className="text-xl font-black text-slate-800">Seguridad y Operación (Caja y Kiosco)</h3>
             <p className="text-sm text-slate-500 font-bold">Protege y adapta la terminal POS a las necesidades de tu sucursal.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        {/* CAJA 1: BLOQUEO POR PIN */}
+        {/* CAJA 1: BLOQUEO POR PIN (CAJA POS) */}
         <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 flex flex-col justify-between">
           <label className="flex items-center justify-between cursor-pointer group mb-4">
             <div className="flex items-center gap-4">
@@ -83,6 +85,47 @@ const GestorSeguridad = ({ configGlobal, setConfigGlobal, isSubmitting }) => {
           <div className="pt-4 border-t border-slate-200">
              <p className="text-xs font-bold text-blue-700 bg-blue-50 p-3 rounded-xl border border-blue-200">
                 💡 Habilita un botón extra en la Caja para que el mismo personal pueda marcar los pedidos como "Preparando" o "Listos" sin necesidad de una pantalla separada.
+             </p>
+          </div>
+        </div>
+
+        {/* CAJA 3: PIN MAESTRO DE TERMINALES */}
+        <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 flex flex-col justify-between md:col-span-2 lg:col-span-1">
+          <div className="flex items-center gap-4 mb-4">
+             <div className="p-3 rounded-2xl bg-slate-800 text-white shadow-md">
+                <Key size={24} />
+             </div>
+             <div>
+                <p className="font-black text-slate-800 text-lg leading-tight">PIN Maestro (Kiosco Físico)</p>
+                <p className="text-xs text-slate-500 font-bold mt-1">Configura las tablets en modo Tótem o Drive-Thru.</p>
+             </div>
+          </div>
+          
+          <div className="pt-4 border-t border-slate-200">
+             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
+               PIN de Seguridad (4 dígitos)
+             </label>
+             <div className="relative">
+               <input 
+                  type={showPin ? "text" : "password"} 
+                  maxLength="4" 
+                  disabled={isSubmitting}
+                  // 👇 CORRECCIÓN: Permite borrar y no fuerza el 1234 si está en blanco
+                  value={configGlobal.kiosco_pin_maestro !== undefined ? configGlobal.kiosco_pin_maestro : '1234'} 
+                  onChange={e => setConfigGlobal({...configGlobal, kiosco_pin_maestro: e.target.value.replace(/\D/g, '')})} 
+                  className="w-full bg-white border-2 border-slate-200 rounded-xl p-4 text-2xl font-black outline-none focus:border-slate-800 text-slate-700 tracking-[0.5em] transition-colors" 
+               />
+               <button 
+                 type="button" 
+                 onClick={() => setShowPin(!showPin)}
+                 className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors bg-white pl-2"
+                 title={showPin ? "Ocultar PIN" : "Mostrar PIN"}
+               >
+                 {showPin ? <EyeOff size={24} /> : <Eye size={24} />}
+               </button>
+             </div>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3">
+               Manten presionado el logo del Kiosco por 3 segundos para usarlo.
              </p>
           </div>
         </div>

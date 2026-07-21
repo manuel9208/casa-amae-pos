@@ -22,7 +22,8 @@ const RenglonPedidoHistorial = ({
 
   const procesarDireccionYContacto = () => {
     let dirPura = pedido.direccion_entrega || '';
-    let telefonoExtraido = '';
+    // 👇 FIX: Prioridad absoluta al teléfono registrado en la base de datos
+    let telefonoExtraido = pedido.cliente_telefono || '';
     let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
     if (dirPura.includes('A NOMBRE DE:')) {
@@ -32,18 +33,23 @@ const RenglonPedidoHistorial = ({
       }
     }  
 
-    if (dirPura.includes('|')) {
-      const partes = dirPura.split('|');
-      const parteTel = partes.find(p => p.includes('TEL:'));
-      if (parteTel) telefonoExtraido = parteTel.replace('TEL:', '').trim();
-      dirPura = partes[0];
-    }  
+    // 👇 FIX: Extracción robusta del teléfono sin destruir el resto de la dirección por culpa del split('|')
+    if (dirPura.includes('TEL:')) {
+      const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
+      if (matchTel && matchTel[1] && !telefonoExtraido) {
+        telefonoExtraido = matchTel[1].trim();
+      }
+    }
 
     dirPura = dirPura
-      .replace(/TEL:\s*\d*/g, '')
-      .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/g, '')
-      .replace(/A NOMBRE DE:\s*([^|]+)/i, '')
+      .replace(/TEL:\s*\d*/gi, '')
+      .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+      .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
       .replace(/\[.*?\]/g, '')
+      .split('|')
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+      .join(', ')
       .trim();  
 
     return { direccionLimpia: dirPura, telefono: telefonoExtraido, cliente: clienteExtraido };
@@ -59,15 +65,12 @@ const RenglonPedidoHistorial = ({
     } catch (e) { return '--:--'; }
   };  
 
-  // 👇 FIX MÁSTER: Siempre permitimos editar para que el Modal haga su trabajo de filtrado inteligente.
-  const esEditable = true; 
-  // Solo se puede anular si NO está cancelado, finalizado o entregado.
+  const esEditable = true;
   const esCancelable = !['Cancelado', 'Finalizado', 'Entregado', 'Liquidado'].includes(pedido.estado_preparacion);  
 
   return (
     <>
       <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-200 hover:shadow-md hover:border-slate-300 animate-in fade-in">  
-        
         {/* COLUMNA 1: IDENTIFICADOR Y TIEMPO */}
         <div className="flex items-center gap-4 min-w-[120px]">
           <div className="bg-slate-900 text-white font-black text-xl md:text-2xl px-4 py-2.5 rounded-2xl shadow-sm tracking-tight shrink-0">
@@ -100,6 +103,8 @@ const RenglonPedidoHistorial = ({
               {direccionLimpia}
             </p>
           )}
+          
+          {/* 👇 BOTÓN WHATSAPP ACTIVO SIEMPRE QUE HAYA TELÉFONO */}
           {telefono && (
             <a
               href={`https://wa.me/52${telefono.replace(/\D/g, '')}`}
@@ -108,7 +113,7 @@ const RenglonPedidoHistorial = ({
               className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-1.5 transition-colors w-fit cursor-pointer"
               title="Abrir chat en WhatsApp"
             >
-              <Phone size={14} className="text-indigo-500 shrink-0" /> {telefono}
+              <Phone size={14} className="text-emerald-500 shrink-0" /> {telefono}
             </a>
           )}
         </div>  
@@ -135,7 +140,6 @@ const RenglonPedidoHistorial = ({
             >
               <Eye size={18} />
             </button>  
-
             {configGlobal?.ticket_impresion_activa && (
               <button
                 type="button"
@@ -146,7 +150,6 @@ const RenglonPedidoHistorial = ({
                 <Printer size={18} />
               </button>
             )}  
-
             {esEditable && (
               <button
                 type="button"
@@ -158,7 +161,6 @@ const RenglonPedidoHistorial = ({
                 <Edit size={18} />
               </button>
             )}  
-
             {esCancelable && (
               <button
                 type="button"

@@ -5,13 +5,12 @@ import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
 import CheckoutFlujo from './kiosco/CheckoutFlujo';
 import MisPedidos from './kiosco/MisPedidos';
-import useMesaQR from './kiosco/useMesaQR'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
 
-const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) => {
-  const mesaQR = useMesaQR();
+// 👇 NUEVO: Se reciben modoKiosco y mesaQR desde App.js
+const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, modoKiosco = 'web', mesaQR = null }) => {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(0);
@@ -87,7 +86,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
     };
   }, []);
 
-  // 👇 CORREGIDO: Se restauró apiUrl dentro del texto de la URL
   const fetchCatalogoProductos = useCallback(() => {
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
@@ -227,13 +225,15 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
       
       if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
     } else { 
-      if (mesaQR) {
+      // 👇 NUEVO LÓGICA DE REINICIO POR TERMINAL
+      if (modoKiosco === 'mesa' || mesaQR) {
           window.location.reload();
       } else {
+          // Si es totem, drive-thru o web, cerramos sesión para limpiar al invitado/cliente
           setTimeout(() => { if (onLogout) onLogout(); }, 50); 
       }
     }
-  }, [user, ordenExterna, onVolverAdmin, onLogout, mesaQR]);
+  }, [user, ordenExterna, onVolverAdmin, onLogout, mesaQR, modoKiosco]);
 
   useEffect(() => { 
     let timer; 
@@ -528,7 +528,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           guardarEdicionDirecta={guardarEdicionDirecta} 
           isSubmitting={isSubmitting} 
           
-          /* PASAMOS EL PROP AL MENU PRINCIPAL */
+          /* 👇 NUEVO PROP PARA INTERCEPTAR COMPORTAMIENTO */
+          modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
       )}
@@ -549,7 +550,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout }) 
           metodoPagoFinal={metodoPagoFinal} mesaQR={mesaQR} isOffline={isOffline} 
           setPromocionVigente={setPromocionVigente}
 
-          /* PASAMOS EL PROP AL CHECKOUT (POR SI ALLÁ TAMBIÉN ELIGE PAGAR) */
+          /* 👇 NUEVO PROP PARA INTERCEPTAR COMPORTAMIENTO */
+          modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
       )}

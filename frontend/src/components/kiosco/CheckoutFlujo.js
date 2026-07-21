@@ -14,7 +14,8 @@ const CheckoutFlujo = ({
   numeroPedidoReal, setNumeroPedidoReal, contador, setContador, reiniciarKiosco,
   metodoPagoFinal, mesaQR, isOffline,
   promocionVigente, setPromocionVigente,
-  bloqueoPuntosActivo
+  bloqueoPuntosActivo,
+  modoKiosco 
 }) => {  
   const [telefonoRecoger, setTelefonoRecoger] = useState('');
   const [pasoTelefono, setPasoTelefono] = useState(false);
@@ -24,26 +25,31 @@ const CheckoutFlujo = ({
   const [mesaSeleccionadaInterna, setMesaSeleccionadaInterna] = useState(null);  
   
   const esPersonalInterno = user && user.rol && (user.rol === 'admin' || user.rol === 'cajero' || user.usuario === 'kiosco');  
+  const isTerminalFisica = modoKiosco === 'totem' || modoKiosco === 'drive-thru';
   
   useEffect(() => {
     if (clienteActivo?.nombre) setNombreOrden(clienteActivo.nombre);
   }, [clienteActivo]);  
   
   useEffect(() => {
-    if (esPersonalInterno && !isOffline) {
+    if ((esPersonalInterno || isTerminalFisica) && !isOffline) {
       fetch(`${apiUrl}/mesas`)
         .then(res => res.json())
         .then(data => setMesasDisponibles(Array.isArray(data) ? data : []))
         .catch(e => console.error("Error cargando mesas:", e));
     }
-  }, [apiUrl, esPersonalInterno, isOffline]);  
+  }, [apiUrl, esPersonalInterno, isOffline, isTerminalFisica]);  
   
   useEffect(() => {
-    if (pantallaActual === 'consumo' && mesaQR) {
-      procesarTipoConsumo('Local');
+    if (pantallaActual === 'consumo') {
+      if (mesaQR || modoKiosco === 'mesa') {
+        procesarTipoConsumo('Local');
+      } else if (modoKiosco === 'drive-thru') {
+        procesarTipoConsumo('Para llevar');
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pantallaActual, mesaQR]);  
+  }, [pantallaActual, mesaQR, modoKiosco]);  
   
   const agregarUpsellAlCarrito = () => {
     let precioFinal = Number(promocionVigente.valor_descuento);  
@@ -71,26 +77,40 @@ const CheckoutFlujo = ({
   
   const procesarTipoConsumo = (tipo) => {
     setTipoConsumo(tipo);  
+    
+    const agil = esPersonalInterno || isTerminalFisica;
+
     if (tipo === 'Domicilio') {
       setPantallaActual('aviso_domicilio');
     } else if (tipo === 'Recoger') {
-      if (!clienteActivo) setPantallaActual('pedir_nombre');
+      if (!clienteActivo && !agil) setPantallaActual('pedir_nombre');
       else seleccionarPago('Pendiente', null, tipo);
     } else if (tipo === 'Local') {
-      if (esPersonalInterno) {
+      // 👇 NUEVO: Si es invitado en Tótem Físico, pedimos su nombre para llamarlo.
+      if (isTerminalFisica && !clienteActivo) {
+        setPantallaActual('pedir_nombre');
+      } else if (agil) {
         if (mesaQR) {
           seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
         } else if (mesasDisponibles.length > 0) {
           setPantallaActual('asignar_mesa');
         } else {
-          setPantallaActual('pago');
+          if (isTerminalFisica) seleccionarPago('Por Cobrar', null, 'Local');
+          else setPantallaActual('pago');
         }
       } else {
         setPantallaActual('pedir_nombre');
       }
     } else if (tipo === 'Para llevar') {
-      if (esPersonalInterno) {
-        setPantallaActual('pago');
+      // 👇 NUEVO: Si es invitado en Tótem/Drive-Thru, pedimos nombre para llamarlo en ventanilla/mostrador.
+      if (isTerminalFisica && !clienteActivo) {
+        setPantallaActual('pedir_nombre');
+      } else if (agil) {
+        if (isTerminalFisica) {
+          seleccionarPago('Por Cobrar', null, 'Para llevar');
+        } else {
+          setPantallaActual('pago');
+        }
       } else {
         setPantallaActual('pedir_nombre');
       }
@@ -100,18 +120,24 @@ const CheckoutFlujo = ({
   };  
   
   const continuarDesdeNombre = () => {
+    const agil = esPersonalInterno || isTerminalFisica;
+
     if (tipoConsumo === 'Local') {
-      if (esPersonalInterno && !mesaQR) {
+      if (agil && !mesaQR) {
         if (mesasDisponibles.length > 0) {
           setPantallaActual('asignar_mesa');
         } else {
           seleccionarPago('Por Cobrar', null, 'Local');
         }
       }
-      else if (esPersonalInterno && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
+      else if (agil && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
       else seleccionarPago('Pendiente', null, 'Local');
     } else if (['Para llevar', 'Recoger', 'Domicilio'].includes(tipoConsumo)) {
-      if (!clienteActivo) setPasoTelefono(true);
+      if (isTerminalFisica && tipoConsumo === 'Para llevar') {
+        // 👇 NUEVO: En cuanto da su nombre, se salta el pedir teléfono y lanza la orden directo a caja
+        seleccionarPago('Por Cobrar', null, 'Para llevar');
+      }
+      else if (!clienteActivo) setPasoTelefono(true);
       else if (tipoConsumo === 'Domicilio') setPantallaActual('pago');
       else seleccionarPago('Pendiente', null, tipoConsumo);
     }
@@ -136,14 +162,17 @@ const CheckoutFlujo = ({
   
   const guardarPedidoEnBD = async (metodoSeleccionado, direccionFinalConAviso = direccionEntrega, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
     setErrorTransaccion('');
-    setMetodoPagoFinal(metodoSeleccionado);  // Mantiene el estado visual para el Kiosco
+    setMetodoPagoFinal(metodoSeleccionado);
     
     const tipoReal = tipoBypass || tipoConsumo;
     const idClienteAGuardar = nuevoClienteIdBypass || (ordenExterna ? ordenExterna.cliente_id : (clienteActivo?.id || null));  
     
     let origenCalculado = 'Web';
     if (user?.rol === 'cajero') origenCalculado = 'Caja';
-    else if (user?.usuario === 'kiosco' || user?.usuario === 'admin') origenCalculado = 'Kiosco';  
+    else if (user?.usuario === 'kiosco' || user?.usuario === 'admin') origenCalculado = 'Kiosco';
+    else if (modoKiosco === 'totem') origenCalculado = 'Totem';
+    else if (modoKiosco === 'drive-thru') origenCalculado = 'Drive-Thru';
+    else if (modoKiosco === 'mesa' || mesaQR) origenCalculado = 'QR Mesa';
     
     let notaDireccion = direccionFinalConAviso;
     const tel = clienteActivo ? clienteActivo.telefono : telefonoRecoger;  
@@ -166,7 +195,6 @@ const CheckoutFlujo = ({
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
     const mesaFinal = mesaQR || mesaBypass || mesaSeleccionadaInterna || (ordenExterna ? ordenExterna.mesa : null);  
     
-    // 👇 SOLUCIÓN DE RAÍZ: Si es Domicilio o Recoger y seleccionan Efectivo, lo guardamos como 'Por Cobrar'
     let metodoRealBD = metodoSeleccionado;
     if (metodoSeleccionado === 'Efectivo' && (tipoReal === 'Domicilio' || tipoReal === 'Recoger')) {
         metodoRealBD = 'Por Cobrar';
@@ -175,10 +203,10 @@ const CheckoutFlujo = ({
     const paquete = {
       cliente_id: idClienteAGuardar,
       tipo_consumo: tipoReal === 'Recoger' ? 'Recoger en Local' : tipoReal,
-      metodo_pago: metodoRealBD, // 👈 Se inyecta el método financiero correcto a la caja
+      metodo_pago: metodoRealBD, 
       total: calcularTotal(),
       carrito: carritoExpandido,
-      origen: origenCalculado,
+      origen: origenCalculado, 
       direccion_entrega: notaDireccion,
       descuento_puntos: descuentoPuntos,
       cupon_codigo: cuponActivo && descuentoCuponDinero > 0 ? cuponActivo.codigo : null,
@@ -261,7 +289,8 @@ const CheckoutFlujo = ({
   const procesarTransferencia = () => { setContador(15); setPantallaActual('finalizado'); };  
   
   const getBackRuta = () => {
-    if (tipoConsumo === 'Local' && esPersonalInterno && !mesaQR) {
+    const agil = esPersonalInterno || isTerminalFisica;
+    if (tipoConsumo === 'Local' && agil && !mesaQR) {
       return mesasDisponibles.length > 0 ? 'asignar_mesa' : 'consumo';
     }
     if (tipoConsumo === 'Domicilio') return 'direccion';
@@ -273,7 +302,7 @@ const CheckoutFlujo = ({
     seleccionarPago('Por Cobrar', null, 'Local', mesaNombre);
   };  
   
-  if (pantallaActual === 'consumo' && mesaQR) return null;  
+  if (pantallaActual === 'consumo' && (mesaQR || modoKiosco === 'drive-thru')) return null;  
   
   if (pasoTelefono || pantallaActual === 'pedir_nombre') {
     return (
@@ -297,6 +326,7 @@ const CheckoutFlujo = ({
         promocionVigente={promocionVigente} setPromocionVigente={setPromocionVigente}
         agregarUpsellAlCarrito={agregarUpsellAlCarrito} setPantallaActual={setPantallaActual}
         procesarTipoConsumo={procesarTipoConsumo} apiUrl={apiUrl}
+        modoKiosco={modoKiosco} 
       />
     );
   }  
@@ -332,6 +362,7 @@ const CheckoutFlujo = ({
         configGlobal={configGlobal} numeroPedidoReal={numeroPedidoReal}
         procesarTransferencia={procesarTransferencia}
         bloqueoPuntosActivo={bloqueoPuntosActivo}
+        modoKiosco={modoKiosco} 
       />
     );
   }  
@@ -342,6 +373,7 @@ const CheckoutFlujo = ({
         isOffline={isOffline} numeroPedidoReal={numeroPedidoReal}
         tipoConsumo={tipoConsumo} metodoPagoFinal={metodoPagoFinal}
         contador={contador} reiniciarKiosco={reiniciarKiosco}
+        modoKiosco={modoKiosco} 
       />
     );
   }  
