@@ -57,11 +57,13 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     setIsSubmitting(true);
     const formData = new FormData();  
 
+    // 👇 1. AGREGAMOS LAS MATRICES FALTANTES A LA LISTA DE EXCLUSIÓN
     const llavesManuales = [
       'tarifas_envio', 'comedor_clasif_bebidas', 'comedor_clasif_platillos',
       'bloqueo_caja_activo', 'bloqueo_caja_segundos', 'comedor_limite', 'matriz_limpieza',
       'cocina_en_caja_activa', 'horarios_semana', 'politicas_sustitucion',
-      'ticket_impresion_activa', 'ticket_modo_impresion', 'ticket_domicilio', 'ticket_mensaje_final', 'ticket_firma_sistema', 'ticket_impresora_ip', 'ticket_impresora_puerto', 'ticket_impresora_parzibyte'
+      'ticket_impresion_activa', 'ticket_modo_impresion', 'ticket_domicilio', 'ticket_mensaje_final', 'ticket_firma_sistema', 'ticket_impresora_ip', 'ticket_impresora_puerto', 'ticket_impresora_parzibyte',
+      'matriz_observaciones', 'calendario_anual' // <-- AÑADIDAS
     ];  
 
     Object.keys(configGlobal).forEach(key => {
@@ -89,6 +91,20 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     let polSustitucion = configGlobal.politicas_sustitucion || '{}';
     if (polSustitucion === '') polSustitucion = '{}';
     formData.append('politicas_sustitucion', typeof polSustitucion === 'string' ? polSustitucion : JSON.stringify(polSustitucion));  
+
+    // 👇 2. INYECCIÓN MANUAL ESTRICTA DE LAS MATRICES
+    let matLimp = configGlobal.matriz_limpieza || '{}';
+    if (matLimp === '') matLimp = '{}';
+    formData.append('matriz_limpieza', typeof matLimp === 'string' ? matLimp : JSON.stringify(matLimp));
+
+    let matObs = configGlobal.matriz_observaciones || '{}';
+    if (matObs === '') matObs = '{}';
+    formData.append('matriz_observaciones', typeof matObs === 'string' ? matObs : JSON.stringify(matObs));
+
+    let calAnual = configGlobal.calendario_anual || '{}';
+    if (calAnual === '') calAnual = '{}';
+    formData.append('calendario_anual', typeof calAnual === 'string' ? calAnual : JSON.stringify(calAnual));
+    // -------------------------------------------------------------
 
     const isTicketActivo = configGlobal.ticket_impresion_activa === true || configGlobal.ticket_impresion_activa === 'true';
     formData.append('ticket_impresion_activa', isTicketActivo ? 'true' : 'false');

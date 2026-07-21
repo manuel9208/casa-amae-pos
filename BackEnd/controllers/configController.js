@@ -86,8 +86,17 @@ exports.actualizarConfiguracion = async (req, res) => {
   let configActual = {};
   try {
     const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
-    if (resActual.rows.length > 0) configActual = resActual.rows[0];
-  } catch (e) {}
+    if (resActual.rows.length > 0) {
+      configActual = resActual.rows[0];
+    } else {
+      // 👇 BLINDAJE: Si la base de datos responde pero está vacía, abortamos
+      return res.status(500).json({ error: 'Fallo de seguridad: Configuración base no encontrada. Se abortó el guardado para evitar borrar tus datos.' });
+    }
+  } catch (e) {
+    // 👇 BLINDAJE: Si el SELECT falla (timeout, BD ocupada), JAMÁS debemos continuar.
+    console.error("Fallo crítico al leer config previa:", e);
+    return res.status(500).json({ error: 'La Base de Datos está ocupada o no responde. Se abortó el guardado para proteger la configuración actual.' });
+  }
 
   const mergedBody = { ...configActual, ...req.body };
 

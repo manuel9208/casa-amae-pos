@@ -11,14 +11,58 @@ const MenuPrincipal = ({
     cuponActivo, setCuponActivo, descuentoCuponDinero, apiUrl, isOffline,
     guardarEdicionDirecta,
     isSubmitting,
-    bloqueoPuntosActivo // 👈 1. RECIBIMOS LA PROP DESDE EL KIOSCO
+    bloqueoPuntosActivo
 }) => {
     const [categoriaActiva, setCategoriaActiva] = useState(null);
     const [inputCupon, setInputCupon] = useState('');
     const [errorCupon, setErrorCupon] = useState('');
     const [buscandoCupon, setBuscandoCupon] = useState(false);
 
-    const isCerrado = configGlobal.negocio_abierto === false || configGlobal.negocio_abierto === 'false' || configGlobal.negocio_abierto === 0;
+    // 👇 NUEVA LÓGICA DE HORARIO + BYPASS MANUAL DE CAJA
+    const evaluarHorarioKiosco = () => {
+        // 1. Extraer y parsear los horarios de la BD
+        let horarios = {};
+        try {
+            horarios = typeof configGlobal.horarios_semana === 'string' 
+                ? JSON.parse(configGlobal.horarios_semana || '{}') 
+                : (configGlobal.horarios_semana || {});
+        } catch (e) {}
+
+        // 2. Obtener día y hora actual del Kiosco
+        const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const ahora = new Date();
+        const diaHoy = diasSemana[ahora.getDay()];
+        const horaActual = ahora.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+
+        const configHoy = horarios[diaHoy];
+        let dentroDeHorario = false;
+
+        // 3. Evaluar matemáticamente si la hora está DENTRO del horario configurado
+        if (configHoy && configHoy.activo) {
+            const { apertura, cierre } = configHoy;
+            if (apertura <= cierre) {
+                if (horaActual >= apertura && horaActual <= cierre) dentroDeHorario = true;
+            } else { // Turnos nocturnos
+                if (horaActual >= apertura || horaActual <= cierre) dentroDeHorario = true;
+            }
+        }
+
+        // 4. Leer si el Cajero forzó la apertura manual (Switch de Caja)
+        const cajaAbiertaManualmente = configGlobal.negocio_abierto === true || configGlobal.negocio_abierto === 'true' || configGlobal.negocio_abierto === 1;
+
+        // 5. APLICAR LEYES OPERATIVAS DEL NEGOCIO:
+        // LEY A: Si estamos dentro del horario oficial, el kiosco NUNCA se cierra.
+        if (dentroDeHorario) return false;
+
+        // LEY B: Si estamos fuera de horario (ej. evento privado) y Caja forzó la apertura, se ABRE.
+        if (cajaAbiertaManualmente) return false;
+
+        // LEY C: Si estamos fuera de horario y no hay orden manual de caja, se CIERRA.
+        return true; 
+    };
+
+    // Aplicamos la validación en vivo
+    const isCerrado = evaluarHorarioKiosco();
     const mensajeCierre = configGlobal.mensaje_cierre || 'El negocio se encuentra cerrado temporalmente. Por favor, vuelve más tarde.';
 
     const cambiarCantidadCart = (idTicket, delta) => {
@@ -128,7 +172,7 @@ const MenuPrincipal = ({
                 calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} isCerrado={isCerrado} setPantallaActual={setPantallaActual}
                 guardarEdicionDirecta={guardarEdicionDirecta}
                 isSubmitting={isSubmitting}
-                bloqueoPuntosActivo={bloqueoPuntosActivo} // 👈 2. SE LA PASAMOS AL CARRITO
+                bloqueoPuntosActivo={bloqueoPuntosActivo}
             />
         </div>
     );
