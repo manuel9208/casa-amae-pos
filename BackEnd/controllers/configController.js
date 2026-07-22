@@ -25,7 +25,7 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // 👇 AÑADIDA LA LÍNEA PARA CREAR LA COLUMNA DE KIOSCO_PIN_MAESTRO AUTOMÁTICAMENTE
+    // 👇 FIX: AÑADIMOS LAS COLUMNAS SMTP GENÉRICAS AUTOMÁTICAMENTE
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
@@ -45,7 +45,11 @@ exports.obtenerConfiguracion = async (req, res) => {
       ADD COLUMN IF NOT EXISTS gps_ciudad_estado TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS gps_direccion_local TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS gps_api_key TEXT DEFAULT '',
-      ADD COLUMN IF NOT EXISTS kiosco_pin_maestro VARCHAR(10) DEFAULT '1234';
+      ADD COLUMN IF NOT EXISTS kiosco_pin_maestro VARCHAR(10) DEFAULT '1234',
+      ADD COLUMN IF NOT EXISTS smtp_email TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS smtp_password TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS smtp_host TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS smtp_port TEXT DEFAULT '';
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -89,11 +93,9 @@ exports.actualizarConfiguracion = async (req, res) => {
     if (resActual.rows.length > 0) {
       configActual = resActual.rows[0];
     } else {
-      // 👇 BLINDAJE: Si la base de datos responde pero está vacía, abortamos
       return res.status(500).json({ error: 'Fallo de seguridad: Configuración base no encontrada. Se abortó el guardado para evitar borrar tus datos.' });
     }
   } catch (e) {
-    // 👇 BLINDAJE: Si el SELECT falla (timeout, BD ocupada), JAMÁS debemos continuar.
     console.error("Fallo crítico al leer config previa:", e);
     return res.status(500).json({ error: 'La Base de Datos está ocupada o no responde. Se abortó el guardado para proteger la configuración actual.' });
   }
@@ -121,7 +123,8 @@ exports.actualizarConfiguracion = async (req, res) => {
     asistencia_pin_caja, asistencia_login, asistencia_huella,
     politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
     gps_ciudad_estado, gps_direccion_local, gps_api_key,
-    kiosco_pin_maestro // 👈 AÑADIDO AL DESTRUCTURING
+    kiosco_pin_maestro,
+    smtp_email, smtp_password, smtp_host, smtp_port // 👈 VARIABLES GENÉRICAS
   } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
@@ -201,7 +204,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         ticket_impresora_ip, ticket_impresora_puerto,
         gps_ciudad_estado, gps_direccion_local, gps_api_key,
         matriz_observaciones,
-        kiosco_pin_maestro -- 👈 AÑADIDO AQUÍ
+        kiosco_pin_maestro,
+        smtp_email, smtp_password, smtp_host, smtp_port -- 👈 4 CAMPOS NUEVOS
       ) VALUES (
         1, $1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10,
@@ -221,7 +225,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         $56, $57,
         $58, $59, $60,
         $61,
-        $62 -- 👈 AÑADIDO PARÁMETRO #62
+        $62,
+        $63, $64, $65, $66 -- 👈 4 VALORES NUEVOS
       ) ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
@@ -284,7 +289,11 @@ exports.actualizarConfiguracion = async (req, res) => {
         gps_direccion_local = EXCLUDED.gps_direccion_local,
         gps_api_key = EXCLUDED.gps_api_key,
         matriz_observaciones = EXCLUDED.matriz_observaciones::jsonb,
-        kiosco_pin_maestro = COALESCE(EXCLUDED.kiosco_pin_maestro, '1234') -- 👈 AÑADIDO PARA EVITAR NULOS
+        kiosco_pin_maestro = COALESCE(EXCLUDED.kiosco_pin_maestro, '1234'),
+        smtp_email = EXCLUDED.smtp_email, 
+        smtp_password = EXCLUDED.smtp_password,
+        smtp_host = EXCLUDED.smtp_host, -- 👈 ACTUALIZACIÓN DE HOST
+        smtp_port = EXCLUDED.smtp_port -- 👈 ACTUALIZACIÓN DE PUERTO
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -303,7 +312,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100',
       gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
       matrizObsParsed,
-      kiosco_pin_maestro || '1234' // 👈 AÑADIDO AL ARREGLO DE VARIABLES PARA GUARDAR EN DB
+      kiosco_pin_maestro || '1234',
+      smtp_email || '', smtp_password || '', smtp_host || '', smtp_port || '' // 👈 GUARDADO DE 4 CAMPOS
     ]);
 
     // Emitimos el socket para que las apps frontales se enteren del cambio manual
@@ -401,10 +411,6 @@ exports.validarCupon = async (req, res) => {
   }
 };
 
-// ==========================================
-// FORZAR ACTUALIZACIÓN Y WEBHOOKS (AUTOMATIZACIÓN PWA)
-// ==========================================
-
 exports.forzarActualizacionGlobal = (req, res) => {
   try {
     const io = req.app.get('io');
@@ -445,13 +451,10 @@ exports.eliminarArchivosCloudinary = async (req, res) => {
   try {
     const cloudinary = require('cloudinary').v2;
     const promises = urls.map(url => {
-      // Extraemos el public_id de la URL. 
-      // Ej: https://res.cloudinary.com/tu-cloud/image/upload/v123456/pos_uploads/archivo.jpg
       const parts = url.split('/');
       const filename = parts.pop().split('.')[0]; 
       const folder = parts.pop();
       const public_id = `${folder}/${filename}`;
-      
       return cloudinary.uploader.destroy(public_id);
     });
 

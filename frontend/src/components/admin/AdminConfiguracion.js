@@ -10,8 +10,8 @@ import GestorSeguridad from './configuracion/GestorSeguridad';
 import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
 import GestorAsistencias from './configuracion/GestorAsistencias';
 import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';
-// 👇 IMPORTAMOS EL NUEVO MÓDULO LOGÍSTICO
-import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';  
+import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';
+import GestorCorreos from './configuracion/GestorCorreos';  
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [logoBlob, setLogoBlob] = useState(null);
@@ -174,13 +174,12 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         <GestorPoliticasVenta configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <GestorComedorPersonal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <PagosContacto configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
+        <GestorCorreos configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <BrandingGlobal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />
         <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <CostosEnvio configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tarifasEnvio={tarifasEnvio} setTarifasEnvio={setTarifasEnvio} isSubmitting={isSubmitting} />
         <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
-        
-        {/* 👇 AQUÍ RENDERIZAMOS EL NUEVO COMPONENTE LOGÍSTICO */}
         <GestorLogisticaMapas configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">

@@ -15,7 +15,7 @@ const clasificacionCtrl = require('../controllers/clasificacionController');
 const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
-const reporteCtrl = require('../controllers/reporteController'); // 👈 Aquí se define
+const reporteCtrl = require('../controllers/reporteController'); 
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController');
 const notificacionCtrl = require('../controllers/notificacionController');
@@ -84,6 +84,11 @@ router.post('/login', authCtrl.login);
 router.post('/logout', authCtrl.logout);
 router.post('/clientes/registro', clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
+// 👇 NUEVA RUTA: Para la recuperación del NIP de seguridad por correo
+router.post('/clientes/solicitar-codigo-nip', clienteCtrl.solicitarCodigoNip);
+router.post('/clientes/cambiar-nip-codigo', clienteCtrl.cambiarNipConCodigo);
+router.post('/clientes/cambiar-correo-codigo', clienteCtrl.cambiarCorreoConCodigo);
+router.post('/clientes/recuperar-nip', clienteCtrl.recuperarNip);
 router.get('/clientes', clienteCtrl.obtenerClientes);
 router.put('/clientes/:id', clienteCtrl.actualizarCliente);
 router.get('/clientes/reportes', clienteCtrl.obtenerReportes);  
@@ -183,7 +188,6 @@ router.get('/mermas', mermaCtrl.obtenerMermas);
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);  
-// 👇 CORRECCIÓN APLICADA AQUÍ: Se usa reporteCtrl para que concuerde con tu importación
 router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla);
 
 // ==========================================

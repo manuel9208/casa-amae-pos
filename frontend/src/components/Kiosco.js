@@ -9,7 +9,6 @@ import MisPedidos from './kiosco/MisPedidos';
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
 
-// 👇 NUEVO: Se reciben modoKiosco y mesaQR desde App.js
 const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, modoKiosco = 'web', mesaQR = null }) => {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -52,9 +51,16 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [itemAEditar, setItemAEditar] = useState(null);
   const [descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos] = useState(0); 
   const [descuentoPuntosDinero, setDescuentoPuntosDinero] = useState(0); 
+  const [puntosAplicados, setPuntosAplicados] = useState(0); // 👈 NUEVO: Estado para guardar los puntos matemáticamente correctos
+  
   const [modalNip, setModalNip] = useState(false); 
   const [nipInput, setNipInput] = useState(''); 
   const [errorNip, setErrorNip] = useState('');
+
+  const [modalRecuperarNip, setModalRecuperarNip] = useState(false);
+  const [correoRecuperacion, setCorreoRecuperacion] = useState('');
+  const [isSubmittingRecuperacion, setIsSubmittingRecuperacion] = useState(false);
+  const [mensajeRecuperacion, setMensajeRecuperacion] = useState(null);
 
   const [cuponActivo, setCuponActivo] = useState(null); 
   const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0); 
@@ -195,9 +201,12 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setPedidoEditandoId(pedido.id); 
     
     if (pedido.descuento_puntos && Number(pedido.descuento_puntos) > 0) {
-      setDescuentoPuntosPuntosFisicos(Number(pedido.descuento_puntos));
+      // 👇 Aquí también recuperamos los puntos tal cual como los lee la orden previa
+      const ptsGuardados = Number(pedido.descuento_puntos);
+      setDescuentoPuntosPuntosFisicos(ptsGuardados);
+      setPuntosAplicados(ptsGuardados); 
       const valorPeso = configGlobal.puntos_valor_peso || 1;
-      setDescuentoPuntosDinero(Number(pedido.descuento_puntos) * valorPeso);
+      setDescuentoPuntosDinero(ptsGuardados * valorPeso);
     }
     
     setPantallaActual('menu'); 
@@ -221,15 +230,14 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       setCarrito([]); setTipoConsumo(null); setDireccionEntrega(''); setNumeroPedidoReal(null); setMetodoPagoFinal(null); 
       setErrorTransaccion(''); setPedidoEditandoId(null); 
       setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0); 
+      setPuntosAplicados(0); // 👈 NUEVO: Reiniciamos la variable
       setCuponActivo(null); setDescuentoCuponDinero(0);
       
       if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
     } else { 
-      // 👇 NUEVO LÓGICA DE REINICIO POR TERMINAL
       if (modoKiosco === 'mesa' || mesaQR) {
           window.location.reload();
       } else {
-          // Si es totem, drive-thru o web, cerramos sesión para limpiar al invitado/cliente
           setTimeout(() => { if (onLogout) onLogout(); }, 50); 
       }
     }
@@ -247,9 +255,23 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const calcularSubtotal = useCallback(() => {
     return carrito.reduce((t, i) => t + ((i.precioFinal || 0) * (i.cantidad || 1)), 0);
   }, [carrito]);
+
+  const calcularSubtotalCanjeable = useCallback(() => {
+    return carrito.reduce((t, item) => {
+        const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
+        if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return t;
+        
+        const catNombre = prodDB?.categoria || item.categoria;
+        const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
+        if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return t;
+
+        return t + ((item.precioFinal || 0) * (item.cantidad || 1));
+    }, 0);
+  }, [carrito, productos, clasificaciones]);
   
   useEffect(() => {
     const subtotal = calcularSubtotal();
+    const subtotalCanjeable = calcularSubtotalCanjeable(); 
     
     let dCup = 0;
     if (cuponActivo) {
@@ -263,17 +285,26 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setDescuentoCuponDinero(dCup);
 
     let dPts = 0;
+    let ptsFisicosReales = 0; // 👈 NUEVA VARIABLE INTERNA
     if (descuentoPuntosPuntosFisicos > 0) {
         const valorPeso = Number(configGlobal.puntos_valor_peso) || 1;
         dPts = descuentoPuntosPuntosFisicos * valorPeso;
-        if (dPts > (subtotal - dCup)) {
-            dPts = subtotal - dCup;
+        
+        const limiteCanje = Math.min(subtotalCanjeable, subtotal - dCup);
+        
+        if (dPts > limiteCanje) {
+            dPts = limiteCanje;
         }
+        
+        // 👇 MATEMÁTICA INVERSA: Convertimos el dinero descontado a puntos
+        ptsFisicosReales = parseFloat((dPts / valorPeso).toFixed(2));
     }
+    
     setDescuentoPuntosDinero(dPts);
+    setPuntosAplicados(ptsFisicosReales); // 👈 Guardamos el cálculo correcto
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carrito, cuponActivo, descuentoPuntosPuntosFisicos, configGlobal.puntos_valor_peso]);
+  }, [carrito, cuponActivo, descuentoPuntosPuntosFisicos, configGlobal.puntos_valor_peso, calcularSubtotal, calcularSubtotalCanjeable]);
 
   const calcularTotal = useCallback(() => {
      const subtotal = calcularSubtotal();
@@ -305,6 +336,36 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           setErrorNip('NIP Incorrecto. Intenta de nuevo.'); 
       } 
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
+  };
+
+  const solicitarRecuperacionNip = async (e) => {
+    e.preventDefault();
+    setMensajeRecuperacion(null);
+    setIsSubmittingRecuperacion(true);
+
+    try {
+        const res = await fetch(`${apiUrl}/clientes/recuperar-nip`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cliente_id: clienteActivo.id, correo: correoRecuperacion })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            setMensajeRecuperacion({ tipo: 'success', texto: '¡Listo! Te hemos enviado un correo con tu NIP y hemos asociado el correo a tu cuenta.' });
+            setTimeout(() => {
+                setModalRecuperarNip(false);
+                setCorreoRecuperacion('');
+                setMensajeRecuperacion(null);
+                setModalNip(true); 
+            }, 4000);
+        } else {
+            setMensajeRecuperacion({ tipo: 'error', texto: data.error || 'Ocurrió un error al solicitar la recuperación.' });
+        }
+    } catch (error) {
+        setMensajeRecuperacion({ tipo: 'error', texto: 'Fallo de conexión. Revisa tu internet.' });
+    }
+    setIsSubmittingRecuperacion(false);
   };
 
   const sincronizarPedidosOffline = async () => {
@@ -381,7 +442,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setPromocionVigente(null); 
   };
 
-  const guardarEdicionDirecta = async () => {
+    const guardarEdicionDirecta = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -393,19 +454,23 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         }
     });
 
+    // 👇 FIX: Si no hay ordenExterna (porque edita el cliente), buscamos la orden en su historial
+    const ordenOriginal = ordenExterna || misPedidos.find(p => p.id === pedidoEditandoId) || {};
+
     const paquete = {
-      cliente_id: ordenExterna.cliente_id,
-      tipo_consumo: ordenExterna.tipo_consumo,
-      metodo_pago: ordenExterna.metodo_pago,
-      origen: ordenExterna.origen,
-      direccion_entrega: ordenExterna.direccion_entrega,
-      estado_preparacion: ordenExterna.estado_preparacion,
-      mesa: ordenExterna.mesa,
+      // 👇 FIX: Tomamos el ID del cliente activo, y los datos actuales del estado o de la orden original
+      cliente_id: clienteActivo ? clienteActivo.id : ordenOriginal.cliente_id,
+      tipo_consumo: tipoConsumo || ordenOriginal.tipo_consumo,
+      metodo_pago: metodoPagoFinal || ordenOriginal.metodo_pago,
+      origen: ordenOriginal.origen || 'Kiosco',
+      direccion_entrega: direccionEntrega || ordenOriginal.direccion_entrega,
+      estado_preparacion: ordenOriginal.estado_preparacion || 'Pendiente',
+      mesa: mesaQR || ordenOriginal.mesa,
       
       carrito: carritoExpandido,
       total: calcularTotal(),
-      descuento_puntos: descuentoPuntosPuntosFisicos,
-      cupon_codigo: cuponActivo && descuentoCuponDinero > 0 ? cuponActivo.codigo : ordenExterna.cupon_codigo
+      descuento_puntos: puntosAplicados, 
+      cupon_codigo: cuponActivo && descuentoCuponDinero > 0 ? cuponActivo.codigo : ordenOriginal.cupon_codigo
     };
 
     try {
@@ -426,16 +491,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setIsSubmitting(false);
   };
 
-  const bloqueoPuntosActivo = carrito.some(item => {
-      const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
-      if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return true;
-      
-      const catNombre = prodDB?.categoria || item.categoria;
-      const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
-      if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return true;
-
-      return false;
-  });
+  const bloqueoPuntosActivo = carrito.length > 0 && calcularSubtotalCanjeable() === 0;
 
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-4 md:p-8 relative overflow-x-hidden">
@@ -452,7 +508,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
 
-      {/* BANNER OFFLINE */}
       {isOffline && (
         <div className="bg-red-500 text-white text-center py-3 px-4 rounded-2xl mb-6 font-black flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top-4 shadow-lg shadow-red-500/30">
           <span className="animate-pulse text-2xl">🔴</span> 
@@ -463,7 +518,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
 
-      {/* BANNER DE SINCRONIZACIÓN */}
       {!isOffline && pedidosOfflinePendientes > 0 && (
         <div className="bg-emerald-500 text-white py-4 px-6 rounded-2xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 shadow-xl shadow-emerald-500/30">
           <div className="flex items-center gap-3">
@@ -479,7 +533,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
 
-      {/* HEADER GLOBAL */}
       <div className="flex justify-between items-start mb-8">
         <div className="flex gap-4">
             {clienteActivo && !ordenExterna ? ( 
@@ -510,7 +563,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       {errorTransaccion && ( <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-xl mb-6 shadow-sm"><p className="font-bold">🚨 {errorTransaccion}</p></div> )}
 
       {pantallaActual === 'mis_pedidos' && (
-        <MisPedidos misPedidos={misPedidos} setPantallaActual={setPantallaActual} modificarPedido={modificarPedido} />
+        <MisPedidos misPedidos={misPedidos} setPantallaActual={setPantallaActual} modificarPedido={modificarPedido} clienteActivo={clienteActivo} apiUrl={apiUrl} configGlobal={configGlobal} />
       )}
 
       {pantallaActual === 'menu' && (
@@ -527,8 +580,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           setPromocionVigente={setPromocionVigente}
           guardarEdicionDirecta={guardarEdicionDirecta} 
           isSubmitting={isSubmitting} 
-          
-          /* 👇 NUEVO PROP PARA INTERCEPTAR COMPORTAMIENTO */
           modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
@@ -541,7 +592,10 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           direccionEntrega={direccionEntrega} setDireccionEntrega={setDireccionEntrega}
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
           carrito={carrito} calcularTotal={calcularTotal} setCarrito={setCarrito} productos={productos}
-          descuentoPuntos={descuentoPuntosPuntosFisicos} cuponActivo={cuponActivo} descuentoCuponDinero={descuentoCuponDinero}
+          
+          descuentoPuntos={puntosAplicados} // 👈 FIX: Pasamos los puntos matemáticamente correctos al Checkout
+          
+          cuponActivo={cuponActivo} descuentoCuponDinero={descuentoCuponDinero}
           clienteActivo={clienteActivo} ordenExterna={ordenExterna} user={user}
           pedidoEditandoId={pedidoEditandoId} apiUrl={apiUrl} configGlobal={configGlobal}
           setErrorTransaccion={setErrorTransaccion} setMetodoPagoFinal={setMetodoPagoFinal}
@@ -549,8 +603,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
           metodoPagoFinal={metodoPagoFinal} mesaQR={mesaQR} isOffline={isOffline} 
           setPromocionVigente={setPromocionVigente}
-
-          /* 👇 NUEVO PROP PARA INTERCEPTAR COMPORTAMIENTO */
           modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
@@ -558,20 +610,74 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
 
       {/* MODAL NIP FIDELIDAD */}
       {modalNip && ( 
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[60] p-4 animate-in fade-in">
+          <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95">
             <span className="text-6xl mb-4 block">🎁</span>
             <h2 className="text-2xl font-black text-slate-800 mb-2">Seguridad de Puntos</h2>
             <p className="text-slate-500 font-medium mb-6">Ingresa tu NIP para usar tus <strong className="text-blue-600">{clienteActivo?.puntos || 0} pts</strong>.</p>
             <input type="password" maxLength="4" required value={nipInput} onChange={e => setNipInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black tracking-[1em] outline-none focus:border-blue-500 mb-2 text-slate-800" placeholder="••••" />
-            <button type="button" onClick={() => alert('Pide apoyo al cajero.')} className="text-blue-500 hover:text-blue-700 text-xs font-bold underline mb-6 block w-full">¿Olvidaste tu NIP?</button>
+            
+            <button type="button" onClick={() => { setModalNip(false); setModalRecuperarNip(true); }} className="text-blue-500 hover:text-blue-700 text-xs font-bold underline mb-6 block w-full transition">¿Olvidaste tu NIP?</button>
+            
             {errorNip && <p className="text-red-500 text-sm font-bold bg-red-50 p-2 rounded-xl mb-4 border border-red-100">{errorNip}</p>}
             <div className="flex gap-4">
               <button type="button" onClick={() => { setModalNip(false); setNipInput(''); setErrorNip(''); }} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200">Cancelar</button>
-              <button type="submit" disabled={nipInput.length !== 4 || isOffline} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl disabled:opacity-50">Canjear</button>
+              <button type="submit" disabled={nipInput.length !== 4 || isOffline} className="flex-1 py-4 bg-blue-600 text-white font-black rounded-2xl disabled:opacity-50 hover:bg-blue-700 transition">Canjear</button>
             </div>
           </form>
         </div> 
+      )}
+
+      {/* MODAL RECUPERAR NIP */}
+      {modalRecuperarNip && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in">
+          <form onSubmit={solicitarRecuperacionNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95">
+            <div className="bg-blue-50 text-blue-500 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <span className="text-4xl">📧</span>
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">Recuperar NIP</h2>
+            <p className="text-slate-500 font-medium mb-6 text-sm leading-relaxed">
+              Ingresa tu correo electrónico. Lo asociaremos a tu cuenta y te enviaremos tu NIP de seguridad para que puedas usar tus puntos.
+            </p>
+
+            {mensajeRecuperacion && (
+              <div className={`p-4 rounded-xl mb-6 text-sm font-bold border ${mensajeRecuperacion.tipo === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                {mensajeRecuperacion.texto}
+              </div>
+            )}
+
+            {(!mensajeRecuperacion || mensajeRecuperacion.tipo === 'error') && (
+              <>
+                <input
+                  type="email"
+                  required
+                  value={correoRecuperacion}
+                  onChange={e => setCorreoRecuperacion(e.target.value)}
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-lg font-bold outline-none focus:border-blue-500 mb-6 text-slate-800"
+                  placeholder="tu@correo.com"
+                  disabled={isSubmittingRecuperacion}
+                />
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="submit"
+                    disabled={isSubmittingRecuperacion || !correoRecuperacion || isOffline}
+                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl disabled:opacity-50 hover:bg-blue-700 transition active:scale-95 shadow-lg shadow-blue-500/30"
+                  >
+                    {isSubmittingRecuperacion ? 'Enviando...' : 'Enviar NIP al correo'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setModalRecuperarNip(false); setCorreoRecuperacion(''); setMensajeRecuperacion(null); setModalNip(true); }}
+                    className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition"
+                    disabled={isSubmittingRecuperacion}
+                  >
+                    Volver
+                  </button>
+                </div>
+              </>
+            )}
+          </form>
+        </div>
       )}
       
       {/* MODAL PERSONALIZAR PLATILLO */}
