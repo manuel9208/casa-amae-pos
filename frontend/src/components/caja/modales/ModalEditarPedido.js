@@ -16,7 +16,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
   const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(editNombre, apiUrl);  
 
-  // 👇 NUEVOS ESTADOS: Control de Validación y Modal Financiero
   const [errorValidacion, setErrorValidacion] = useState('');
   const [confirmacionFinanciera, setConfirmacionFinanciera] = useState(null);
 
@@ -30,9 +29,29 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       setEditMetodoPago(modalEditarPedido.metodo_pago || 'Efectivo');
       setEditClienteId(modalEditarPedido.cliente_id || null);  
 
-      const costoEnvioActual = Number(modalEditarPedido.costo_envio) || 0;
+      const isOriginalDomicilio = modalEditarPedido.tipo_consumo === 'Domicilio';
+      const costoEnvioActual = isOriginalDomicilio ? (Number(modalEditarPedido.costo_envio) || 0) : 0;
+      
+      // 👇 FIX: Sanador Matemático 2.0 (Ultra Estricto)
+      let sumCart = 0;
+      try {
+          const arr = typeof modalEditarPedido.carrito === 'string' ? JSON.parse(modalEditarPedido.carrito) : (modalEditarPedido.carrito || []);
+          sumCart = arr.reduce((acc, item) => acc + ((Number(item.precioFinal) || 0) * (Number(item.cantidad) || 1)), 0);
+      } catch(e) {}
+
+      let calculoBase = Number(modalEditarPedido.total) - costoEnvioActual;
+
+      // Evaluamos descuentos de forma segura convirtiendo a número real
+      const tienePuntos = Number(modalEditarPedido.descuento_puntos || 0) > 0;
+      const tieneCupon = !!modalEditarPedido.cupon_codigo;
+
+      // Si hay un descuadre en la BD (ej. total 115 pero suma 100), reparamos el total automáticamente
+      if (Math.abs(sumCart - calculoBase) > 1 && !tienePuntos && !tieneCupon) {
+          calculoBase = sumCart;
+      }
+
       setEditCostoEnvio(costoEnvioActual);
-      setTotalBase(Number(modalEditarPedido.total) - costoEnvioActual);  
+      setTotalBase(calculoBase);  
 
       let dirPura = modalEditarPedido.direccion_entrega || '';
       let telExtraido = modalEditarPedido.cliente_telefono || '';
@@ -115,9 +134,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
     setMostrarSugerencias(false);
   };  
 
-  // ==========================================
-  // 🛡️ MOTOR DE REGLAS VISUALES Y PERMISOS
-  // ==========================================
   const estado = String(modalEditarPedido?.estado_preparacion || '').trim();
   const isCancelado = estado === 'Cancelado';
   const isTerminado = ['Entregado', 'Liquidado', 'Finalizado'].includes(estado);
@@ -125,17 +141,30 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const isEnCola = ['Pendiente', 'Por Confirmar', 'Pagado'].includes(estado);  
 
   const canEditCart = isEnCola && !isCancelado && !isTerminado;
-  const canEditConsumo = (isEnCola || isEnCocina || isTerminado) && !isTerminado && !isCancelado;  
-  const isPagado = !['Pendiente', 'Por Cobrar'].includes(modalEditarPedido?.metodo_pago);
+  const canEditConsumo = (isEnCola || isEnCocina || isTerminado) && !isTerminado && !isCancelado;
   
-  // 👇 FIX APLICADO: Liberamos la edición de método de cobro ignorando si es "Por Cobrar" (esencial para logística)
+  const isPagado = !['Pendiente', 'Por Cobrar', 'Cancelado'].includes(modalEditarPedido?.metodo_pago) && estado !== 'Pendiente';  
+  
   const canEditMetodo = !isCancelado && estado !== 'Pendiente';  
-  
-  const totalActualizado = totalBase + (editConsumo === 'Domicilio' ? Number(editCostoEnvio || 0) : 0);
+  const totalActualizado = totalBase + (editConsumo === 'Domicilio' ? Number(editCostoEnvio || 0) : 0);  
+
+  const ejecutarGuardadoAvanzado = async (payload) => {
+    try {
+        await fetch(`${apiUrl}/pedidos/${modalEditarPedido.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        guardarEdicionPedido(modalEditarPedido.id, payload);
+    } catch (e) {
+        console.error("Error al forzar actualización", e);
+        guardarEdicionPedido(modalEditarPedido.id, payload); // Fallback
+    }
+  };
 
   const submitEdicionPedido = (e) => {
     e.preventDefault();
-    setErrorValidacion(''); // Limpiamos errores previos
+    setErrorValidacion(''); 
     let payload = {};  
 
     if (isCancelado) {
@@ -162,7 +191,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
         let finalEnvio = 0;  
 
         if (editConsumo === 'Domicilio') {
-          // Reemplazo de alerts nativos por validación UI
           if (!editDireccion.trim()) {
             setErrorValidacion("Debes especificar la dirección para envíos a domicilio.");
             return;
@@ -201,23 +229,46 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       }
     }  
 
-    // 👇 INTERCEPTOR FINANCIERO: Si está pagado, validamos la diferencia de dinero
-    if (!isCancelado && isPagado && canEditConsumo) {
-      const costoOriginal = Number(modalEditarPedido.costo_envio || 0);
-      const diferencia = (payload.costo_envio || 0) - costoOriginal;
+    // 👇 FIX: Interceptor Financiero Global (Compara Totales Absolutos)
+    if (!isCancelado && canEditConsumo) {
+      const totalOriginal = Number(modalEditarPedido.total || 0);
+      const totalNuevo = payload.total;
+      
+      const diferencia = totalNuevo - totalOriginal;
 
-      if (diferencia !== 0) {
+      if (Math.abs(diferencia) > 0.01) {
         setConfirmacionFinanciera({
           tipo: diferencia > 0 ? 'cobro' : 'devolucion',
           monto: Math.abs(diferencia),
-          payload: payload
+          payload: payload,
+          isPagado: isPagado
         });
-        return; // Pausamos el guardado hasta que confirme en el modal
+        return; 
       }
     }
 
-    guardarEdicionPedido(modalEditarPedido.id, payload);
+    ejecutarGuardadoAvanzado(payload);
   };  
+
+  const manejarIrAKiosco = async () => {
+    try {
+        let clienteReal = null;
+        if (editClienteId) {
+            const res = await fetch(`${apiUrl}/clientes`);
+            const clientes = await res.json();
+            clienteReal = clientes.find(c => Number(c.id) === Number(editClienteId));
+        }
+        if (!clienteReal && editNombre) {
+            clienteReal = { id: null, nombre: editNombre, puntos: 0 };
+        }
+        setModalEditarPedido(null);
+        const ordenCorregida = { ...modalEditarPedido, cliente_nombre: editNombre || 'Invitado' };
+        onGoToKiosco(clienteReal, ordenCorregida);
+    } catch(e) {
+        setModalEditarPedido(null);
+        onGoToKiosco({ id: editClienteId, nombre: editNombre, puntos: 0 }, modalEditarPedido);
+    }
+  };
 
   if (!modalEditarPedido) return null;  
 
@@ -271,12 +322,7 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
                 </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    setModalEditarPedido(null);
-                    const clienteSimulado = editNombre ? { id: editClienteId, nombre: editNombre } : null;
-                    const ordenCorregida = { ...modalEditarPedido, cliente_nombre: editNombre || 'Invitado' };
-                    onGoToKiosco(clienteSimulado, ordenCorregida);
-                  }}
+                  onClick={manejarIrAKiosco}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl text-sm shadow-md transition active:scale-95"
                 >
                   Editar Platillos en el Menú
@@ -432,7 +478,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta / Terminal</option>
                   <option value="Transferencia">Transferencia</option>
-                  {/* 👇 FIX APLICADO: Opciones añadidas para permitir la compatibilidad omnicanal y de logística */}
                   <option value="Por Cobrar">Por Cobrar (Repartidor)</option>
                   <option value="Mixto">Pago Mixto</option>
                 </select>
@@ -440,7 +485,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
             )}  
           </div>  
 
-          {/* BANNER DE ERROR (Reemplaza a los alert() nativos) */}
           {errorValidacion && (
             <div className="mt-4 bg-red-50 p-3 rounded-xl border border-red-200 text-red-600 text-xs font-bold flex items-center gap-2 animate-in fade-in">
               <AlertTriangle size={16} className="shrink-0" />
@@ -448,10 +492,14 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
             </div>
           )}
 
-          {isPagado && editConsumo === 'Domicilio' && Number(editCostoEnvio) > 0 && (
+          {editConsumo === 'Domicilio' && Number(editCostoEnvio) > 0 && (
             <div className="mt-4 bg-amber-50 p-3 rounded-xl border border-amber-200 text-amber-800 text-xs font-bold flex items-start gap-2 animate-in fade-in">
               <AlertTriangle size={16} className="shrink-0 mt-0.5" />
-              <p>Al agregar el envío a esta orden pagada, requerirás realizar un cobro extra físico.</p>
+              <p>
+                {isPagado
+                  ? "Al agregar el envío a esta orden pagada, requerirás realizar un cobro extra físico al guardar."
+                  : "Al agregar el envío, el saldo pendiente de esta cuenta aumentará al guardar."}
+              </p>
             </div>
           )}
 
@@ -492,7 +540,6 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
         </form>
       </div>
 
-      {/* 👇 MODAL INTERCEPTOR: CONFIRMACIÓN FINANCIERA */}
       {confirmacionFinanciera && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -501,27 +548,38 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
             </div>
             
             <h3 className="text-2xl font-black text-slate-800 mb-2">
-              {confirmacionFinanciera.tipo === 'cobro' ? 'Cobro Extra Requerido' : 'Devolución Requerida'}
+              {confirmacionFinanciera.tipo === 'cobro' ? 'Ajuste de Cuenta' : 'Ajuste a Favor'}
             </h3>
             
             <p className="text-slate-500 font-medium mb-8 leading-relaxed">
-              {confirmacionFinanciera.tipo === 'cobro'
-                ? `Como esta orden ya estaba pagada, al agregar el envío a domicilio deberás cobrar al cliente `
-                : `Al quitar el envío de una orden ya pagada, deberás devolver al cliente la cantidad de `}
-              <strong className="text-slate-800 text-lg block mt-1">${confirmacionFinanciera.monto.toFixed(2)} MXN</strong>
-              <br/>
-              ¿Confirmas que {confirmacionFinanciera.tipo === 'cobro' ? 'realizarás este cobro' : 'entregarás este dinero'}?
+              {confirmacionFinanciera.isPagado
+                ? (confirmacionFinanciera.tipo === 'cobro'
+                    ? `Esta orden ya estaba pagada. Al agregar el envío deberás cobrar extra la cantidad de `
+                    : `Al quitar el envío de una orden ya pagada, deberás devolver al cliente la cantidad de `)
+                : (confirmacionFinanciera.tipo === 'cobro'
+                    ? `El total de esta cuenta pendiente de cobro aumentará en `
+                    : `El total de esta cuenta pendiente de cobro disminuirá en `)
+              }
+              <strong className="text-slate-800 text-xl block mt-2">${confirmacionFinanciera.monto.toFixed(2)} MXN</strong>
             </p>
             
-            <div className="flex gap-4">
-              <button type="button" onClick={() => setConfirmacionFinanciera(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
-                Cancelar
+            <div className="flex flex-col gap-3">
+              <button 
+                  type="button" 
+                  onClick={() => {
+                    ejecutarGuardadoAvanzado(confirmacionFinanciera.payload);
+                    setConfirmacionFinanciera(null);
+                  }} 
+                  className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2 ${confirmacionFinanciera.tipo === 'cobro' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'}`}
+              >
+                  <CheckCircle2 size={20} /> Entendido, proceder
               </button>
-              <button type="button" onClick={() => {
-                guardarEdicionPedido(modalEditarPedido.id, confirmacionFinanciera.payload);
-                setConfirmacionFinanciera(null);
-              }} className={`flex-1 py-4 text-white font-black rounded-2xl shadow-lg transition active:scale-95 ${confirmacionFinanciera.tipo === 'cobro' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'}`}>
-                Sí, Confirmar
+              <button 
+                  type="button" 
+                  onClick={() => setConfirmacionFinanciera(null)} 
+                  className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95"
+              >
+                  Cancelar Edición
               </button>
             </div>
           </div>

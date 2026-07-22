@@ -51,7 +51,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [itemAEditar, setItemAEditar] = useState(null);
   const [descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos] = useState(0); 
   const [descuentoPuntosDinero, setDescuentoPuntosDinero] = useState(0); 
-  const [puntosAplicados, setPuntosAplicados] = useState(0); // 👈 NUEVO: Estado para guardar los puntos matemáticamente correctos
+  const [puntosAplicados, setPuntosAplicados] = useState(0); 
   
   const [modalNip, setModalNip] = useState(false); 
   const [nipInput, setNipInput] = useState(''); 
@@ -152,8 +152,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       setMisPedidos(nuevosPedidos); 
 
       if (esCargaInicial) { 
-        if (nuevosPedidos.length > 0) setPantallaActual('mis_pedidos'); 
-        else setPantallaActual('menu'); 
+        // 👇 FIX: Ahora SIEMPRE entra al menú sin importar si es cliente nuevo o viejo
+        setPantallaActual('menu'); 
         setEsCargaInicial(false);
       } 
     } catch (error) {}
@@ -201,7 +201,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setPedidoEditandoId(pedido.id); 
     
     if (pedido.descuento_puntos && Number(pedido.descuento_puntos) > 0) {
-      // 👇 Aquí también recuperamos los puntos tal cual como los lee la orden previa
       const ptsGuardados = Number(pedido.descuento_puntos);
       setDescuentoPuntosPuntosFisicos(ptsGuardados);
       setPuntosAplicados(ptsGuardados); 
@@ -230,7 +229,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       setCarrito([]); setTipoConsumo(null); setDireccionEntrega(''); setNumeroPedidoReal(null); setMetodoPagoFinal(null); 
       setErrorTransaccion(''); setPedidoEditandoId(null); 
       setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0); 
-      setPuntosAplicados(0); // 👈 NUEVO: Reiniciamos la variable
+      setPuntosAplicados(0); 
       setCuponActivo(null); setDescuentoCuponDinero(0);
       
       if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
@@ -285,7 +284,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setDescuentoCuponDinero(dCup);
 
     let dPts = 0;
-    let ptsFisicosReales = 0; // 👈 NUEVA VARIABLE INTERNA
+    let ptsFisicosReales = 0; 
     if (descuentoPuntosPuntosFisicos > 0) {
         const valorPeso = Number(configGlobal.puntos_valor_peso) || 1;
         dPts = descuentoPuntosPuntosFisicos * valorPeso;
@@ -296,12 +295,11 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
             dPts = limiteCanje;
         }
         
-        // 👇 MATEMÁTICA INVERSA: Convertimos el dinero descontado a puntos
         ptsFisicosReales = parseFloat((dPts / valorPeso).toFixed(2));
     }
     
     setDescuentoPuntosDinero(dPts);
-    setPuntosAplicados(ptsFisicosReales); // 👈 Guardamos el cálculo correcto
+    setPuntosAplicados(ptsFisicosReales); 
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrito, cuponActivo, descuentoPuntosPuntosFisicos, configGlobal.puntos_valor_peso, calcularSubtotal, calcularSubtotalCanjeable]);
@@ -454,11 +452,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         }
     });
 
-    // 👇 FIX: Si no hay ordenExterna (porque edita el cliente), buscamos la orden en su historial
     const ordenOriginal = ordenExterna || misPedidos.find(p => p.id === pedidoEditandoId) || {};
 
     const paquete = {
-      // 👇 FIX: Tomamos el ID del cliente activo, y los datos actuales del estado o de la orden original
       cliente_id: clienteActivo ? clienteActivo.id : ordenOriginal.cliente_id,
       tipo_consumo: tipoConsumo || ordenOriginal.tipo_consumo,
       metodo_pago: metodoPagoFinal || ordenOriginal.metodo_pago,
@@ -545,7 +541,21 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
                     <span className="text-[10px] text-slate-400 font-medium ml-1">(${ (clienteActivo.puntos * (configGlobal.puntos_valor_peso || 1)).toFixed(2) })</span>
                 </p>
                 </div>
-                <button onClick={() => setTimeout(() => onLogout(), 50)} className="ml-4 text-xs font-bold bg-slate-100 px-3 py-1 rounded-lg hover:bg-red-100 hover:text-red-600 transition">Salir</button>
+                
+                {/* 👇 FIX: BOTONES INTERACTIVOS DE NAVEGACIÓN (PERFIL VS MENÚ) */}
+                <div className="flex gap-2 ml-4 pl-4 border-l border-slate-100">
+                  {pantallaActual === 'menu' && (
+                      <button onClick={() => setPantallaActual('mis_pedidos')} className="text-xs font-black bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl hover:bg-indigo-100 transition active:scale-95">
+                          👤 Mi Perfil
+                      </button>
+                  )}
+                  {pantallaActual === 'mis_pedidos' && (
+                      <button onClick={() => setPantallaActual('menu')} className="text-xs font-black bg-blue-50 text-blue-600 px-4 py-2 rounded-xl hover:bg-blue-100 transition active:scale-95">
+                          🍔 Ver Menú
+                      </button>
+                  )}
+                  <button onClick={() => setTimeout(() => onLogout(), 50)} className="text-xs font-bold bg-slate-100 px-4 py-2 rounded-xl hover:bg-red-100 hover:text-red-600 transition active:scale-95">Salir</button>
+                </div>
             </div> 
             ) : ( 
             <div className="bg-white px-6 py-3 rounded-full shadow-sm border"><p className="text-sm font-bold text-slate-400">{ordenExterna ? `Editando orden` : 'Invitado'}</p></div> 
@@ -593,7 +603,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
           carrito={carrito} calcularTotal={calcularTotal} setCarrito={setCarrito} productos={productos}
           
-          descuentoPuntos={puntosAplicados} // 👈 FIX: Pasamos los puntos matemáticamente correctos al Checkout
+          descuentoPuntos={puntosAplicados} 
           
           cuponActivo={cuponActivo} descuentoCuponDinero={descuentoCuponDinero}
           clienteActivo={clienteActivo} ordenExterna={ordenExterna} user={user}
