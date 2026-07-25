@@ -262,4 +262,4 @@ const PantallaTV = ({ onLogout }) => {
   );
 };
 
-export default PantallaTV;
+export default PantallaTV; 
