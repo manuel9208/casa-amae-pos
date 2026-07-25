@@ -4,7 +4,7 @@ import { MessageCircle } from 'lucide-react';
 const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
   if (!ticketImprimir || !configGlobal) return null;  
 
-  // 👇 FUNCIÓN ESTRICTA: Elimina cualquier emoji o símbolo incompatible con impresoras térmicas
+  // FUNCIÓN ESTRICTA: Elimina cualquier emoji o símbolo incompatible con impresoras térmicas
   const stripEmojis = (str) => {
     return String(str || '')
       .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
@@ -28,7 +28,7 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
 
   const handleWhatsApp = () => {
     if (hasValidPhone) {
-      const texto = `Hola ${stripEmojis(ticketImprimir.cliente_nombre) || ''}, te comparto la confirmación de tu orden #${ticketImprimir.numero_pedido} por un total de *$${ticketImprimir.total}*. ¡Gracias por tu preferencia!`;
+      const texto = `Hola ${stripEmojis(ticketImprimir.cliente_nombre) || ''}, te comparto la confirmación de tu orden #${ticketImprimir.numero_pedido} por un total de *$${Number(ticketImprimir.total).toFixed(2)}*. ¡Gracias por tu preferencia!`;
       const url = `https://wa.me/52${cleanPhone}?text=${encodeURIComponent(texto)}`;
       window.open(url, '_blank');
     }
@@ -86,14 +86,27 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
                     </div>
                   )}
                 </td>
-                <td className="text-right pt-1">${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}</td>
+                <td className="text-right pt-1">${(Number(item.precioFinal) * Number(item.cantidad || 1)).toFixed(2)}</td>
               </tr>
             ))}
           </tbody>
         </table>  
 
+        {/* 👇 FIX APLICADO: DESGLOSE FINANCIERO EN EL TICKET */}
         <div className="border-t border-black border-dashed pt-2 text-right uppercase text-[10px] mb-4">
-          <p className="font-bold text-sm">Total: ${ticketImprimir.total}</p>
+          
+          {Number(ticketImprimir.costo_envio) > 0 && (
+            <p className="mb-0.5 text-gray-800">Envío: +${Number(ticketImprimir.costo_envio).toFixed(2)}</p>
+          )}
+          
+          {Number(ticketImprimir.descuento_puntos) > 0 && (
+            <p className="mb-0.5 text-gray-800">Desc Puntos: -${Number(ticketImprimir.descuento_puntos).toFixed(2)}</p>
+          )}
+
+          <p className="font-bold text-sm mt-1 border-t border-gray-300 border-dotted pt-1">
+            Total: ${Number(ticketImprimir.total).toFixed(2)}
+          </p>
+          
           <p className="mt-1">Pago: {stripEmojis(ticketImprimir.metodo_pago)}</p>
           {ticketImprimir.metodo_pago === 'Mixto' && ticketImprimir.pagos_mixtos && (
             <div className="mt-1 text-[9px] text-gray-700 space-y-0.5">

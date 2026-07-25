@@ -15,8 +15,15 @@ const TarjetaPedidoConfirmar = ({
   const telefono = getTelefonoExtraido(pedido);
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';  
 
-  // 👇 NUEVA EXTRACCIÓN INTELIGENTE
-  const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
+  // 👇 FIX APLICADO: EXTRACCIÓN INTELIGENTE DE INSTRUCCIÓN DE COBRO (Feria)
+  let instruccionCobro = null;
+  if (pedido.direccion_entrega) {
+    const matchCobro = pedido.direccion_entrega.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
+    if (matchCobro && matchCobro[1]) {
+      instruccionCobro = matchCobro[1].trim();
+    }
+  }
+
   let direccionLimpia = pedido.direccion_entrega || '';
   let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
@@ -27,11 +34,11 @@ const TarjetaPedidoConfirmar = ({
     }
   }  
 
+  // 👇 FIX APLICADO: Limpieza profunda de la dirección usando la nueva Regex
   direccionLimpia = direccionLimpia
-    .replace(/\[.*?\]/g, '')
+    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro
     .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-    .replace(/TEL:\s*\d*/gi, '')
-    .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono para no duplicar
     .split('|')
     .map(parte => parte.trim())
     .filter(parte => parte.length > 0)
@@ -59,6 +66,12 @@ const TarjetaPedidoConfirmar = ({
           <p className="text-xl font-black text-amber-600">
             ${Number(pedido.total || 0).toFixed(2)}
           </p>
+          {/* 👇 FIX VISUAL: Desglose rápido del costo de envío si existe */}
+          {Number(pedido.costo_envio) > 0 && (
+            <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 leading-tight">
+              Incluye ${Number(pedido.costo_envio).toFixed(2)} de envío
+            </p>
+          )}
         </div>
       </div>  
 
@@ -68,11 +81,14 @@ const TarjetaPedidoConfirmar = ({
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
+          
+          {/* 👇 FIX: Envolvemos telefono en String() por seguridad */}
           {telefono && (
-            <a href={`https://wa.me/52${telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer">
+            <a href={`https://wa.me/52${String(telefono).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
               <Phone size={14} className="text-blue-400" /> {telefono}
             </a>
           )}
+
           {esDomicilio && direccionLimpia && direccionLimpia !== 'Pendiente de dirección' && (
             <div className="space-y-2 mt-2">
               <p className="text-xs font-bold text-slate-500 flex items-start gap-2 line-clamp-2">

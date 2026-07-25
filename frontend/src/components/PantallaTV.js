@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize, RotateCw } from 'lucide-react';
 
 const PantallaTV = ({ onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
   const [config, setConfig] = useState({});
-  const [mostrarPublicidad, setMostrarPublicidad] = useState(false);
-  const [indiceImagen, setIndiceImagen] = useState(0);
+  const [step, setStep] = useState(0);
 
   // Estado para guardar y controlar la rotación de pantalla
   const [rotacion, setRotacion] = useState(() => Number(localStorage.getItem('pos_tv_rotacion')) || 0);
@@ -19,14 +18,14 @@ const PantallaTV = ({ onLogout }) => {
         const resConf = await fetch(`${apiUrl}/configuracion`);
         const dataConf = await resConf.json();
         if (dataConf && !dataConf.error) {
-          // 👇 FIX RENDIMIENTO: Solo actualiza si hubo un cambio real en la config
+          // Solo actualiza si hubo un cambio real en la config
           setConfig(prev => JSON.stringify(prev) === JSON.stringify(dataConf) ? prev : dataConf);
         }
 
         const resPed = await fetch(`${apiUrl}/pedidos/hoy`);
         const dataPed = await resPed.json();
         if (Array.isArray(dataPed)) {
-          // 👇 FIX RENDIMIENTO: Solo actualiza si entraron o cambiaron pedidos
+          // Solo actualiza si entraron o cambiaron pedidos
           setPedidos(prev => JSON.stringify(prev) === JSON.stringify(dataPed) ? prev : dataPed);
         }
       } catch (e) { console.error("Error al refrescar TV:", e); }
@@ -50,18 +49,36 @@ const PantallaTV = ({ onLogout }) => {
   const carruselActivo = config?.tv_carrusel_activo === true || config?.tv_carrusel_activo === 'true';
   const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;
 
+  // 👇 FIX APLICADO: Creador de la secuencia exacta (Imágenes -> Órdenes -> Video -> Repetir)
+  const sequence = useMemo(() => {
+    const seq = [];
+    if (config.tv_imagen_1) seq.push({ type: 'image', url: config.tv_imagen_1 });
+    if (config.tv_imagen_2) seq.push({ type: 'image', url: config.tv_imagen_2 });
+    if (config.tv_imagen_3) seq.push({ type: 'image', url: config.tv_imagen_3 });
+    
+    seq.push({ type: 'orders' });
+    
+    if (config.tv_video) seq.push({ type: 'video', url: config.tv_video });
+    
+    return seq;
+  }, [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video]);
+
+  // 👇 FIX APLICADO: Motor del Carrusel con detección de tipo (Video o Imagen/Órdenes)
   useEffect(() => {
-    if (carruselActivo) {
-      const ms = carruselSegundos * 1000;
-      const timer = setInterval(() => {
-        setMostrarPublicidad(prev => !prev);
-        setIndiceImagen(i => i + 1);
-      }, ms);
-      return () => clearInterval(timer);
+    if (!carruselActivo || sequence.length <= 1) return;
+
+    const currentItem = sequence[step % sequence.length];
+    let timer;
+
+    if (currentItem.type === 'video') {
+      // El video se cambiará solo con onEnded, pero ponemos 15s de respaldo por si falla la carga
+      timer = setTimeout(() => setStep(s => s + 1), 15000);
     } else {
-      setMostrarPublicidad(false);
+      timer = setTimeout(() => setStep(s => s + 1), carruselSegundos * 1000);
     }
-  }, [carruselActivo, carruselSegundos]);
+
+    return () => clearTimeout(timer);
+  }, [carruselActivo, sequence, step, carruselSegundos]);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {
@@ -99,9 +116,6 @@ const PantallaTV = ({ onLogout }) => {
   const preparando = subPedidos.filter(p => p.subEstado === 'Preparando');
   const listos = subPedidos.filter(p => p.subEstado === 'Listo');
 
-  const mediosPromocionales = [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video].filter(Boolean);
-  const forzarPantallaCompleta = subPedidos.length === 0 || (mostrarPublicidad && carruselActivo && mediosPromocionales.length > 0);
-
   const renderBotonesControl = () => (
     <div className="absolute bottom-4 right-4 flex gap-3 z-[9999] opacity-20 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300 print:hidden pointer-events-auto">
       <button onClick={() => setRotacion(r => (r + 90) % 360)} className="p-3 bg-black/60 rounded-2xl text-white/80 hover:text-white hover:bg-blue-500 transition shadow-lg backdrop-blur-sm border border-white/10 active:scale-95 cursor-pointer" title="Girar Pantalla">
@@ -120,36 +134,69 @@ const PantallaTV = ({ onLogout }) => {
   const widthVal = isRotated ? '100vh' : '100vw';
   const heightVal = isRotated ? '100vw' : '100vh';
 
-  // 👇 FIX FLASHEO: En lugar de usar un Sub-Componente, usamos la estructura nativa.
-  if (forzarPantallaCompleta) {
-    let medioAMostrar = config.logo_url;
-    if (carruselActivo && mediosPromocionales.length > 0) { medioAMostrar = mediosPromocionales[indiceImagen % mediosPromocionales.length]; }
-    const urlCompleta = medioAMostrar?.startsWith('http') ? medioAMostrar : `${baseUrl}${medioAMostrar}`;
-    const esVideo = medioAMostrar && medioAMostrar === config.tv_video;
+  // LÓGICA DE VISTA ACTUAL
+  const currentItem = sequence.length > 0 ? sequence[step % sequence.length] : { type: 'orders' };
+  const isOrdersView = currentItem.type === 'orders' || !carruselActivo;
+  const showFullScreen = !isOrdersView || (isOrdersView && subPedidos.length === 0);
+
+  // RENDER PANTALLA COMPLETA (Publicidad o Standby)
+  if (showFullScreen) {
+    let urlCompleta = '';
+    let esVideo = false;
+
+    if (!isOrdersView) {
+      urlCompleta = currentItem.url?.startsWith('http') ? currentItem.url : `${baseUrl}${currentItem.url}`;
+      esVideo = currentItem.type === 'video';
+    }
 
     return (
       <div style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', overflow: 'hidden', backgroundColor: 'black', zIndex: 0 }}>
         <div style={{ position: 'absolute', top: '50%', left: '50%', width: widthVal, height: heightVal, transform: `translate(-50%, -50%) rotate(${rotacion}deg)`, transformOrigin: 'center center', backgroundColor: 'black', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {renderBotonesControl()}
-          {medioAMostrar ? (
+          
+          {!isOrdersView ? (
             <>
               <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
                 {esVideo ? <video src={urlCompleta} autoPlay muted loop className="w-full h-full object-cover opacity-20 blur-2xl scale-110" /> : <img src={urlCompleta} className="w-full h-full object-cover opacity-20 blur-2xl scale-110" alt="" />}
               </div>
-              {esVideo ? <video key={`v-${medioAMostrar}`} src={urlCompleta} autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10" /> : <img key={`i-${medioAMostrar}`} src={urlCompleta} className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" alt="Publicidad" />}
+              {esVideo ? (
+                <video 
+                  key={`v-${step}`} 
+                  src={urlCompleta} 
+                  autoPlay 
+                  muted 
+                  playsInline 
+                  onEnded={() => setStep(s => s + 1)} // 👈 Salta a la siguiente diapositiva al terminar
+                  className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10" 
+                />
+              ) : (
+                <img 
+                  key={`i-${step}`} 
+                  src={urlCompleta} 
+                  className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" 
+                  alt="Publicidad" 
+                />
+              )}
               <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none"></div>
             </>
           ) : (
-            <div className="flex items-center justify-center h-full w-full">
-               <h1 className="text-white text-6xl landscape:text-8xl font-black z-10 uppercase text-center px-6">{config.nombre_negocio || 'BIENVENIDO'}</h1>
+            <div className="flex flex-col items-center justify-center h-full w-full relative z-10">
+               {config.logo_url && (
+                   <img src={config.logo_url.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`} className="h-32 landscape:h-48 object-contain mb-8 drop-shadow-2xl" alt="Logo" />
+               )}
+               <h1 className="text-white text-5xl landscape:text-7xl font-black z-10 uppercase text-center px-6 drop-shadow-lg">{config.nombre_negocio || 'BIENVENIDO'}</h1>
             </div>
           )}
-          <div className="absolute bottom-12 inset-x-0 text-white font-black text-xl landscape:text-2xl tracking-[0.5em] landscape:tracking-[1em] uppercase z-30 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] animate-pulse pointer-events-none text-center flex justify-center w-full">ESPERANDO ÓRDENES...</div>
+          
+          {isOrdersView && subPedidos.length === 0 && (
+              <div className="absolute bottom-12 inset-x-0 text-white font-black text-xl landscape:text-2xl tracking-[0.5em] landscape:tracking-[1em] uppercase z-30 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] animate-pulse pointer-events-none text-center flex justify-center w-full">ESPERANDO ÓRDENES...</div>
+          )}
         </div>
       </div>
     );
   }
 
+  // RENDER ESTADO DE PEDIDOS (Cuando hay pedidos y es su turno)
   return (
     <div style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', overflow: 'hidden', backgroundColor: 'black', zIndex: 0 }}>
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: widthVal, height: heightVal, transform: `translate(-50%, -50%) rotate(${rotacion}deg)`, transformOrigin: 'center center', backgroundColor: config.color_fondo || '#f1f5f9', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

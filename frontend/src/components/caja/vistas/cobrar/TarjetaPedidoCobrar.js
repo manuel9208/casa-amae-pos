@@ -15,14 +15,12 @@ const TarjetaPedidoCobrar = ({
 }) => {
   const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
-  // 👇 FIX: Extracción de teléfono súper robusta (Soporta espacios, guiones y diferentes etiquetas)
+  // Extracción de teléfono súper robusta (Soporta espacios, guiones y diferentes etiquetas)
   let telefono = pedido.cliente_telefono || pedido.telefono || '';
   if (!telefono && typeof getTelefonoExtraido === 'function') {
       telefono = getTelefonoExtraido(pedido) || '';
   }
   if (!telefono && pedido.direccion_entrega) {
-      // Capturamos variaciones comunes asegurando que los espacios y guiones no corten el número
-      // (Warning corregido: se removió el escape innecesario del guion)
       const matchTel = pedido.direccion_entrega.match(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*([0-9\s-]+)/i);
       if (matchTel && matchTel[1]) {
           telefono = matchTel[1].trim();
@@ -39,8 +37,15 @@ const TarjetaPedidoCobrar = ({
   };
   const estiloConsumo = obtenerEstiloConsumo();  
 
-  // EXTRACCIÓN INTELIGENTE DE DATOS
-  const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
+  // 👇 FIX APLICADO: EXTRACCIÓN INTELIGENTE DE INSTRUCCIÓN DE COBRO (Feria)
+  let instruccionCobro = null;
+  if (pedido.direccion_entrega) {
+    const matchCobro = pedido.direccion_entrega.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
+    if (matchCobro && matchCobro[1]) {
+      instruccionCobro = matchCobro[1].trim();
+    }
+  }
+
   let direccionLimpia = pedido.direccion_entrega || '';
   let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
 
@@ -51,10 +56,9 @@ const TarjetaPedidoCobrar = ({
     }
   }  
 
-  // 👇 FIX: Limpieza profunda de la dirección sin llevarse texto útil
-  // (Warning corregido: se removió el escape innecesario del guion)
+  // 👇 FIX APLICADO: Limpieza profunda de la dirección incluyendo la nueva Regex
   direccionLimpia = direccionLimpia
-    .replace(/\[.*?\]/g, '')
+    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro de la dirección
     .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
     .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono completo para no mostrarlo duplicado
     .split('|')
@@ -93,7 +97,7 @@ const TarjetaPedidoCobrar = ({
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
 
-          {/* 👇 BOTÓN WHATSAPP ACTIVO SIEMPRE QUE HAYA TELÉFONO - STRING(telefono) previene crashes */}
+          {/* BOTÓN WHATSAPP ACTIVO SIEMPRE QUE HAYA TELÉFONO */}
           {telefono && (
             <a href={`https://wa.me/52${String(telefono).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
               <Phone size={14} className="text-emerald-500" /> {telefono}

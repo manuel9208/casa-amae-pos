@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 
-// 👇 RELOJ SINCRONIZADO ESTRICTO (Zona Horaria Local)
 const getMazatlanDateStr = () => {
     const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
     const parts = formatter.formatToParts(new Date());
@@ -359,7 +358,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         }
       });  
       
+      // 👇 FIX APLICADO: DESGLOSE DE ENVÍO Y DESCUENTOS PARA IMPRESORAS TÉRMICAS
       receipt += `--------------------------------\n`;
+      
+      if (Number(pedido.costo_envio) > 0) {
+        receipt += `ENVIO: +$${Number(pedido.costo_envio).toFixed(2)}\n`;
+      }
+      if (Number(pedido.descuento_puntos) > 0) {
+        receipt += `DESC PUNTOS: -$${Number(pedido.descuento_puntos).toFixed(2)}\n`;
+      }
+      
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
       receipt += `PAGO: ${stripEmojis(pedido.metodo_pago)}\n`;  
       
@@ -450,6 +458,32 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         mostrarAlertaCaja('Imprimiendo', 'Abriendo la app RawBT para imprimir el ticket...', 'success');
       } catch (err) {
         mostrarAlertaCaja('Error de RawBT', 'No se pudo conectar con la aplicación de impresión instalada.', 'error');
+      }  
+      setTimeout(() => {
+        setTicketImprimir(null);
+      }, 1000);  
+
+    } else if (modoImpresion === 'traductor_silencioso') {
+      try {
+        const receipt = construirTextoTicket();
+        
+        fetch("http://127.0.0.1:4000/imprimir", {
+            method: "POST",
+            body: receipt,
+        })
+        .then(res => {
+            if(res.ok) {
+                mostrarAlertaCaja('Imprimiendo', 'Ticket enviado a través del Traductor Silencioso (App Android).', 'success');
+            } else {
+                mostrarAlertaCaja('Error', 'El Traductor Silencioso no respondió correctamente.', 'error');
+            }
+        })
+        .catch(err => {
+            mostrarAlertaCaja('Traductor Inactivo', 'Asegúrate de abrir la app POS Bridge en la tablet para imprimir.', 'error');
+        });
+
+      } catch (err) {
+        mostrarAlertaCaja('Error', 'Fallo al generar el texto del ticket.', 'error');
       }  
       setTimeout(() => {
         setTicketImprimir(null);
@@ -625,9 +659,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };
 
-  // ==========================================
-  // 👇 FIX: PROTECCIÓN FINANCIERA PARA PEDIDOS RECOGER
-  // ==========================================
   const confirmarPedidoRecoger = async (id) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -635,8 +666,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const pedidoRecoger = pedidos.find(p => p.id === id);
       let metodoPagoAjustado = pedidoRecoger?.metodo_pago;
 
-      // Si el cliente indicó que pagará en Efectivo desde el Kiosco, 
-      // cambiamos a 'Por Cobrar' porque el cajero AÚN no tiene el dinero físicamente en la gaveta.
       if (metodoPagoAjustado === 'Efectivo') {
           metodoPagoAjustado = 'Por Cobrar';
       }
@@ -654,9 +683,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIsSubmitting(false);
   };
 
-  // ==========================================
-  // 👇 FIX CRÍTICO: PROTECCIÓN FINANCIERA PARA PEDIDOS DOMICILIO
-  // ==========================================
   const confirmarPedidoDomicilio = async (pedidoModificado) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -666,9 +692,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       
       let metodoPagoAjustado = pedidoModificado.metodo_pago;
 
-      // Si viene desde Kiosco como Efectivo, el cliente va a pagar en casa.
-      // Se obliga al sistema a registrarlo como 'Por Cobrar' para que vaya a 
-      // la pestaña de liquidación y el dinero no descuadre la caja del turno.
       if (metodoPagoAjustado === 'Efectivo') {
           metodoPagoAjustado = 'Por Cobrar';
       }
@@ -676,8 +699,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
-            estado_preparacion: 'Pagado', // En este POS 'Pagado' = Enviado a KDS Cocina
-            metodo_pago: metodoPagoAjustado, // 👈 Corrección inyectada
+            estado_preparacion: 'Pagado', 
+            metodo_pago: metodoPagoAjustado, 
             costo_envio, 
             total: t, 
             cajero_id: operadorActual?.id 

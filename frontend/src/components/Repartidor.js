@@ -104,18 +104,23 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         }
     };
 
+    // 👇 FIX APLICADO: Extracción de Instrucción de Cobro con la nueva Regex
     const getInstruccionCobro = (dir) => {
         if (!dir) return null;
-        const match = dir.match(/\[(.*?)\]/);
-        return match ? match[1] : null;
+        const matchCobro = dir.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
+        return matchCobro ? matchCobro[1].trim() : null;
     };
 
+    // 👇 FIX APLICADO: Limpieza de Dirección Profunda para Repartidor
     const getDireccionLimpia = (dir) => {
         if (!dir) return 'Dirección no especificada';
-        return dir.replace(/\[.*?\]/g, '')
-                  .replace(/A NOMBRE DE:\s*[^|]+/i, '')
-                  .replace(/TEL:\s*\d+/i, '')
-                  .split('|').map(p => p.trim()).filter(p => p).join(', ');
+        let dirPura = dir
+            .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro
+            .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
+            .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono
+            .split('|').map(p => p.trim()).filter(p => p.length > 0).join(', ')
+            .trim();
+        return dirPura || 'Dirección no especificada';
     };
 
     const getNombreExtraido = (pedido) => {
@@ -127,16 +132,17 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         return nombre;
     };
 
+    // 👇 FIX APLICADO: Extracción Robusta del Teléfono
     const getTelefonoExtraido = (pedido) => {
-        let tel = pedido.cliente_telefono;
-        if (!tel && pedido.direccion_entrega && pedido.direccion_entrega.includes('TEL:')) {
-            const match = pedido.direccion_entrega.match(/TEL:\s*(\d+)/i);
-            if (match && match[1]) tel = match[1].trim();
+        let tel = pedido.cliente_telefono || pedido.telefono || '';
+        if (!tel && pedido.direccion_entrega) {
+            const matchTel = pedido.direccion_entrega.match(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*([0-9\s-]+)/i);
+            if (matchTel && matchTel[1]) tel = matchTel[1].trim();
         }
         return tel;
     };
 
-    // 👇 FIX GOOGLE MAPS: Orden y Concatenación perfecta
+    // FIX GOOGLE MAPS: Orden y Concatenación perfecta
     const abrirMapaOriginal = (direccionBruta, ciudadContextoViaje) => {
         const dirLimpia = getDireccionLimpia(direccionBruta);
         if (!dirLimpia || dirLimpia === 'Dirección no especificada') return;
@@ -308,10 +314,10 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                         </div>
                                         {getTelefonoExtraido(viaje) && (
                                             <div className="flex gap-2">
-                                                <a href={`tel:${getTelefonoExtraido(viaje)}`} className="bg-slate-800 hover:bg-slate-700 text-white p-3.5 rounded-xl transition border border-slate-700 active:scale-95" title="Llamar">
+                                                <a href={`tel:${getTelefonoExtraido(viaje).replace(/\D/g, '')}`} className="bg-slate-800 hover:bg-slate-700 text-white p-3.5 rounded-xl transition border border-slate-700 active:scale-95" title="Llamar">
                                                     <Phone size={18}/>
                                                 </a>
-                                                <a href={`https://wa.me/52${getTelefonoExtraido(viaje)}`} target="_blank" rel="noopener noreferrer" className="bg-emerald-900/30 hover:bg-emerald-800 text-emerald-400 p-3.5 rounded-xl transition border border-emerald-800/50 active:scale-95" title="WhatsApp">
+                                                <a href={`https://wa.me/52${getTelefonoExtraido(viaje).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="bg-emerald-900/30 hover:bg-emerald-800 text-emerald-400 p-3.5 rounded-xl transition border border-emerald-800/50 active:scale-95" title="WhatsApp">
                                                     <MessageCircle size={18}/>
                                                 </a>
                                             </div>
@@ -400,7 +406,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                 )}
             </div>
 
-            {/* VISOR DE DETALLES DEL PEDIDO */}
+            {/* VISOR DE DETALLES DEL PEDIDO (Ojo del Repartidor) */}
             {detallePedido && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-900 rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-800 flex flex-col max-h-[85vh] animate-in zoom-in-95">
@@ -465,15 +471,42 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                             })()}
                         </div>
 
-                        {/* Total Fijo Abajo */}
-                        <div className="border-t border-slate-800 pt-5 mt-4 shrink-0 flex justify-between items-end">
-                            <div>
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Total a Cobrar</span>
-                                <span className="text-xs font-bold text-slate-400">{detallePedido.metodo_pago}</span>
+                        {/* 👇 FIX APLICADO: Total Fijo Abajo con Desglose de Envío y Descuentos */}
+                        <div className="border-t border-slate-800 pt-4 mt-4 shrink-0 flex flex-col gap-1.5 bg-slate-900 z-10">
+                            <div className="flex justify-between items-center text-xs font-bold text-slate-500">
+                                <span>Subtotal Platillos:</span>
+                                <span>
+                                    ${(() => {
+                                        let items = [];
+                                        try { items = typeof detallePedido.carrito === 'string' ? JSON.parse(detallePedido.carrito) : detallePedido.carrito; } catch(e){}
+                                        return items.reduce((sum, item) => sum + (Number(item.precioFinal || item.precio_base || 0) * Number(item.cantidad || 1)), 0).toFixed(2);
+                                    })()}
+                                </span>
                             </div>
-                            <span className={`text-4xl font-black ${['Pendiente', 'Por Cobrar'].includes(detallePedido.metodo_pago) ? 'text-pink-500' : 'text-emerald-400'}`}>
-                                ${Number(detallePedido.total).toFixed(2)}
-                            </span>
+                            
+                            {Number(detallePedido.costo_envio) > 0 && (
+                                <div className="flex justify-between items-center text-xs font-bold text-slate-400">
+                                    <span className="flex items-center gap-1">🛵 Costo de Envío:</span>
+                                    <span>+ ${Number(detallePedido.costo_envio).toFixed(2)}</span>
+                                </div>
+                            )}
+                            
+                            {Number(detallePedido.descuento_puntos) > 0 && (
+                                <div className="flex justify-between items-center text-xs font-bold text-emerald-500">
+                                    <span>Descuento Aplicado:</span>
+                                    <span>- ${Number(detallePedido.descuento_puntos).toFixed(2)}</span>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between items-end border-t border-slate-800 pt-3 mt-1">
+                                <div>
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Total a Cobrar</span>
+                                    <span className="text-xs font-bold text-slate-400">{detallePedido.metodo_pago}</span>
+                                </div>
+                                <span className={`text-4xl font-black tracking-tight ${['Pendiente', 'Por Cobrar'].includes(detallePedido.metodo_pago) ? 'text-pink-500' : 'text-emerald-400'}`}>
+                                    ${Number(detallePedido.total).toFixed(2)}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>

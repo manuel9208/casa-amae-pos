@@ -2,7 +2,6 @@ import React from 'react';
 import { MessageCircle } from 'lucide-react'; 
 
 const TicketImpresion = ({ ticketImprimir, configGlobal, setConfigGlobal, isSubmitting, apiUrl }) => {
-  // Lógica original preservada para renderizado visual
   if (ticketImprimir && !setConfigGlobal) {
     const getCleanPhone = () => {
       let cleanPhone = '';
@@ -112,7 +111,6 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, setConfigGlobal, isSubm
     );
   }
 
-  // 👇 LÓGICA DEL PANEL DE CONFIGURACIÓN
   if (!configGlobal || Object.keys(configGlobal).length === 0 || !setConfigGlobal) {
     return null;
   }  
@@ -144,7 +142,8 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, setConfigGlobal, isSubm
             >
               <option value="pdf">Guardar como PDF / Pantalla (Manual)</option>
               <option value="rawbt_nativo">🚀 RawBT Nativo (Android Directo)</option>
-              {/* 👇 INYECCIÓN: Agregadas las nuevas opciones */}
+              {/* 👇 INYECCIÓN: Opción nueva para la App Android */}
+              <option value="traductor_silencioso">📲 Traductor Silencioso (Nueva App Android)</option>
               <option value="parzibyte">🔌 Plugin Parzibyte (Windows USB/Red)</option>
               <option value="impresora">🌐 Servidor Node.js Backend (IP)</option>
             </select>
@@ -152,7 +151,6 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, setConfigGlobal, isSubm
         )}
       </div>  
 
-      {/* 👇 INYECCIÓN: Módulo Parzibyte */}
       {configGlobal.ticket_impresion_activa && configGlobal.ticket_modo_impresion === 'parzibyte' && (
         <div className="pt-4 border-t border-orange-100 animate-in fade-in zoom-in-95 duration-200">
           <label className="block text-xs font-black text-orange-600 uppercase mb-1">Nombre de la Impresora en Windows</label>
@@ -168,7 +166,6 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, setConfigGlobal, isSubm
         </div>
       )}
 
-      {/* Módulo de Red Backend */}
       {configGlobal.ticket_impresion_activa && configGlobal.ticket_modo_impresion === 'impresora' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-orange-100 animate-in fade-in zoom-in-95 duration-200">
           <div>
