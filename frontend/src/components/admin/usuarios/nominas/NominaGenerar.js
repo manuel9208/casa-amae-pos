@@ -836,4 +836,4 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   );
 };
 
-export default NominaGenerar;clr
+export default NominaGenerar;
