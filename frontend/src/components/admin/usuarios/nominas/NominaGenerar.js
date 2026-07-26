@@ -61,8 +61,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
     setIsSubmitting(true);
     try {
-      const resHist = await fetch(`${apiUrl}/usuarios/historial?fechaDesde=${fechaInicio}&fechaHasta=${fechaFin}`);
-      const historial = resHist.ok ? await resHist.json() : [];
+      // 👇 FIX APLICADO: Tubería reparada. Ahora sí consulta todo el año para no estar ciego.
+      const resHist = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
+      const dataHist = resHist.ok ? await resHist.json() : {};
+      const historial = dataHist.historialAsistencias || [];
 
       const matrizLimpieza = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
       const evaluacionesLimpieza = matrizLimpieza.evaluaciones || {};
@@ -139,14 +141,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 FIX LÓGICO: Prioridad estricta para leer el perfil del empleado antes que un turno vacío
+          // 👇 FIX APLICADO: Lógica de 3 estados a prueba de balas para no pedir faltas en descansos
           let esDescanso = false;
           let esDiaLaboral = false;
           let esNoLaboral = false;
 
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
-             esDiaLaboral = hor[dateStr].activo === true && !hor[dateStr].es_descanso;
-             esDescanso = hor[dateStr].es_descanso === true;
+             const esDescansoFicha = arrDescansos.includes(nombreDiaActual);
+             esDescanso = hor[dateStr].es_descanso === true || (!hor[dateStr].activo && esDescansoFicha);
+             esDiaLaboral = hor[dateStr].activo === true && !esDescanso;
              esNoLaboral = !esDiaLaboral && !esDescanso;
           } else {
              esDescanso = arrDescansos.includes(nombreDiaActual);
@@ -155,7 +158,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }
 
           const auditoriaDia = hor[dateStr]?.auditoria || {};
-          const checkinsDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));  
+          const checkinsDelDia = historial.filter(h => String(h.usuario_id) === String(emp.id) && h.fecha.startsWith(dateStr));  
 
           // EVALUACIÓN DE VACACIONES
           if (hor[dateStr]?.vacaciones === true) {
@@ -170,6 +173,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
           // EVALUACIÓN DE ASISTENCIA Y MATEMÁTICAS
           if (checkinsDelDia.length > 0) {
+            
             if (esDiaLaboral || esDescanso || esNoLaboral) {
                diasProgramados++;
             }
@@ -242,7 +246,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
             }  
 
-            if (olvidoSalida || requiereAuditoria) {
+            // 👇 FIX APLICADO: Solo se muestra la alerta si no está aprobada (ya revisada en ReportesEmpleados)
+            if ((olvidoSalida || requiereAuditoria) && estadoAudParsed.estado !== 'aprobado') {
               alertasEmpleado.push({ tipo: 'auditoria_turno', idUnico: `turno-${dateStr}`, fecha: dateStr, msg: motivosAnomalia.join(' | '), estadoAuditoria: estadoAudParsed.estado, resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado', hrsAuditadas: horasFinalesAprobadas, hrsExt: Number(hrsExt), hrsFaltantes: Number(hrsFaltantes) });
             }  
 
@@ -260,6 +265,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   if (auditoriaDia['falta']) {
                     try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
                   }  
+                  
+                  // 👇 FIX APLICADO: Si se aprobó la falta (se justificó) no suma a días de falta injustificada
                   if (estadoFaltaParsed.estado !== 'aprobado') {
                     diasFaltaInjustificada++;
                     alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
@@ -305,6 +312,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           currentDate.setDate(currentDate.getDate() + 1);
         }  
 
+        // OMITIMOS EMPLEADOS QUE YA FUERON 100% PAGADOS
         if (diasEnRango > 0 && diasYaPagados === diasEnRango) {
             empleadosYaPagados.push(emp.nombre);
             continue;
@@ -323,14 +331,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const ingresosList = [];
         const egresosList = [];  
 
-        // 👇 FLAG es_sueldo_base agregado para poder modificarlo al justificar faltas
         if (pres.tipo_sueldo === 'Por Hora') {
           ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo, es_sueldo_base: true });
         } else {
           ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días evaluados)`, monto: ingresoSueldo, es_sueldo_base: true });
         }  
 
-        // 👇 FLAG es_falta agregado para poder modificar el monto al justificar faltas
         if (diasFaltaInjustificada > 0) {
           let diasADescontar = diasFaltaInjustificada;
           if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
@@ -389,6 +395,16 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }
         });  
 
+        // 👇 FIX APLICADO: RETENCIONES DE IMPUESTOS CONECTADAS (IMSS E ISR)
+        if (reglasNomina.retencion_isr_activa && reglasNomina.porcentaje_isr > 0) {
+           const descuentoISR = ingresoSueldo * (reglasNomina.porcentaje_isr / 100);
+           egresosList.push({ concepto: `Retención de ISR (${reglasNomina.porcentaje_isr}%)`, monto: descuentoISR });
+        }
+        if (reglasNomina.retencion_imss_activa && reglasNomina.porcentaje_imss > 0) {
+           const descuentoIMSS = ingresoSueldo * (reglasNomina.porcentaje_imss / 100);
+           egresosList.push({ concepto: `Cuota Obrero IMSS (${reglasNomina.porcentaje_imss}%)`, monto: descuentoIMSS });
+        }
+
         const sumIn = ingresosList.reduce((acc, curr) => acc + curr.monto, 0);
         const sumEg = egresosList.reduce((acc, curr) => acc + curr.monto, 0);
 
@@ -407,7 +423,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           total_egresos: sumEg,
           neto: sumIn - sumEg,
           diasAuditados,
-          // 👇 Se añade faltasJustificadas para hacer la matemática inversa
           metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, faltasJustificadas: 0, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })) }
         });
       }  
@@ -467,36 +482,35 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     recalcularNeto(arr, idxEmp);
   };
 
-  // 👇 LA SOLUCIÓN LÓGICA: Al justificar falta, se REDUCE la deducción en lugar de agregar otra línea
+  // 👇 FIX APLICADO: Ahora Justificar reduce la deuda y la borra, regresando el dinero, sin crear renglones falsos verdes
   const justificarFalta = (idxEmp, alerta) => {
     const arr = [...preNomina];
     const p = arr[idxEmp];
 
-    // Marcar como resuelta
     const alt = p.metricas.alertasEmpleado.find(a => a.idUnico === alerta.idUnico);
     if (alt) alt.resuelta = true;
 
-    // Incrementar justificaciones y calcular faltas activas
     p.metricas.faltasJustificadas += 1;
-    const faltasActivas = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
+    const faltasRestantes = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
 
-    // 1. Recalcular el descuento
-    let diasADescontar = faltasActivas;
+    let diasADescontar = faltasRestantes;
     if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(p.tipo_sueldo)) {
-        diasADescontar += (faltasActivas * 0.16666);
+        diasADescontar += (faltasRestantes * 0.16666);
     }
     const nuevoDescuento = p.metricas.sueldoDiarioExacto * diasADescontar;
 
     const egresoFalta = p.egresos.find(e => e.es_falta === true);
     if (egresoFalta) {
-        egresoFalta.monto = nuevoDescuento;
-        egresoFalta.concepto = `Descuento Faltas Injustificadas (${diasADescontar.toFixed(2)} días efectivos)`;
+        if (nuevoDescuento > 0) {
+            egresoFalta.monto = nuevoDescuento;
+            egresoFalta.concepto = `Descuento Faltas (${diasADescontar.toFixed(2)} días efectivos)`;
+        } else {
+            p.egresos = p.egresos.filter(e => e.es_falta !== true);
+        }
     }
 
-    // 2. Regresarle ese día a su sueldo base ordinario
     p.metricas.diasProgramados += 1;
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
-
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
     if (ingresoBase && p.tipo_sueldo !== 'Por Hora') {
         ingresoBase.monto = nuevoSueldo;
@@ -504,7 +518,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }
 
     recalcularNeto(arr, idxEmp);
-    showAlert("Falta Justificada", "La deducción disminuyó y el día se devolvió a su Sueldo Base.", "success");
+    showAlert("Falta Justificada", "La deducción por falta ha sido eliminada y el sueldo base se ha restaurado.", "success");
   };
 
   const resolverAlerta = (idxEmp, idUnico) => {
@@ -715,41 +729,33 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                          
                          <div className="flex flex-col md:flex-row gap-2 md:items-center shrink-0">
                            
-                           {alerta.estadoAuditoria === 'aprobado' ? (
-                             <span className="bg-emerald-100 text-emerald-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-emerald-200 text-center">
-                               ✅ Auditado {alerta.hrsAuditadas !== undefined && `(${alerta.hrsAuditadas}h)`}
-                             </span>
-                           ) : alerta.estadoAuditoria === 'rechazado' ? (
-                             <span className="bg-red-100 text-red-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-red-200 text-center">
-                               ❌ Sancionado / Rechazado
-                             </span>
-                           ) : (
+                           {/* ESTO DESAPARECE LA ALERTA DE LA VISTA DE LA NÓMINA SI YA FUE REVISADA (APROBADA O RECHAZADA) */}
+                           {alerta.estadoAuditoria === 'aprobado' ? null : alerta.estadoAuditoria === 'rechazado' ? null : (
                              <span className="bg-amber-100 text-amber-700 px-2 py-1.5 rounded-lg text-[9px] font-black uppercase border border-amber-200 text-center">
                                ⚠️ Pdte. Auditoría
                              </span>
                            )}
 
-                           {alerta.tipo === 'falta' && (
-                             <button disabled={alerta.resuelta} onClick={() => justificarFalta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm transition ${alerta.resuelta ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'}`}>
-                               {alerta.resuelta ? '✅ Falta Justificada' : 'Justificar Falta'}
+                           {alerta.tipo === 'falta' && !alerta.resuelta && (
+                             <button onClick={() => justificarFalta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-xs font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'}`}>
+                               Justificar Falta
                              </button>
                            )}
 
-                           {alerta.tipo === 'auditoria_turno' && alerta.hrsFaltantes > 0 && (
-                             <button disabled={alerta.resuelta} onClick={() => penalizarJornadaIncompleta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'bg-slate-200 text-slate-400' : 'bg-red-600 text-white hover:bg-red-700'}`}>
-                               {alerta.resuelta ? '✅ Aplicado' : 'Cobrar Descuento'}
+                           {alerta.tipo === 'auditoria_turno' && alerta.hrsFaltantes > 0 && !alerta.resuelta && (
+                             <button onClick={() => penalizarJornadaIncompleta(idxEmp, alerta)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black shadow-sm transition bg-red-600 text-white hover:bg-red-700`}>
+                               Cobrar Descuento
                              </button>
                            )}
 
-                           {alerta.tipo === 'auditoria_turno' && alerta.hrsExt > 0 && (
+                           {alerta.tipo === 'auditoria_turno' && alerta.hrsExt > 0 && !alerta.resuelta && (
                              <>
-                                <button disabled={alerta.resuelta} onClick={() => pagarHorasExtrasEnEfectivo(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'hidden' : 'bg-emerald-500 text-white hover:bg-emerald-600'}`}>
+                                <button onClick={() => pagarHorasExtrasEnEfectivo(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition bg-emerald-500 text-white hover:bg-emerald-600`}>
                                     Pagar Efectivo
                                 </button>
-                                <button disabled={alerta.resuelta} onClick={() => acumularHorasExtrasABanco(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition ${alerta.resuelta ? 'hidden' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                                <button onClick={() => acumularHorasExtrasABanco(idxEmp, alerta)} className={`px-2 py-1.5 rounded text-[10px] font-black shadow-sm transition bg-blue-600 text-white hover:bg-blue-700`}>
                                     A Banco Hrs
                                 </button>
-                                {alerta.resuelta && <span className="bg-slate-200 text-slate-500 px-3 py-1.5 rounded-lg text-[10px] font-black">✅ Resuelto</span>}
                              </>
                            )}
                          </div>
