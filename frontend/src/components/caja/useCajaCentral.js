@@ -312,8 +312,21 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       receipt += `--------------------------------\n`;
       receipt += `TICKET: #${pedido.numero_pedido}\n`;
       receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
+      
       const clienteLineas = dividirTexto(`CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}`, 32);
       clienteLineas.forEach(line => receipt += `${line}\n`);
+      
+      // 👇 NUEVO: Mostrar el teléfono del cliente
+      if (pedido.cliente_telefono) {
+          receipt += `TEL: ${pedido.cliente_telefono}\n`;
+      }
+
+      // 👇 NUEVO: Mostrar la dirección formateada con envoltura de texto
+      if (pedido.direccion_entrega) {
+          const dirLineas = dividirTexto(`DIR: ${stripEmojis(pedido.direccion_entrega)}`, 32);
+          dirLineas.forEach(line => receipt += `${line}\n`);
+      }
+
       receipt += `TIPO: ${stripEmojis(pedido.tipo_consumo)}\n`;
       if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
       receipt += `--------------------------------\n`;
@@ -332,6 +345,15 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         }
       });
       receipt += `--------------------------------\n`;
+      
+      // 👇 NUEVO: Desglosar Costo de Envío si existe
+      const costoEnvio = Number(pedido.costo_envio || 0);
+      if (costoEnvio > 0) {
+          const subtotal = Number(pedido.total) - costoEnvio;
+          receipt += `SUBTOTAL: $${subtotal.toFixed(2)}\n`;
+          receipt += `ENVIO: $${costoEnvio.toFixed(2)}\n`;
+      }
+
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
       receipt += `\n\n\n\n`; // Avance extra de papel para corte
       return receipt;

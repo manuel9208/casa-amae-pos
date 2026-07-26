@@ -90,8 +90,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
-        // 👇 FIX ANDREA: Normalización extrema (minúsculas y sin espacios) para garantizar lectura
-        const arrDescansos = (pres.dias_descanso || []).map(d => String(d).trim().toLowerCase());  
+        // 👇 FIX DEFINITIVO: Compatibilidad con perfiles viejos (dia_descanso único)
+        const rawDescansos = pres.dias_descanso || (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' ? [pres.dia_descanso] : []);
+        const arrDescansos = rawDescansos.map(d => String(d).trim().toLowerCase());  
         const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
 
         let diasAsistidos = 0;
@@ -142,7 +143,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 FIX ANDREA: Blindaje total de la lectura del día
           const esDescansoFicha = arrDescansos.includes(nombreDiaLimpio);
           const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaLimpio) || diasCerradosLocal.map(d=>d.toLowerCase()).includes(nombreDiaLimpio);
 
@@ -150,6 +150,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           let esNoLaboral = esNoLaboralFicha;
           let esDiaLaboral = !esDescanso && !esNoLaboral;
 
+          // Solo permitimos que un cambio MANUAL en el DÍA ESPECÍFICO (ej. 2026-07-03) altere su estatus de asistencia.
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              if (hor[dateStr].es_descanso !== undefined) {
                  esDescanso = hor[dateStr].es_descanso;
@@ -209,7 +210,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (minutosTurno < 0) minutosTurno += 24 * 60;
             if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
 
-            // 👇 FIX ALBERTO: Cálculo estimado inteligente en caso de olvido de salida
             let minsDetectados = 0;
             if (maxSalida && minEntrada) { 
                 minsDetectados = (maxSalida - minEntrada) / 60000; 
@@ -217,7 +217,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 const [hC, mC] = tSalidaOficial.split(':').map(Number);
                 let dCierre = new Date(dateStr + 'T00:00:00');
                 dCierre.setHours(hC, mC, 0, 0);
-                if (dCierre < minEntrada) dCierre.setDate(dCierre.getDate() + 1); // Cierre de madrugada
+                if (dCierre < minEntrada) dCierre.setDate(dCierre.getDate() + 1);
                 minsDetectados = (dCierre - minEntrada) / 60000;
             }
             let horasDetectadas = minsDetectados / 60;  
@@ -261,7 +261,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }  
 
             if ((olvidoSalida || requiereAuditoria) && estadoAudParsed.estado !== 'aprobado') {
-              // 👇 Sugerir el cálculo estimado para el auditor
               const horasSugeridas = horasFinalesAprobadas === 0 ? horasDetectadas : horasFinalesAprobadas;
               alertasEmpleado.push({ 
                   tipo: 'auditoria_turno', 
@@ -300,7 +299,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // DÍA DE DESCANSO NO DEBE MARCAR FALTA, SE PAGA SIEMPRE.
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -344,7 +342,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
-        // 👇 FIX ALBERTO: Auto conversión a pago por hora si labora menos de 5 días
         if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
             tipoSueldoAplicado = 'Por Hora (Auto)';
         }
@@ -476,7 +473,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               diasFaltaInjustificada, faltasJustificadas: 0, eventosTarde, fallasLimpieza, fallasObservaciones, 
               sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, 
               prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })),
-              // 👇 Conservamos porcentajes de retención para re-calcular al justificar faltas
               porcentaje_isr: reglasNomina.retencion_isr_activa ? reglasNomina.porcentaje_isr : 0,
               porcentaje_imss: reglasNomina.retencion_imss_activa ? reglasNomina.porcentaje_imss : 0
           }
@@ -572,7 +568,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         ingresoBase.monto = nuevoSueldo;
         ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
 
-        // 👇 FIX ANDREA: Recalcular IMSS e ISR en vivo sobre el nuevo salario restituido
         if (p.metricas.porcentaje_isr > 0) {
             const egISR = p.egresos.find(e => e.concepto.includes('Retención de ISR'));
             if (egISR) egISR.monto = nuevoSueldo * (p.metricas.porcentaje_isr / 100);

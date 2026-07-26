@@ -10,19 +10,15 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   
   const hoyStr = new Date().toISOString().split('T')[0];
   
-  // 👇 NUEVOS ESTADOS DE FILTRO (Estilo Nómina)
   const [fechaInicio, setFechaInicio] = useState(hoyStr);
   const [fechaFin, setFechaFin] = useState(hoyStr);
   const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
   const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
   
   const [refreshToggle, setRefreshToggle] = useState(false); 
-  
-  // Configuraciones de Tolerancia
   const [minutosTolerancia, setMinutosTolerancia] = useState(15); 
   const [toleranciaSalida, setToleranciaSalida] = useState(30);   
 
-  // Estado del Modal de Ajuste y Notificaciones UI
   const [modalAjuste, setModalAjuste] = useState({ isOpen: false, empId: null, fecha: '', tipo: '', horasDetectadas: 0, horasFinales: 0 });
   const [toast, setToast] = useState(null);
 
@@ -31,7 +27,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     setTimeout(() => setToast(null), 4000);
   };
 
-  // 👇 LÓGICA DE FILTRADO DE EMPLEADOS
   const empleadosVisibles = usuariosDB
     .filter(u => u.nombre !== 'Administrador Global')
     .sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -56,7 +51,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     }
   };
 
-  // 👇 LÓGICA DE CARGA: Se trae el historial completo del año para procesar el rango en el Front
   const cargarReportes = useCallback(async () => {
     try {
       const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
@@ -82,7 +76,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     return () => clearInterval(interval);
   }, [cargarReportes, refreshToggle]);
 
-  // 👇 CÁLCULO DINÁMICO DE RANGO DE FECHAS
   const getFechasPeriodo = () => {
     const fechas = [];
     let currentDate = new Date(fechaInicio + 'T12:00:00');
@@ -95,7 +88,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     return fechas;
   };
 
-  // 🛡️ ACCIÓN DE AUDITORÍA (Guardado directo a Base de Datos)
   const guardarAuditoria = async (empId, fecha, tipo, decisionPayload) => {
     try {
         const emp = usuariosDB.find(u => u.id === empId);
@@ -126,14 +118,10 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             }
         }
     } catch (e) {
-        console.error("Error al guardar la auditoría", e);
         mostrarToast("Ocurrió un error al guardar la decisión.", "error");
     }
   };
 
-  // ======================================================================
-  // 🧠 MOTOR INTELIGENTE DE PROCESAMIENTO MATRICIAL Y FUSIÓN DE CHECADAS
-  // ======================================================================
   const procesarDashboard = () => {
     const fechasAAnalizar = getFechasPeriodo();  
     
@@ -144,7 +132,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
       const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
       
-      const arrDescansos = (pres.dias_descanso || []).map(d => String(d).trim().toLowerCase());
+      // 👇 FIX DEFINITIVO: Compatibilidad con perfiles viejos (dia_descanso único)
+      const rawDescansos = pres.dias_descanso || (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' ? [pres.dia_descanso] : []);
+      const arrDescansos = rawDescansos.map(d => String(d).trim().toLowerCase());  
       const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
 
       const oficiales = [];
@@ -167,6 +157,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         const confDiaNom = hor[nombreDiaActual] || {};
         const confDia = Object.keys(confDiaStr).length > 0 ? confDiaStr : confDiaNom;
 
+        // Solo permitimos que un cambio MANUAL en el DÍA ESPECÍFICO (ej. 2026-07-03) altere su estatus de asistencia.
         if (Object.keys(confDiaStr).length > 0) {
             if (confDiaStr.es_descanso !== undefined) {
                 esDescanso = confDiaStr.es_descanso;
@@ -174,15 +165,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             }
             if (confDiaStr.activo !== undefined) {
                 if (confDiaStr.activo) { esDiaLaboral = true; esDescanso = false; esNoLaboral = false; } 
-                else if (!esDescanso) { esNoLaboral = true; esDiaLaboral = false; }
-            }
-        } else if (Object.keys(confDiaNom).length > 0) {
-            if (confDiaNom.es_descanso !== undefined) {
-                esDescanso = confDiaNom.es_descanso;
-                if (esDescanso) { esDiaLaboral = false; esNoLaboral = false; }
-            }
-            if (confDiaNom.activo !== undefined) {
-                if (confDiaNom.activo) { esDiaLaboral = true; esDescanso = false; esNoLaboral = false; } 
                 else if (!esDescanso) { esNoLaboral = true; esDiaLaboral = false; }
             }
         }
@@ -339,6 +321,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
         } else {
           const isPast = fechaStr < hoyStr;
+          // Como reescribimos el motor de validación, si esDescanso es TRUE, esto lo ignorará magistralmente y NO creará la falta.
           if (esDiaLaboral && isPast) {
             const record = {
               fecha: fechaStr, dia: nombreDiaActual, entrada: '--:--', salida: '--:--', horas: '0.00',
@@ -377,11 +360,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.limpiezas.length > 0);
   };
 
-  // 👇 APLICAR FILTRO FINAL A LOS EMPLEADOS SELECCIONADOS
   const datosCompletos = procesarDashboard();
   const datosFiltrados = datosCompletos.filter(d => empleadosSeleccionados.includes(d.emp.id));
 
-  // 👇 FUNCIÓN PARA EL MODAL INTELIGENTE DE AUDITORÍA
   const manejarClickAprobar = (empId, rec) => {
     if (rec.tipo === 'falta') {
         guardarAuditoria(empId, rec.fecha, rec.tipo, JSON.stringify({ estado: 'aprobado' }));
@@ -409,7 +390,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 relative">
       
-      {/* 👇 TOAST NOTIFICATION DE ÉXITO O ERROR */}
       {toast && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300">
             <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${toast.tipo === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : 'bg-red-50 border-red-500 text-red-800'}`}>
@@ -420,7 +400,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>
       )}
 
-      {/* CABECERA Y CONFIGURACIÓN DE TOLERANCIAS */}
       <div className="bg-slate-900 text-white p-6 md:p-8 rounded-[36px] shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
         <div className="flex items-center gap-5">
           <div className="bg-emerald-500/20 p-4 rounded-2xl border border-emerald-500/30 text-emerald-400"><Calendar size={32}/></div>
@@ -448,8 +427,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         </div>
       </div>  
 
-      {/* 👇 NUEVA CONFIGURACIÓN DE FILTROS MASIVOS TIPO NOMINA GENERAR */}
-      <div className="bg-slate-50 border border-slate-200 rounded-[36px] p-6 md:p-8 shadow-sm print:hidden">
+      <div className="bg-slate-50 border border-slate-200 rounded-[36px] p-6 md:p-8 shadow-sm print:hidden mt-6">
          <div className="flex justify-between items-center mb-4">
             <h4 className="font-black text-slate-700 flex items-center gap-2"><Users size={18}/> Selección de Empleados</h4>
             <button onClick={toggleSeleccionMasiva} className="text-xs font-bold bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm transition hover:bg-blue-50">
@@ -488,7 +466,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
          </div>
       </div>
 
-      <div id="seccion-a-imprimir" className="space-y-8">
+      <div id="seccion-a-imprimir" className="space-y-8 mt-6">
          {datosFiltrados.length === 0 ? (
             <div className="text-center py-16 bg-slate-50 rounded-[32px] border border-slate-200 border-dashed">
               <AlertTriangle size={48} className="mx-auto text-slate-300 mb-4 opacity-50"/>
@@ -498,7 +476,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             datosFiltrados.map((data) => (
                 <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-6">
                     
-                    {/* 👨‍🍳 PERFIL DEL EMPLEADO */}
                     <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
                         <div className="bg-blue-100 text-blue-600 p-4 rounded-2xl print:bg-slate-200 print:text-black">
                             <User size={28}/>
@@ -509,7 +486,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         </div>
                     </div>
 
-                    {/* 🟢 SECCIÓN 1: CHECADAS EN DÍAS OFICIALES */}
                     <div className="mb-8">
                         <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Clock className="text-blue-500 print:text-black"/> 1. Checadas en Días Laborales Programados</h4>
                         {data.oficiales.length === 0 ? (
@@ -548,7 +524,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         )}
                     </div>
 
-                    {/* ✨ SECCIÓN 2: AUDITORÍA DE LIMPIEZA */}
                     <div className="mb-8">
                         <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Sparkles className="text-emerald-500 print:text-black"/> 2. Resultados de Limpieza (Candados Cerrados)</h4>
                         {data.limpiezas.length === 0 ? (
@@ -568,7 +543,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         )}
                     </div>
 
-                    {/* ⚠️ SECCIÓN 3: ANOMALÍAS Y DECISIONES (AUDITORÍA) */}
                     {data.anomalas.length > 0 && (
                         <div>
                             <h4 className="text-lg font-black text-red-600 flex items-center gap-2 mb-4"><ShieldAlert className="text-red-500 print:text-black"/> 3. Auditoría de Anomalías Operativas</h4>
@@ -606,7 +580,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                     </td>
                                                     <td className="p-3 font-black text-red-900 text-right w-20">{rec.horas}h</td>
                                                     
-                                                    {/* BOTONES DE DECISIÓN DEL GERENTE */}
                                                     <td className="p-3 text-center print:hidden w-40">
                                                         {statusAprobacion === 'aprobado' ? (
                                                             <div className="flex flex-col items-center">
@@ -640,7 +613,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
          )}
       </div>
 
-      {/* 👇 MODAL INTELIGENTE DE AJUSTE DE HORAS */}
       {modalAjuste.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 flex flex-col items-center text-center border border-slate-200">
