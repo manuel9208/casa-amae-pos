@@ -433,7 +433,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           ]
         };
 
-        const res = await fetch("http://localhost:8000/imprimir", {
+        const res = await fetch("http://127.0.0.1:8000/imprimir", {
             method: "POST",
             body: JSON.stringify(payloadPlugin),
         });
@@ -463,14 +463,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }, 1000);  
 
     // =========================================================================
-    // 👇 SOLUCIÓN: Usar "localhost" en vez de 127.0.0.1 para Chrome
+    // 👇 SOLUCIÓN DEFINTIVA: De regreso a 127.0.0.1 para forzar IPv4
     // =========================================================================
     } else if (modoImpresion === 'traductor_silencioso') {
       try {
         const receipt = construirTextoTicket();
         
-        // Cambiamos a localhost y validamos el OK.
-        fetch("http://localhost:4000/imprimir", {
+        fetch("http://127.0.0.1:4000/imprimir", {
             method: "POST",
             headers: {
                 "Content-Type": "text/plain"
