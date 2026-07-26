@@ -358,7 +358,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         }
       });  
       
-      // 👇 FIX APLICADO: DESGLOSE DE ENVÍO Y DESCUENTOS PARA IMPRESORAS TÉRMICAS
       receipt += `--------------------------------\n`;
       
       if (Number(pedido.costo_envio) > 0) {
@@ -463,25 +462,27 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         setTicketImprimir(null);
       }, 1000);  
 
-    // ==========================================================
-    // 👇 EL PASE VIP PARA EL TRADUCTOR SILENCIOSO (APP ANDROID)
-    // ==========================================================
+    // =========================================================================
+    // 👇 SOLUCIÓN: Usar "localhost" en vez de 127.0.0.1 para Chrome
+    // =========================================================================
     } else if (modoImpresion === 'traductor_silencioso') {
       try {
         const receipt = construirTextoTicket();
         
-        fetch("http://127.0.0.1:4000/imprimir", {
+        // Cambiamos a localhost y validamos el OK.
+        fetch("http://localhost:4000/imprimir", {
             method: "POST",
-            mode: "no-cors", // <-- ¡EL PASE VIP! Evita que el navegador pida permiso de seguridad
             headers: {
                 "Content-Type": "text/plain"
             },
             body: receipt,
         })
-        .then(() => {
-            // Como usamos "no-cors", el navegador tira el paquete y no espera acuse de recibo.
-            // Confiamos en que llegó si no hubo error de cable desconectado.
-            mostrarAlertaCaja('Imprimiendo', 'Ticket enviado a través del Traductor Silencioso (App Android).', 'success');
+        .then(res => {
+            if(res.ok) {
+                mostrarAlertaCaja('Imprimiendo', 'Ticket enviado a través del Traductor Silencioso.', 'success');
+            } else {
+                mostrarAlertaCaja('Error', 'La aplicación recibió el ticket pero falló al imprimir.', 'error');
+            }
         })
         .catch(err => {
             mostrarAlertaCaja('Traductor Inactivo', 'Asegúrate de abrir la app POS Bridge en la tablet para imprimir.', 'error');
@@ -493,7 +494,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       setTimeout(() => {
         setTicketImprimir(null);
       }, 1000);  
-    // ==========================================================
+    // =========================================================================
 
     } else {
       setTimeout(() => {
