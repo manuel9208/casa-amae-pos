@@ -9,8 +9,14 @@ const normalizarDia = (diaStr) => {
     return String(diaStr).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 };
 
+// 👇 FIX DE TIMEZONE GLOBAL: Extrae el YYYY-MM-DD en HORA LOCAL exacta, sin desfases por UTC
+const getLocalTodayStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
-  const hoyStr = new Date().toISOString().split('T')[0];
+  const hoyStr = getLocalTodayStr();
   const [fechaInicio, setFechaInicio] = useState(hoyStr);
   const [fechaFin, setFechaFin] = useState(hoyStr);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,7 +89,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const resultados = [];
       const empleadosYaPagados = [];
       const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-      const hoyStr = new Date().toISOString().split('T')[0];
+      const hoyStrCalculo = getLocalTodayStr();
 
       const gApertura = String(configGlobal.hora_apertura || 17).padStart(2, '0') + ':00';
       const gCierre = String(configGlobal.hora_cierre || 23).padStart(2, '0') + ':00';  
@@ -96,7 +102,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
-        // 👇 FIX ANDREA: Lectura blindada de descansos (ignora acentos y compatibilidad versión vieja)
         let rawDescansos = [];
         if (Array.isArray(pres.dias_descanso) && pres.dias_descanso.length > 0) {
             rawDescansos = pres.dias_descanso;
@@ -104,8 +109,18 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             rawDescansos = [pres.dia_descanso];
         }
         
-        const arrDescansos = rawDescansos.map(normalizarDia);  
-        const arrNoLaborales = (pres.dias_no_laborales || []).map(normalizarDia);
+        // 👇 FIX ANDREA: Transforma automáticamente números [5] a textos ["Viernes"] antes de normalizar
+        const parsearDia = (d) => {
+            if (d === null || d === undefined || String(d).trim() === '') return '';
+            if (!isNaN(d)) {
+                const num = Number(d);
+                if (num >= 0 && num <= 6) return normalizarDia(diasSemanaMap[num]);
+            }
+            return normalizarDia(d);
+        };
+
+        const arrDescansos = rawDescansos.map(parsearDia);  
+        const arrNoLaborales = (pres.dias_no_laborales || []).map(parsearDia);
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -137,9 +152,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         while (currentDate <= endDate) {
           diasEnRango++;
-          const dateStr = currentDate.toISOString().split('T')[0];
           
-          // Formateo del día actual en curso
+          // 👇 FIX ESTRICTO TIMEZONE ITERADOR: Construimos fecha local, sin afectar el offset (UTC shift).
+          const yyyy = currentDate.getFullYear();
+          const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(currentDate.getDate()).padStart(2, '0');
+          const dateStr = `${yyyy}-${mm}-${dd}`;
+          
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
           const diaLimpio = normalizarDia(nombreDiaActual);
           const esDomingo = currentDate.getDay() === 0;  
@@ -191,7 +210,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }  
 
           if (checkinsDelDia.length > 0) {
-            // El empleado ASISTIÓ este día
             let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
             let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
             let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
@@ -218,7 +236,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (minutosTurno < 0) minutosTurno += 24 * 60;
             if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
 
-            // Cálculo estimado inteligente de horas
             let minsDetectados = 0;
             if (maxSalida && minEntrada) { 
                 minsDetectados = (maxSalida - minEntrada) / 60000; 
@@ -246,12 +263,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             let hrsExt = 0;
             let hrsFaltantes = 0;  
 
-            // 👇 FIX ALBERTO Y ANDREA: Si asiste en Descanso o No Laboral, el día NO suma a la base, pasa todo a Horas Extras separadas
             if (esDescanso || esNoLaboral) {
                 requiereAuditoria = true;
                 if (esDescanso) {
                     motivosAnomalia.push("Trabajó en Descanso");
-                    // Se gana su día base de descanso por ley
                     diasProgramados++;
                     diasDescanso++;
                     horasTrabajadasTotales += 8;
@@ -259,7 +274,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     motivosAnomalia.push("Trabajó en Día No Laboral");
                 }
                 
-                // Todas las horas que estuvo ahí son extras, no se promedian en la base
                 if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
                     hrsExt = Number(estadoAudParsed.horasAprobadas);
                 } else if (estadoAudParsed.estado === 'rechazado') {
@@ -267,9 +281,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 } else {
                     hrsExt = horasDetectadas;
                 }
-                horasFinalesAprobadas = 0; // Las normales se quedan en 0 para no alterar la base
+                horasFinalesAprobadas = 0;
             } else {
-                // Es un Día Laboral normal
                 diasProgramados++;
                 
                 if (!olvidoSalida && Math.abs(horasDetectadas - hrsOficiales) > 0.5) requiereAuditoria = true;
@@ -323,7 +336,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
           } else {
             // El empleado NO ASISTIÓ
-            const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
+            const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStrCalculo + 'T12:00:00');
             if (isPastOrToday) {
                if (esDiaLaboral) {
                   let estadoFaltaParsed = { estado: 'pendiente' };
@@ -341,13 +354,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // 👇 FIX ANDREA: DÍA DE DESCANSO SE PAGA SIEMPRE, NO DETONA FALTA INJUSTIFICADA
+                  // 👇 AHORA SÍ: El descanso se evalúa correctamente y no genera falta.
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
                   diasAuditados.push(dateStr);
                } else if (esNoLaboral) {
-                  // No laboral no se paga, ni genera falta
                   diasAuditados.push(dateStr);
                }
             }
@@ -386,7 +398,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
-        // Auto conversión a pago por hora si labora menos de 5 días
         if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
             tipoSueldoAplicado = 'Por Hora (Auto)';
         }
