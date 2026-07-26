@@ -3,6 +3,12 @@ import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Su
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
+// 👇 UTILIDAD ROBUSTA: Quita acentos, espacios y normaliza a minúsculas para un match perfecto
+const normalizarDia = (diaStr) => {
+    if (!diaStr) return '';
+    return String(diaStr).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+};
+
 const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const hoyStr = new Date().toISOString().split('T')[0];
   const [fechaInicio, setFechaInicio] = useState(hoyStr);
@@ -90,10 +96,16 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
-        // 👇 FIX DEFINITIVO: Compatibilidad con perfiles viejos (dia_descanso único)
-        const rawDescansos = pres.dias_descanso || (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' ? [pres.dia_descanso] : []);
-        const arrDescansos = rawDescansos.map(d => String(d).trim().toLowerCase());  
-        const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
+        // 👇 FIX ANDREA: Lectura blindada de descansos (ignora acentos y compatibilidad versión vieja)
+        let rawDescansos = [];
+        if (Array.isArray(pres.dias_descanso) && pres.dias_descanso.length > 0) {
+            rawDescansos = pres.dias_descanso;
+        } else if (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' && pres.dia_descanso.trim() !== '') {
+            rawDescansos = [pres.dia_descanso];
+        }
+        
+        const arrDescansos = rawDescansos.map(normalizarDia);  
+        const arrNoLaborales = (pres.dias_no_laborales || []).map(normalizarDia);
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -126,8 +138,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         while (currentDate <= endDate) {
           diasEnRango++;
           const dateStr = currentDate.toISOString().split('T')[0];
+          
+          // Formateo del día actual en curso
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
-          const nombreDiaLimpio = nombreDiaActual.toLowerCase();
+          const diaLimpio = normalizarDia(nombreDiaActual);
           const esDomingo = currentDate.getDay() === 0;  
 
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
@@ -143,14 +157,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          const esDescansoFicha = arrDescansos.includes(nombreDiaLimpio);
-          const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaLimpio) || diasCerradosLocal.map(d=>d.toLowerCase()).includes(nombreDiaLimpio);
-
-          let esDescanso = esDescansoFicha;
-          let esNoLaboral = esNoLaboralFicha;
+          // 👇 ASIGNACIÓN ESTRICTA: La Ficha Técnica manda sobre todo
+          let esDescanso = arrDescansos.includes(diaLimpio);
+          let esNoLaboral = arrNoLaborales.includes(diaLimpio) || diasCerradosLocal.map(normalizarDia).includes(diaLimpio);
           let esDiaLaboral = !esDescanso && !esNoLaboral;
 
-          // Solo permitimos que un cambio MANUAL en el DÍA ESPECÍFICO (ej. 2026-07-03) altere su estatus de asistencia.
+          // Solo permitimos que una configuración MANUAL del día específico altere la ficha técnica
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              if (hor[dateStr].es_descanso !== undefined) {
                  esDescanso = hor[dateStr].es_descanso;
@@ -179,11 +191,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }  
 
           if (checkinsDelDia.length > 0) {
-            
-            if (esDiaLaboral || esDescanso || esNoLaboral) {
-               diasProgramados++;
-            }
-
+            // El empleado ASISTIÓ este día
             let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
             let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
             let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
@@ -210,6 +218,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (minutosTurno < 0) minutosTurno += 24 * 60;
             if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
 
+            // Cálculo estimado inteligente de horas
             let minsDetectados = 0;
             if (maxSalida && minEntrada) { 
                 minsDetectados = (maxSalida - minEntrada) / 60000; 
@@ -227,41 +236,75 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
             }  
 
-            const requiereAuditoria = esRetardo || olvidoSalida || Math.abs(horasDetectadas - hrsOficiales) > 0.5 || esDescanso || esNoLaboral;
+            let requiereAuditoria = false;
             let motivosAnomalia = [];
-            if (esRetardo) motivosAnomalia.push("Llegada Tarde");
-            if (olvidoSalida) motivosAnomalia.push("Olvidó Marcar Salida");
-            if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
-            if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
-            if (esDescanso) motivosAnomalia.push("Trabajó en Descanso");
-            if (esNoLaboral) motivosAnomalia.push("Trabajó en No Laboral");
+
+            if (esRetardo) { motivosAnomalia.push("Llegada Tarde"); requiereAuditoria = true; }
+            if (olvidoSalida) { motivosAnomalia.push("Olvidó Marcar Salida"); requiereAuditoria = true; }
 
             let horasFinalesAprobadas = horasDetectadas;
             let hrsExt = 0;
             let hrsFaltantes = 0;  
 
-            if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
-              horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
-              olvidoSalida = false;
-              if (esRetardo) {
-                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
-                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
-              }
-            } else if (estadoAudParsed.estado === 'rechazado') {
-              horasFinalesAprobadas = 0;
-            } else if (olvidoSalida) {
-              horasFinalesAprobadas = 0;
+            // 👇 FIX ALBERTO Y ANDREA: Si asiste en Descanso o No Laboral, el día NO suma a la base, pasa todo a Horas Extras separadas
+            if (esDescanso || esNoLaboral) {
+                requiereAuditoria = true;
+                if (esDescanso) {
+                    motivosAnomalia.push("Trabajó en Descanso");
+                    // Se gana su día base de descanso por ley
+                    diasProgramados++;
+                    diasDescanso++;
+                    horasTrabajadasTotales += 8;
+                } else {
+                    motivosAnomalia.push("Trabajó en Día No Laboral");
+                }
+                
+                // Todas las horas que estuvo ahí son extras, no se promedian en la base
+                if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
+                    hrsExt = Number(estadoAudParsed.horasAprobadas);
+                } else if (estadoAudParsed.estado === 'rechazado') {
+                    hrsExt = 0;
+                } else {
+                    hrsExt = horasDetectadas;
+                }
+                horasFinalesAprobadas = 0; // Las normales se quedan en 0 para no alterar la base
             } else {
-              if (esRetardo) {
-                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
-                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
-              }
-              if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
-              if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
-            }  
+                // Es un Día Laboral normal
+                diasProgramados++;
+                
+                if (!olvidoSalida && Math.abs(horasDetectadas - hrsOficiales) > 0.5) requiereAuditoria = true;
+                if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
+                if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
+
+                if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
+                  horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
+                  olvidoSalida = false;
+                  if (esRetardo) {
+                    const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                    minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
+                  }
+                } else if (estadoAudParsed.estado === 'rechazado') {
+                  horasFinalesAprobadas = 0;
+                } else if (olvidoSalida) {
+                  horasFinalesAprobadas = 0;
+                } else {
+                  if (esRetardo) {
+                    const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                    minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
+                  }
+                }  
+
+                if (estadoAudParsed.estado !== 'rechazado' && !olvidoSalida) {
+                  if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
+                  if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
+                }  
+
+                horasTrabajadasTotales += horasFinalesAprobadas;
+                diasAsistidos++;
+            }
 
             if ((olvidoSalida || requiereAuditoria) && estadoAudParsed.estado !== 'aprobado') {
-              const horasSugeridas = horasFinalesAprobadas === 0 ? horasDetectadas : horasFinalesAprobadas;
+              const horasSugeridas = (esDescanso || esNoLaboral) ? horasDetectadas : (horasFinalesAprobadas === 0 ? horasDetectadas : horasFinalesAprobadas);
               alertasEmpleado.push({ 
                   tipo: 'auditoria_turno', 
                   idUnico: `turno-${dateStr}`, 
@@ -275,12 +318,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               });
             }  
 
-            horasTrabajadasTotales += horasFinalesAprobadas;
-            diasAsistidos++;
             diasAuditados.push(dateStr);
             if (esDomingo) domingosTrabajados++;  
 
           } else {
+            // El empleado NO ASISTIÓ
             const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
             if (isPastOrToday) {
                if (esDiaLaboral) {
@@ -299,11 +341,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
+                  // 👇 FIX ANDREA: DÍA DE DESCANSO SE PAGA SIEMPRE, NO DETONA FALTA INJUSTIFICADA
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
                   diasAuditados.push(dateStr);
                } else if (esNoLaboral) {
+                  // No laboral no se paga, ni genera falta
                   diasAuditados.push(dateStr);
                }
             }
@@ -342,6 +386,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
+        // Auto conversión a pago por hora si labora menos de 5 días
         if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
             tipoSueldoAplicado = 'Por Hora (Auto)';
         }
