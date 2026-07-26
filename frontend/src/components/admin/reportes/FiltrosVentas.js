@@ -2,9 +2,12 @@ import React from 'react';
 import { TrendingUp, Printer, Calendar, Filter, PackageOpen, Search } from 'lucide-react';
 
 const FiltrosVentas = ({
-  filtroActivo, setFiltroActivo, fechaCustom, setFechaCustom,
+  filtroActivo, setFiltroActivo, 
+  fechaCustom, setFechaCustom,
+  fechaFin, setFechaFin, 
   clasificaciones, filtroClasificacion, setFiltroClasificacion,
-  filtroConsumo, setFiltroConsumo, cargando, reporte, handleImprimir
+  filtroConsumo, setFiltroConsumo, cargando, reporte, handleImprimir,
+  setReporte, cargarReporte // 👈 Funciones clave inyectadas
 }) => {
   return (
     <>
@@ -15,24 +18,31 @@ const FiltrosVentas = ({
           </h2>
           <p className="text-slate-500 font-medium mt-1">Análisis de ventas, inversión y ganancia neta.</p>
           <p className="hidden print:block text-slate-800 font-bold mt-2">
-            Periodo Analizado: <span className="uppercase text-blue-600">{filtroActivo}</span> | Fecha de consulta: {fechaCustom}
-            <br/><span className="text-sm font-normal text-slate-500">Clasificación: {filtroClasificacion} | Consumo: {filtroConsumo}</span>
+            Periodo Analizado: <span className="uppercase text-blue-600">{filtroActivo}</span> 
+            {filtroActivo === 'rango' ? ` | Rango: ${fechaCustom} a ${fechaFin}` : ` | Fecha de consulta: ${fechaCustom}`}
+            <br /><span className="text-sm font-normal text-slate-500">Clasificación: {filtroClasificacion} | Consumo: {filtroConsumo}</span>
           </p>
         </div>
-        
+
         <div className="flex flex-wrap gap-2 print:hidden">
-          {['dia', 'semana', 'mes', 'anio'].map(f => (
-            <button 
-              key={f} 
+          {['dia', 'semana', 'mes', 'anio', 'rango'].map(f => (
+            <button
+              key={f}
               disabled={cargando}
-              onClick={() => setFiltroActivo(f)}
+              onClick={() => {
+                setFiltroActivo(f);
+                // 👇 FIX: Si elige 'rango', limpiamos inmediatamente la pantalla para no mostrar el año/mes pasado.
+                if (f === 'rango') {
+                  setReporte(null);
+                }
+              }}
               className={`px-4 py-2 rounded-xl text-sm font-bold transition capitalize disabled:opacity-50 ${filtroActivo === f ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               {f}
             </button>
           ))}
-          
-          <button 
+
+          <button
             disabled={cargando || (reporte && reporte.detalles.length === 0)}
             onClick={handleImprimir}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold shadow-md hover:bg-slate-700 transition ml-2 disabled:opacity-50"
@@ -42,23 +52,49 @@ const FiltrosVentas = ({
         </div>
       </div>
 
-      <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex flex-col md:flex-row items-end gap-4 print:hidden">
+      <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100 flex flex-col md:flex-row items-end gap-4 print:hidden transition-all">
+        
         <div className="flex-1 w-full">
-          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
-            <Calendar size={16}/> Fecha Referencia
-          </label>
-          <input 
-            type="date" disabled={cargando} value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)}
-            className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
-          />
+          {filtroActivo === 'rango' ? (
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+              <div className="w-full">
+                <label className="flex items-center gap-2 text-[10px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                  <Calendar size={14} /> Desde
+                </label>
+                <input
+                  type="date" disabled={cargando} value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50 text-sm"
+                />
+              </div>
+              <div className="w-full">
+                <label className="flex items-center gap-2 text-[10px] font-black text-orange-800 uppercase tracking-widest mb-1.5">
+                  <Calendar size={14} /> Hasta
+                </label>
+                <input
+                  type="date" disabled={cargando} value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50 text-sm"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="w-full">
+              <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
+                <Calendar size={16} /> Fecha Referencia
+              </label>
+              <input
+                type="date" disabled={cargando} value={fechaCustom} onChange={(e) => setFechaCustom(e.target.value)}
+                className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex-1 w-full">
           <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
-            <Filter size={16}/> Categoría
+            <Filter size={16} /> Categoría
           </label>
-          <select 
-            disabled={cargando} value={filtroClasificacion} onChange={e => setFiltroClasificacion(e.target.value)} 
+          <select
+            disabled={cargando} value={filtroClasificacion} onChange={e => setFiltroClasificacion(e.target.value)}
             className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
           >
             <option value="Todas">Todas las categorías</option>
@@ -70,10 +106,10 @@ const FiltrosVentas = ({
 
         <div className="flex-1 w-full">
           <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
-            <PackageOpen size={16}/> Tipo de Consumo
+            <PackageOpen size={16} /> Tipo de Consumo
           </label>
-          <select 
-            disabled={cargando} value={filtroConsumo} onChange={e => setFiltroConsumo(e.target.value)} 
+          <select
+            disabled={cargando} value={filtroConsumo} onChange={e => setFiltroConsumo(e.target.value)}
             className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
           >
             <option value="Todos">Todos</option>
@@ -84,11 +120,24 @@ const FiltrosVentas = ({
         </div>
 
         <div className="w-full md:w-auto">
-          <button 
-            disabled={cargando} onClick={() => setFiltroActivo('historico')}
-            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition disabled:opacity-50 ${filtroActivo === 'historico' ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-200 text-orange-800 hover:bg-orange-300'}`}
+          {/* 👇 FIX: El botón ahora sirve para Rango y para Día Histórico dependiendo del estado */}
+          <button
+            disabled={cargando} 
+            onClick={() => {
+              if (filtroActivo === 'rango') {
+                cargarReporte('rango', fechaCustom, fechaFin);
+              } else {
+                setFiltroActivo('historico');
+              }
+            }}
+            className={`w-full md:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-black transition disabled:opacity-50 ${(filtroActivo === 'historico' || filtroActivo === 'rango') ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-200 text-orange-800 hover:bg-orange-300'}`}
           >
-            {cargando ? 'Buscando...' : <><Search size={16}/> Buscar Día Exacto</>}
+            {cargando ? 'Buscando...' : (
+              <>
+                <Search size={16} /> 
+                {filtroActivo === 'rango' ? 'Buscar Fechas' : 'Buscar Día Exacto'}
+              </>
+            )}
           </button>
         </div>
       </div>

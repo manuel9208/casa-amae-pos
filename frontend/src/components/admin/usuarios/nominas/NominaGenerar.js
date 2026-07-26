@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Sun, Cake } from 'lucide-react';
+import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Sun, Cake, Users, Filter, CheckSquare, Square } from 'lucide-react';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
-
 
 const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const hoyStr = new Date().toISOString().split('T')[0];
@@ -11,6 +10,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [preNomina, setPreNomina] = useState([]);
   
+  // 👇 NUEVOS ESTADOS: GESTIÓN DE SELECCIÓN DE EMPLEADOS
+  const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
+
   const [configGlobal, setConfigGlobal] = useState({});
   const [reglasNomina, setReglasNomina] = useState({
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
@@ -21,6 +24,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   });
 
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const rolesDisponibles = [...new Set(empleadosVisibles.map(u => u.rol))];
+
+  // Auto-seleccionar todos los empleados al cargar
+  useEffect(() => {
+    if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
+      setEmpleadosSeleccionados(empleadosVisibles.map(e => e.id));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuariosDB]);
 
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`).then(res => res.json()).then(data => {
@@ -32,24 +44,40 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     });
   }, [apiUrl]);
 
-      const calcularNomina = async () => {
+  // LÓGICA DE FILTRADO VISUAL
+  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
+  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(e.id));
+
+  const toggleSeleccionMasiva = () => {
+    if (todosFiltradosSeleccionados) {
+      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => e.id === id)));
+    } else {
+      const nuevos = empleadosFiltrados.map(e => e.id).filter(id => !empleadosSeleccionados.includes(id));
+      setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
+    }
+  };
+
+  const calcularNomina = async () => {
+    if (empleadosSeleccionados.length === 0) return showAlert("Aviso", "Selecciona al menos un empleado para generar la nómina.", "warning");
     if (!fechaInicio || !fechaFin) return showAlert("Aviso", "Selecciona fecha de Inicio y Fin.", "info");
-    if (fechaInicio > fechaFin) return showAlert("Aviso", "Rango de fechas inválido.", "error");
+    if (fechaInicio > fechaFin) return showAlert("Aviso", "La fecha de inicio no puede ser mayor a la fecha fin.", "error");
 
     setIsSubmitting(true);
     try {
       const resHist = await fetch(`${apiUrl}/usuarios/historial?fechaDesde=${fechaInicio}&fechaHasta=${fechaFin}`);
       const historial = resHist.ok ? await resHist.json() : [];
 
-      const reglasNomina = configGlobal.reglas_nomina || {};
       const matrizLimpieza = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
       const evaluacionesLimpieza = matrizLimpieza.evaluaciones || {};
       
-      // 👇 LEEMOS LA NUEVA MATRIZ DE OBSERVACIONES
       const matrizObservaciones = typeof configGlobal.matriz_observaciones === 'string' ? JSON.parse(configGlobal.matriz_observaciones || '{}') : (configGlobal.matriz_observaciones || {});
       const evaluacionesObservaciones = matrizObservaciones.evaluaciones || {};
 
+      const horSemanaGlobal = typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana || '{}') : (configGlobal.horarios_semana || {});
+      const diasCerradosLocal = Object.keys(horSemanaGlobal).filter(dia => horSemanaGlobal[dia].activo === false || horSemanaGlobal[dia].activo === 'false');
+
       const resultados = [];
+      const empleadosYaPagados = [];
       const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
       const hoyStr = new Date().toISOString().split('T')[0];
 
@@ -57,11 +85,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const gCierre = String(configGlobal.hora_cierre || 23).padStart(2, '0') + ':00';  
 
       for (const emp of empleadosVisibles) {
+        // 👇 FILTRO: Si no está seleccionado en las cajas de arriba, lo saltamos.
+        if (!empleadosSeleccionados.includes(emp.id)) continue;
+
         const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
         if (pres.generar_nomina === false) continue;  
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         const arrDescansos = pres.dias_descanso || [];  
+        const arrNoLaborales = pres.dias_no_laborales || [];
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -73,10 +105,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const alertasEmpleado = [];  
 
         let fallasLimpieza = 0;
-        let fallasObservaciones = 0; // 👇 NUEVO CONTADOR DE OBSERVACIONES
+        let fallasObservaciones = 0; 
         let eventosTarde = 0;
         let minutesTardeTotales = 0;
         let diasFaltaInjustificada = 0;  
+
+        let diasEnRango = 0;
+        let diasYaPagados = 0;
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
         const endDate = new Date(fechaFin + 'T12:00:00');  
@@ -89,6 +124,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }  
 
         while (currentDate <= endDate) {
+          diasEnRango++;
           const dateStr = currentDate.toISOString().split('T')[0];
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
           const esDomingo = currentDate.getDay() === 0;  
@@ -100,32 +136,48 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }  
 
+          // ESCUDO ANTI-DOBLE PAGO
           if (hor[dateStr]?.nomina_pagada === true) {
+            diasYaPagados++;
             currentDate.setDate(currentDate.getDate() + 1);
             continue;
           }  
 
-          const diaActivo = hor[dateStr]?.activo === true;
-          const esDescanso = arrDescansos.includes(nombreDiaActual);
-          const esDiaLaboral = diaActivo && !esDescanso;
+          // 👇 NUEVA LÓGICA DE 3 ESTADOS (Laboral, Descanso, No Laboral)
+          let esDescanso = hor[dateStr]?.es_descanso || false;
+          let esDiaLaboral = hor[dateStr]?.activo === true;
+          let esNoLaboral = false;
+
+          if (hor[dateStr] === undefined) {
+             esDescanso = arrDescansos.includes(nombreDiaActual);
+             esNoLaboral = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
+             esDiaLaboral = !esDescanso && !esNoLaboral;
+          } else {
+             esNoLaboral = !esDiaLaboral && !esDescanso;
+          }
+
           const auditoriaDia = hor[dateStr]?.auditoria || {};
           const checkinsDelDia = historial.filter(h => h.usuario_id === emp.id && h.fecha.startsWith(dateStr));  
 
-          if (esDiaLaboral && !hor[dateStr]?.vacaciones) { diasProgramados++; }  
-
+          // EVALUACIÓN DE VACACIONES
           if (hor[dateStr]?.vacaciones === true) {
-            if (diaActivo) { diasAsistidos++; diasVacaciones++; diasAuditados.push(dateStr); horasTrabajadasTotales += 8; }
-            currentDate.setDate(currentDate.getDate() + 1);
-            continue;
+             diasProgramados++;
+             diasAsistidos++; 
+             diasVacaciones++; 
+             diasAuditados.push(dateStr); 
+             horasTrabajadasTotales += 8; 
+             currentDate.setDate(currentDate.getDate() + 1);
+             continue;
           }  
 
-          if (esDescanso && checkinsDelDia.length === 0) {
-            if (diaActivo) { diasAsistidos++; diasDescanso++; diasAuditados.push(dateStr); }
-            currentDate.setDate(currentDate.getDate() + 1);
-            continue;
-          }  
-
+          // EVALUACIÓN DE ASISTENCIA Y MATEMÁTICAS
           if (checkinsDelDia.length > 0) {
+            
+            // Si vino a trabajar en un día de Descanso Oficial o No Laboral, se marca como día programado porque devengó sueldo base al trabajar.
+            if (esDiaLaboral || esDescanso || esNoLaboral) {
+               diasProgramados++;
+            }
+
             let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
             let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
             let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
@@ -161,12 +213,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               try { estadoAudParsed = JSON.parse(auditoriaDia['auditoria_turno']); } catch(e) { estadoAudParsed = { estado: auditoriaDia['auditoria_turno'] }; }
             }  
 
-            const requiereAuditoria = esRetardo || olvidoSalida || Math.abs(horasDetectadas - hrsOficiales) > 0.5;
+            const requiereAuditoria = esRetardo || olvidoSalida || Math.abs(horasDetectadas - hrsOficiales) > 0.5 || esDescanso || esNoLaboral;
             let motivosAnomalia = [];
             if (esRetardo) motivosAnomalia.push("Llegada Tarde");
             if (olvidoSalida) motivosAnomalia.push("Olvidó Marcar Salida");
             if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
             if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
+            if (esDescanso) motivosAnomalia.push("Trabajó en Descanso");
+            if (esNoLaboral) motivosAnomalia.push("Trabajó en No Laboral");
 
             let horasFinalesAprobadas = horasDetectadas;
             let hrsExt = 0;
@@ -202,21 +256,33 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (esDomingo) domingosTrabajados++;  
 
           } else {
+            // NO VINO A TRABAJAR (Falta, Descanso Oficial, o No Laboral)
             const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStr + 'T12:00:00');
-            if (esDiaLaboral && isPastOrToday) {
-              let estadoFaltaParsed = { estado: 'pendiente' };
-              if (auditoriaDia['falta']) {
-                try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
-              }  
-              if (estadoFaltaParsed.estado !== 'aprobado') {
-                diasFaltaInjustificada++;
-                alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
-                diasAuditados.push(dateStr);
-              } else {
-                diasProgramados++;
-                horasTrabajadasTotales += 8;
-                diasAuditados.push(dateStr);
-              }
+            if (isPastOrToday) {
+               if (esDiaLaboral) {
+                  let estadoFaltaParsed = { estado: 'pendiente' };
+                  if (auditoriaDia['falta']) {
+                    try { estadoFaltaParsed = JSON.parse(auditoriaDia['falta']); } catch(e) { estadoFaltaParsed = { estado: auditoriaDia['falta'] }; }
+                  }  
+                  if (estadoFaltaParsed.estado !== 'aprobado') {
+                    diasFaltaInjustificada++;
+                    alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
+                    diasAuditados.push(dateStr);
+                  } else {
+                    diasProgramados++;
+                    horasTrabajadasTotales += 8;
+                    diasAuditados.push(dateStr);
+                  }
+               } else if (esDescanso) {
+                  // DÍA DE DESCANSO DE LEY: SE PAGA BASE AUTOMÁTICO
+                  diasProgramados++;
+                  diasDescanso++;
+                  horasTrabajadasTotales += 8;
+                  diasAuditados.push(dateStr);
+               } else if (esNoLaboral) {
+                  // DÍA NO LABORAL: NO PASA NADA. NO SE PAGA.
+                  diasAuditados.push(dateStr);
+               }
             }
           }  
 
@@ -230,7 +296,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }
 
-          // 👇 EVALUACIÓN DE OBSERVACIONES
+          // EVALUACIÓN DE OBSERVACIONES
           for (const obs of Object.keys(matrizObservaciones.asignaciones || {})) {
             const asignadosEnFecha = matrizObservaciones.asignaciones[obs]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -243,15 +309,21 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           currentDate.setDate(currentDate.getDate() + 1);
         }  
 
+        // 👇 ALERTA: SI TODOS LOS DÍAS ESTÁN PAGADOS, LO OMITIMOS
+        if (diasEnRango > 0 && diasYaPagados === diasEnRango) {
+            empleadosYaPagados.push(emp.nombre);
+            continue;
+        }
+
         const sueldoBase = Number(pres.sueldo_base) || 0;
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
 
         if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; }
         else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * horasTrabajadasTotales; }
-        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = (sueldoBase / 7) * diasProgramados; }
-        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = (sueldoBase / 15) * diasProgramados; }
-        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = sueldoBase / 30; ingresoSueldo = (sueldoBase / 30) * diasProgramados; }  
+        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / 7; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = sueldoBase / 15; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = sueldoBase / 30; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }  
 
         const ingresosList = [];
         const egresosList = [];  
@@ -259,7 +331,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (pres.tipo_sueldo === 'Por Hora') {
           ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo });
         } else {
-          ingresosList.push({ concepto: `Sueldo Base Ordinario (${diasProgramados} días)`, monto: ingresoSueldo });
+          ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días evaluados)`, monto: ingresoSueldo });
         }  
 
         if (diasFaltaInjustificada > 0) {
@@ -296,18 +368,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
         }  
 
-        // CALCULO DE BONO LIMPIEZA
         if (reglasNomina.bono_limpieza_activo && fallasLimpieza === 0) {
           ingresosList.push({ concepto: `Bono de Limpieza (0 Faltas)`, monto: reglasNomina.bono_limpieza_monto || 0 });
         }
 
-        // 👇 CALCULO DEL NUEVO BONO OBSERVACIONES
         if (reglasNomina.bono_observaciones_activo) {
           const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
           if (fallasObservaciones <= toleranciaFallas) {
             ingresosList.push({ concepto: `Bono Observaciones (${fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
           } else {
-             // Opcional: Se puede agregar a métricas para que el admin sepa que lo perdió
              alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
           }
         }
@@ -319,7 +388,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         (pres.prestamos || []).forEach(p => {
           if (p.activo && p.saldo_restante > 0) {
             const aDescontar = Math.min(Number(p.descuento_por_nomina), Number(p.saldo_restante));
-            egresosList.push({ concepto: `Abono Préstamo: ${p.concepto}`, monto: aDescontar });
+            egresosList.push({ concepto: `Abono Préstamo: ${p.concepto}`, monto: aDescontar, prestamo_id: p.id }); // 👇 FIXED prestamo_id attached
           }
         });  
 
@@ -340,13 +409,20 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           total_egresos: sumEg,
           neto: sumIn - sumEg,
           diasAuditados,
-          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado }
+          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })) }
         });
       }  
+
+      if (empleadosYaPagados.length > 0) {
+         showAlert("Empleados Omitidos", `Los siguientes empleados ya tienen su nómina 100% pagada en ese rango exacto de fechas, por lo que fueron saltados:\n\n${empleadosYaPagados.join('\n')}`, "info");
+      }
+
       setPreNomina(resultados);
-      showAlert("¡Simulación Completada!", "La pre-nómina ha sido calculada. Revisa posibles alertas antes de guardar.", "success");
+      if (resultados.length > 0) {
+         showAlert("¡Cálculo Finalizado!", "Revisa las alertas de cada empleado antes de emitir los pagos finales.", "success");
+      }
     } catch(e) { 
-      showAlert("Error", "Error al procesar asistencia.", "error"); 
+      showAlert("Error", "Error al procesar matemáticas de la nómina.", "error"); 
     }
     setIsSubmitting(false);
   };
@@ -424,8 +500,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
   const acumularHorasExtrasABanco = (idxEmp, alerta) => {
      const arr = [...preNomina];
-     arr[idxEmp].metricas.horasExtrasAcumulables += alerta.hrsExt;
-     // 👇 CORRECCIÓN 2: Se mapeó idUnico a la propiedad alerta.idUnico que está en scope
+     arr[idxEmp].metricas.horasExtrasAcumulables = (arr[idxEmp].metricas.horasExtrasAcumulables || 0) + alerta.hrsExt;
      resolverAlerta(idxEmp, alerta.idUnico);
      showAlert("Horas Acumuladas", `Las horas se sumarán a su Banco de Horas al finalizar la nómina.`, "success");
   };
@@ -512,7 +587,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
 
             let horasExtrasHistoricas = Number(presActual.horas_extras_acumuladas) || 0;
-            horasExtrasHistoricas += p.metricas.horasExtrasAcumulables;
+            horasExtrasHistoricas += (p.metricas.horasExtrasAcumulables || 0);
 
             await fetch(`${apiUrl}/usuarios/${p.empleado_id}/prestaciones`, { 
                 method: 'PUT', 
@@ -529,22 +604,52 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   };
 
   return (
-    <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+    <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
       <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
         <Calculator className="text-blue-600" size={32}/>
         <div>
           <h3 className="text-2xl font-black text-slate-800">Generar Pre-Nómina</h3>
-          <p className="text-sm font-bold text-slate-400">Selecciona el rango de fechas. Solo se cobrarán los días "Por Pagar".</p>
+          <p className="text-sm font-bold text-slate-400">Selecciona empleados y rango de fechas. Solo se cobrarán los días "Por Pagar".</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div><label className="text-xs font-bold text-slate-500">Fecha Inicio</label><input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black outline-none focus:border-blue-500" /></div>
-        <div><label className="text-xs font-bold text-slate-500">Fecha Fin</label><input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black outline-none focus:border-blue-500" /></div>
+      {/* 👇 NUEVO BLOQUE: SELECCIÓN DE EMPLEADOS (IGUAL A GESTOR HORARIOS) */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6">
+         <div className="flex justify-between items-center mb-4">
+            <h4 className="font-black text-slate-700 flex items-center gap-2"><Users size={18}/> Selección de Empleados</h4>
+            <button onClick={toggleSeleccionMasiva} className="text-xs font-bold bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm">
+               {todosFiltradosSeleccionados ? 'Desmarcar Visibles' : 'Marcar Visibles'}
+            </button>
+         </div>
+         
+         <div className="flex gap-2 mb-4 overflow-x-auto pb-2 items-center">
+            <Filter size={14} className="text-blue-400 shrink-0 mr-1"/>
+            <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+            {rolesDisponibles.map(rol => (
+              <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+            ))}
+         </div>
+
+         <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+            {empleadosFiltrados.map(emp => {
+              const seleccionado = empleadosSeleccionados.includes(emp.id);
+              return (
+                <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                  {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
+                </button>
+              )
+            })}
+         </div>
       </div>
 
-      <button disabled={isSubmitting} onClick={calcularNomina} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black shadow-lg mb-8 disabled:opacity-50 active:scale-95 transition transform">
-        {isSubmitting ? 'Procesando Matemáticas...' : 'Generar y Escanear Alertas'}
+      {/* RANGO DE FECHAS */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div><label className="text-xs font-bold text-slate-500 uppercase">Desde el día</label><input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black outline-none focus:border-blue-500" /></div>
+        <div><label className="text-xs font-bold text-slate-500 uppercase">Hasta el día</label><input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black outline-none focus:border-blue-500" /></div>
+      </div>
+
+      <button disabled={isSubmitting} onClick={calcularNomina} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black shadow-lg mb-8 disabled:opacity-50 active:scale-95 transition transform flex items-center justify-center gap-2">
+        {isSubmitting ? 'Procesando Matemáticas...' : <><Calculator size={20} /> Calcular Nómina Exacta</>}
       </button>
 
       {preNomina.length > 0 && (
@@ -632,7 +737,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Días Planificados</p><p className="font-black text-slate-700 text-lg">{p.metricas.diasProgramados}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Días Pagados (Evaluados)</p><p className="font-black text-slate-700 text-lg">{p.metricas.diasProgramados}</p></div>
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Pago Diario Exacto</p><p className="font-black text-blue-600 text-lg">{formaterMoneda(p.metricas.sueldoDiarioExacto)}</p></div>
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Eventos Tarde</p><p className="font-black text-amber-600 text-lg">{p.metricas.eventosTarde}</p></div>
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Minutos Tarde</p><p className="font-black text-red-500 text-lg">{p.metricas.minutosTardeTotales} min</p></div>

@@ -1,7 +1,7 @@
 const db = require('../config/db');
 
 exports.obtenerReporteVentas = async (req, res) => {
-  const { tipo, fecha, clasificacion, tipo_consumo } = req.query; 
+  const { tipo, fecha, fechaFin, clasificacion, tipo_consumo } = req.query; 
   
   try {
     const configRes = await db.query('SELECT hora_apertura, hora_cierre FROM configuracion WHERE id = 1');
@@ -72,9 +72,15 @@ exports.obtenerReporteVentas = async (req, res) => {
     let paramIndex = 1;
 
     // 👇 ESCUDO DE ZONA HORARIA APLICADO (America/Mazatlan)
-    if (tipo === 'dia') {
+    if (tipo === 'dia' || tipo === 'historico') {
       queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = $${paramIndex}::DATE`;
       params.push(fecha || 'NOW()'); paramIndex++;
+    } else if (tipo === 'rango') {
+      // 🟢 Si es Rango, usamos BETWEEN (Desde y Hasta)
+      queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE >= $${paramIndex}::DATE AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE <= $${paramIndex + 1}::DATE`;
+      params.push(fecha || 'NOW()');
+      params.push(fechaFin || fecha || 'NOW()');
+      paramIndex += 2;
     } else if (tipo === 'semana') {
       queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) + INTERVAL '1 week'`;
       params.push(fecha || 'NOW()'); paramIndex++;
@@ -84,9 +90,6 @@ exports.obtenerReporteVentas = async (req, res) => {
     } else if (tipo === 'anio') {
       queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < DATE_TRUNC('year', $${paramIndex}::TIMESTAMP) + INTERVAL '1 year'`;
       params.push(fecha || 'NOW()'); paramIndex++;
-    } else if (tipo === 'historico') {
-      queryTimeConsumo += ` AND TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'MM-DD') = TO_CHAR($${paramIndex}::DATE, 'MM-DD')`;
-      params.push(fecha); paramIndex++;
     }
 
     if (tipo_consumo && tipo_consumo !== 'Todos') {

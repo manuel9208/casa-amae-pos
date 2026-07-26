@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Save, User, ShieldCheck, Clock, CheckCircle2, AlertTriangle, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote, ClipboardCheck } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Save, User, ShieldCheck, Clock, AlertTriangle, Scale, Coffee, Landmark, CalendarDays, PlusCircle, Trash2, Banknote, ClipboardCheck } from 'lucide-react';
 
 const diasSemanaMap = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
@@ -17,6 +17,9 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));
 
+  // 👇 NUEVO: Estado para saber qué días el restaurante no abre globalmente
+  const [diasCerradosLocal, setDiasCerradosLocal] = useState([]);
+
   // ==========================================
   // ESTADO: REGLAS GLOBALES (BONOS Y LEYES)
   // ==========================================
@@ -24,7 +27,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     bono_limpieza_activo: false, bono_limpieza_monto: 0, limpieza_omisiones_permitidas: 0,
     bono_puntualidad_eventos_activo: false, bono_puntualidad_eventos_monto: 0, puntualidad_eventos_tolerancia_minutos: 15, puntualidad_eventos_retardos_permitidos: 0,
     bono_puntualidad_estricta_activo: false, bono_puntualidad_estricta_monto: 0, puntualidad_estricta_limite_minutos_semana: 15,
-    // 👇 NUEVO: ESTADOS PARA BONO OBSERVACIONES
     bono_observaciones_activo: false, bono_observaciones_monto: 0, bono_observaciones_tolerancia: 0,
     descuento_descanso_activo: true, 
     prima_dominical_activa: true,
@@ -39,27 +41,43 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [prestacionesEmp, setPrestacionesEmp] = useState({ 
     sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
     fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: false,
-    dias_descanso: [], prima_vacacional: 25, dias_vacaciones_disponibles: 12, horas_extras_acumuladas: 0,
+    dias_descanso: [], dias_no_laborales: [], // 👇 AHORA SOPORTA LOS 3 ESTADOS
+    prima_vacacional: 25, dias_vacaciones_disponibles: 12, horas_extras_acumuladas: 0,
     limite_platillos: 1, limite_bebidas: 1,
     prestamos: [], bonos_recurrentes: []
   });
 
-  // CARGAR REGLAS GLOBALES DESDE LA BASE DE DATOS
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/configuracion`);
-        if (res.ok) {
-          const data = await res.json();
-          const matriz = typeof data.matriz_limpieza === 'string' ? JSON.parse(data.matriz_limpieza || '{}') : (data.matriz_limpieza || {});
-          if (matriz.reglas_nomina) {
-            setReglasNomina(prev => ({ ...prev, ...matriz.reglas_nomina }));
-          }
+  // CARGAR REGLAS GLOBALES Y DÍAS CERRADOS DESDE LA BASE DE DATOS
+  const cargarConfigGlobal = useCallback(async () => {
+    try {
+      const resConfig = await fetch(`${apiUrl}/configuracion`);
+      if (resConfig.ok) {
+        const dataConfig = await resConfig.json();
+        
+        // Cargar Reglas Generales de Nómina
+        const matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
+        if (matrizActual.reglas_nomina) {
+          setReglasNomina(prev => ({ ...prev, ...matrizActual.reglas_nomina }));
         }
-      } catch(e) { console.error("Error al cargar configuración", e); }
-    };
-    fetchConfig();
+
+        // 👇 NUEVA LOGICA: Descubrir qué días está cerrado el restaurante para bloquearlos en los perfiles
+        const horSemana = typeof dataConfig.horarios_semana === 'string' ? JSON.parse(dataConfig.horarios_semana || '{}') : (dataConfig.horarios_semana || {});
+        const cerrados = [];
+        Object.keys(horSemana).forEach(dia => {
+          if (horSemana[dia].activo === false || horSemana[dia].activo === 'false') {
+            cerrados.push(dia);
+          }
+        });
+        setDiasCerradosLocal(cerrados);
+      }
+    } catch (e) {
+      console.error("Error al cargar config de nómina:", e);
+    }
   }, [apiUrl]);
+
+  useEffect(() => {
+    cargarConfigGlobal();
+  }, [cargarConfigGlobal]);
 
   // CARGAR FICHA FINANCIERA DEL EMPLEADO SELECCIONADO
   useEffect(() => {
@@ -67,6 +85,8 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
       const emp = usuariosDB.find(u => u.id === Number(empleadoEditId));
       if (emp) {
         const presParsed = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
+        
+        // Compatibilidad con versión vieja (dia_descanso único)
         let descansosArray = presParsed.dias_descanso || [];
         if (typeof presParsed.dia_descanso === 'string' && presParsed.dia_descanso !== 'Ninguno') descansosArray = [presParsed.dia_descanso];
 
@@ -85,6 +105,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
           nombre_completo: presParsed.nombre_completo || '', 
           generar_nomina: presParsed.generar_nomina !== undefined ? presParsed.generar_nomina : false,
           dias_descanso: descansosArray,
+          dias_no_laborales: presParsed.dias_no_laborales || [], // Cargar días no laborales
           prima_vacacional: presParsed.prima_vacacional !== undefined ? presParsed.prima_vacacional : 25,
           dias_vacaciones_disponibles: presParsed.dias_vacaciones_disponibles !== undefined ? presParsed.dias_vacaciones_disponibles : 12,
           horas_extras_acumuladas: presParsed.horas_extras_acumuladas !== undefined ? presParsed.horas_extras_acumuladas : 0,
@@ -97,7 +118,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     } else {
       setPrestacionesEmp({ 
         sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
-        fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: false, dias_descanso: [], 
+        fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: false, dias_descanso: [], dias_no_laborales: [], 
         prima_vacacional: 25, dias_vacaciones_disponibles: 12, horas_extras_acumuladas: 0, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] 
       });
     }
@@ -114,14 +135,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
           }
       }
       setPrestacionesEmp({...prestacionesEmp, generar_nomina: checked});
-  };
-
-  const toggleDiaDescanso = (dia) => {
-    setPrestacionesEmp(prev => {
-      const activos = prev.dias_descanso || [];
-      if (activos.includes(dia)) return { ...prev, dias_descanso: activos.filter(d => d !== dia) };
-      return { ...prev, dias_descanso: [...activos, dia] };
-    });
   };
 
   // MANEJADORES DE PRÉSTAMOS
@@ -207,7 +220,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
       });
       if (res.ok) { 
         showAlert('Éxito', 'Ficha del empleado guardada correctamente.', 'success'); 
-        refrescarDatos(); 
+        if (refrescarDatos) refrescarDatos(); 
       }
     } catch(e) { 
       showAlert('Error', 'Fallo de conexión.', 'error'); 
@@ -301,7 +314,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
 
           <div className="border-t border-slate-200 my-6"></div>
 
-          {/* 👇 NUEVA LEY: BONO DE OBSERVACIONES GENERALES */}
+          {/* BONO DE OBSERVACIONES GENERALES */}
           <div className={`p-5 rounded-2xl border-2 transition-all mb-6 ${reglasNomina.bono_observaciones_activo ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between items-start mb-4">
               <div>
@@ -420,7 +433,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
           </div>
         </div>
 
-        <select value={empleadoEditId} onChange={(e) => setEmpleadoEditId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black text-slate-700 outline-none mb-6 focus:border-blue-500 transition-colors shadow-sm">
+        <select value={empleadoEditId} onChange={(e) => setEmpleadoEditId(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 font-black text-slate-700 outline-none mb-6 focus:border-blue-500 transition-colors shadow-sm cursor-pointer">
           <option value="">-- Selecciona un Empleado --</option>
           {empleadosVisibles.map(e => (
             <option key={e.id} value={e.id}>{e.nombre} ({e.rol})</option>
@@ -585,29 +598,102 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
 
             <div className="border-t border-slate-200 my-4"></div>
 
+            {/* INFO PERSONAL Y BANCARIA */}
             <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl">
-              <div>
+              <div className="col-span-2">
                 <label className="text-[10px] font-black text-slate-500 uppercase">Nombre Completo Legal</label>
                 <input type="text" value={prestacionesEmp.nombre_completo} onChange={e => setPrestacionesEmp({...prestacionesEmp, nombre_completo: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Teléfono</label>
+                <input type="text" value={prestacionesEmp.telefono} onChange={e => setPrestacionesEmp({...prestacionesEmp, telefono: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">Correo (Opcional)</label>
+                <input type="email" value={prestacionesEmp.correo} onChange={e => setPrestacionesEmp({...prestacionesEmp, correo: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
               </div>
               <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase">RFC</label>
                 <input type="text" value={prestacionesEmp.rfc} onChange={e => setPrestacionesEmp({...prestacionesEmp, rfc: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" />
               </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">CURP</label>
+                <input type="text" value={prestacionesEmp.curp} onChange={e => setPrestacionesEmp({...prestacionesEmp, curp: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase">NSS (Seguro Social)</label>
+                <input type="text" value={prestacionesEmp.nss} onChange={e => setPrestacionesEmp({...prestacionesEmp, nss: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+              </div>
+              <div className="col-span-2 grid grid-cols-2 gap-4 mt-2 border-t border-slate-200 pt-4">
+                 <div>
+                   <label className="text-[10px] font-black text-slate-500 uppercase">Banco</label>
+                   <input type="text" value={prestacionesEmp.banco} onChange={e => setPrestacionesEmp({...prestacionesEmp, banco: e.target.value})} placeholder="Ej. BBVA" className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+                 </div>
+                 <div>
+                   <label className="text-[10px] font-black text-slate-500 uppercase">Clabe / Tarjeta</label>
+                   <input type="text" value={prestacionesEmp.cuenta} onChange={e => setPrestacionesEmp({...prestacionesEmp, cuenta: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
+                 </div>
+              </div>
             </div>
 
-            <div>
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Días de Descanso Pagado Oficiales</label>
-              <div className="flex flex-wrap gap-2">
+            {/* 👇 NUEVA LÓGICA: BOTONES DE 3 ESTADOS (LABORAL, DESCANSO, NO LABORAL) */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mt-4">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 block">Configuración Semanal del Trabajador</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mt-2">
                 {diasSemanaMap.map(dia => {
-                   const activo = prestacionesEmp.dias_descanso.includes(dia);
-                   return (
-                     <button type="button" key={dia} onClick={() => toggleDiaDescanso(dia)} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition ${activo ? 'bg-blue-600 text-white shadow-md scale-105' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                        {activo && <CheckCircle2 size={12} className="inline mr-1"/>} {dia}
-                     </button>
-                   )
+                  const isLocalCerrado = diasCerradosLocal.includes(dia);
+                  const isDescanso = (prestacionesEmp.dias_descanso || []).includes(dia);
+                  const isNoLaboral = (prestacionesEmp.dias_no_laborales || []).includes(dia) || isLocalCerrado;
+
+                  let btnText = 'Día Laboral';
+                  let btnClass = 'bg-white border-slate-300 text-slate-700 hover:border-blue-400';
+
+                  if (isLocalCerrado) {
+                    btnText = 'Cerrado (Auto)';
+                    btnClass = 'bg-slate-200 border-slate-300 text-slate-400 opacity-60 cursor-not-allowed';
+                  } else if (isDescanso) {
+                    btnText = 'Descanso Oficial';
+                    btnClass = 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm ring-1 ring-emerald-500';
+                  } else if (isNoLaboral) {
+                    btnText = 'No Laboral';
+                    btnClass = 'bg-rose-50 border-rose-300 text-rose-700 shadow-sm';
+                  }
+
+                  const toggleDia = () => {
+                    if (isLocalCerrado) {
+                       showAlert('Aviso', `El restaurante no abre los ${dia}. Se fuerza automáticamente a No Laboral.`, 'info');
+                       return;
+                    }
+                    setPrestacionesEmp(prev => {
+                      const descansos = prev.dias_descanso || [];
+                      const noLaborales = prev.dias_no_laborales || [];
+
+                      if (!isDescanso && !isNoLaboral) {
+                        // De Laboral -> a Descanso Oficial
+                        return { ...prev, dias_descanso: [...descansos, dia], dias_no_laborales: noLaborales.filter(d => d !== dia) };
+                      } else if (isDescanso) {
+                        // De Descanso -> a No Laboral
+                        return { ...prev, dias_descanso: descansos.filter(d => d !== dia), dias_no_laborales: [...noLaborales, dia] };
+                      } else {
+                        // De No Laboral -> a Laboral
+                        return { ...prev, dias_descanso: descansos.filter(d => d !== dia), dias_no_laborales: noLaborales.filter(d => d !== dia) };
+                      }
+                    });
+                  };
+
+                  return (
+                    <button type="button" key={dia} onClick={toggleDia} className={`px-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider border transition-all ${btnClass}`}>
+                      <span className="block text-[9px] text-slate-400 mb-0.5">{dia.substring(0,3)}.</span>
+                      <span className="text-[9px] leading-tight block">{btnText}</span>
+                    </button>
+                  );
                 })}
               </div>
+              <p className="text-[10px] text-slate-500 font-bold mt-4 leading-tight">
+                🔘 <b>Día Laboral:</b> Espera asistencia (Faltar causa sanción). <br/>
+                🟢 <b>Descanso Oficial:</b> Es su descanso de ley, se paga sin checar asistencia. <br/>
+                🔴 <b>No Laboral:</b> No asiste y NO se paga (Ideal para empleados de Fines de Semana).
+              </p>
             </div>
 
             <button type="submit" disabled={isSubmitting} className="w-full mt-8 bg-blue-600 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-blue-700 transition shadow-lg shadow-blue-500/30 active:scale-95">
