@@ -1,28 +1,65 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert } from 'lucide-react';
+import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert, Users, Filter, CheckSquare, Square } from 'lucide-react';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [reportes, setReportes] = useState({ historialAsistencias: [] });
+  const [configGlobal, setConfigGlobal] = useState({});
   const [matrizLimpiezaGlobal, setMatrizLimpiezaGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
   
   const hoyStr = new Date().toISOString().split('T')[0];
-  const [periodo, setPeriodo] = useState('semana');
-  const [fechaFiltro, setFechaFiltro] = useState(hoyStr);
-  const [filtroUsuario, setFiltroUsuario] = useState('Todos');
+  
+  // 👇 NUEVOS ESTADOS DE FILTRO (Estilo Nómina)
+  const [fechaInicio, setFechaInicio] = useState(hoyStr);
+  const [fechaFin, setFechaFin] = useState(hoyStr);
+  const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
+  
   const [refreshToggle, setRefreshToggle] = useState(false); 
   
   // Configuraciones de Tolerancia
   const [minutosTolerancia, setMinutosTolerancia] = useState(15); 
   const [toleranciaSalida, setToleranciaSalida] = useState(30);   
 
-  // 👇 NUEVO ESTADO: Modal de Ajuste de Horas para Auditoría
+  // Estado del Modal de Ajuste y Notificaciones UI
   const [modalAjuste, setModalAjuste] = useState({ isOpen: false, empId: null, fecha: '', tipo: '', horasDetectadas: 0, horasFinales: 0 });
+  const [toast, setToast] = useState(null);
 
+  const mostrarToast = (mensaje, tipo = 'success') => {
+    setToast({ mensaje, tipo });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // 👇 LÓGICA DE FILTRADO DE EMPLEADOS
+  const empleadosVisibles = usuariosDB
+    .filter(u => u.nombre !== 'Administrador Global')
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  const rolesDisponibles = [...new Set(empleadosVisibles.map(u => u.rol))];
+  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
+  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(e.id));
+
+  useEffect(() => {
+    if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
+      setEmpleadosSeleccionados(empleadosVisibles.map(e => e.id));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuariosDB]);
+
+  const toggleSeleccionMasiva = () => {
+    if (todosFiltradosSeleccionados) {
+      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => e.id === id)));
+    } else {
+      const nuevos = empleadosFiltrados.map(e => e.id).filter(id => !empleadosSeleccionados.includes(id));
+      setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
+    }
+  };
+
+  // 👇 LÓGICA DE CARGA: Se trae el historial completo del año para procesar el rango en el Front
   const cargarReportes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodo}&fecha=${fechaFiltro}&usuario_id=${filtroUsuario}`);
+      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
       if (res.ok) {
         const data = await res.json();
         setReportes(data);
@@ -31,51 +68,29 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       const resConfig = await fetch(`${apiUrl}/configuracion`);
       if (resConfig.ok) {
          const configData = await resConfig.json();
+         setConfigGlobal(configData);
          setMatrizLimpiezaGlobal(typeof configData.matriz_limpieza === 'string' ? JSON.parse(configData.matriz_limpieza || '{}') : (configData.matriz_limpieza || {}));
       }
     } catch (error) {
       console.error("Error al cargar reportes", error);
     }
-  }, [apiUrl, periodo, fechaFiltro, filtroUsuario]);
+  }, [apiUrl, fechaInicio]);
 
   useEffect(() => {
     cargarReportes();
-  }, [cargarReportes]);
+    const interval = setInterval(() => cargarReportes(), 10000);
+    return () => clearInterval(interval);
+  }, [cargarReportes, refreshToggle]);
 
-  const empleadosVisibles = usuariosDB
-    .filter(u => u.nombre !== 'Administrador Global')
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
-
+  // 👇 CÁLCULO DINÁMICO DE RANGO DE FECHAS
   const getFechasPeriodo = () => {
     const fechas = [];
-    const f = new Date(fechaFiltro + 'T12:00:00');
+    let currentDate = new Date(fechaInicio + 'T12:00:00');
+    const endDate = new Date(fechaFin + 'T12:00:00');
     
-    if (periodo === 'dia') {
-        fechas.push(fechaFiltro);
-    } else if (periodo === 'semana') {
-        const day = f.getDay();
-        const diff = f.getDate() - day + (day === 0 ? -6 : 1); 
-        const start = new Date(f.setDate(diff));
-        for (let i = 0; i < 7; i++) {
-            const cur = new Date(start);
-            cur.setDate(start.getDate() + i);
-            fechas.push(cur.toISOString().split('T')[0]);
-        }
-    } else if (periodo === 'mes') {
-        const y = f.getFullYear(), m = f.getMonth();
-        const daysInMonth = new Date(y, m + 1, 0).getDate();
-        for (let i = 1; i <= daysInMonth; i++) {
-            fechas.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
-        }
-    } else if (periodo === 'anio') {
-        const y = f.getFullYear();
-        const curMonth = y === new Date().getFullYear() ? new Date().getMonth() : 11;
-        for(let m=0; m<=curMonth; m++) {
-            const daysInMonth = new Date(y, m + 1, 0).getDate();
-            for (let i = 1; i <= daysInMonth; i++) {
-                fechas.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`);
-            }
-        }
+    while (currentDate <= endDate) {
+        fechas.push(currentDate.toISOString().split('T')[0]);
+        currentDate.setDate(currentDate.getDate() + 1);
     }
     return fechas;
   };
@@ -102,22 +117,35 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         if (res.ok) {
             emp.horario_semanal = JSON.stringify(horActual); 
             setRefreshToggle(!refreshToggle);
+            
+            const payload = JSON.parse(decisionPayload);
+            if(payload.estado === 'aprobado') {
+                mostrarToast(`Auditoría Aprobada exitosamente para ${emp.nombre}`, 'success');
+            } else {
+                mostrarToast(`Auditoría Rechazada para ${emp.nombre}`, 'error');
+            }
         }
     } catch (e) {
         console.error("Error al guardar la auditoría", e);
+        mostrarToast("Ocurrió un error al guardar la decisión.", "error");
     }
   };
 
   // ======================================================================
   // 🧠 MOTOR INTELIGENTE DE PROCESAMIENTO MATRICIAL Y FUSIÓN DE CHECADAS
   // ======================================================================
-    const procesarDashboard = () => {
+  const procesarDashboard = () => {
     const fechasAAnalizar = getFechasPeriodo();  
+    
+    const horSemanaGlobal = typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana || '{}') : (configGlobal.horarios_semana || {});
+    const diasCerradosLocal = Object.keys(horSemanaGlobal).filter(dia => horSemanaGlobal[dia].activo === false || horSemanaGlobal[dia].activo === 'false');
 
     return empleadosVisibles.map(emp => {
       const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
       const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-      const descansos = pres.dias_descanso || [];  
+      
+      const arrDescansos = (pres.dias_descanso || []).map(d => String(d).trim().toLowerCase());
+      const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
 
       const oficiales = [];
       const anomalas = [];
@@ -125,12 +153,41 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
       fechasAAnalizar.forEach(fechaStr => {
         const dateObj = new Date(fechaStr + 'T12:00:00');
-        const nombreDia = diasSemanaMap[dateObj.getDay()];  
-        const confDia = hor[fechaStr] || hor[nombreDia] || { activo: false };
-        const esDescanso = descansos.includes(nombreDia);
-        const esDiaLaboral = confDia.activo === true && !esDescanso;  
-        const auditoriaDia = hor[fechaStr]?.auditoria || {};  
+        const nombreDiaActual = diasSemanaMap[dateObj.getDay()];  
+        const nombreDiaLimpio = nombreDiaActual.toLowerCase();
 
+        const esDescansoFicha = arrDescansos.includes(nombreDiaLimpio);
+        const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaLimpio) || diasCerradosLocal.map(d=>d.toLowerCase()).includes(nombreDiaLimpio);
+
+        let esDescanso = esDescansoFicha;
+        let esNoLaboral = esNoLaboralFicha;
+        let esDiaLaboral = !esDescanso && !esNoLaboral;
+
+        const confDiaStr = hor[fechaStr] || {};
+        const confDiaNom = hor[nombreDiaActual] || {};
+        const confDia = Object.keys(confDiaStr).length > 0 ? confDiaStr : confDiaNom;
+
+        if (Object.keys(confDiaStr).length > 0) {
+            if (confDiaStr.es_descanso !== undefined) {
+                esDescanso = confDiaStr.es_descanso;
+                if (esDescanso) { esDiaLaboral = false; esNoLaboral = false; }
+            }
+            if (confDiaStr.activo !== undefined) {
+                if (confDiaStr.activo) { esDiaLaboral = true; esDescanso = false; esNoLaboral = false; } 
+                else if (!esDescanso) { esNoLaboral = true; esDiaLaboral = false; }
+            }
+        } else if (Object.keys(confDiaNom).length > 0) {
+            if (confDiaNom.es_descanso !== undefined) {
+                esDescanso = confDiaNom.es_descanso;
+                if (esDescanso) { esDiaLaboral = false; esNoLaboral = false; }
+            }
+            if (confDiaNom.activo !== undefined) {
+                if (confDiaNom.activo) { esDiaLaboral = true; esDescanso = false; esNoLaboral = false; } 
+                else if (!esDescanso) { esNoLaboral = true; esDiaLaboral = false; }
+            }
+        }
+
+        const auditoriaDia = hor[fechaStr]?.auditoria || {};  
         const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));  
 
         if (checkinsDelDia.length > 0) {
@@ -209,7 +266,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
           const record = {
             fecha: fechaStr,
-            dia: nombreDia,
+            dia: nombreDiaActual,
             entrada: strEntrada,
             salida: strSalida,
             horas: diffHrs.toFixed(2),
@@ -249,6 +306,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             requiereAuditoria = true;
           }  
 
+          if (esDescanso) { motivosAnomalia.push(`Trabajó en Descanso`); requiereAuditoria = true; }
+          if (esNoLaboral) { motivosAnomalia.push(`Trabajó en No Laboral`); requiereAuditoria = true; }
+
           if (turnoActivo) {
             oficiales.push(record);
           } else if (!requiereAuditoria) {
@@ -281,7 +341,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           const isPast = fechaStr < hoyStr;
           if (esDiaLaboral && isPast) {
             const record = {
-              fecha: fechaStr, dia: nombreDia, entrada: '--:--', salida: '--:--', horas: '0.00',
+              fecha: fechaStr, dia: nombreDiaActual, entrada: '--:--', salida: '--:--', horas: '0.00',
               turnoActivo: false, olvidoSalida: false, esRetardo: false,
               oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
             };
@@ -294,7 +354,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           }
         }  
 
-        // ✅ LOGICA DE LIMPIEZA REPARADA
         const evals = matrizLimpiezaGlobal.evaluaciones || {};
         const asigs = matrizLimpiezaGlobal.asignaciones || {};
 
@@ -308,7 +367,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             
             if (status) {
               const nombreArea = area_turno.split('_')[0];
-              limpiezas.push({ fecha: fechaStr, dia: nombreDia, area: nombreArea, status: status });
+              limpiezas.push({ fecha: fechaStr, dia: nombreDiaActual, area: nombreArea, status: status });
             }
           }
         });
@@ -318,21 +377,20 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
     }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.limpiezas.length > 0);
   };
 
+  // 👇 APLICAR FILTRO FINAL A LOS EMPLEADOS SELECCIONADOS
   const datosCompletos = procesarDashboard();
-  const datosFiltrados = filtroUsuario === 'Todos' ? datosCompletos : datosCompletos.filter(d => String(d.emp.id) === String(filtroUsuario));
+  const datosFiltrados = datosCompletos.filter(d => empleadosSeleccionados.includes(d.emp.id));
 
   // 👇 FUNCIÓN PARA EL MODAL INTELIGENTE DE AUDITORÍA
   const manejarClickAprobar = (empId, rec) => {
     if (rec.tipo === 'falta') {
-        // Las faltas se justifican directamente, no ocupan ajuste de horas numéricas
         guardarAuditoria(empId, rec.fecha, rec.tipo, JSON.stringify({ estado: 'aprobado' }));
     } else {
-        // Abrimos el modal inteligente para ajustar el tiempo extra / olvidado / agrupado
         setModalAjuste({
             isOpen: true,
             empId,
             fecha: rec.fecha,
-            tipo: rec.tipo, // 'auditoria_turno'
+            tipo: rec.tipo,
             horasDetectadas: rec.horas,
             horasFinales: rec.horas
         });
@@ -349,7 +407,19 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   };
 
   return (
-    <div className="space-y-8 animate-in slide-in-from-bottom-4">
+    <div className="space-y-8 animate-in slide-in-from-bottom-4 relative">
+      
+      {/* 👇 TOAST NOTIFICATION DE ÉXITO O ERROR */}
+      {toast && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300">
+            <div className={`flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 ${toast.tipo === 'success' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : 'bg-red-50 border-red-500 text-red-800'}`}>
+                {toast.tipo === 'success' ? <CheckCircle2 className="text-emerald-500" size={24} /> : <AlertTriangle className="text-red-500" size={24} />}
+                <p className="font-black text-sm uppercase tracking-widest">{toast.mensaje}</p>
+                <button onClick={() => setToast(null)} className="ml-4 opacity-50 hover:opacity-100 transition"><XCircle size={20}/></button>
+            </div>
+        </div>
+      )}
+
       {/* CABECERA Y CONFIGURACIÓN DE TOLERANCIAS */}
       <div className="bg-slate-900 text-white p-6 md:p-8 rounded-[36px] shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 print:hidden">
         <div className="flex items-center gap-5">
@@ -372,22 +442,51 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
              </div>
           </div>
 
-          <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)} className="w-full md:w-auto h-[58px] bg-slate-800 text-white border border-slate-700 px-4 rounded-2xl font-bold outline-none focus:ring-2 ring-emerald-500 cursor-pointer">
-            <option value="Todos">Todos los empleados</option>
-            {empleadosVisibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
-          </select>
-          <select value={periodo} onChange={e => setPeriodo(e.target.value)} className="w-full md:w-auto h-[58px] bg-slate-800 text-white border border-slate-700 px-4 rounded-2xl font-bold outline-none focus:ring-2 ring-emerald-500 cursor-pointer">
-            <option value="dia">Día Exacto</option>
-            <option value="semana">Semana de...</option>
-            <option value="mes">Mes de...</option>
-            <option value="anio">Año de...</option>
-          </select>
-          <input type="date" value={fechaFiltro} onChange={e => setFechaFiltro(e.target.value)} className="w-full md:w-auto h-[58px] bg-slate-800 text-white border border-slate-700 px-4 rounded-2xl font-bold outline-none focus:ring-2 ring-emerald-500 cursor-pointer" style={{ colorScheme: 'dark' }} />
           <button onClick={() => window.print()} className="w-full md:w-auto h-[58px] bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-8 rounded-2xl font-black flex items-center justify-center gap-2 transition active:scale-95 shadow-lg shadow-emerald-500/20">
             <Printer size={20}/> Imprimir
           </button>
         </div>
       </div>  
+
+      {/* 👇 NUEVA CONFIGURACIÓN DE FILTROS MASIVOS TIPO NOMINA GENERAR */}
+      <div className="bg-slate-50 border border-slate-200 rounded-[36px] p-6 md:p-8 shadow-sm print:hidden">
+         <div className="flex justify-between items-center mb-4">
+            <h4 className="font-black text-slate-700 flex items-center gap-2"><Users size={18}/> Selección de Empleados</h4>
+            <button onClick={toggleSeleccionMasiva} className="text-xs font-bold bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm transition hover:bg-blue-50">
+               {todosFiltradosSeleccionados ? 'Desmarcar Visibles' : 'Marcar Visibles'}
+            </button>
+         </div>
+         
+         <div className="flex gap-2 mb-4 overflow-x-auto pb-2 items-center custom-scrollbar">
+            <Filter size={14} className="text-blue-400 shrink-0 mr-1"/>
+            <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+            {rolesDisponibles.map(rol => (
+              <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+            ))}
+         </div>
+
+         <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar mb-6">
+            {empleadosFiltrados.map(emp => {
+              const seleccionado = empleadosSeleccionados.includes(emp.id);
+              return (
+                <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(emp.id) ? prev.filter(id => id !== emp.id) : [...prev, emp.id])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                  {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
+                </button>
+              )
+            })}
+         </div>
+
+         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+            <div>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Desde el día</label>
+              <input type="date" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500 text-slate-700 shadow-sm transition-colors" />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Hasta el día</label>
+              <input type="date" value={fechaFin} onChange={e => setFechaFin(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 font-black outline-none focus:border-blue-500 text-slate-700 shadow-sm transition-colors" />
+            </div>
+         </div>
+      </div>
 
       <div id="seccion-a-imprimir" className="space-y-8">
          {datosFiltrados.length === 0 ? (
@@ -487,8 +586,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                     </thead>
                                     <tbody className="divide-y divide-red-50/50">
                                         {data.anomalas.map((rec, i) => {
-                                            
-                                            // Extraer lógica del estado parseado para saber si hay horas auditadas
                                             let estadoParsed = null;
                                             try {
                                                 estadoParsed = JSON.parse(rec.estadoAuditoria);
@@ -545,7 +642,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
       {/* 👇 MODAL INTELIGENTE DE AJUSTE DE HORAS */}
       {modalAjuste.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl animate-in zoom-in-95 flex flex-col items-center text-center border border-slate-200">
             <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 shadow-inner">
                <Clock size={32} />
@@ -590,7 +687,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           body * { visibility: hidden; }
           #seccion-a-imprimir, #seccion-a-imprimir * { visibility: visible; }
           #seccion-a-imprimir { position: absolute; left: 0; top: 0; width: 100%; }
-          .print\\:hidden { display: none !important; }
         }
       `}</style>
     </div>
