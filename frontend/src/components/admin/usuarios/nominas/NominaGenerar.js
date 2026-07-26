@@ -89,8 +89,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (pres.generar_nomina === false) continue;  
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-        const arrDescansos = pres.dias_descanso || [];  
-        const arrNoLaborales = pres.dias_no_laborales || [];
+        
+        // 👇 FIX ANDREA: Normalización extrema (minúsculas y sin espacios) para garantizar lectura
+        const arrDescansos = (pres.dias_descanso || []).map(d => String(d).trim().toLowerCase());  
+        const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -124,6 +126,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           diasEnRango++;
           const dateStr = currentDate.toISOString().split('T')[0];
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
+          const nombreDiaLimpio = nombreDiaActual.toLowerCase();
           const esDomingo = currentDate.getDay() === 0;  
 
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
@@ -139,9 +142,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 FIX 1: LÓGICA DE DÍAS BLINDADA (Ficha Técnica manda, Horario sobreescribe)
-          const esDescansoFicha = arrDescansos.includes(nombreDiaActual);
-          const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
+          // 👇 FIX ANDREA: Blindaje total de la lectura del día
+          const esDescansoFicha = arrDescansos.includes(nombreDiaLimpio);
+          const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaLimpio) || diasCerradosLocal.map(d=>d.toLowerCase()).includes(nombreDiaLimpio);
 
           let esDescanso = esDescansoFicha;
           let esNoLaboral = esNoLaboralFicha;
@@ -206,8 +209,17 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (minutosTurno < 0) minutosTurno += 24 * 60;
             if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
 
+            // 👇 FIX ALBERTO: Cálculo estimado inteligente en caso de olvido de salida
             let minsDetectados = 0;
-            if (maxSalida && minEntrada) { minsDetectados = (maxSalida - minEntrada) / 60000; }
+            if (maxSalida && minEntrada) { 
+                minsDetectados = (maxSalida - minEntrada) / 60000; 
+            } else if (minEntrada && olvidoSalida) {
+                const [hC, mC] = tSalidaOficial.split(':').map(Number);
+                let dCierre = new Date(dateStr + 'T00:00:00');
+                dCierre.setHours(hC, mC, 0, 0);
+                if (dCierre < minEntrada) dCierre.setDate(dCierre.getDate() + 1); // Cierre de madrugada
+                minsDetectados = (dCierre - minEntrada) / 60000;
+            }
             let horasDetectadas = minsDetectados / 60;  
 
             let estadoAudParsed = { estado: 'pendiente' };
@@ -249,7 +261,19 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }  
 
             if ((olvidoSalida || requiereAuditoria) && estadoAudParsed.estado !== 'aprobado') {
-              alertasEmpleado.push({ tipo: 'auditoria_turno', idUnico: `turno-${dateStr}`, fecha: dateStr, msg: motivosAnomalia.join(' | '), estadoAuditoria: estadoAudParsed.estado, resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado', hrsAuditadas: horasFinalesAprobadas, hrsExt: Number(hrsExt), hrsFaltantes: Number(hrsFaltantes) });
+              // 👇 Sugerir el cálculo estimado para el auditor
+              const horasSugeridas = horasFinalesAprobadas === 0 ? horasDetectadas : horasFinalesAprobadas;
+              alertasEmpleado.push({ 
+                  tipo: 'auditoria_turno', 
+                  idUnico: `turno-${dateStr}`, 
+                  fecha: dateStr, 
+                  msg: motivosAnomalia.join(' | '), 
+                  estadoAuditoria: estadoAudParsed.estado, 
+                  resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado', 
+                  hrsAuditadas: horasSugeridas, 
+                  hrsExt: Number(hrsExt), 
+                  hrsFaltantes: Number(hrsFaltantes) 
+              });
             }  
 
             horasTrabajadasTotales += horasFinalesAprobadas;
@@ -276,7 +300,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // DÍA DE DESCANSO NO DEBE MARCAR FALTA, SE PAGA.
+                  // DÍA DE DESCANSO NO DEBE MARCAR FALTA, SE PAGA SIEMPRE.
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -317,10 +341,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
         
-        // 👇 FIX 2: CÁLCULO POR HORA FORZADO SI DÍAS ACTIVOS SON < 5
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
+        // 👇 FIX ALBERTO: Auto conversión a pago por hora si labora menos de 5 días
         if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
             tipoSueldoAplicado = 'Por Hora (Auto)';
         }
@@ -438,7 +462,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           nombre_completo: pres.nombre_completo || emp.nombre,
           rol: emp.rol,
           sueldo_base: pres.sueldo_base,
-          tipo_sueldo: tipoSueldoAplicado, // Guardamos el dinámico (Hora vs Semanal)
+          tipo_sueldo: tipoSueldoAplicado,
           ingresos: ingresosList,
           egresos: egresosList,
           nuevos_ingresos: [],
@@ -447,7 +471,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           total_egresos: sumEg,
           neto: sumIn - sumEg,
           diasAuditados,
-          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, faltasJustificadas: 0, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })) }
+          metricas: { 
+              diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, 
+              diasFaltaInjustificada, faltasJustificadas: 0, eventosTarde, fallasLimpieza, fallasObservaciones, 
+              sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, 
+              prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })),
+              // 👇 Conservamos porcentajes de retención para re-calcular al justificar faltas
+              porcentaje_isr: reglasNomina.retencion_isr_activa ? reglasNomina.porcentaje_isr : 0,
+              porcentaje_imss: reglasNomina.retencion_imss_activa ? reglasNomina.porcentaje_imss : 0
+          }
         });
       }  
 
@@ -535,13 +567,24 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     p.metricas.diasProgramados += 1;
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
+    
     if (ingresoBase && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
         ingresoBase.monto = nuevoSueldo;
         ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
+
+        // 👇 FIX ANDREA: Recalcular IMSS e ISR en vivo sobre el nuevo salario restituido
+        if (p.metricas.porcentaje_isr > 0) {
+            const egISR = p.egresos.find(e => e.concepto.includes('Retención de ISR'));
+            if (egISR) egISR.monto = nuevoSueldo * (p.metricas.porcentaje_isr / 100);
+        }
+        if (p.metricas.porcentaje_imss > 0) {
+            const egIMSS = p.egresos.find(e => e.concepto.includes('Cuota Obrero IMSS'));
+            if (egIMSS) egIMSS.monto = nuevoSueldo * (p.metricas.porcentaje_imss / 100);
+        }
     }
 
     recalcularNeto(arr, idxEmp);
-    showAlert("Falta Justificada", "La deducción disminuyó y el día se devolvió a su Sueldo Base.", "success");
+    showAlert("Falta Justificada", "La deducción disminuyó y los impuestos (IMSS/ISR) se recalcularon correctamente.", "success");
   };
 
   const resolverAlerta = (idxEmp, idUnico) => {
