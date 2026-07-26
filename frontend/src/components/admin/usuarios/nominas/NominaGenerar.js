@@ -54,21 +54,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }
   };
 
-  // 👇 GUARDA LAS JUSTIFICACIONES DE INMEDIATO EN BASE DE DATOS
-  const guardarAuditoriaEnSegundoPlano = async (empId, fecha, tipo, payload) => {
-    try {
-        const emp = usuariosDB.find(u => u.id === empId);
-        if (!emp) return;
-        const horActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-        if (!horActual[fecha]) horActual[fecha] = {};
-        if (!horActual[fecha].auditoria) horActual[fecha].auditoria = {};
-        horActual[fecha].auditoria[tipo] = payload;
-        await fetch(`${apiUrl}/usuarios/${empId}/horario`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: horActual })
-        });
-    } catch (e) { console.error("Error auditoría en 2do plano", e); }
-  };
-
   const calcularNomina = async () => {
     if (empleadosSeleccionados.length === 0) return showAlert("Aviso", "Selecciona al menos un empleado para generar la nómina.", "warning");
     if (!fechaInicio || !fechaFin) return showAlert("Aviso", "Selecciona fecha de Inicio y Fin.", "info");
@@ -107,32 +92,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const arrDescansos = pres.dias_descanso || [];  
         const arrNoLaborales = pres.dias_no_laborales || [];
 
-        // 👇 MOTOR HÍBRIDO (CALCULAR DÍAS ACTIVOS Y HORAS ESPERADAS SEMANALES)
-        const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length - diasCerradosLocal.length);
-        let horasSemanalesEsperadas = 0;
-        
-        diasSemanaMap.forEach(diaNombre => {
-            if (!arrNoLaborales.includes(diaNombre) && !diasCerradosLocal.includes(diaNombre) && !arrDescansos.includes(diaNombre)) {
-                const confDia = horSemanaGlobal[diaNombre] || {};
-                const tEntradaOficial = confDia.apertura || gApertura;
-                const tSalidaOficial = confDia.cierre || gCierre;
-                const [hE, mE] = tEntradaOficial.split(':').map(Number);
-                const [hS, mS] = tSalidaOficial.split(':').map(Number);
-                let mins = (hS * 60 + mS) - (hE * 60 + mE);
-                if (mins < 0) mins += 24 * 60;
-                if (mins > 0) horasSemanalesEsperadas += (mins / 60);
-            }
-        });
-        
-        if (horasSemanalesEsperadas === 0) horasSemanalesEsperadas = diasActivosSemanales * 8; 
-        const promedioHorasDiarias = horasSemanalesEsperadas / Math.max(1, (diasActivosSemanales - arrDescansos.length));
-
-        // Decisión de modalidad (Menos de 5 días = Pago por Horas)
-        let modoPagoDinamico = 'dias';
-        if (diasActivosSemanales < 5 || pres.tipo_sueldo === 'Por Hora') {
-            modoPagoDinamico = 'horas';
-        }
-
         let diasAsistidos = 0;
         let diasProgramados = 0;
         let diasVacaciones = 0;
@@ -146,8 +105,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let fallasObservaciones = 0; 
         let eventosTarde = 0;
         let minutesTardeTotales = 0;
-        let diasFaltaInjustificada = 0;
-        let faltasJustificadas = 0;
+        let diasFaltaInjustificada = 0;  
 
         let diasEnRango = 0;
         let diasYaPagados = 0;
@@ -158,7 +116,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (pres.fecha_ingreso) {
           const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
           if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
-            alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, fecha: currentDate.toISOString().split('T')[0], msg: `🎉 Aniversario de trabajo detectado. Revisar vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
+            alertasEmpleado.push({ tipo: 'aniversario', idUnico: `ani-${emp.id}`, fecha: currentDate.toISOString().split('T')[0], msg: `🎉 Aniversario de trabajo detectado (Ingresó en ${fIng.getFullYear()}). Recuerda revisar sus vacaciones.`, resuelta: false, estadoAuditoria: 'aprobado' });
           }
         }  
 
@@ -168,56 +126,49 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
           const esDomingo = currentDate.getDay() === 0;  
 
+          if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
+            const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
+            if (currentDate.getMonth() === fBday.getMonth() && currentDate.getDate() === fBday.getDate()) {
+              alertasEmpleado.push({ tipo: 'cumpleaños', idUnico: `cumple-${dateStr}`, fecha: dateStr, msg: `🎂 ¡Cumpleaños detectado! ¿Deseas agregarle un bono festivo?`, resuelta: false, estadoAuditoria: 'aprobado' });
+            }
+          }  
+
           if (hor[dateStr]?.nomina_pagada === true) {
             diasYaPagados++;
             currentDate.setDate(currentDate.getDate() + 1);
             continue;
           }  
 
-          const horDia = hor[dateStr];
-          const esDescansoPerfil = arrDescansos.includes(nombreDiaActual);
-          const esNoLaboralPerfil = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
-
           let esDescanso = false;
           let esDiaLaboral = false;
           let esNoLaboral = false;
 
-          if (horDia !== undefined && horDia.activo !== undefined) {
-              esDescanso = horDia.es_descanso !== undefined ? horDia.es_descanso : esDescansoPerfil;
-              esDiaLaboral = horDia.activo === true && !esDescanso;
-              esNoLaboral = !esDiaLaboral && !esDescanso;
+          if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
+             const esDescansoFicha = arrDescansos.includes(nombreDiaActual);
+             esDescanso = hor[dateStr].es_descanso === true || (!hor[dateStr].activo && esDescansoFicha);
+             esDiaLaboral = hor[dateStr].activo === true && !esDescanso;
+             esNoLaboral = !esDiaLaboral && !esDescanso;
           } else {
-              esDescanso = esDescansoPerfil;
-              esNoLaboral = esNoLaboralPerfil;
-              esDiaLaboral = !esDescanso && !esNoLaboral;
+             esDescanso = arrDescansos.includes(nombreDiaActual);
+             esNoLaboral = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
+             esDiaLaboral = !esDescanso && !esNoLaboral;
           }
 
           const auditoriaDia = hor[dateStr]?.auditoria || {};
           const checkinsDelDia = historial.filter(h => String(h.usuario_id) === String(emp.id) && h.fecha.startsWith(dateStr));  
-
-          // HORA OFICIAL DEL DÍA
-          let hrsOficiales = 0;
-          if (esDiaLaboral) {
-              const tEntradaOficial = hor[dateStr]?.entrada || horSemanaGlobal[nombreDiaActual]?.apertura || gApertura;
-              const tSalidaOficial = hor[dateStr]?.salida || horSemanaGlobal[nombreDiaActual]?.cierre || gCierre;
-              const [hE, mE] = tEntradaOficial.split(':').map(Number);
-              const [hS, mS] = tSalidaOficial.split(':').map(Number);
-              let mins = (hS * 60 + mS) - (hE * 60 + mE);
-              if (mins < 0) mins += 24 * 60;
-              if (mins > 0) hrsOficiales = mins / 60;
-          }
 
           if (hor[dateStr]?.vacaciones === true) {
              diasProgramados++;
              diasAsistidos++; 
              diasVacaciones++; 
              diasAuditados.push(dateStr); 
-             horasTrabajadasTotales += (modoPagoDinamico === 'horas' ? promedioHorasDiarias : 8); 
+             horasTrabajadasTotales += 8; 
              currentDate.setDate(currentDate.getDate() + 1);
              continue;
           }  
 
           if (checkinsDelDia.length > 0) {
+            
             if (esDiaLaboral || esDescanso || esNoLaboral) {
                diasProgramados++;
             }
@@ -239,6 +190,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             let olvidoSalida = tieneNullSalida && checkinsDelDia.some(h => h.olvido_salida === true);
             if (esRetardo) { eventosTarde++; }  
 
+            let hrsOficiales = 8;
+            const tEntradaOficial = hor[dateStr]?.entrada || gApertura;
+            const tSalidaOficial = hor[dateStr]?.salida || gCierre;
+            const [hE, mE] = tEntradaOficial.split(':').map(Number);
+            const [hS, mS] = tSalidaOficial.split(':').map(Number);
+            let minutosTurno = (hS * 60 + mS) - (hE * 60 + mE);
+            if (minutosTurno < 0) minutosTurno += 24 * 60;
+            if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
+
             let minsDetectados = 0;
             if (maxSalida && minEntrada) { minsDetectados = (maxSalida - minEntrada) / 60000; }
             let horasDetectadas = minsDetectados / 60;  
@@ -254,8 +214,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (olvidoSalida) motivosAnomalia.push("Olvidó Marcar Salida");
             if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
             if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
-            if (esDescanso) motivosAnomalia.push("Trabajó en su Descanso de Ley");
-            if (esNoLaboral) motivosAnomalia.push("Trabajó en un Día No Laboral");
+            if (esDescanso) motivosAnomalia.push("Trabajó en Descanso");
+            if (esNoLaboral) motivosAnomalia.push("Trabajó en No Laboral");
 
             let horasFinalesAprobadas = horasDetectadas;
             let hrsExt = 0;
@@ -264,20 +224,22 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
               horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
               olvidoSalida = false;
+              if (esRetardo) {
+                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
+              }
             } else if (estadoAudParsed.estado === 'rechazado') {
               horasFinalesAprobadas = 0;
             } else if (olvidoSalida) {
               horasFinalesAprobadas = 0;
             } else {
+              if (esRetardo) {
+                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
+              }
               if (horasFinalesAprobadas > hrsOficiales + 0.25) hrsExt = (horasFinalesAprobadas - hrsOficiales).toFixed(2);
               if (horasFinalesAprobadas < hrsOficiales - 0.25) hrsFaltantes = (hrsOficiales - horasFinalesAprobadas).toFixed(2);
             }  
-
-            if (esRetardo && !olvidoSalida) {
-                const tEntradaOficial = hor[dateStr]?.entrada || horSemanaGlobal[nombreDiaActual]?.apertura || gApertura;
-                const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
-                minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
-            }
 
             if ((olvidoSalida || requiereAuditoria) && estadoAudParsed.estado !== 'aprobado') {
               alertasEmpleado.push({ tipo: 'auditoria_turno', idUnico: `turno-${dateStr}`, fecha: dateStr, msg: motivosAnomalia.join(' | '), estadoAuditoria: estadoAudParsed.estado, resuelta: estadoAudParsed.estado === 'aprobado' || estadoAudParsed.estado === 'rechazado', hrsAuditadas: horasFinalesAprobadas, hrsExt: Number(hrsExt), hrsFaltantes: Number(hrsFaltantes) });
@@ -299,18 +261,17 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                   
                   if (estadoFaltaParsed.estado !== 'aprobado') {
                     diasFaltaInjustificada++;
-                    alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado', hrsOficialesParaJustificar: hrsOficiales });
+                    alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
                     diasAuditados.push(dateStr);
                   } else {
                     diasProgramados++;
-                    faltasJustificadas++;
-                    horasTrabajadasTotales += (modoPagoDinamico === 'horas' ? hrsOficiales : 8);
+                    horasTrabajadasTotales += 8;
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
                   diasProgramados++;
                   diasDescanso++;
-                  horasTrabajadasTotales += (modoPagoDinamico === 'horas' ? promedioHorasDiarias : 8);
+                  horasTrabajadasTotales += 8;
                   diasAuditados.push(dateStr);
                } else if (esNoLaboral) {
                   diasAuditados.push(dateStr);
@@ -318,7 +279,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }  
 
-          // EVALUACIÓN DE LIMPIEZA
           for (const area of Object.keys(matrizLimpieza.asignaciones || {})) {
             const asignadosEnFecha = matrizLimpieza.asignaciones[area]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -328,7 +288,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }
 
-          // EVALUACIÓN DE OBSERVACIONES
           for (const obs of Object.keys(matrizObservaciones.asignaciones || {})) {
             const asignadosEnFecha = matrizObservaciones.asignaciones[obs]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -349,26 +308,26 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const sueldoBase = Number(pres.sueldo_base) || 0;
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
-        let valorHoraDinamico = 0;
+        
+        // 👇 SOLUCIÓN APLICADA: El divisor ahora es dinámico (7 menos los días No Laborales)
+        const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
 
-        if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; valorHoraDinamico = sueldoBase / promedioHorasDiarias; }
-        else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * promedioHorasDiarias; valorHoraDinamico = sueldoBase; }
-        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / diasActivosSemanales; valorHoraDinamico = sueldoBase / horasSemanalesEsperadas; }
-        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; valorHoraDinamico = (sueldoBase / 2) / horasSemanalesEsperadas; }
-        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; valorHoraDinamico = (sueldoBase / 4) / horasSemanalesEsperadas; }  
+        if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * horasTrabajadasTotales; }
+        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
+        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }  
 
         const ingresosList = [];
         const egresosList = [];  
 
-        if (modoPagoDinamico === 'horas') {
-          ingresoSueldo = horasTrabajadasTotales * valorHoraDinamico;
-          ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Trabajadas x ${formaterMoneda(valorHoraDinamico)}/h)`, monto: ingresoSueldo, es_sueldo_base: true });
+        if (pres.tipo_sueldo === 'Por Hora') {
+          ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo, es_sueldo_base: true });
         } else {
-          ingresoSueldo = sueldoDiarioExacto * diasProgramados;
-          ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días pagados x ${formaterMoneda(sueldoDiarioExacto)}/d)`, monto: ingresoSueldo, es_sueldo_base: true });
+          ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días evaluados)`, monto: ingresoSueldo, es_sueldo_base: true });
         }  
 
-        if (diasFaltaInjustificada > 0 && modoPagoDinamico === 'dias') {
+        if (diasFaltaInjustificada > 0) {
           let diasADescontar = diasFaltaInjustificada;
           if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
             diasADescontar += (diasFaltaInjustificada * 0.16666);
@@ -453,7 +412,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           total_egresos: sumEg,
           neto: sumIn - sumEg,
           diasAuditados,
-          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, faltasJustificadas, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })), modoPagoDinamico, valorHoraDinamico, promedioHorasDiarias }
+          metricas: { diasAsistidos, diasProgramados, diasVacaciones, diasDescanso, horasTrabajadasTotales, diasFaltaInjustificada, faltasJustificadas: 0, eventosTarde, fallasLimpieza, fallasObservaciones, sueldoDiarioExacto, perdioPuntualidad, motivoPuntualidad, alertasEmpleado, prestamosAplicados: egresosList.filter(e => e.prestamo_id).map(e => ({ id: e.prestamo_id, descontado: e.monto })) }
         });
       }  
 
@@ -520,48 +479,34 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     if (alt) alt.resuelta = true;
 
     p.metricas.faltasJustificadas += 1;
+    const faltasRestantes = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
 
-    if (p.metricas.modoPagoDinamico === 'dias') {
-        const faltasRestantes = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
-        let diasADescontar = faltasRestantes;
-        if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(p.tipo_sueldo)) {
-            diasADescontar += (faltasRestantes * 0.16666);
-        }
-        const nuevoDescuento = p.metricas.sueldoDiarioExacto * diasADescontar;
+    let diasADescontar = faltasRestantes;
+    if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(p.tipo_sueldo)) {
+        diasADescontar += (faltasRestantes * 0.16666);
+    }
+    const nuevoDescuento = p.metricas.sueldoDiarioExacto * diasADescontar;
 
-        const egresoFalta = p.egresos.find(e => e.es_falta === true);
-        if (egresoFalta) {
-            if (nuevoDescuento > 0) {
-                egresoFalta.monto = nuevoDescuento;
-                egresoFalta.concepto = `Descuento Faltas (${diasADescontar.toFixed(2)} días efectivos)`;
-            } else {
-                p.egresos = p.egresos.filter(e => e.es_falta !== true);
-            }
-        }
-
-        p.metricas.diasProgramados += 1;
-        const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
-        const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
-        if (ingresoBase && p.tipo_sueldo !== 'Por Hora') {
-            ingresoBase.monto = nuevoSueldo;
-            ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados x ${formaterMoneda(p.metricas.sueldoDiarioExacto)}/d)`;
-        }
-    } else {
-        // MODO HORAS
-        const hrsRefund = alerta.hrsOficialesParaJustificar || p.metricas.promedioHorasDiarias;
-        p.metricas.horasTrabajadasTotales += hrsRefund;
-        const nuevoSueldo = p.metricas.horasTrabajadasTotales * p.metricas.valorHoraDinamico;
-        
-        const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
-        if (ingresoBase) {
-            ingresoBase.monto = nuevoSueldo;
-            ingresoBase.concepto = `Sueldo Base (${p.metricas.horasTrabajadasTotales.toFixed(2)} Hrs Auditadas x ${formaterMoneda(p.metricas.valorHoraDinamico)}/h)`;
+    const egresoFalta = p.egresos.find(e => e.es_falta === true);
+    if (egresoFalta) {
+        if (nuevoDescuento > 0) {
+            egresoFalta.monto = nuevoDescuento;
+            egresoFalta.concepto = `Descuento Faltas (${diasADescontar.toFixed(2)} días efectivos)`;
+        } else {
+            p.egresos = p.egresos.filter(e => e.es_falta !== true);
         }
     }
 
+    p.metricas.diasProgramados += 1;
+    const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
+    const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
+    if (ingresoBase && p.tipo_sueldo !== 'Por Hora') {
+        ingresoBase.monto = nuevoSueldo;
+        ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
+    }
+
     recalcularNeto(arr, idxEmp);
-    guardarAuditoriaEnSegundoPlano(p.empleado_id, alerta.fecha, 'falta', JSON.stringify({ estado: 'aprobado' }));
-    showAlert("Falta Justificada", "El sueldo se ha restaurado y se ha guardado en la base de datos.", "success");
+    showAlert("Falta Justificada", "La deducción disminuyó y el día se devolvió a su Sueldo Base.", "success");
   };
 
   const resolverAlerta = (idxEmp, idUnico) => {
@@ -815,8 +760,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">{p.metricas.modoPagoDinamico === 'horas' ? 'Horas Auditadas' : 'Días Pagados'}</p><p className="font-black text-slate-700 text-lg">{p.metricas.modoPagoDinamico === 'horas' ? `${p.metricas.horasTrabajadasTotales.toFixed(1)}h` : p.metricas.diasProgramados}</p></div>
-                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">{p.metricas.modoPagoDinamico === 'horas' ? 'Pago x Hora Exacto' : 'Pago Diario Exacto'}</p><p className="font-black text-blue-600 text-lg">{formaterMoneda(p.metricas.modoPagoDinamico === 'horas' ? p.metricas.valorHoraDinamico : p.metricas.sueldoDiarioExacto)}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Días Pagados (Evaluados)</p><p className="font-black text-slate-700 text-lg">{p.metricas.diasProgramados}</p></div>
+                <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Pago Diario Exacto</p><p className="font-black text-blue-600 text-lg">{formaterMoneda(p.metricas.sueldoDiarioExacto)}</p></div>
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Eventos Tarde</p><p className="font-black text-amber-600 text-lg">{p.metricas.eventosTarde}</p></div>
                 <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100"><p className="text-[10px] font-bold text-slate-400 uppercase">Minutos Tarde</p><p className="font-black text-red-500 text-lg">{p.metricas.minutosTardeTotales} min</p></div>
               </div>
@@ -891,4 +836,4 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   );
 };
 
-export default NominaGenerar;
+export default NominaGenerar;clr
