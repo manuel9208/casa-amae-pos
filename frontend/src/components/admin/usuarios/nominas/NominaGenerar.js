@@ -139,19 +139,26 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          let esDescanso = false;
-          let esDiaLaboral = false;
-          let esNoLaboral = false;
+          // 👇 FIX 1: LÓGICA DE DÍAS BLINDADA (Ficha Técnica manda, Horario sobreescribe)
+          const esDescansoFicha = arrDescansos.includes(nombreDiaActual);
+          const esNoLaboralFicha = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
+
+          let esDescanso = esDescansoFicha;
+          let esNoLaboral = esNoLaboralFicha;
+          let esDiaLaboral = !esDescanso && !esNoLaboral;
 
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
-             const esDescansoFicha = arrDescansos.includes(nombreDiaActual);
-             esDescanso = hor[dateStr].es_descanso === true || (!hor[dateStr].activo && esDescansoFicha);
-             esDiaLaboral = hor[dateStr].activo === true && !esDescanso;
-             esNoLaboral = !esDiaLaboral && !esDescanso;
-          } else {
-             esDescanso = arrDescansos.includes(nombreDiaActual);
-             esNoLaboral = arrNoLaborales.includes(nombreDiaActual) || diasCerradosLocal.includes(nombreDiaActual);
-             esDiaLaboral = !esDescanso && !esNoLaboral;
+             if (hor[dateStr].es_descanso !== undefined) {
+                 esDescanso = hor[dateStr].es_descanso;
+                 if (esDescanso) { esDiaLaboral = false; esNoLaboral = false; }
+             }
+             if (hor[dateStr].activo !== undefined) {
+                 if (hor[dateStr].activo) {
+                     esDiaLaboral = true; esDescanso = false; esNoLaboral = false;
+                 } else if (!esDescanso) {
+                     esNoLaboral = true; esDiaLaboral = false;
+                 }
+             }
           }
 
           const auditoriaDia = hor[dateStr]?.auditoria || {};
@@ -269,6 +276,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
+                  // DÍA DE DESCANSO NO DEBE MARCAR FALTA, SE PAGA.
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -309,27 +317,54 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
         
-        // 👇 SOLUCIÓN APLICADA: El divisor ahora es dinámico (7 menos los días No Laborales)
+        // 👇 FIX 2: CÁLCULO POR HORA FORZADO SI DÍAS ACTIVOS SON < 5
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
+        let tipoSueldoAplicado = pres.tipo_sueldo;
 
-        if (pres.tipo_sueldo === 'Diario') { sueldoDiarioExacto = sueldoBase; ingresoSueldo = sueldoBase * diasProgramados; }
-        else if (pres.tipo_sueldo === 'Por Hora') { sueldoDiarioExacto = sueldoBase * 8; ingresoSueldo = sueldoBase * horasTrabajadasTotales; }
-        else if (pres.tipo_sueldo === 'Semanal') { sueldoDiarioExacto = sueldoBase / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
-        else if (pres.tipo_sueldo === 'Quincenal') { sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }
-        else if (pres.tipo_sueldo === 'Mensual') { sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; ingresoSueldo = sueldoDiarioExacto * diasProgramados; }  
+        if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
+            tipoSueldoAplicado = 'Por Hora (Auto)';
+        }
+
+        if (tipoSueldoAplicado === 'Diario') { 
+            sueldoDiarioExacto = sueldoBase; 
+            ingresoSueldo = sueldoBase * diasProgramados; 
+        }
+        else if (tipoSueldoAplicado === 'Por Hora') { 
+            sueldoDiarioExacto = sueldoBase * 8; 
+            ingresoSueldo = sueldoBase * horasTrabajadasTotales; 
+        }
+        else if (tipoSueldoAplicado === 'Por Hora (Auto)') {
+            sueldoDiarioExacto = sueldoBase / diasActivosSemanales;
+            const tarifaPorHora = sueldoDiarioExacto / 8;
+            ingresoSueldo = tarifaPorHora * horasTrabajadasTotales;
+        }
+        else if (tipoSueldoAplicado === 'Semanal') { 
+            sueldoDiarioExacto = sueldoBase / diasActivosSemanales; 
+            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+        }
+        else if (tipoSueldoAplicado === 'Quincenal') { 
+            sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; 
+            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+        }
+        else if (tipoSueldoAplicado === 'Mensual') { 
+            sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; 
+            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+        }
 
         const ingresosList = [];
         const egresosList = [];  
 
-        if (pres.tipo_sueldo === 'Por Hora') {
+        if (tipoSueldoAplicado === 'Por Hora') {
           ingresosList.push({ concepto: `Sueldo Base (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo, es_sueldo_base: true });
+        } else if (tipoSueldoAplicado === 'Por Hora (Auto)') {
+          ingresosList.push({ concepto: `Sueldo Proporcional Horas (${horasTrabajadasTotales.toFixed(2)} Hrs Auditadas)`, monto: ingresoSueldo, es_sueldo_base: true });
         } else {
           ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días evaluados)`, monto: ingresoSueldo, es_sueldo_base: true });
-        }  
+        }
 
         if (diasFaltaInjustificada > 0) {
           let diasADescontar = diasFaltaInjustificada;
-          if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(pres.tipo_sueldo)) {
+          if (reglasNomina.descuento_descanso_activo && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(tipoSueldoAplicado)) {
             diasADescontar += (diasFaltaInjustificada * 0.16666);
           }
           const descuentoMonto = sueldoDiarioExacto * diasADescontar;
@@ -403,7 +438,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           nombre_completo: pres.nombre_completo || emp.nombre,
           rol: emp.rol,
           sueldo_base: pres.sueldo_base,
-          tipo_sueldo: pres.tipo_sueldo,
+          tipo_sueldo: tipoSueldoAplicado, // Guardamos el dinámico (Hora vs Semanal)
           ingresos: ingresosList,
           egresos: egresosList,
           nuevos_ingresos: [],
@@ -482,7 +517,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const faltasRestantes = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
 
     let diasADescontar = faltasRestantes;
-    if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora'].includes(p.tipo_sueldo)) {
+    if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
         diasADescontar += (faltasRestantes * 0.16666);
     }
     const nuevoDescuento = p.metricas.sueldoDiarioExacto * diasADescontar;
@@ -500,7 +535,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     p.metricas.diasProgramados += 1;
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
-    if (ingresoBase && p.tipo_sueldo !== 'Por Hora') {
+    if (ingresoBase && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
         ingresoBase.monto = nuevoSueldo;
         ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
     }
