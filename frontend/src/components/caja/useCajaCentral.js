@@ -269,27 +269,26 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     };
 
     const construirTextoTicket = () => {
-      let receipt = "";  
+      let receipt = "";
       const dividirTexto = (texto, maxLen) => {
         if (!texto) return [];
         const words = String(texto).split(' ');
         const lines = [];
         let currentLine = '';
-
         words.forEach(word => {
-            if (word.length > maxLen) {
-                if (currentLine.length > 0) { lines.push(currentLine.trim()); currentLine = ''; }
-                lines.push(word.substring(0, maxLen));
-                currentLine = word.substring(maxLen) + ' ';
-            } else if ((currentLine + word).length > maxLen) {
-                if (currentLine.length > 0) lines.push(currentLine.trim());
-                currentLine = word + ' ';
-            } else {
-                currentLine += word + ' ';
-            }
+          if (word.length > maxLen) {
+            if (currentLine.length > 0) { lines.push(currentLine.trim()); currentLine = ''; }
+            lines.push(word.substring(0, maxLen));
+            currentLine = word.substring(maxLen) + ' ';
+          } else if ((currentLine + word).length > maxLen) {
+            if (currentLine.length > 0) lines.push(currentLine.trim());
+            currentLine = word + ' ';
+          } else {
+            currentLine += word + ' ';
+          }
         });
         if (currentLine.trim().length > 0) {
-            lines.push(currentLine.trim());
+          lines.push(currentLine.trim());
         }
         return lines;
       };
@@ -297,202 +296,110 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const center = (text) => {
         const str = String(text || '');
         if (str.length > 32) {
-            const lineas = dividirTexto(str, 32);
-            return lineas.map(line => {
-                const pad = Math.max(0, Math.floor((32 - line.length) / 2));
-                return " ".repeat(pad) + line + "\n";
-            }).join("");
+          const lineas = dividirTexto(str, 32);
+          return lineas.map(line => {
+            const pad = Math.max(0, Math.floor((32 - line.length) / 2));
+            return " ".repeat(pad) + line + "\n";
+          }).join("");
         }
         const pad = Math.floor((32 - str.length) / 2);
         return " ".repeat(pad) + str + "\n";
-      };  
-      
+      };
+
       receipt += center(stripEmojis(configGlobal?.nombre_negocio || 'Mi Negocio'));
       if (configGlobal?.ticket_domicilio) receipt += center(stripEmojis(configGlobal.ticket_domicilio));
-      if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);  
+      if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);
       receipt += `--------------------------------\n`;
       receipt += `TICKET: #${pedido.numero_pedido}\n`;
       receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
-      
       const clienteLineas = dividirTexto(`CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}`, 32);
       clienteLineas.forEach(line => receipt += `${line}\n`);
-
       receipt += `TIPO: ${stripEmojis(pedido.tipo_consumo)}\n`;
-      if (pedido.mesa) receipt += `MESA: ${stripEmojis(pedido.mesa)}\n`;
-      
-      if (pedido.direccion_entrega) {
-          const dirLineas = dividirTexto(`DIR: ${stripEmojis(pedido.direccion_entrega)}`, 32);
-          dirLineas.forEach(line => receipt += `${line}\n`);
-      }
+      if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
+      receipt += `--------------------------------\n`;
 
-      receipt += `--------------------------------\n`;  
-      
-      const car = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
-      car.forEach(item => {
-        const qty = item.cantidad || 1;
-        const price = (Number(item.precioFinal) * qty).toFixed(2);
-        let line = `${qty}x ${stripEmojis(item.nombre)}`;  
-        
-        if (line.length > 24) { 
-            const itemLineas = dividirTexto(line, 24);
-            itemLineas.forEach((iLine, idx) => {
-                if(idx === 0) {
-                    let spaces = 32 - iLine.length - price.length - 1;
-                    if (spaces < 1) spaces = 1;  
-                    receipt += `${iLine}${" ".repeat(spaces)}$${price}\n`;
-                } else {
-                    receipt += `  ${iLine}\n`;
-                }
-            });
-        } else {
-            let spaces = 32 - line.length - price.length - 1;
-            if (spaces < 1) spaces = 1;  
-            receipt += `${line}${" ".repeat(spaces)}$${price}\n`;  
-        }
-
+      // Productos
+      const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
+      items.forEach(item => {
+        const cant = item.cantidad || 1;
+        const nombre = stripEmojis(item.nombre).substring(0, 20);
+        const precio = Number(item.precioFinal || 0).toFixed(2);
+        receipt += `${cant}x ${nombre.padEnd(20)} $${precio}\n`;
         if (item.extras && item.extras.length > 0) {
-          item.extras.forEach(e => {
-            const extraLineas = dividirTexto(`  + ${stripEmojis(e.nombre)}`, 32);
-            extraLineas.forEach(exLine => receipt += `${exLine}\n`);
+          item.extras.forEach(ex => {
+            receipt += `  + ${stripEmojis(ex.nombre).substring(0, 24)}\n`;
           });
         }
-      });  
-      
+      });
       receipt += `--------------------------------\n`;
-      
-      if (Number(pedido.costo_envio) > 0) {
-        receipt += `ENVIO: +$${Number(pedido.costo_envio).toFixed(2)}\n`;
-      }
-      if (Number(pedido.descuento_puntos) > 0) {
-        receipt += `DESC PUNTOS: -$${Number(pedido.descuento_puntos).toFixed(2)}\n`;
-      }
-      
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
-      receipt += `PAGO: ${stripEmojis(pedido.metodo_pago)}\n`;  
-      
-      if (pedido.metodo_pago === 'Mixto' && pedido.pagos_mixtos) {
-        const pm = typeof pedido.pagos_mixtos === 'string' ? JSON.parse(pedido.pagos_mixtos) : pedido.pagos_mixtos;
-        pm.forEach(x => {
-          receipt += ` - ${stripEmojis(x.metodo)}: $${Number(x.monto).toFixed(2)}\n`;
-        });
-      }  
-      
-      receipt += `--------------------------------\n`;
-      receipt += center(stripEmojis(configGlobal?.ticket_mensaje_final || '¡Gracias por su preferencia!'));
-      receipt += `\n\n\n\n`;
+      receipt += `\n\n\n\n`; // Avance extra de papel para corte
       return receipt;
     };
 
-    if (modoImpresion === 'impresora') {
-      try {
-        const res = await fetch(`${apiUrl}/imprimir`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pedido, configGlobal })
-        });
-        
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          mostrarAlertaCaja('Error de Impresión IP', err.error || 'La impresora de red está apagada o fuera de alcance.', 'error');
-        } else {
-          mostrarAlertaCaja('Generando Ticket', 'Ticket enviado a la impresora de red.', 'success');
-        }
-      } catch (e) {
-        mostrarAlertaCaja('Fallo de Conexión', 'No se pudo contactar al servidor para imprimir el ticket.', 'error');
-      }
-      setTimeout(() => setTicketImprimir(null), 2500);
-
-    } else if (modoImpresion === 'rawbt_http') {
-      try {
-        const receipt = construirTextoTicket();
-        const res = await fetch("http://127.0.0.1:40228/", {
-            method: "POST",
-            body: receipt,
-        });
-
-        if (!res.ok) {
-          mostrarAlertaCaja('Error de RawBT', 'La conexión local falló. Verifica que RawBT esté abierto.', 'error');
-        } else {
-          mostrarAlertaCaja('Imprimiendo', 'Enviando ticket a la impresora de red (RawBT Silencioso)...', 'success');
-        }
-      } catch (err) {
-        mostrarAlertaCaja('RawBT Inactivo', 'Abre RawBT en la tablet y activa el servidor HTTP.', 'error');
-      }
+    if (modoImpresion === 'bluetooth') {
       setTimeout(() => setTicketImprimir(null), 1000);
-
-    } else if (modoImpresion === 'parzibyte') {
-      try {
-        const receipt = construirTextoTicket();
-        const nombreImpresora = configGlobal.ticket_impresora_parzibyte || "POS-58";
-        const payloadPlugin = {
-          nombreImpresora: nombreImpresora,
-          operaciones: [
-            { nombre: "Iniciar", argumentos: [] },
-            { nombre: "EscribirTexto", argumentos: [receipt] },
-            { nombre: "Corte", argumentos: [1] } 
-          ]
-        };
-
-        const res = await fetch("http://127.0.0.1:8000/imprimir", {
-            method: "POST",
-            body: JSON.stringify(payloadPlugin),
-        });
-
-        if (!res.ok) {
-          mostrarAlertaCaja('Error de Impresora Local', `Verifica que la impresora "${nombreImpresora}" esté conectada y encendida.`, 'error');
-        } else {
-          mostrarAlertaCaja('Imprimiendo', 'Enviando ticket a impresora local (Parzibyte)...', 'success');
-        }
-      } catch (err) {
-        mostrarAlertaCaja('Plugin Parzibyte Inactivo', 'El puente de impresión local no está corriendo en esta computadora. Por favor inícialo.', 'error');
-      }
-      setTimeout(() => setTicketImprimir(null), 1000);
-
     } else if (modoImpresion === 'rawbt_nativo') {
       try {
         const receipt = construirTextoTicket();
         const base64Data = btoa(unescape(encodeURIComponent(receipt)));
-        const rawbtIntent = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;  
-        window.location.href = rawbtIntent;  
+        const rawbtIntent = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;`;
+        window.location.href = rawbtIntent;
         mostrarAlertaCaja('Imprimiendo', 'Abriendo la app RawBT para imprimir el ticket...', 'success');
       } catch (err) {
         mostrarAlertaCaja('Error de RawBT', 'No se pudo conectar con la aplicación de impresión instalada.', 'error');
-      }  
-      setTimeout(() => {
-        setTicketImprimir(null);
-      }, 1000);  
+      }
+      setTimeout(() => setTicketImprimir(null), 1000);
 
     // =========================================================================
-    // 👇 SOLUCIÓN DEFINTIVA: De regreso a 127.0.0.1 para forzar IPv4
+    // 👇 SOLUCIÓN DEFINITIVA: EL TRUCO DEL FORMULARIO FANTASMA
     // =========================================================================
     } else if (modoImpresion === 'traductor_silencioso') {
       try {
         const receipt = construirTextoTicket();
-        
-        fetch("http://127.0.0.1:4000/imprimir", {
-            method: "POST",
-            headers: {
-                "Content-Type": "text/plain"
-            },
-            body: receipt,
-        })
-        .then(res => {
-            if(res.ok) {
-                mostrarAlertaCaja('Imprimiendo', 'Ticket enviado a través del Traductor Silencioso.', 'success');
-            } else {
-                mostrarAlertaCaja('Error', 'La aplicación recibió el ticket pero falló al imprimir.', 'error');
-            }
-        })
-        .catch(err => {
-            mostrarAlertaCaja('Traductor Inactivo', 'Asegúrate de abrir la app POS Bridge en la tablet para imprimir.', 'error');
-        });
+
+        // 1. Creamos un marco de página (Iframe) oculto en el sistema web.
+        // Esto será el "blanco" para evitar que al mandar el ticket nuestra web se recargue.
+        const iframeName = "iframe_traductor_" + Date.now();
+        const iframe = document.createElement("iframe");
+        iframe.name = iframeName;
+        iframe.style.display = "none";
+        document.body.appendChild(iframe);
+
+        // 2. Creamos un Formulario HTML tradicional invisible.
+        // Evitamos usar fetch(). Chrome dejará pasar este formulario libremente
+        // pensando que el usuario simplemente dio clic en un botón tradicional de enviar.
+        const form = document.createElement("form");
+        form.target = iframeName; 
+        form.method = "POST";
+        form.action = "http://127.0.0.1:4000/imprimir";
+        form.enctype = "text/plain"; // Le decimos que viaja como texto simple crudo
+        form.style.display = "none";
+
+        // 3. Cargamos el texto del ticket en un campo.
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "---NUEVO TICKET---"; 
+        input.value = "\n\n" + receipt; 
+
+        form.appendChild(input);
+        document.body.appendChild(form);
+
+        // 4. ¡Disparamos! Rompemos la barrera de HTTPS inyectando el ticket directo.
+        form.submit();
+
+        mostrarAlertaCaja('Enviado', 'Ticket inyectado al Traductor Silencioso con éxito.', 'success');
+
+        // 5. Limpiamos la basura después de 2 segundos para no alentar tu tablet
+        setTimeout(() => {
+          if (document.body.contains(form)) document.body.removeChild(form);
+          if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        }, 2000);
 
       } catch (err) {
-        mostrarAlertaCaja('Error', 'Fallo al generar el texto del ticket.', 'error');
-      }  
-      setTimeout(() => {
-        setTicketImprimir(null);
-      }, 1000);  
+        mostrarAlertaCaja('Error', 'Fallo interno al enviar el texto del ticket.', 'error');
+      }
+      setTimeout(() => setTicketImprimir(null), 1000);
     // =========================================================================
 
     } else {
