@@ -127,6 +127,15 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (Array.isArray(nl)) rawNoLab = nl;
         const arrNoLaboralesNum = rawNoLab.map(obtenerDiaNum).filter(n => n !== -1);
 
+        // CÁLCULO DE LA SEMANA ACTIVA EXACTA (Por ej. Si descansan 3, su semana laboral es de 4)
+        let conteoNoLaborales = 0;
+        for (let i = 0; i <= 6; i++) {
+           if (arrNoLaboralesNum.includes(i) || diasCerradosLocal.map(obtenerDiaNum).includes(i)) {
+               conteoNoLaborales++;
+           }
+        }
+        const diasActivosSemanales = Math.max(1, 7 - conteoNoLaborales);
+
         let diasAsistidos = 0;
         let diasProgramados = 0;
         let diasVacaciones = 0;
@@ -182,36 +191,27 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // --- MOTOR BLINDADO DE DETECCIÓN DE DÍAS LABORALES ---
-          let esDescanso = arrDescansosNum.includes(diaSemanaNum);
-          let esNoLaboral = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
+          // --- MOTOR BLINDADO DE DÍAS (IGNORA CONFIGURACIONES GLOBALES CONTAMINADAS) ---
+          const esDescansoFicha = arrDescansosNum.includes(diaSemanaNum);
+          const esNoLaboralFicha = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
+
+          let esDescanso = esDescansoFicha;
+          let esNoLaboral = esNoLaboralFicha;
           let esDiaLaboral = !esDescanso && !esNoLaboral;
 
-          // 1. Evaluar configuraciones semanales genéricas (Lunes, Martes...)
-          for (const key of Object.keys(hor)) {
-              if (obtenerDiaNum(key) === diaSemanaNum && !key.includes('-')) {
-                  const confGen = hor[key];
-                  if (confGen.es_descanso === true || confGen.tipo === 'descanso' || confGen.estado === 'descanso') {
-                      esDescanso = true; esNoLaboral = false; esDiaLaboral = false;
-                  } else if (confGen.activo === false || confGen.tipo === 'no_laboral' || confGen.estado === 'no_laboral') {
-                      esDescanso = false; esNoLaboral = true; esDiaLaboral = false;
-                  } else if (confGen.activo === true || confGen.tipo === 'laboral' || confGen.estado === 'laboral' || confGen.entrada) {
-                      esDescanso = false; esNoLaboral = false; esDiaLaboral = true;
-                  }
-              }
-          }
-
-          // 2. Evaluar OVERRIDES estrictos por Fecha Específica ("2024-11-20")
-          if (hor[dateStr] && Object.keys(hor[dateStr]).length > 0) {
+          // Solo permitimos override en Días Específicos (Ej. "2024-11-20")
+          if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              const hs = hor[dateStr];
-             if (hs.es_descanso === true || hs.tipo === 'descanso' || hs.estado === 'descanso') {
-                 esDescanso = true; esNoLaboral = false; esDiaLaboral = false;
-             } else if (hs.activo === false || hs.tipo === 'no_laboral' || hs.estado === 'no_laboral') {
-                 esDescanso = false; esNoLaboral = true; esDiaLaboral = false;
-             } else if (hs.activo === true || hs.tipo === 'laboral' || hs.estado === 'laboral' || hs.entrada) {
-                 // Aquí está la magia: Si el admin guardó hora de "entrada" pero olvidó la bandera activo, 
-                 // el sistema LO FUERZA a ser reconocido como Día Laboral.
-                 esDescanso = false; esNoLaboral = false; esDiaLaboral = true;
+             if (hs.es_descanso !== undefined) {
+                 esDescanso = hs.es_descanso;
+                 if (esDescanso) { esNoLaboral = false; esDiaLaboral = false; }
+             }
+             if (hs.activo !== undefined) {
+                 if (hs.activo) {
+                     esDescanso = false; esNoLaboral = false; esDiaLaboral = true;
+                 } else if (!esDescanso) {
+                     esNoLaboral = true; esDiaLaboral = false;
+                 }
              }
           }
 
@@ -245,7 +245,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               } else { tieneNullSalida = true; }
             }  
 
-            // CÁLCULO MATEMÁTICO REAL DE RETARDOS
             const [hE, mE] = tEntradaOficial.split(':').map(Number);
             let dEntradaLimite = new Date(dateStr + 'T00:00:00');
             dEntradaLimite.setHours(hE, mE, 0, 0);
@@ -367,7 +366,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (esDomingo) domingosTrabajados++;  
 
           } else {
-            // NO ASISTIÓ. Como ahora esDiaLaboral es ultra-preciso, detectará correctamente la Falta.
+            // NO ASISTIÓ
             const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStrCalculo + 'T12:00:00');
             
             if (isPastOrToday) {
@@ -382,6 +381,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     horasTrabajadasTotales += 8;
                     diasAuditados.push(dateStr);
                   } else {
+                    // FUNDAMOS LA BASE SALARIAL PARA PODER APLICAR EL DESCUENTO LIMPIO
+                    diasProgramados++;
+                    horasTrabajadasTotales += 8;
                     diasFaltaInjustificada++;
                     alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
                     diasAuditados.push(dateStr);
@@ -441,12 +443,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
         
-        // REGLAS FINALES DE PAGO DINÁMICAS
-        const diasActivosSemanales = Math.max(1, 7 - arrNoLaboralesNum.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
+        // SWITCH DINÁMICO EXACTO: Si suma menos de 5 días de trabajo, se pasa a tarifa por hora.
         if (tipoSueldoAplicado === 'Semanal') {
-            if (diasProgramados > 0 && diasProgramados < diasActivosSemanales) {
+            if (diasProgramados > 0 && diasProgramados < 5) {
                 tipoSueldoAplicado = 'Por Hora (Auto)';
             } else if (diasProgramados === 0) {
                 tipoSueldoAplicado = 'Sin Asistencia';
@@ -512,7 +513,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Prima Dominical (${reglasNomina.prima_dominical_porcentaje}% x ${domingosTrabajados} Dom)`, monto: montoPrima });
         }  
 
-        // ELIMINADA LA VARIABLE `esPuntualidadPerfecta` PARA LIMPIAR EL WARNING
         let perdioPuntualidad = false;
         let motivoPuntualidad = "Perfecta";  
 
@@ -692,7 +692,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }
     }
 
-    p.metricas.diasProgramados += 1;
+    // Ya no es necesario sumar diasProgramados aquí porque ahora lo sumamos directamente desde la generación base de la falta
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
     
@@ -711,7 +711,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }
 
     recalcularNeto(arr, idxEmp);
-    showAlert("Falta Justificada", "La deducción disminuyó y el sueldo base se ha recuperado.", "success");
+    showAlert("Falta Justificada", "La deducción disminuyó exitosamente.", "success");
   };
 
   const penalizarJornadaIncompleta = (idxEmp, alerta) => {
