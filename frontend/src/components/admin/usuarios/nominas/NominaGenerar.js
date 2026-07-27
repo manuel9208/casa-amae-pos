@@ -85,7 +85,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const dataHist = resHist.ok ? await resHist.json() : {};
       const historial = dataHist.historialAsistencias || [];
 
-      // 👇 RECUPERADO: Evaluaciones de Limpieza y Observaciones
       const matrizLimpieza = typeof configGlobal.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal.matriz_limpieza || {});
       const evaluacionesLimpieza = matrizLimpieza.evaluaciones || {};
       
@@ -137,7 +136,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const diasAuditados = [];
         const alertasEmpleado = [];  
 
-        // VARIABLE DE REGLA DE APOYO AISLADO
         let diasApoyoTrabajados = 0;
         const tarifaApoyoDia = Number(pres.tarifa_apoyo_dia) || 0;
 
@@ -281,7 +279,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (esRetardo) { motivosAnomalia.push("Llegada Tarde"); requiereAuditoria = true; }
             if (olvidoSalida) { motivosAnomalia.push("Olvidó Marcar Salida"); requiereAuditoria = true; }
 
-            // LOGICA: AISLAMIENTO TOTAL DE TURNOS DE APOYO
+            // AISLAMIENTO TOTAL DE TURNOS DE APOYO
             if (esDescanso || esNoLaboral) {
                 requiereAuditoria = true;
                 
@@ -362,8 +360,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             if (esDomingo) domingosTrabajados++;  
 
           } else {
-            // El empleado NO ASISTIÓ
+            // El empleado NO ASISTIÓ EN EL DÍA
             const isPastOrToday = new Date(dateStr + 'T12:00:00') <= new Date(hoyStrCalculo + 'T12:00:00');
+            
+            // LÓGICA OPTIMISTA: Proyección de días futuros
             if (isPastOrToday) {
                if (esDiaLaboral) {
                   let estadoFaltaParsed = { estado: 'pendiente' };
@@ -388,10 +388,24 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                } else if (esNoLaboral) {
                   diasAuditados.push(dateStr);
                }
+            } else {
+               // DÍAS EN EL FUTURO: Se proyectan y pagan por defecto
+               if (esDiaLaboral) {
+                  diasProgramados++;
+                  horasTrabajadasTotales += 8;
+                  diasAuditados.push(dateStr);
+               } else if (esDescanso) {
+                  diasProgramados++;
+                  diasDescanso++;
+                  horasTrabajadasTotales += 8; 
+                  diasAuditados.push(dateStr);
+               } else if (esNoLaboral) {
+                  diasAuditados.push(dateStr);
+               }
             }
           }
 
-          // 👇 RECUPERADO: Auditoría para evaluar Tareas de Limpieza 
+          // Auditorías de Limpieza y Observaciones
           for (const area of Object.keys(matrizLimpieza.asignaciones || {})) {
             const asignadosEnFecha = matrizLimpieza.asignaciones[area]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -401,7 +415,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }
 
-          // 👇 RECUPERADO: Auditoría para evaluar Comportamiento/Observaciones
           for (const obs of Object.keys(matrizObservaciones.asignaciones || {})) {
             const asignadosEnFecha = matrizObservaciones.asignaciones[obs]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -468,7 +481,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Sueldo Base Proporcional (${diasProgramados} días evaluados)`, monto: ingresoSueldo, es_sueldo_base: true });
         }
 
-        // Inserción directa de Turnos de Apoyo sin contaminar horas regulares
+        // Inserción directa de Turnos de Apoyo
         if (diasApoyoTrabajados > 0) {
             ingresosList.push({ concepto: `Turnos de Apoyo / Comodín (${diasApoyoTrabajados} días x $${tarifaApoyoDia})`, monto: diasApoyoTrabajados * tarifaApoyoDia, es_apoyo: true });
         }
@@ -487,42 +500,47 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Prima Dominical (${reglasNomina.prima_dominical_porcentaje}% x ${domingosTrabajados} Dom)`, monto: montoPrima });
         }  
 
+        // 👇 VARIABLES DECLARADAS AFUERA DEL ESCUDO PARA EVITAR EL ERROR (no-undef)
         let esPuntualidadPerfecta = true;
         let perdioPuntualidad = false;
         let motivoPuntualidad = "Perfecta";  
 
-        if (reglasNomina.bono_puntualidad_activo && esPuntualidadPerfecta && diasFaltaInjustificada > 0) {
-          perdioPuntualidad = true; motivoPuntualidad = "Perdido por Falta Injustificada.";
-        }
-        if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
-          perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
-        }
-        if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
-          perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
-        }
-        
-        if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
-          ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
-        } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
-          ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
-        }  
+        // SOLO EVALUAR BONOS SI REALMENTE TRABAJÓ
+        if (diasProgramados > 0 || diasApoyoTrabajados > 0) {
+            
+            if (reglasNomina.bono_puntualidad_activo && esPuntualidadPerfecta && diasFaltaInjustificada > 0) {
+              perdioPuntualidad = true; motivoPuntualidad = "Perdido por Falta Injustificada.";
+            }
+            if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
+              perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
+            }
+            if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
+              perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
+            }
+            
+            if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
+              ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
+            } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
+              ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
+            }  
 
-        if (reglasNomina.bono_limpieza_activo) {
-          if (fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
-            ingresosList.push({ concepto: `Bono de Limpieza (${fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
-          } else {
-            alertasEmpleado.push({ tipo: 'observacion', idUnico: `limp-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono limpieza. Acumuló ${fallasLimpieza} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
-          }
-        }
+            if (reglasNomina.bono_limpieza_activo) {
+              if (fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
+                ingresosList.push({ concepto: `Bono de Limpieza (${fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
+              } else {
+                alertasEmpleado.push({ tipo: 'observacion', idUnico: `limp-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono limpieza. Acumuló ${fallasLimpieza} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
+              }
+            }
 
-        if (reglasNomina.bono_observaciones_activo) {
-          const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
-          if (fallasObservaciones <= toleranciaFallas) {
-            ingresosList.push({ concepto: `Bono Observaciones (${fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
-          } else {
-             alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
-          }
-        }
+            if (reglasNomina.bono_observaciones_activo) {
+              const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
+              if (fallasObservaciones <= toleranciaFallas) {
+                ingresosList.push({ concepto: `Bono Observaciones (${fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
+              } else {
+                 alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
+              }
+            }
+        } // Fin del escudo de bonos
 
         (pres.bonos_recurrentes || []).forEach(b => {
           if (b.activo) ingresosList.push({ concepto: `Bono Recurrente: ${b.concepto}`, monto: Number(b.monto) });
@@ -668,7 +686,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
     
-    if (ingresoBase && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
+    if (ingresoBase && !['Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
         ingresoBase.monto = nuevoSueldo;
         ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
 
@@ -683,7 +701,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }
 
     recalcularNeto(arr, idxEmp);
-    showAlert("Falta Justificada", "La deducción disminuyó y los impuestos (IMSS/ISR) se recalcularon correctamente.", "success");
+    showAlert("Falta Justificada", "La deducción disminuyó y el sueldo base se ha recuperado.", "success");
   };
 
   const penalizarJornadaIncompleta = (idxEmp, alerta) => {
