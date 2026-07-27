@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy } from 'lucide-react';
+import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square } from 'lucide-react';
 
 const diasSemanaNombresFull = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -20,17 +20,35 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES Y FILTROS MASIVOS
+  // MODALES
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
-  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
   
-  // FILTROS VISUALES (Tabla)
-  const [filtroEmpleado, setFiltroEmpleado] = useState('');
-  const [filtroRol, setFiltroRol] = useState('');
+  // FILTROS MASIVOS (INTERFAZ VISUAL)
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
+  const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
 
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global' && u.rol !== 'tv').sort((a, b) => a.nombre.localeCompare(b.nombre));
   const rolesDisponibles = [...new Set(empleadosVisibles.map(e => e.rol))];
+  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
+  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
+
+  // PRE-SELECCIONAR A TODOS AL CARGAR
+  useEffect(() => {
+    if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
+      setEmpleadosSeleccionados(empleadosVisibles.map(e => String(e.id)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuariosDB]);
+
+  const toggleSeleccionMasiva = () => {
+    if (todosFiltradosSeleccionados) {
+      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => String(e.id) === id)));
+    } else {
+      const nuevos = empleadosFiltrados.map(e => String(e.id)).filter(id => !empleadosSeleccionados.includes(id));
+      setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
+    }
+  };
 
   // 🗓️ LÓGICA DE CALENDARIO DINÁMICO
   const year = fechaReferencia.getFullYear();
@@ -86,7 +104,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             setAreasBase(matriz.areasBase);
             setAsignaciones(matriz.asignaciones || {});
           } else if (matriz.areas) {
-            // MIGRACIÓN AUTOMÁTICA DEL FORMATO VIEJO AL NUEVO
             const nuevasAreasBase = [];
             const nuevasAsignaciones = {};
             matriz.areas.forEach(oldStr => {
@@ -294,8 +311,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     setIsSubmitting(false);
   };
 
-  // 👇 LÓGICA DE DUPLICADO CON REGLAS DE NEGOCIO
+  // 👇 LÓGICA DE DUPLICADO (SOLO DUPLICA LOS EMPLEADOS VISIBLES/SELECCIONADOS)
   const duplicarSiguienteMes = () => {
+    if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
+
     showConfirm(
       "Copiar al Siguiente Mes",
       "Esto copiará el patrón de limpieza actual al mes próximo (respetando los días de cierre y reglas de nómina). ¿Proceder?",
@@ -324,8 +343,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             if (currentMonthDay && nuevasAsignaciones[claveArea][currentMonthDay.fechaStr]) {
               const asignados = nuevasAsignaciones[claveArea][currentMonthDay.fechaStr];
               
-              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO MES
+              // REEVALUAR REGLAS Y COPIAR SOLO A LOS QUE ESTÁN ACTIVOS EN EL FILTRO
               const asignables = asignados.filter(empId => {
+                  if (!empleadosSeleccionados.includes(String(empId))) return false;
+
                   const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                   if (!emp) return false;
                   
@@ -347,20 +368,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
         showAlert('¡Patrón Duplicado!', 'Limpieza copiada al mes siguiente respetando los cierres operativos. Cambia de mes y presiona Guardar.', 'success');
       }
     );
-  };
-
-  const getCellHighlight = (areaId, turno, fechaStr) => {
-    const asignados = asignaciones[`${areaId}_${turno}`]?.[fechaStr] || [];
-    if (!filtroEmpleado && !filtroRol) return '';
-    if (filtroEmpleado && asignados.includes(filtroEmpleado)) return 'ring-2 ring-blue-500 bg-blue-50 shadow-inner z-10';
-    if (filtroRol) {
-      const hasRole = asignados.some(empId => {
-        const emp = usuariosDB.find(u => String(u.id) === String(empId));
-        return emp && emp.rol === filtroRol;
-      });
-      if (hasRole) return 'ring-2 ring-purple-500 bg-purple-50 shadow-inner z-10';
-    }
-    return 'opacity-30 grayscale pointer-events-none';
   };
 
   const renderModalAsignacion = () => {
@@ -401,7 +408,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       { idx: 0, label: 'DOM' }
     ];
 
-    // 👇 GUARDADO CON REGLAS DE NEGOCIO ESTRICTAS
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
       const claveArea = `${data.areaId}_${data.turno}`;
@@ -414,20 +420,16 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           if (!diasCerrados.includes(d.fechaStr)) {
             
             if (data.diasSemana.includes(d.dayIndex)) {
-              // APLICAR LAS 3 REGLAS DE NEGOCIO AL FILTRAR MASIVAMENTE
               const asignables = data.seleccionados.filter(empId => {
                 const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                 if (!emp) return false;
                 
                 const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-                
                 const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
                 const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
                 const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
 
-                // Bloqueo por reglas de negocio
                 if (restauranteCerrado || esDescanso || esNoLaboral) return false;
-                
                 return true;
               });
 
@@ -446,7 +448,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
         setModalMasivo(null);
         showAlert('Éxito', `Asignado. Se omitieron automáticamente días de descanso, días no laborales y días cerrados.`, 'success');
       } else {
-        // Validación para celda manual individual
         const d = diasMes.find(dia => dia.fechaStr === data.fechaStr);
         const asignables = data.seleccionados.filter(empId => {
           const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
@@ -578,19 +579,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-white px-3 py-2 border border-slate-200 rounded-xl shadow-sm">
-              <Filter size={14} className="text-slate-400" />
-              <select value={filtroEmpleado} onChange={e => {setFiltroEmpleado(e.target.value); setFiltroRol('');}} className="bg-transparent font-bold text-xs text-slate-700 outline-none cursor-pointer">
-                <option value="">Todos los Empleados</option>
-                {empleadosVisibles.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
-              </select>
-              <span className="text-slate-300 font-bold hidden sm:inline">|</span>
-              <select value={filtroRol} onChange={e => {setFiltroRol(e.target.value); setFiltroEmpleado('');}} className="bg-transparent font-bold text-xs text-slate-700 outline-none cursor-pointer">
-                <option value="">Todos los Roles</option>
-                {rolesDisponibles.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            
             <form onSubmit={agregarArea} className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
               <input 
                 type="text" 
@@ -610,11 +598,14 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         </div>
 
-        {/* 👇 INYECCIÓN DEL PANEL DE ACCIONES MASIVAS UI (FILTRO + DUPLICAR) */}
+        {/* 👇 NUEVO PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
         <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
           <div className="flex-1 w-full xl:pr-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-              <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Acciones Masivas y Filtros</h3>
+              <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
+              <button onClick={toggleSeleccionMasiva} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition bg-white px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm whitespace-nowrap">
+                {todosFiltradosSeleccionados ? `Desmarcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}` : `Marcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}`}
+              </button>
             </div>
             
             <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
@@ -624,8 +615,19 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                 <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
               ))}
             </div>
+
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2 mb-6">
+              {empleadosFiltrados.map(emp => {
+                const seleccionado = empleadosSeleccionados.includes(String(emp.id));
+                return (
+                  <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                    {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
+                  </button>
+                )
+              })}
+            </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 mt-4 w-full">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-blue-200/50 w-full">
               <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-indigo-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
                 <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
               </button>
@@ -687,11 +689,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                         
                         {diasMes.map(d => {
                           const isCerrado = diasCerrados.includes(d.fechaStr);
-                          const highlightClass = getCellHighlight(area.id, turno, d.fechaStr);
-                          const asignados = asignaciones[`${area.id}_${turno}`]?.[d.fechaStr] || [];
+                          const asignadosDb = asignaciones[`${area.id}_${turno}`]?.[d.fechaStr] || [];
+                          // 👇 AQUÍ FILTRAMOS VISUALMENTE A LOS EMPLEADOS DE LA TABLA
+                          const asignadosVisibles = asignadosDb.filter(empId => empleadosSeleccionados.includes(String(empId)));
 
                           return (
-                            <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''} ${highlightClass}`}>
+                            <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
                               {isCerrado ? (
                                 <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
                                   <Lock size={16} className="text-slate-400 mb-1" />
@@ -702,16 +705,16 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                                   
                                   {/* BOTÓN ASIGNAR MODAL */}
                                   <button 
-                                    onClick={() => setModalCelda({ areaId: area.id, turno, fechaStr: d.fechaStr, seleccionados: asignados })} 
-                                    className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignados.length > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-slate-50'}`}
+                                    onClick={() => setModalCelda({ areaId: area.id, turno, fechaStr: d.fechaStr, seleccionados: asignadosDb })} 
+                                    className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignadosVisibles.length > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-slate-50'}`}
                                   >
-                                    <Users size={12}/> {asignados.length > 0 ? `${asignados.length} Seleccionados` : 'Asignar'}
+                                    <Users size={12}/> {asignadosVisibles.length > 0 ? `${asignadosVisibles.length} Visibles` : 'Asignar'}
                                   </button>
 
                                   {/* EVIDENCIAS Y EVALUACIÓN INDIVIDUAL POR EMPLEADO */}
-                                  {asignados.length > 0 && (
+                                  {asignadosVisibles.length > 0 && (
                                     <div className="mt-auto border-t border-slate-100 pt-2 space-y-2 w-full">
-                                      {asignados.map(empId => {
+                                      {asignadosVisibles.map(empId => {
                                         const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                                         if(!emp) return null;
                                         
@@ -722,7 +725,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                                         const status = evalObj[empId];
 
                                         return (
-                                          <div key={empId} className="flex flex-col gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full">
+                                          <div key={empId} className="flex flex-col gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full animate-in zoom-in-95">
                                             
                                             <span className="text-[10px] font-black text-slate-700 truncate w-full text-center">
                                               {emp.nombre.split(' ')[0]}

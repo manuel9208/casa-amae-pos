@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardCheck, Trash2, Users, Plus, Lock, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy } from 'lucide-react';
+import { ClipboardCheck, Trash2, Users, Plus, Lock, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square } from 'lucide-react';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -19,17 +19,35 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES Y FILTROS MASIVOS
+  // MODALES
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
-  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
 
-  // FILTROS VISUALES (Tabla)
-  const [filtroEmpleado, setFiltroEmpleado] = useState('');
-  const [filtroRol, setFiltroRol] = useState('');
+  // FILTROS MASIVOS (INTERFAZ VISUAL)
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
+  const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
 
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global' && u.rol !== 'tv').sort((a, b) => a.nombre.localeCompare(b.nombre));
   const rolesDisponibles = [...new Set(empleadosVisibles.map(e => e.rol))];
+  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
+  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
+
+  // PRE-SELECCIONAR A TODOS AL CARGAR
+  useEffect(() => {
+    if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
+      setEmpleadosSeleccionados(empleadosVisibles.map(e => String(e.id)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuariosDB]);
+
+  const toggleSeleccionMasiva = () => {
+    if (todosFiltradosSeleccionados) {
+      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => String(e.id) === id)));
+    } else {
+      const nuevos = empleadosFiltrados.map(e => String(e.id)).filter(id => !empleadosSeleccionados.includes(id));
+      setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
+    }
+  };
 
   // 🗓️ LÓGICA DE CALENDARIO DINÁMICO
   const year = fechaReferencia.getFullYear();
@@ -191,8 +209,10 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     setIsSubmitting(false);
   };
 
-  // 👇 LÓGICA DE DUPLICAR CON REGLAS DE NEGOCIO
+  // 👇 LÓGICA DE DUPLICAR CON REGLAS DE NEGOCIO (SOLO DUPLICA LOS ACTIVOS EN EL FILTRO)
   const duplicarSiguienteMes = () => {
+    if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
+
     showConfirm(
       "Copiar al Siguiente Mes",
       "Esto copiará el patrón de observaciones actual al mes próximo (respetando los días de cierre y reglas de nómina). ¿Proceder?",
@@ -221,8 +241,9 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
             if (currentMonthDay && nuevasAsignaciones[obsNombre][currentMonthDay.fechaStr]) {
               const asignados = nuevasAsignaciones[obsNombre][currentMonthDay.fechaStr];
               
-              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO MES
               const asignables = asignados.filter(empId => {
+                  if (!empleadosSeleccionados.includes(String(empId))) return false;
+
                   const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                   if (!emp) return false;
                   
@@ -244,20 +265,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
         showAlert('¡Patrón Duplicado!', 'Observaciones copiadas al mes siguiente respetando los cierres operativos. Cambia de mes y presiona Guardar.', 'success');
       }
     );
-  };
-
-  const getCellHighlight = (obsNombre, fechaStr) => {
-    const asignados = asignaciones[obsNombre]?.[fechaStr] || [];
-    if (!filtroEmpleado && !filtroRol) return '';
-    if (filtroEmpleado && asignados.includes(filtroEmpleado)) return 'ring-2 ring-indigo-500 bg-indigo-50 shadow-inner z-10';
-    if (filtroRol) {
-      const hasRole = asignados.some(empId => {
-        const emp = usuariosDB.find(u => String(u.id) === String(empId));
-        return emp && emp.rol === filtroRol;
-      });
-      if (hasRole) return 'ring-2 ring-purple-500 bg-purple-50 shadow-inner z-10';
-    }
-    return 'opacity-30 grayscale pointer-events-none';
   };
 
   // MODAL DE ASIGNACIÓN (INDIVIDUAL Y MASIVA)
@@ -406,7 +413,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
             {empleadosParaMostrar.map(emp => {
               const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
               
-              // 👇 UI INTELIGENTE: Bloqueo visual por reglas de negocio en la asignación diaria individual
               const restauranteCerrado = !isMasivo && horarioNegocio && horarioNegocio[data.nombreDiaCompleto] && horarioNegocio[data.nombreDiaCompleto].activo === false;
               const esDescanso = !isMasivo && pres.dias_descanso?.includes(data.nombreDiaCompleto);
               const esNoLaboral = !isMasivo && pres.dias_no_laborales?.includes(data.fechaStr);
@@ -486,19 +492,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            <div className="flex items-center gap-2 bg-white px-3 py-2 border border-slate-200 rounded-xl shadow-sm">
-              <Filter size={14} className="text-slate-400" />
-              <select value={filtroEmpleado} onChange={e => {setFiltroEmpleado(e.target.value); setFiltroRol('');}} className="bg-transparent font-bold text-xs text-slate-700 outline-none cursor-pointer">
-                <option value="">Todos los Empleados</option>
-                {empleadosVisibles.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
-              </select>
-              <span className="text-slate-300 font-bold hidden sm:inline">|</span>
-              <select value={filtroRol} onChange={e => {setFiltroRol(e.target.value); setFiltroEmpleado('');}} className="bg-transparent font-bold text-xs text-slate-700 outline-none cursor-pointer">
-                <option value="">Todos los Roles</option>
-                {rolesDisponibles.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            
             <form onSubmit={agregarObservacion} className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
               <input type="text" value={nuevaObservacion} onChange={(e) => setNuevaObservacion(e.target.value)} placeholder="Ej. Uso de Uniforme..." className="w-full sm:w-48 bg-white border border-indigo-200 rounded-xl px-4 py-2 outline-none focus:border-indigo-500 font-bold text-indigo-900 shadow-sm text-sm" />
               <button type="submit" disabled={!nuevaObservacion.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-black transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"><Plus size={18}/></button>
@@ -506,11 +499,14 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
           </div>
         </div>
 
-        {/* 👇 INYECCIÓN DEL PANEL DE ACCIONES MASIVAS UI (FILTRO + DUPLICAR) */}
+        {/* 👇 NUEVO PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
         <div className="bg-indigo-50 border border-indigo-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
           <div className="flex-1 w-full xl:pr-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-              <h3 className="font-black text-indigo-900 flex items-center gap-2"><Users size={20}/> Acciones Masivas y Filtros</h3>
+              <h3 className="font-black text-indigo-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
+              <button onClick={toggleSeleccionMasiva} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition bg-white px-3 py-1.5 rounded-lg border border-indigo-200 shadow-sm whitespace-nowrap">
+                {todosFiltradosSeleccionados ? `Desmarcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}` : `Marcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}`}
+              </button>
             </div>
             
             <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
@@ -520,8 +516,19 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                 <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
               ))}
             </div>
+
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2 mb-6">
+              {empleadosFiltrados.map(emp => {
+                const seleccionado = empleadosSeleccionados.includes(String(emp.id));
+                return (
+                  <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
+                    {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
+                  </button>
+                )
+              })}
+            </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 mt-4 w-full">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-indigo-200/50 w-full">
               <button onClick={duplicarSiguienteMes} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
                 <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
               </button>
@@ -563,11 +570,12 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                     
                     {diasMes.map(d => {
                       const isCerrado = diasCerrados.includes(d.fechaStr);
-                      const highlightClass = getCellHighlight(obsNombre, d.fechaStr);
-                      const asignados = asignaciones[obsNombre]?.[d.fechaStr] || [];
+                      const asignadosDb = asignaciones[obsNombre]?.[d.fechaStr] || [];
+                      // 👇 AQUÍ FILTRAMOS VISUALMENTE A LOS EMPLEADOS DE LA TABLA
+                      const asignadosVisibles = asignadosDb.filter(empId => empleadosSeleccionados.includes(String(empId)));
 
                       return (
-                        <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''} ${highlightClass}`}>
+                        <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
                           {isCerrado ? (
                             <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
                               <Lock size={16} className="text-slate-400 mb-1" />
@@ -576,13 +584,13 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                           ) : (
                             <div className="flex flex-col gap-1.5 h-full">
                               
-                              <button onClick={() => setModalCelda({ obsNombre, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignados })} className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignados.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-slate-50'}`}>
-                                <Users size={12}/> {asignados.length > 0 ? `${asignados.length} Asignados` : 'Asignar'}
+                              <button onClick={() => setModalCelda({ obsNombre, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignadosDb })} className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignadosVisibles.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-slate-50'}`}>
+                                <Users size={12}/> {asignadosVisibles.length > 0 ? `${asignadosVisibles.length} Visibles` : 'Asignar'}
                               </button>
 
-                              {asignados.length > 0 && (
+                              {asignadosVisibles.length > 0 && (
                                 <div className="mt-auto border-t border-slate-100 pt-2 space-y-2 w-full">
-                                  {asignados.map(empId => {
+                                  {asignadosVisibles.map(empId => {
                                     const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                                     if(!emp) return null;
                                     
@@ -590,7 +598,7 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                                     const status = evalObj[empId];
 
                                     return (
-                                      <div key={empId} className="flex flex-col gap-1 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full">
+                                      <div key={empId} className="flex flex-col gap-1 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full animate-in zoom-in-95">
                                         <span className="text-[10px] font-black text-slate-700 truncate w-full text-center mb-1">{emp.nombre.split(' ')[0]}</span>
                                         
                                         {!status ? (
