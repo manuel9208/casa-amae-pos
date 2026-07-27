@@ -307,7 +307,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
       if (isMasivo) {
         const nuevasAsignaciones = { ...asignaciones };
         if (!nuevasAsignaciones[obsNombre]) nuevasAsignaciones[obsNombre] = {};
-        let count = 0;
 
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
@@ -327,7 +326,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
               });
 
               nuevasAsignaciones[obsNombre][d.fechaStr] = asignables;
-              count++;
             } else {
               if (nuevasAsignaciones[obsNombre][d.fechaStr]) {
                 nuevasAsignaciones[obsNombre][d.fechaStr] = nuevasAsignaciones[obsNombre][d.fechaStr].filter(

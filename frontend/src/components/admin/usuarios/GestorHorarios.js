@@ -121,13 +121,16 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
         
-        let diasDescanso = [];
         let diasNoLaborales = [];
+        let diasDescanso = [];
         try {
           const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
-          diasDescanso = pres.dias_descanso || [];
           diasNoLaborales = pres.dias_no_laborales || [];
+          diasDescanso = pres.dias_descanso || [];
         } catch(e) {}
+
+        const noLabNormalizado = diasNoLaborales.map(x => String(x).toLowerCase().trim());
+        const descNormalizado = diasDescanso.map(x => String(x).toLowerCase().trim());
         
         const empPrev = nuevosHorarios[empId] || {};
         const horarioGuardado = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
@@ -137,22 +140,18 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           const diaGuardado = horarioGuardado[d.fechaStr] || { pagado: false, vacaciones: false };
           const diaPrevInfo = empPrev[d.fechaStr] || diaGuardado;
           
-          // Si el día ya está pagado o el empleado está de vacaciones, no lo tocamos.
           if (diaPrevInfo.pagado || diaPrevInfo.vacaciones) return;
           
-          // REGLAS DE NEGOCIO ESTRICTAS
+          const nombreDiaLimpio = String(d.nombreCompleto).toLowerCase().trim();
           const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
-          const esDescanso = diasDescanso.includes(d.nombreCompleto);
-          const esNoLaboral = diasNoLaborales.includes(d.fechaStr);
+          const esNoLaboral = noLabNormalizado.includes(nombreDiaLimpio);
+          const esDescanso = descNormalizado.includes(nombreDiaLimpio);
           
           if (!negocioAbierto || esNoLaboral) {
-            // Regla 1 y 2: Si el local cierra o el empleado no labora ese día, queda inactivo (No Laboral)
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: false, es_descanso: false };
           } else if (esDescanso) {
-            // Regla 3: Si es su día de descanso semanal, se marca como descanso
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: false, es_descanso: true };
           } else {
-            // Si es un día hábil, le asignamos el horario masivo
             const horaEntradaFinal = turnoMasivo === 'local' ? (configDiaGlobal.apertura || '08:00') : entradaMasiva;
             const horaSalidaFinal = turnoMasivo === 'local' ? (configDiaGlobal.cierre || '22:00') : salidaMasiva;
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: true, es_descanso: false, entrada: horaEntradaFinal, salida: horaSalidaFinal };
@@ -184,13 +183,16 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
         
-        let diasDescanso = [];
         let diasNoLaborales = [];
+        let diasDescanso = [];
         try {
           const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
-          diasDescanso = pres.dias_descanso || [];
           diasNoLaborales = pres.dias_no_laborales || [];
+          diasDescanso = pres.dias_descanso || [];
         } catch(e) {}
+
+        const noLabNormalizado = diasNoLaborales.map(x => String(x).toLowerCase().trim());
+        const descNormalizado = diasDescanso.map(x => String(x).toLowerCase().trim());
 
         const empPrev = nuevosHorarios[empId] || {};
         const empOriginal = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
@@ -212,11 +214,11 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             const targetOriginal = empOriginal[targetDateStr] || {};
             if (!targetOriginal.pagado && !targetOriginal.vacaciones) {
               
-              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO DÍA DESTINO
+              const nombreDiaLimpio = String(nombreDiaCompleto).toLowerCase().trim();
               const configDiaGlobal = horarioNegocio[nombreDiaCompleto] || { activo: true };
               const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
-              const esDescanso = diasDescanso.includes(nombreDiaCompleto);
-              const esNoLaboral = diasNoLaborales.includes(targetDateStr);
+              const esNoLaboral = noLabNormalizado.includes(nombreDiaLimpio);
+              const esDescanso = descNormalizado.includes(nombreDiaLimpio);
 
               if (!negocioAbierto || esNoLaboral) {
                 empPrev[targetDateStr] = { ...targetOriginal, activo: false, es_descanso: false };
@@ -509,12 +511,13 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
               const horBD = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
               const diasSinPagar = detectarDiasSinPagar(emp);
 
-              // Extraer días no laborales para usarlos en el render manual
               let diasNoLaborales = [];
               try {
                 const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
                 diasNoLaborales = pres.dias_no_laborales || [];
               } catch(e) {}
+
+              const noLabNormalizado = diasNoLaborales.map(x => String(x).toLowerCase().trim());
 
               return (
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">
@@ -535,7 +538,9 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                     const isVacaciones = horDef?.vacaciones || false;
                     const isPagado = horDef?.pagado || false;
                     const configDiaGlobal = horarioNegocio[d.nombreCompleto] || { activo: true, apertura: '08:00', cierre: '22:00' };
-                    const esNoLaboral = diasNoLaborales.includes(d.fechaStr);
+                    
+                    const nombreDiaLimpio = String(d.nombreCompleto).toLowerCase().trim();
+                    const esNoLaboral = noLabNormalizado.includes(nombreDiaLimpio);
 
                     let btnText = 'No Laboral';
                     let btnClass = 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200';
@@ -553,21 +558,20 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                       
                       const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
                       
-                      // Regla 1: Validar Cierre Local
                       if (!negocioAbierto) {
                         showAlert('Local Cerrado', `El restaurante no labora en ${d.nombreCompleto} según la Configuración Global.`, 'info');
-                        handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: false });
+                        handleHorarioChange(emp.id, d.fechaStr, 'activo', false, configDiaGlobal, isPagado);
+                        handleHorarioChange(emp.id, d.fechaStr, 'es_descanso', false, configDiaGlobal, isPagado);
                         return;
                       }
 
-                      // Regla 2: Validar si el empleado tiene este día inhabilitado por Nómina
                       if (esNoLaboral) {
-                        showAlert('Día Inhabilitado', `${emp.nombre} tiene marcado el ${d.fechaStr} como NO LABORAL en su configuración de nómina.`, 'info');
-                        handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: false });
+                        showAlert('Día Inhabilitado', `${emp.nombre} tiene marcado el ${d.nombreCompleto} como NO LABORAL en su configuración de nómina.`, 'info');
+                        handleHorarioChange(emp.id, d.fechaStr, 'activo', false, configDiaGlobal, isPagado);
+                        handleHorarioChange(emp.id, d.fechaStr, 'es_descanso', false, configDiaGlobal, isPagado);
                         return;
                       }
 
-                      // Ciclo Normal
                       if (activo) {
                         handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: true });
                       } else if (isDescanso) {

@@ -409,7 +409,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       if (isMasivo) {
         const nuevasAsignaciones = { ...asignaciones };
         if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
-        let count = 0;
 
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
@@ -433,7 +432,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
               });
 
               nuevasAsignaciones[claveArea][d.fechaStr] = asignables;
-              count++;
             } else {
               if (nuevasAsignaciones[claveArea][d.fechaStr]) {
                 nuevasAsignaciones[claveArea][d.fechaStr] = nuevasAsignaciones[claveArea][d.fechaStr].filter(
