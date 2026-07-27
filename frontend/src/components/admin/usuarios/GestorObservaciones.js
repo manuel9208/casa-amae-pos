@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardCheck, Trash2, Users, Plus, Lock, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { ClipboardCheck, Trash2, Users, Plus, Lock, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy } from 'lucide-react';
 
-const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
+const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGlobal }) => {
   const [fechaReferencia, setFechaReferencia] = useState(new Date());
 
   // ESTRUCTURA DE DATOS
@@ -12,15 +14,17 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
   const [nuevaObservacion, setNuevaObservacion] = useState('');
   const [hayCambiosSinGuardar, setHayCambiosSinGuardar] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [horarioNegocio, setHorarioNegocio] = useState({});
 
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES
+  // MODALES Y FILTROS MASIVOS
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
 
-  // FILTROS
+  // FILTROS VISUALES (Tabla)
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroRol, setFiltroRol] = useState('');
 
@@ -32,14 +36,12 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
   const month = fechaReferencia.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
   const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
     const date = new Date(year, month, i + 1);
     const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
     const nombreBreve = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
     const nombreCompleto = diasSemanaMap[date.getDay()];
-    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr };
+    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() };
   });
 
   const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
@@ -55,11 +57,22 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hayCambiosSinGuardar]);
 
+  // CARGAR CONFIGURACIÓN GLOBAL
+  useEffect(() => {
+    if (configGlobal && configGlobal.horarios_semana) {
+      try { setHorarioNegocio(typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana || {}); } catch (e) {}
+    }
+  }, [configGlobal]);
+
   // 🔄 CARGA DE DATOS
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
       .then(res => res.json())
       .then(data => {
+        if (data && data.horarios_semana) {
+          try { setHorarioNegocio(typeof data.horarios_semana === 'string' ? JSON.parse(data.horarios_semana) : data.horarios_semana); } catch(e){}
+        }
+
         if (data && !data.error && data.matriz_observaciones) {
           const matriz = typeof data.matriz_observaciones === 'string' ? JSON.parse(data.matriz_observaciones) : data.matriz_observaciones;
           setObservacionesBase(matriz.observacionesBase || []);
@@ -178,6 +191,61 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
     setIsSubmitting(false);
   };
 
+  // 👇 LÓGICA DE DUPLICAR CON REGLAS DE NEGOCIO
+  const duplicarSiguienteMes = () => {
+    showConfirm(
+      "Copiar al Siguiente Mes",
+      "Esto copiará el patrón de observaciones actual al mes próximo (respetando los días de cierre y reglas de nómina). ¿Proceder?",
+      () => {
+        setHayCambiosSinGuardar(true);
+        const mesActivoLocal = fechaReferencia.getMonth();
+        const yearActivoLocal = fechaReferencia.getFullYear();
+
+        const nextM = mesActivoLocal === 11 ? 0 : mesActivoLocal + 1;
+        const nextY = mesActivoLocal === 11 ? yearActivoLocal + 1 : yearActivoLocal;
+        const diasNextMonth = new Date(nextY, nextM + 1, 0).getDate();
+        
+        const nuevasAsignaciones = { ...asignaciones };
+
+        Object.keys(nuevasAsignaciones).forEach(obsNombre => {
+          for (let i = 1; i <= diasNextMonth; i++) {
+            const dNext = new Date(nextY, nextM, i);
+            const targetDateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const nombreDiaCompleto = diasSemanaMap[dNext.getDay()];
+            
+            const currentMonthDay = diasMes.find(d => {
+              const dCurr = new Date(yearActivoLocal, mesActivoLocal, d.num);
+              return dCurr.getDay() === dNext.getDay();
+            });
+            
+            if (currentMonthDay && nuevasAsignaciones[obsNombre][currentMonthDay.fechaStr]) {
+              const asignados = nuevasAsignaciones[obsNombre][currentMonthDay.fechaStr];
+              
+              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO MES
+              const asignables = asignados.filter(empId => {
+                  const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+                  if (!emp) return false;
+                  
+                  const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+                  const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
+                  const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
+                  const esNoLaboral = pres.dias_no_laborales?.includes(targetDateStr) || false;
+                  
+                  if (restauranteCerrado || esDescanso || esNoLaboral) return false;
+                  return true;
+              });
+
+              nuevasAsignaciones[obsNombre][targetDateStr] = asignables;
+            }
+          }
+        });
+        
+        setAsignaciones(nuevasAsignaciones);
+        showAlert('¡Patrón Duplicado!', 'Observaciones copiadas al mes siguiente respetando los cierres operativos. Cambia de mes y presiona Guardar.', 'success');
+      }
+    );
+  };
+
   const getCellHighlight = (obsNombre, fechaStr) => {
     const asignados = asignaciones[obsNombre]?.[fechaStr] || [];
     if (!filtroEmpleado && !filtroRol) return '';
@@ -198,6 +266,11 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
     const isMasivo = !!modalMasivo;
     const data = modalCelda || modalMasivo;
 
+    // Filtro reactivo dentro del modal
+    const empleadosParaMostrar = filtroRolMasivo 
+      ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
+      : empleadosVisibles;
+
     const toggleEmpleado = (empId) => {
       const stringId = String(empId);
       const nuevos = data.seleccionados.includes(stringId) 
@@ -208,6 +281,25 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
       else setModalCelda({ ...modalCelda, seleccionados: nuevos });
     };
 
+    const toggleDiaSemana = (dayIndex) => {
+      if (!isMasivo) return;
+      const nuevosDias = data.diasSemana.includes(dayIndex)
+        ? data.diasSemana.filter(d => d !== dayIndex)
+        : [...data.diasSemana, dayIndex];
+      setModalMasivo({ ...modalMasivo, diasSemana: nuevosDias });
+    };
+
+    const diasSemanaModal = [
+      { idx: 1, label: 'LUN' },
+      { idx: 2, label: 'MAR' },
+      { idx: 3, label: 'MIÉ' },
+      { idx: 4, label: 'JUE' },
+      { idx: 5, label: 'VIE' },
+      { idx: 6, label: 'SÁB' },
+      { idx: 0, label: 'DOM' }
+    ];
+
+    // 👇 GUARDADO CON REGLAS DE NEGOCIO ESTRICTAS
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
       const obsNombre = data.obsNombre;
@@ -219,26 +311,57 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
 
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
-            // Filtrar inteligentemente: No asignar en sus días de descanso
-            const asignables = data.seleccionados.filter(empId => {
-              const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-              if (!emp) return false;
-              const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-              const descansos = pres.dias_descanso || [];
-              return !descansos.includes(d.nombreCompleto);
-            });
-            nuevasAsignaciones[obsNombre][d.fechaStr] = asignables;
-            count++;
+            if (data.diasSemana.includes(d.dayIndex)) {
+              // APLICAR LAS 3 REGLAS DE NEGOCIO
+              const asignables = data.seleccionados.filter(empId => {
+                const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+                if (!emp) return false;
+                
+                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+                const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
+                const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
+                const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
+
+                if (restauranteCerrado || esDescanso || esNoLaboral) return false;
+                return true;
+              });
+
+              nuevasAsignaciones[obsNombre][d.fechaStr] = asignables;
+              count++;
+            } else {
+              if (nuevasAsignaciones[obsNombre][d.fechaStr]) {
+                nuevasAsignaciones[obsNombre][d.fechaStr] = nuevasAsignaciones[obsNombre][d.fechaStr].filter(
+                  empId => !data.seleccionados.includes(empId)
+                );
+              }
+            }
           }
         });
 
         setAsignaciones(nuevasAsignaciones);
         setModalMasivo(null);
-        showAlert('Éxito', `Asignado a ${count} días. Se omitieron automáticamente los días de descanso de cada empleado. ¡Recuerda Guardar!`, 'success');
+        showAlert('Éxito', `Asignado. Se omitieron días de descanso, días no laborales y cierres de forma automática.`, 'success');
       } else {
+        const d = diasMes.find(dia => dia.fechaStr === data.fechaStr);
+        const asignables = data.seleccionados.filter(empId => {
+          const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+          if (!emp) return false;
+          
+          const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+          const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
+          const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
+          const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
+
+          if (restauranteCerrado || esDescanso || esNoLaboral) {
+             showAlert('Asignación omitida', `${emp.nombre} no puede ser asignado el ${d.fechaStr} por reglas de nómina.`, 'warning');
+             return false;
+          }
+          return true;
+        });
+
         setAsignaciones(prev => ({
           ...prev,
-          [obsNombre]: { ...(prev[obsNombre] || {}), [data.fechaStr]: data.seleccionados }
+          [obsNombre]: { ...(prev[obsNombre] || {}), [data.fechaStr]: asignables }
         }));
         setModalCelda(null);
       }
@@ -253,20 +376,57 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
           <p className="text-sm font-bold text-indigo-600 mb-4 bg-indigo-50 px-4 py-2 rounded-xl w-fit mt-2 border border-indigo-100">
             {data.obsNombre}
           </p>
+
+          {isMasivo && (
+            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">
+                Repetir cada semana los días:
+              </label>
+              <div className="flex justify-between gap-1 sm:gap-2">
+                {diasSemanaModal.map(ds => {
+                  const isSelected = data.diasSemana.includes(ds.idx);
+                  return (
+                    <button
+                      key={ds.idx}
+                      type="button"
+                      onClick={() => toggleDiaSemana(ds.idx)}
+                      className={`flex-1 py-2 rounded-lg font-black text-[10px] sm:text-xs transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-md transform scale-105'
+                          : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {ds.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
-            {empleadosVisibles.map(emp => {
+            {empleadosParaMostrar.map(emp => {
               const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-              const descansos = pres.dias_descanso || [];
-              const esDescanso = !isMasivo && descansos.includes(data.nombreDiaCompleto);
+              
+              // 👇 UI INTELIGENTE: Bloqueo visual por reglas de negocio en la asignación diaria individual
+              const restauranteCerrado = !isMasivo && horarioNegocio && horarioNegocio[data.nombreDiaCompleto] && horarioNegocio[data.nombreDiaCompleto].activo === false;
+              const esDescanso = !isMasivo && pres.dias_descanso?.includes(data.nombreDiaCompleto);
+              const esNoLaboral = !isMasivo && pres.dias_no_laborales?.includes(data.fechaStr);
+              
+              const inhabilitado = restauranteCerrado || esDescanso || esNoLaboral;
+              
+              let razonInhabilitado = '';
+              if (restauranteCerrado) razonInhabilitado = "Local Cerrado";
+              else if (esNoLaboral) razonInhabilitado = "Día No Laboral";
+              else if (esDescanso) razonInhabilitado = "Día de Descanso";
 
-              if (esDescanso) {
+              if (inhabilitado) {
                 return (
                   <div key={emp.id} className="flex items-center p-3 rounded-xl border border-slate-200 bg-slate-100 opacity-60 cursor-not-allowed">
                     <div className="w-5 h-5 rounded border-slate-300 ml-2 flex items-center justify-center bg-slate-200"><Lock size={12} className="text-slate-400"/></div>
                     <div className="ml-4">
                       <p className="font-black text-slate-500 text-sm leading-tight line-through">{emp.nombre}</p>
-                      <p className="font-bold text-rose-500 text-[10px] uppercase tracking-wider">En Descanso ({data.nombreDiaCompleto})</p>
+                      <p className="font-bold text-rose-500 text-[10px] uppercase tracking-wider">{razonInhabilitado}</p>
                     </div>
                   </div>
                 );
@@ -282,11 +442,15 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
                 </label>
               );
             })}
+            
+            {empleadosParaMostrar.length === 0 && (
+              <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados con ese rol.</p>
+            )}
           </div>
 
           <div className="flex gap-3 shrink-0">
             <button onClick={() => isMasivo ? setModalMasivo(null) : setModalCelda(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">Cancelar</button>
-            <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-500/30 transition active:scale-95">Aplicar y Cerrar</button>
+            <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-500/30 transition active:scale-95">Aplicar Reglas</button>
           </div>
         </div>
       </div>
@@ -341,6 +505,29 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
               <input type="text" value={nuevaObservacion} onChange={(e) => setNuevaObservacion(e.target.value)} placeholder="Ej. Uso de Uniforme..." className="w-full sm:w-48 bg-white border border-indigo-200 rounded-xl px-4 py-2 outline-none focus:border-indigo-500 font-bold text-indigo-900 shadow-sm text-sm" />
               <button type="submit" disabled={!nuevaObservacion.trim()} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-black transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"><Plus size={18}/></button>
             </form>
+          </div>
+        </div>
+
+        {/* 👇 INYECCIÓN DEL PANEL DE ACCIONES MASIVAS UI (FILTRO + DUPLICAR) */}
+        <div className="bg-indigo-50 border border-indigo-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
+          <div className="flex-1 w-full xl:pr-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+              <h3 className="font-black text-indigo-900 flex items-center gap-2"><Users size={20}/> Acciones Masivas y Filtros</h3>
+            </div>
+            
+            <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
+              <Filter size={14} className="text-indigo-400 shrink-0 mr-1"/>
+              <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+              {rolesDisponibles.map(rol => (
+                <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+              ))}
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 mt-4 w-full">
+              <button onClick={duplicarSiguienteMes} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
+                <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
+              </button>
+            </div>
           </div>
         </div>
 
@@ -432,7 +619,7 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => 
                     
                     {/* ACCIÓN MASIVA PARA EL MES COMPLETO */}
                     <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                      <button onClick={() => setModalMasivo({ obsNombre, seleccionados: [] })} className="p-3 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
+                      <button onClick={() => setModalMasivo({ obsNombre, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="p-3 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
                         <Calendar size={18}/>
                       </button>
                     </td>

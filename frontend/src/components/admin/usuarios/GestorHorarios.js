@@ -4,7 +4,6 @@ import io from 'socket.io-client';
 
 const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-// La lista ahora vive ÚNICAMENTE aquí afuera, donde debe estar.
 const diasSemanaNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, configGlobal }) => {
@@ -114,16 +113,22 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
 
   const aplicarAsignacionMasiva = () => {
     if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el panel superior.', 'info');
+    
     setHorariosTemp(prev => {
       const nuevosHorarios = { ...prev };
+      
       empleadosSeleccionados.forEach(empId => {
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
+        
         let diasDescanso = [];
+        let diasNoLaborales = [];
         try {
           const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
           diasDescanso = pres.dias_descanso || [];
+          diasNoLaborales = pres.dias_no_laborales || [];
         } catch(e) {}
+        
         const empPrev = nuevosHorarios[empId] || {};
         const horarioGuardado = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
@@ -132,16 +137,22 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           const diaGuardado = horarioGuardado[d.fechaStr] || { pagado: false, vacaciones: false };
           const diaPrevInfo = empPrev[d.fechaStr] || diaGuardado;
           
+          // Si el día ya está pagado o el empleado está de vacaciones, no lo tocamos.
           if (diaPrevInfo.pagado || diaPrevInfo.vacaciones) return;
           
-          const esDescanso = diasDescanso.includes(d.nombreCompleto);
+          // REGLAS DE NEGOCIO ESTRICTAS
           const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
+          const esDescanso = diasDescanso.includes(d.nombreCompleto);
+          const esNoLaboral = diasNoLaborales.includes(d.fechaStr);
           
-          if (!negocioAbierto) {
+          if (!negocioAbierto || esNoLaboral) {
+            // Regla 1 y 2: Si el local cierra o el empleado no labora ese día, queda inactivo (No Laboral)
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: false, es_descanso: false };
           } else if (esDescanso) {
+            // Regla 3: Si es su día de descanso semanal, se marca como descanso
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: false, es_descanso: true };
           } else {
+            // Si es un día hábil, le asignamos el horario masivo
             const horaEntradaFinal = turnoMasivo === 'local' ? (configDiaGlobal.apertura || '08:00') : entradaMasiva;
             const horaSalidaFinal = turnoMasivo === 'local' ? (configDiaGlobal.cierre || '22:00') : salidaMasiva;
             empPrev[d.fechaStr] = { ...diaPrevInfo, activo: true, es_descanso: false, entrada: horaEntradaFinal, salida: horaSalidaFinal };
@@ -151,7 +162,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       });
       return nuevosHorarios;
     });
-    showAlert('¡Éxito!', 'Horarios calculados. Días cerrados marcados como No Laborables y Descansos respetados.', 'success');
+    
+    showAlert('¡Asignación Aplicada!', 'Horarios rellenados. Se respetaron automáticamente días cerrados, descansos y días no laborales.', 'success');
   };
 
   const duplicarSiguienteMes = () => {
@@ -172,12 +184,21 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         const emp = usuariosDB.find(u => u.id === empId);
         if (!emp) return;
         
+        let diasDescanso = [];
+        let diasNoLaborales = [];
+        try {
+          const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
+          diasDescanso = pres.dias_descanso || [];
+          diasNoLaborales = pres.dias_no_laborales || [];
+        } catch(e) {}
+
         const empPrev = nuevosHorarios[empId] || {};
         const empOriginal = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
 
         for (let i = 1; i <= daysInNextMonth; i++) {
           const dNext = new Date(nextY, nextM, i);
           const targetDateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+          const nombreDiaCompleto = diasSemanaNombres[dNext.getDay()];
 
           const currentMonthDay = diasMes.find(d => {
             const dCurr = new Date(yearActivo, mesActivo, d.num);
@@ -190,13 +211,26 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             
             const targetOriginal = empOriginal[targetDateStr] || {};
             if (!targetOriginal.pagado && !targetOriginal.vacaciones) {
-              empPrev[targetDateStr] = {
-                ...targetOriginal,
-                activo: sourceData.activo,
-                es_descanso: sourceData.es_descanso || false,
-                entrada: sourceData.entrada,
-                salida: sourceData.salida
-              };
+              
+              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO DÍA DESTINO
+              const configDiaGlobal = horarioNegocio[nombreDiaCompleto] || { activo: true };
+              const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
+              const esDescanso = diasDescanso.includes(nombreDiaCompleto);
+              const esNoLaboral = diasNoLaborales.includes(targetDateStr);
+
+              if (!negocioAbierto || esNoLaboral) {
+                empPrev[targetDateStr] = { ...targetOriginal, activo: false, es_descanso: false };
+              } else if (esDescanso) {
+                empPrev[targetDateStr] = { ...targetOriginal, activo: false, es_descanso: true };
+              } else {
+                empPrev[targetDateStr] = {
+                  ...targetOriginal,
+                  activo: sourceData.activo,
+                  es_descanso: false,
+                  entrada: sourceData.entrada,
+                  salida: sourceData.salida
+                };
+              }
             }
           }
         }
@@ -205,7 +239,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
       return nuevosHorarios;
     });
 
-    showAlert('¡Patrón Duplicado!', 'Horarios y descansos copiados al mes siguiente respetando los días de la semana. Cambia de mes y presiona Guardar.', 'success');
+    showAlert('¡Patrón Duplicado!', 'Horarios y descansos copiados al mes siguiente respetando los cierres y reglas laborales. Cambia de mes y presiona Guardar.', 'success');
   };
 
   const guardarCambiosHorarios = async () => {
@@ -475,6 +509,13 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
               const horBD = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
               const diasSinPagar = detectarDiasSinPagar(emp);
 
+              // Extraer días no laborales para usarlos en el render manual
+              let diasNoLaborales = [];
+              try {
+                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
+                diasNoLaborales = pres.dias_no_laborales || [];
+              } catch(e) {}
+
               return (
                 <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">
                   <td className="p-5 sticky left-0 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-10 group-hover:bg-slate-50 border-r border-slate-100">
@@ -490,12 +531,12 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                   {diasMes.map(d => {
                     const horDef = cambiosEmp[d.fechaStr] !== undefined ? cambiosEmp[d.fechaStr] : horBD[d.fechaStr];
                     const activo = horDef?.activo || false;
-                    const isDescanso = horDef?.es_descanso || false; // 👇 NUEVA VARIABLE DE ESTADO
+                    const isDescanso = horDef?.es_descanso || false; 
                     const isVacaciones = horDef?.vacaciones || false;
                     const isPagado = horDef?.pagado || false;
                     const configDiaGlobal = horarioNegocio[d.nombreCompleto] || { activo: true, apertura: '08:00', cierre: '22:00' };
+                    const esNoLaboral = diasNoLaborales.includes(d.fechaStr);
 
-                    // 👇 LÓGICA DE COLORES Y TEXTOS DINÁMICOS PARA EL BOTÓN
                     let btnText = 'No Laboral';
                     let btnClass = 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200';
                     
@@ -507,26 +548,31 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                       btnClass = 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 shadow-sm';
                     }
 
-                    // 👇 LÓGICA ROTATIVA INTELIGENTE DEL BOTÓN (3 ESTADOS CON BLOQUEO)
                     const cycleState = () => {
                       if (isPagado || isVacaciones) return;
                       
                       const negocioAbierto = configDiaGlobal.activo !== false && configDiaGlobal.activo !== "false";
                       
+                      // Regla 1: Validar Cierre Local
                       if (!negocioAbierto) {
-                        showAlert('Local Cerrado', `El restaurante no labora en ${d.nombreCompleto} según la Configuración Global. Este día solo puede ser No Laboral.`, 'info');
+                        showAlert('Local Cerrado', `El restaurante no labora en ${d.nombreCompleto} según la Configuración Global.`, 'info');
                         handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: false });
                         return;
                       }
 
+                      // Regla 2: Validar si el empleado tiene este día inhabilitado por Nómina
+                      if (esNoLaboral) {
+                        showAlert('Día Inhabilitado', `${emp.nombre} tiene marcado el ${d.fechaStr} como NO LABORAL en su configuración de nómina.`, 'info');
+                        handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: false });
+                        return;
+                      }
+
+                      // Ciclo Normal
                       if (activo) {
-                        // Está Trabajando -> Pasa a Descanso Oficial
                         handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: true });
                       } else if (isDescanso) {
-                        // Está en Descanso -> Pasa a No Laboral (Sin pago extra)
                         handleHorarioChangeMultiple(emp.id, d.fechaStr, { activo: false, es_descanso: false });
                       } else {
-                        // Está No Laboral -> Pasa a Trabajar
                         handleHorarioChangeMultiple(emp.id, d.fechaStr, {
                           activo: true,
                           es_descanso: false,

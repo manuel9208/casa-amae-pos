@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy } from 'lucide-react';
 
-const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
+const diasSemanaNombresFull = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGlobal }) => {
   const [fechaReferencia, setFechaReferencia] = useState(new Date());
 
   // ESTRUCTURA DE DATOS
@@ -13,15 +15,17 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [nuevaArea, setNuevaArea] = useState('');
   const [hayCambiosSinGuardar, setHayCambiosSinGuardar] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [horarioNegocio, setHorarioNegocio] = useState({});
 
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES
+  // MODALES Y FILTROS MASIVOS
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
-
-  // FILTROS
+  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
+  
+  // FILTROS VISUALES (Tabla)
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroRol, setFiltroRol] = useState('');
 
@@ -37,7 +41,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const date = new Date(year, month, i + 1);
     const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
     const nombre = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
-    return { num: i + 1, nombre, fechaStr, dayIndex: date.getDay() }; // dayIndex: 0=Dom, 1=Lun, etc.
+    const nombreCompleto = diasSemanaNombresFull[date.getDay()];
+    return { num: i + 1, nombre, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
   });
 
   const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
@@ -58,11 +63,22 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hayCambiosSinGuardar]);
 
+  // CARGAR CONFIGURACIÓN GLOBAL (Horarios de cierre)
+  useEffect(() => {
+    if (configGlobal && configGlobal.horarios_semana) {
+      try { setHorarioNegocio(typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana || {}); } catch (e) {}
+    }
+  }, [configGlobal]);
+
   // 🔄 CARGA Y MIGRACIÓN DE DATOS
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
       .then(res => res.json())
       .then(data => {
+        if (data && data.horarios_semana) {
+          try { setHorarioNegocio(typeof data.horarios_semana === 'string' ? JSON.parse(data.horarios_semana) : data.horarios_semana); } catch(e){}
+        }
+
         if (data && !data.error && data.matriz_limpieza) {
           const matriz = typeof data.matriz_limpieza === 'string' ? JSON.parse(data.matriz_limpieza) : data.matriz_limpieza;
           
@@ -92,7 +108,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             setAsignaciones(nuevasAsignaciones);
           }
 
-          // AUTO-MIGRACIÓN DE EVIDENCIAS Y EVALUACIONES (Global -> Individual)
           if (matriz.evaluaciones) {
             let nuevasEval = {};
             Object.keys(matriz.evaluaciones).forEach(clave => {
@@ -109,9 +124,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               });
             });
             setEvaluaciones(nuevasEval);
-          } else {
-            setEvaluaciones({});
-          }
+          } else { setEvaluaciones({}); }
 
           if (matriz.evidencias) {
             let nuevasEvi = {};
@@ -129,9 +142,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               });
             });
             setEvidencias(nuevasEvi);
-          } else {
-            setEvidencias({});
-          }
+          } else { setEvidencias({}); }
 
           setDiasCerrados(matriz.dias_cerrados || []);
         }
@@ -160,7 +171,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     });
   };
 
-  // TOGGLE DE TURNOS
   const toggleTurno = (areaId, turno) => {
     setHayCambiosSinGuardar(true);
     setAreasBase(prev => prev.map(a => {
@@ -172,7 +182,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     }));
   };
 
-  // EVALUACIÓN A NIVEL EMPLEADO (LÓGICA INDIVIDUAL)
   const evaluarLimpieza = (areaId, turno, fechaStr, empId, status) => {
     if (diasCerrados.includes(fechaStr)) return;
     setHayCambiosSinGuardar(true);
@@ -181,20 +190,13 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       const prevArea = prev[clave] || {};
       const prevFecha = prevArea[fechaStr] || {};
       
-      // Si status es null, borramos la evaluación de ese empleado
       if (status === null) {
         const newFecha = { ...prevFecha };
         delete newFecha[empId];
-        return {
-          ...prev,
-          [clave]: { ...prevArea, [fechaStr]: newFecha }
-        };
+        return { ...prev, [clave]: { ...prevArea, [fechaStr]: newFecha } };
       }
 
-      return {
-        ...prev,
-        [clave]: { ...prevArea, [fechaStr]: { ...prevFecha, [empId]: status } }
-      };
+      return { ...prev, [clave]: { ...prevArea, [fechaStr]: { ...prevFecha, [empId]: status } } };
     });
   };
 
@@ -209,7 +211,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     return fechas;
   };
 
-  // 🧹 CORTE DE AUDITORÍA Y PURGA DE IMÁGENES
   const realizarCorteLimpieza = () => {
     if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango para auditoría.", "info");
     if (fechaDesde > fechaHasta) return showAlert("Aviso", "'Desde' no puede ser mayor que 'Hasta'.", "warning");
@@ -240,7 +241,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ urls: urlsToDelete })
-            }).catch(() => console.warn("Petición de borrado a Cloudinary omitida o fallida."));
+            }).catch(() => console.warn("Petición de borrado a Cloudinary fallida."));
           }
 
           const resConfig = await fetch(`${apiUrl}/configuracion`);
@@ -251,14 +252,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }
 
           const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasRango])];
-          const payload = { 
-            ...matrizActual, 
-            areasBase, 
-            asignaciones, 
-            evidencias: nuevasEvidencias, 
-            evaluaciones, 
-            dias_cerrados: nuevosDiasCerrados 
-          };
+          const payload = { ...matrizActual, areasBase, asignaciones, evidencias: nuevasEvidencias, evaluaciones, dias_cerrados: nuevosDiasCerrados };
 
           const formData = new FormData();
           formData.append('matriz_limpieza', JSON.stringify(payload));
@@ -270,9 +264,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             setHayCambiosSinGuardar(false);
             showAlert("Éxito", "Auditoría bloqueada, fotos purgadas y matriz guardada.", "success");
           }
-        } catch (error) { 
-          showAlert("Error", "Fallo de conexión.", "error"); 
-        }
+        } catch (error) { showAlert("Error", "Fallo de conexión.", "error"); }
         setIsSubmitting(false);
       }
     );
@@ -298,10 +290,63 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       } else {
         showAlert('Error', 'No se pudo guardar la matriz.', 'error');
       }
-    } catch (error) { 
-      showAlert('Error', 'Error de red al guardar.', 'error'); 
-    }
+    } catch (error) { showAlert('Error', 'Error de red al guardar.', 'error'); }
     setIsSubmitting(false);
+  };
+
+  // 👇 LÓGICA DE DUPLICADO CON REGLAS DE NEGOCIO
+  const duplicarSiguienteMes = () => {
+    showConfirm(
+      "Copiar al Siguiente Mes",
+      "Esto copiará el patrón de limpieza actual al mes próximo (respetando los días de cierre y reglas de nómina). ¿Proceder?",
+      () => {
+        setHayCambiosSinGuardar(true);
+        const mesActivoLocal = fechaReferencia.getMonth();
+        const yearActivoLocal = fechaReferencia.getFullYear();
+
+        const nextM = mesActivoLocal === 11 ? 0 : mesActivoLocal + 1;
+        const nextY = mesActivoLocal === 11 ? yearActivoLocal + 1 : yearActivoLocal;
+        const diasNextMonth = new Date(nextY, nextM + 1, 0).getDate();
+        
+        const nuevasAsignaciones = { ...asignaciones };
+
+        Object.keys(nuevasAsignaciones).forEach(claveArea => {
+          for (let i = 1; i <= diasNextMonth; i++) {
+            const dNext = new Date(nextY, nextM, i);
+            const targetDateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const nombreDiaCompleto = diasSemanaNombresFull[dNext.getDay()];
+            
+            const currentMonthDay = diasMes.find(d => {
+              const dCurr = new Date(yearActivoLocal, mesActivoLocal, d.num);
+              return dCurr.getDay() === dNext.getDay();
+            });
+            
+            if (currentMonthDay && nuevasAsignaciones[claveArea][currentMonthDay.fechaStr]) {
+              const asignados = nuevasAsignaciones[claveArea][currentMonthDay.fechaStr];
+              
+              // REEVALUAR REGLAS DE NEGOCIO PARA EL NUEVO MES
+              const asignables = asignados.filter(empId => {
+                  const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+                  if (!emp) return false;
+                  
+                  const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+                  const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
+                  const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
+                  const esNoLaboral = pres.dias_no_laborales?.includes(targetDateStr) || false;
+                  
+                  if (restauranteCerrado || esDescanso || esNoLaboral) return false;
+                  return true;
+              });
+
+              nuevasAsignaciones[claveArea][targetDateStr] = asignables;
+            }
+          }
+        });
+        
+        setAsignaciones(nuevasAsignaciones);
+        showAlert('¡Patrón Duplicado!', 'Limpieza copiada al mes siguiente respetando los cierres operativos. Cambia de mes y presiona Guardar.', 'success');
+      }
+    );
   };
 
   const getCellHighlight = (areaId, turno, fechaStr) => {
@@ -323,6 +368,11 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const isMasivo = !!modalMasivo;
     const data = modalCelda || modalMasivo;
 
+    // Filtro reactivo dentro del modal
+    const empleadosParaMostrar = filtroRolMasivo 
+      ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
+      : empleadosVisibles;
+
     const toggleEmpleado = (empId) => {
       const stringId = String(empId);
       const nuevos = data.seleccionados.includes(stringId) 
@@ -341,7 +391,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       setModalMasivo({ ...modalMasivo, diasSemana: nuevosDias });
     };
 
-    const diasSemanaNombres = [
+    const diasSemanaModal = [
       { idx: 1, label: 'LUN' },
       { idx: 2, label: 'MAR' },
       { idx: 3, label: 'MIÉ' },
@@ -351,44 +401,75 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       { idx: 0, label: 'DOM' }
     ];
 
+    // 👇 GUARDADO CON REGLAS DE NEGOCIO ESTRICTAS
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
-      const clave = `${data.areaId}_${data.turno}`;
+      const claveArea = `${data.areaId}_${data.turno}`;
 
       if (isMasivo) {
         const nuevasAsignaciones = { ...asignaciones };
-        if (!nuevasAsignaciones[clave]) nuevasAsignaciones[clave] = {};
+        if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
         let count = 0;
-        
+
         diasMes.forEach(d => {
-          // Operamos solo si el día no está cerrado por auditoría
           if (!diasCerrados.includes(d.fechaStr)) {
             
             if (data.diasSemana.includes(d.dayIndex)) {
-              // 1. Si el día ESTÁ marcado, asignamos a los empleados seleccionados (Sobrescribe)
-              nuevasAsignaciones[clave][d.fechaStr] = data.seleccionados;
+              // APLICAR LAS 3 REGLAS DE NEGOCIO AL FILTRAR MASIVAMENTE
+              const asignables = data.seleccionados.filter(empId => {
+                const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+                if (!emp) return false;
+                
+                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+                
+                const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
+                const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
+                const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
+
+                // Bloqueo por reglas de negocio
+                if (restauranteCerrado || esDescanso || esNoLaboral) return false;
+                
+                return true;
+              });
+
+              nuevasAsignaciones[claveArea][d.fechaStr] = asignables;
               count++;
             } else {
-              // 2. Si el día NO ESTÁ marcado, eliminamos a estos empleados en específico de ese día.
-              // (Así corregimos automáticamente si los habías asignado por error a toda la semana)
-              if (nuevasAsignaciones[clave][d.fechaStr]) {
-                nuevasAsignaciones[clave][d.fechaStr] = nuevasAsignaciones[clave][d.fechaStr].filter(
+              if (nuevasAsignaciones[claveArea][d.fechaStr]) {
+                nuevasAsignaciones[claveArea][d.fechaStr] = nuevasAsignaciones[claveArea][d.fechaStr].filter(
                   empId => !data.seleccionados.includes(empId)
                 );
               }
             }
-            
           }
         });
-        
+
         setAsignaciones(nuevasAsignaciones);
         setModalMasivo(null);
-        showAlert('Éxito', `Asignado a ${count} días. Se limpiaron los días no marcados. ¡Recuerda Guardar!`, 'success');
+        showAlert('Éxito', `Asignado. Se omitieron automáticamente días de descanso, días no laborales y días cerrados.`, 'success');
       } else {
-        setAsignaciones(prev => ({
-          ...prev,
-          [clave]: { ...(prev[clave] || {}), [data.fechaStr]: data.seleccionados }
-        }));
+        // Validación para celda manual individual
+        const d = diasMes.find(dia => dia.fechaStr === data.fechaStr);
+        const asignables = data.seleccionados.filter(empId => {
+          const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+          if (!emp) return false;
+          
+          const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+          const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
+          const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
+          const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
+
+          if (restauranteCerrado || esDescanso || esNoLaboral) {
+             showAlert('Asignación omitida', `${emp.nombre} no puede ser asignado el ${d.fechaStr} por reglas de nómina.`, 'warning');
+             return false;
+          }
+          return true;
+        });
+
+        const nuevasAsignaciones = { ...asignaciones };
+        if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
+        nuevasAsignaciones[claveArea][data.fechaStr] = asignables;
+        setAsignaciones(nuevasAsignaciones);
         setModalCelda(null);
       }
     };
@@ -409,7 +490,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 Repetir cada semana los días:
               </label>
               <div className="flex justify-between gap-1 sm:gap-2">
-                {diasSemanaNombres.map(ds => {
+                {diasSemanaModal.map(ds => {
                   const isSelected = data.diasSemana.includes(ds.idx);
                   return (
                     <button
@@ -431,7 +512,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           )}
           
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
-            {empleadosVisibles.map(emp => (
+            {empleadosParaMostrar.map(emp => (
               <label key={emp.id} className={`flex items-center p-3 rounded-xl border cursor-pointer transition-all shadow-sm ${data.seleccionados.includes(String(emp.id)) ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:border-blue-300'}`}>
                 <input 
                   type="checkbox" 
@@ -445,6 +526,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 </div>
               </label>
             ))}
+            {empleadosParaMostrar.length === 0 && (
+              <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados con ese rol.</p>
+            )}
           </div>
 
           <div className="flex gap-3 shrink-0">
@@ -452,7 +536,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               Cancelar
             </button>
             <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition active:scale-95">
-              Aplicar y Cerrar
+              Aplicar Reglas
             </button>
           </div>
         </div>
@@ -525,6 +609,29 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 <Plus size={18}/>
               </button>
             </form>
+          </div>
+        </div>
+
+        {/* 👇 INYECCIÓN DEL PANEL DE ACCIONES MASIVAS UI (FILTRO + DUPLICAR) */}
+        <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
+          <div className="flex-1 w-full xl:pr-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
+              <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Acciones Masivas y Filtros</h3>
+            </div>
+            
+            <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
+              <Filter size={14} className="text-blue-400 shrink-0 mr-1"/>
+              <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+              {rolesDisponibles.map(rol => (
+                <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+              ))}
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-3 mt-4 w-full">
+              <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-indigo-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
+                <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
+              </button>
+            </div>
           </div>
         </div>
 
