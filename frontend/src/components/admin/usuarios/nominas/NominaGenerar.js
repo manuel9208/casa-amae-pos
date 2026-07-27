@@ -3,7 +3,7 @@ import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Su
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
-// 👇 UTILIDAD ROBUSTA DEFINITIVA: Convierte cualquier formato (Vie, Viernes, 5) al número nativo del día (0-6)
+// 👇 UTILIDAD ROBUSTA DEFINITIVA
 const obtenerDiaNum = (diaVal) => {
     if (diaVal === null || diaVal === undefined || String(diaVal).trim() === '') return -1;
     const t = String(diaVal).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
@@ -109,16 +109,24 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
+        // 👇 PARSEO PARANOICO: Escanea arreglos, strings sueltos o separados por comas
         let rawDescansos = [];
-        if (Array.isArray(pres.dias_descanso) && pres.dias_descanso.length > 0) {
-            rawDescansos = pres.dias_descanso;
-        } else if (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' && pres.dia_descanso.trim() !== '') {
-            rawDescansos = [pres.dia_descanso];
+        let pd = pres.dias_descanso;
+        if (typeof pd === 'string') {
+            try { pd = JSON.parse(pd); } catch(e) { pd = pd.split(','); }
         }
+        if (Array.isArray(pd)) { rawDescansos = pd; } 
+        else if (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno') { rawDescansos = pres.dia_descanso.split(','); }
         
-        // 👇 FIX ANDREA: Transforma cualquier basura ("Vie", "Viernes", 5) a un array de enteros (ej. [5])
         const arrDescansosNum = rawDescansos.map(obtenerDiaNum).filter(n => n !== -1);  
-        const arrNoLaboralesNum = (pres.dias_no_laborales || []).map(obtenerDiaNum).filter(n => n !== -1);
+        
+        let rawNoLab = [];
+        let nl = pres.dias_no_laborales;
+        if (typeof nl === 'string') {
+            try { nl = JSON.parse(nl); } catch(e) { nl = nl.split(','); }
+        }
+        if (Array.isArray(nl)) rawNoLab = nl;
+        const arrNoLaboralesNum = rawNoLab.map(obtenerDiaNum).filter(n => n !== -1);
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -156,7 +164,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           const dd = String(currentDate.getDate()).padStart(2, '0');
           const dateStr = `${yyyy}-${mm}-${dd}`;
           
-          // Número nativo del día (0-6) en lugar de usar strings propensos a fallos
           const diaSemanaNum = currentDate.getDay(); 
           const esDomingo = diaSemanaNum === 0;  
 
@@ -173,25 +180,39 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 ASIGNACIÓN ESTRICTA POR ENTEROS
+          // 👇 VERIFICACIÓN ABSOLUTA EN TODO EL PERFIL
           let esDescanso = arrDescansosNum.includes(diaSemanaNum);
           let esNoLaboral = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
-          let esDiaLaboral = !esDescanso && !esNoLaboral;
 
-          // Solo permitimos que una configuración MANUAL del día específico altere la ficha técnica
+          // Escanea el horario_semanal por si la UI nueva guarda los días genéricos ahí ("5", "Viernes", "vie")
+          for (const key of Object.keys(hor)) {
+              if (obtenerDiaNum(key) === diaSemanaNum && !key.includes('-')) {
+                  const confGen = hor[key];
+                  if (confGen.es_descanso === true || confGen.tipo === 'descanso' || confGen.estado === 'descanso') {
+                      esDescanso = true; esNoLaboral = false;
+                  } else if (confGen.activo === false || confGen.tipo === 'no_laboral' || confGen.estado === 'no_laboral') {
+                      if (!esDescanso) esNoLaboral = true;
+                  } else if (confGen.activo === true || confGen.tipo === 'laboral' || confGen.estado === 'laboral') {
+                      esDescanso = false; esNoLaboral = false;
+                  }
+              }
+          }
+
+          // Override final por si editaste el día exacto en el calendario (ej. "2026-07-03")
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              if (hor[dateStr].es_descanso !== undefined) {
                  esDescanso = hor[dateStr].es_descanso;
-                 if (esDescanso) { esDiaLaboral = false; esNoLaboral = false; }
              }
              if (hor[dateStr].activo !== undefined) {
                  if (hor[dateStr].activo) {
-                     esDiaLaboral = true; esDescanso = false; esNoLaboral = false;
+                     esDescanso = false; esNoLaboral = false;
                  } else if (!esDescanso) {
-                     esNoLaboral = true; esDiaLaboral = false;
+                     esNoLaboral = true;
                  }
              }
           }
+
+          let esDiaLaboral = !esDescanso && !esNoLaboral;
 
           const auditoriaDia = hor[dateStr]?.auditoria || {};
           const checkinsDelDia = historial.filter(h => String(h.usuario_id) === String(emp.id) && h.fecha.startsWith(dateStr));  
@@ -351,7 +372,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // AHORA SÍ: El descanso se evalúa matemáticamente, sin riesgo a fallos de texto.
+                  // AHORA SÍ: Detectará el descanso sin importar en qué variable lo haya ocultado la UI
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -623,7 +644,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         if (p.metricas.porcentaje_isr > 0) {
             const egISR = p.egresos.find(e => e.concepto.includes('Retención de ISR'));
-            if (egISR) egISR.monto = nuevoSueldo * (p.metricas.porcentaje_isr / 100);
+            if (egISR) egISR.monto = nuevoSueldo * (p.metricas.porcentaje_imss / 100);
         }
         if (p.metricas.porcentaje_imss > 0) {
             const egIMSS = p.egresos.find(e => e.concepto.includes('Cuota Obrero IMSS'));
