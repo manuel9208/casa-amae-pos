@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert, Users, Filter, CheckSquare, Square } from 'lucide-react';
+import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert, Users, Filter, CheckSquare, Square, ClipboardCheck } from 'lucide-react';
+import io from 'socket.io-client';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -7,6 +8,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
   const [reportes, setReportes] = useState({ historialAsistencias: [] });
   const [configGlobal, setConfigGlobal] = useState({});
   const [matrizLimpiezaGlobal, setMatrizLimpiezaGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
+  const [matrizObservacionesGlobal, setMatrizObservacionesGlobal] = useState({ evaluaciones: {}, asignaciones: {} });
   
   const hoyStr = new Date().toISOString().split('T')[0];
   
@@ -64,6 +66,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
          const configData = await resConfig.json();
          setConfigGlobal(configData);
          setMatrizLimpiezaGlobal(typeof configData.matriz_limpieza === 'string' ? JSON.parse(configData.matriz_limpieza || '{}') : (configData.matriz_limpieza || {}));
+         setMatrizObservacionesGlobal(typeof configData.matriz_observaciones === 'string' ? JSON.parse(configData.matriz_observaciones || '{}') : (configData.matriz_observaciones || {}));
       }
     } catch (error) {
       console.error("Error al cargar reportes", error);
@@ -72,9 +75,17 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
   useEffect(() => {
     cargarReportes();
-    const interval = setInterval(() => cargarReportes(), 10000);
-    return () => clearInterval(interval);
   }, [cargarReportes, refreshToggle]);
+
+  // SOCKET: Escucha actualizaciones en vivo
+  useEffect(() => {
+    const baseUrl = apiUrl.replace('/api', '');
+    if (!baseUrl) return;
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    socket.on('horarios_actualizados', () => cargarReportes());
+    socket.on('configuracion_actualizada', () => cargarReportes());
+    return () => socket.disconnect();
+  }, [apiUrl, cargarReportes]);
 
   const getFechasPeriodo = () => {
     const fechas = [];
@@ -132,14 +143,15 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
       const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
       const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
       
-      // 👇 FIX DEFINITIVO: Compatibilidad con perfiles viejos (dia_descanso único)
       const rawDescansos = pres.dias_descanso || (typeof pres.dia_descanso === 'string' && pres.dia_descanso !== 'Ninguno' ? [pres.dia_descanso] : []);
       const arrDescansos = rawDescansos.map(d => String(d).trim().toLowerCase());  
       const arrNoLaborales = (pres.dias_no_laborales || []).map(d => String(d).trim().toLowerCase());
 
       const oficiales = [];
       const anomalas = [];
-      const limpiezas = [];  
+      const tareasCumplimiento = [];  
+      let faltanEvaluaciones = false;
+      let tieneAsignaciones = false;
 
       fechasAAnalizar.forEach(fechaStr => {
         const dateObj = new Date(fechaStr + 'T12:00:00');
@@ -157,7 +169,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         const confDiaNom = hor[nombreDiaActual] || {};
         const confDia = Object.keys(confDiaStr).length > 0 ? confDiaStr : confDiaNom;
 
-        // Solo permitimos que un cambio MANUAL en el DÍA ESPECÍFICO (ej. 2026-07-03) altere su estatus de asistencia.
         if (Object.keys(confDiaStr).length > 0) {
             if (confDiaStr.es_descanso !== undefined) {
                 esDescanso = confDiaStr.es_descanso;
@@ -172,6 +183,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         const auditoriaDia = hor[fechaStr]?.auditoria || {};  
         const checkinsDelDia = (reportes.historialAsistencias || []).filter(h => h.usuario_id === emp.id && h.fecha.startsWith(fechaStr));  
 
+        // 1. ANÁLISIS DE ASISTENCIA Y HORARIOS
         if (checkinsDelDia.length > 0) {
           let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
           let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
@@ -234,16 +246,24 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
           let esRetardo = false;
           let hReal = 0, mReal = 0, hOfIn = 0, mOfIn = 0;  
+          let requiereAuditoria = false;
+          let motivosAnomalia = [];
 
-          if (confDia.entrada) {
-            [hOfIn, mOfIn] = confDia.entrada.split(':').map(Number);
-            const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
-            [hReal, mReal] = stringHoraCompleta.split(':').map(Number);  
-            const minOficiales = (hOfIn * 60) + mOfIn;
-            const minReales = (hReal * 60) + mReal;  
-            if (minReales > (minOficiales + minutosTolerancia)) {
-              esRetardo = true;
-            }
+          // REGLA #2: Retardo validado estrictamente sobre horario asignado
+          if (!confDia.entrada && !esDescanso && !esNoLaboral) {
+              motivosAnomalia.push(`Checó sin tener horario asignado`);
+              requiereAuditoria = true;
+          } else if (confDia.entrada) {
+              [hOfIn, mOfIn] = confDia.entrada.split(':').map(Number);
+              const stringHoraCompleta = minEntrada.toLocaleTimeString('es-MX', { timeZone: 'America/Mazatlan', hour12: false });
+              [hReal, mReal] = stringHoraCompleta.split(':').map(Number);  
+              const minOficiales = (hOfIn * 60) + mOfIn;
+              const minReales = (hReal * 60) + mReal;  
+              if (minReales > (minOficiales + minutosTolerancia)) {
+                  esRetardo = true;
+                  motivosAnomalia.push(`Llegada Tarde (Entrada Oficial: ${confDia.entrada})`);
+                  requiereAuditoria = true;
+              }
           }  
 
           const record = {
@@ -258,13 +278,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             oficial: confDia.entrada ? `${confDia.entrada} a ${confDia.salida || '--:--'}` : 'Sin turno fijo'
           };  
 
-          let motivosAnomalia = [];
-          let requiereAuditoria = false;  
-
-          if (esRetardo) {
-            motivosAnomalia.push(`Llegada Tarde (Entrada Oficial: ${confDia.entrada})`);
-            requiereAuditoria = true;
-          }
           if (olvidoSalida) {
             motivosAnomalia.push(`Olvidó Marcar Salida`);
             requiereAuditoria = true;
@@ -288,8 +301,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             requiereAuditoria = true;
           }  
 
-          if (esDescanso) { motivosAnomalia.push(`Trabajó en Descanso`); requiereAuditoria = true; }
-          if (esNoLaboral) { motivosAnomalia.push(`Trabajó en No Laboral`); requiereAuditoria = true; }
+          // REGLA #3: Identificar checadas en días libres
+          if (esDescanso) { motivosAnomalia.push(`Trabajó en su día de Descanso`); requiereAuditoria = true; }
+          if (esNoLaboral) { motivosAnomalia.push(`Trabajó en día No Laboral / Apoyo`); requiereAuditoria = true; }
 
           if (turnoActivo) {
             oficiales.push(record);
@@ -321,7 +335,6 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
         } else {
           const isPast = fechaStr < hoyStr;
-          // Como reescribimos el motor de validación, si esDescanso es TRUE, esto lo ignorará magistralmente y NO creará la falta.
           if (esDiaLaboral && isPast) {
             const record = {
               fecha: fechaStr, dia: nombreDiaActual, entrada: '--:--', salida: '--:--', horas: '0.00',
@@ -337,45 +350,60 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
           }
         }  
 
-        const evals = matrizLimpiezaGlobal.evaluaciones || {};
-        const asigs = matrizLimpiezaGlobal.asignaciones || {};
-
-        Object.keys(asigs).forEach(area_turno => {
-          const asignadosEnFecha = asigs[area_turno]?.[fechaStr] || [];
-          const asignadosStr = asignadosEnFecha.map(String);
-          
-          if (asignadosStr.includes(String(emp.id))) {
-            const val = evals[area_turno]?.[fechaStr];
+        // 2. ANÁLISIS DE CUMPLIMIENTO (REGLA #1: Limpieza y Observaciones)
+        
+        // Limpieza
+        const evalsLimp = matrizLimpiezaGlobal.evaluaciones || {};
+        const asigsLimp = matrizLimpiezaGlobal.asignaciones || {};
+        Object.keys(asigsLimp).forEach(area_turno => {
+          const asignadosEnFecha = asigsLimp[area_turno]?.[fechaStr] || [];
+          if (asignadosEnFecha.map(String).includes(String(emp.id))) {
+            tieneAsignaciones = true;
+            const val = evalsLimp[area_turno]?.[fechaStr];
             const status = typeof val === 'string' ? val : val?.[emp.id];
-            
             if (status) {
-              const nombreArea = area_turno.split('_')[0];
-              limpiezas.push({ fecha: fechaStr, dia: nombreDiaActual, area: nombreArea, status: status });
+              tareasCumplimiento.push({ fecha: fechaStr, dia: nombreDiaActual, tarea: area_turno.split('_')[0], status, modulo: 'Limpieza' });
+            } else if (fechaStr < hoyStr) {
+              faltanEvaluaciones = true; 
+            }
+          }
+        });
+
+        // Observaciones Generales
+        const evalsObs = matrizObservacionesGlobal.evaluaciones || {};
+        const asigsObs = matrizObservacionesGlobal.asignaciones || {};
+        Object.keys(asigsObs).forEach(obs => {
+          const asignadosEnFecha = asigsObs[obs]?.[fechaStr] || [];
+          if (asignadosEnFecha.map(String).includes(String(emp.id))) {
+            tieneAsignaciones = true;
+            const val = evalsObs[obs]?.[fechaStr];
+            const status = typeof val === 'string' ? val : val?.[emp.id];
+            if (status) {
+              tareasCumplimiento.push({ fecha: fechaStr, dia: nombreDiaActual, tarea: obs, status, modulo: 'Observación' });
+            } else if (fechaStr < hoyStr) {
+              faltanEvaluaciones = true;
             }
           }
         });
       });  
 
-      return { emp, oficiales, anomalas, limpiezas };
-    }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.limpiezas.length > 0);
+      return { emp, oficiales, anomalas, tareasCumplimiento, faltanEvaluaciones, tieneAsignaciones };
+    }).filter(d => d.oficiales.length > 0 || d.anomalas.length > 0 || d.tareasCumplimiento.length > 0 || d.faltanEvaluaciones || d.tieneAsignaciones);
   };
 
   const datosCompletos = procesarDashboard();
   const datosFiltrados = datosCompletos.filter(d => empleadosSeleccionados.includes(d.emp.id));
 
+  // REGLA #2 y #3: Ajuste de horas dinámico para faltas y turnos extra
   const manejarClickAprobar = (empId, rec) => {
-    if (rec.tipo === 'falta') {
-        guardarAuditoria(empId, rec.fecha, rec.tipo, JSON.stringify({ estado: 'aprobado' }));
-    } else {
-        setModalAjuste({
-            isOpen: true,
-            empId,
-            fecha: rec.fecha,
-            tipo: rec.tipo,
-            horasDetectadas: rec.horas,
-            horasFinales: rec.horas
-        });
-    }
+    setModalAjuste({
+        isOpen: true,
+        empId,
+        fecha: rec.fecha,
+        tipo: rec.tipo,
+        horasDetectadas: rec.horas || 0,
+        horasFinales: rec.tipo === 'falta' ? 8 : (rec.horas || 0) // Sugiere 8h si es falta a justificar
+    });
   };
 
   const confirmarModalAjuste = () => {
@@ -474,7 +502,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             </div>
          ) : (
             datosFiltrados.map((data) => (
-                <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-6">
+                <div key={data.emp.id} className="bg-white p-6 md:p-8 rounded-[36px] shadow-sm border border-slate-200 break-inside-avoid print:mb-6 relative overflow-hidden">
                     
                     <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
                         <div className="bg-blue-100 text-blue-600 p-4 rounded-2xl print:bg-slate-200 print:text-black">
@@ -486,10 +514,21 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                         </div>
                     </div>
 
+                    {/* REGLA #1: ALERTA DE EVALUACIONES PENDIENTES */}
+                    {data.faltanEvaluaciones && (
+                      <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-xl flex items-center gap-3 animate-pulse">
+                        <AlertTriangle className="text-red-500 shrink-0" size={24}/>
+                        <div>
+                          <p className="text-sm font-black text-red-800 uppercase tracking-widest">⚠️ Tareas sin calificar</p>
+                          <p className="text-xs font-bold text-red-600 mt-0.5">El empleado tiene tareas de limpieza u observaciones de días pasados que no han sido marcadas como (SÍ/NO). Evalúelas antes de generar la nómina.</p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mb-8">
-                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Clock className="text-blue-500 print:text-black"/> 1. Checadas en Días Laborales Programados</h4>
+                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Clock className="text-blue-500 print:text-black"/> 1. Checadas en Días Programados</h4>
                         {data.oficiales.length === 0 ? (
-                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No tuvo asistencias en sus días asignados durante este periodo.</p>
+                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No tuvo asistencias normales durante este periodo.</p>
                         ) : (
                             <div className="overflow-x-auto border border-slate-200 rounded-2xl custom-scrollbar print:border-slate-300">
                                 <table className="w-full text-left border-collapse">
@@ -525,18 +564,24 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                     </div>
 
                     <div className="mb-8">
-                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Sparkles className="text-emerald-500 print:text-black"/> 2. Resultados de Limpieza (Candados Cerrados)</h4>
-                        {data.limpiezas.length === 0 ? (
-                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">No se encontraron áreas evaluadas o cerradas para este empleado en este periodo.</p>
+                        <h4 className="text-lg font-black text-slate-700 flex items-center gap-2 mb-4"><Sparkles className="text-emerald-500 print:text-black"/> 2. Cumplimiento (Limpieza y Reglas)</h4>
+                        {!data.tieneAsignaciones ? (
+                            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center gap-2 text-emerald-700">
+                                <ClipboardCheck size={20} className="shrink-0"/>
+                                <p className="text-sm font-bold">No existen asignaciones de limpieza u observaciones para esta semana. Puede continuar con la nómina.</p>
+                            </div>
+                        ) : data.tareasCumplimiento.length === 0 ? (
+                            <p className="text-sm font-medium text-slate-400 italic bg-slate-50 p-4 rounded-2xl border border-slate-100">Aún no se ha evaluado ninguna de sus tareas asignadas.</p>
                         ) : (
                             <div className="flex flex-wrap gap-3">
-                                {data.limpiezas.map((limp, i) => (
-                                    <div key={i} className={`flex flex-col border rounded-xl p-3 shadow-sm min-w-[150px] ${limp.status === 'cumplio' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{limp.dia} {limp.fecha.split('-')[2]}</span>
-                                            {limp.status === 'cumplio' ? <CheckCircle2 size={16} className="text-emerald-600"/> : <XCircle size={16} className="text-red-600"/>}
+                                {data.tareasCumplimiento.map((tarea, i) => (
+                                    <div key={i} className={`flex flex-col border rounded-xl p-3 shadow-sm min-w-[150px] ${tarea.status === 'cumplio' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{tarea.dia} {tarea.fecha.split('-')[2]}</span>
+                                            {tarea.status === 'cumplio' ? <CheckCircle2 size={16} className="text-emerald-600"/> : <XCircle size={16} className="text-red-600"/>}
                                         </div>
-                                        <p className={`font-black text-sm uppercase ${limp.status === 'cumplio' ? 'text-emerald-800' : 'text-red-800'}`}>{limp.area}</p>
+                                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1">{tarea.modulo}</p>
+                                        <p className={`font-black text-xs uppercase leading-tight ${tarea.status === 'cumplio' ? 'text-emerald-800' : 'text-red-800'}`}>{tarea.tarea}</p>
                                     </div>
                                 ))}
                             </div>
@@ -594,8 +639,14 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
                                                             <span className="text-red-700 font-black text-[10px] uppercase tracking-widest bg-red-100 px-3 py-1.5 rounded-lg border border-red-200 shadow-sm block w-full">❌ Rechazado</span>
                                                         ) : (
                                                             <div className="flex flex-col xl:flex-row justify-center gap-1.5">
-                                                                <button onClick={() => manejarClickAprobar(data.emp.id, rec)} className="flex-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Aprobar</button>
-                                                                <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, JSON.stringify({ estado: 'rechazado' }))} className="flex-1 bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Rechazar</button>
+                                                                {rec.tipo === 'falta' ? (
+                                                                    <button onClick={() => manejarClickAprobar(data.emp.id, rec)} className="flex-1 bg-white text-slate-700 hover:bg-slate-100 border border-slate-300 px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm whitespace-nowrap">Justificar</button>
+                                                                ) : (
+                                                                    <>
+                                                                        <button onClick={() => manejarClickAprobar(data.emp.id, rec)} className="flex-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Aprobar</button>
+                                                                        <button onClick={() => guardarAuditoria(data.emp.id, rec.fecha, rec.tipo, JSON.stringify({ estado: 'rechazado' }))} className="flex-1 bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-2 py-1.5 rounded-lg text-[10px] font-black transition uppercase tracking-wider shadow-sm">Rechazar</button>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </td>
@@ -621,7 +672,9 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
             </div>
             <h3 className="text-2xl font-black text-slate-800 mb-2">Ajuste de Horas</h3>
             <p className="text-sm font-medium text-slate-500 mb-6 px-2 leading-relaxed">
-              El sistema detectó <b>{modalAjuste.horasDetectadas} horas</b> registradas en este turno anómalo. ¿Cuántas horas <u>reales</u> vas a autorizar para el cálculo de su pago?
+              {modalAjuste.tipo === 'falta' 
+                ? "Estás justificando una falta. ¿Cuántas horas equivalentes se le pagarán por este día?" 
+                : <>El sistema detectó <b>{modalAjuste.horasDetectadas} horas</b>. ¿Cuántas horas <u>reales</u> vas a autorizar para su pago?</>}
             </p>
             
             <div className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-8">

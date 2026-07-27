@@ -17,7 +17,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-  // 👇 NUEVO: Estado para saber qué días el restaurante no abre globalmente
   const [diasCerradosLocal, setDiasCerradosLocal] = useState([]);
 
   // ==========================================
@@ -39,28 +38,26 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   // ==========================================
   const [empleadoEditId, setEmpleadoEditId] = useState('');
   const [prestacionesEmp, setPrestacionesEmp] = useState({ 
-    sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
+    sueldo_base: 0, tarifa_apoyo_dia: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
     fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: false,
-    dias_descanso: [], dias_no_laborales: [], // 👇 AHORA SOPORTA LOS 3 ESTADOS
+    dias_descanso: [], dias_no_laborales: [], 
     prima_vacacional: 25, dias_vacaciones_disponibles: 12, horas_extras_acumuladas: 0,
     limite_platillos: 1, limite_bebidas: 1,
     prestamos: [], bonos_recurrentes: []
   });
 
-  // CARGAR REGLAS GLOBALES Y DÍAS CERRADOS DESDE LA BASE DE DATOS
+  // CARGAR REGLAS GLOBALES Y DÍAS CERRADOS
   const cargarConfigGlobal = useCallback(async () => {
     try {
       const resConfig = await fetch(`${apiUrl}/configuracion`);
       if (resConfig.ok) {
         const dataConfig = await resConfig.json();
         
-        // Cargar Reglas Generales de Nómina
         const matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
         if (matrizActual.reglas_nomina) {
           setReglasNomina(prev => ({ ...prev, ...matrizActual.reglas_nomina }));
         }
 
-        // 👇 NUEVA LOGICA: Descubrir qué días está cerrado el restaurante para bloquearlos en los perfiles
         const horSemana = typeof dataConfig.horarios_semana === 'string' ? JSON.parse(dataConfig.horarios_semana || '{}') : (dataConfig.horarios_semana || {});
         const cerrados = [];
         Object.keys(horSemana).forEach(dia => {
@@ -86,12 +83,12 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
       if (emp) {
         const presParsed = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
         
-        // Compatibilidad con versión vieja (dia_descanso único)
         let descansosArray = presParsed.dias_descanso || [];
         if (typeof presParsed.dia_descanso === 'string' && presParsed.dia_descanso !== 'Ninguno') descansosArray = [presParsed.dia_descanso];
 
         setPrestacionesEmp({
           sueldo_base: presParsed.sueldo_base || 0, 
+          tarifa_apoyo_dia: presParsed.tarifa_apoyo_dia || 0,
           tipo_sueldo: presParsed.tipo_sueldo || 'Semanal', 
           banco: presParsed.banco || '', 
           cuenta: presParsed.cuenta || '',
@@ -105,7 +102,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
           nombre_completo: presParsed.nombre_completo || '', 
           generar_nomina: presParsed.generar_nomina !== undefined ? presParsed.generar_nomina : false,
           dias_descanso: descansosArray,
-          dias_no_laborales: presParsed.dias_no_laborales || [], // Cargar días no laborales
+          dias_no_laborales: presParsed.dias_no_laborales || [],
           prima_vacacional: presParsed.prima_vacacional !== undefined ? presParsed.prima_vacacional : 25,
           dias_vacaciones_disponibles: presParsed.dias_vacaciones_disponibles !== undefined ? presParsed.dias_vacaciones_disponibles : 12,
           horas_extras_acumuladas: presParsed.horas_extras_acumuladas !== undefined ? presParsed.horas_extras_acumuladas : 0,
@@ -117,16 +114,14 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
       }
     } else {
       setPrestacionesEmp({ 
-        sueldo_base: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
+        sueldo_base: 0, tarifa_apoyo_dia: 0, tipo_sueldo: 'Semanal', banco: '', cuenta: '', rfc: '', curp: '', nss: '', telefono: '', correo: '', 
         fecha_ingreso: '', fecha_nacimiento: '', nombre_completo: '', generar_nomina: false, dias_descanso: [], dias_no_laborales: [], 
         prima_vacacional: 25, dias_vacaciones_disponibles: 12, horas_extras_acumuladas: 0, limite_platillos: 1, limite_bebidas: 1, prestamos: [], bonos_recurrentes: [] 
       });
     }
   }, [empleadoEditId, usuariosDB]);
 
-  // ==========================================
   // VALIDACIÓN DE DATOS OBLIGATORIOS PARA NÓMINA
-  // ==========================================
   const manejarToggleGenerarNomina = (checked) => {
       if (checked) {
           if (!prestacionesEmp.nombre_completo.trim() || !prestacionesEmp.fecha_ingreso || !prestacionesEmp.sueldo_base || prestacionesEmp.sueldo_base <= 0) {
@@ -173,12 +168,10 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     try {
       const resConfig = await fetch(`${apiUrl}/configuracion`);
       let matrizActual = {};
-      
       if (resConfig.ok) {
         const dataConfig = await resConfig.json();
         matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
       }
-      
       matrizActual.reglas_nomina = reglasNomina;
       
       const formData = new FormData(); 
@@ -198,7 +191,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     e.preventDefault(); 
     if (!empleadoEditId) return; 
 
-    // Bloqueo de seguridad final
     if (prestacionesEmp.generar_nomina) {
         if (!prestacionesEmp.nombre_completo.trim() || !prestacionesEmp.fecha_ingreso || !prestacionesEmp.sueldo_base || prestacionesEmp.sueldo_base <= 0) {
             showAlert("Error", "Faltan datos obligatorios para habilitar el motor de nómina.", "error");
@@ -208,7 +200,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
 
     setIsSubmitting(true);
     try {
-      // Sincronizar saldo de prestamo nuevo (al crear, saldo restante = monto total)
       const prestamosValidados = prestacionesEmp.prestamos.map(p => {
         if (p.saldo_restante === 0 && p.monto_total > 0 && p.activo) return { ...p, saldo_restante: p.monto_total };
         return p;
@@ -231,9 +222,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start animate-in fade-in pb-12">
       
-      {/* ==================================================== */}
-      {/* 1. SECCIÓN: POLÍTICAS GLOBALES (REGLAS Y SANCIONES)  */}
-      {/* ==================================================== */}
+      {/* 1. SECCIÓN: POLÍTICAS GLOBALES */}
       <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
           <ShieldCheck className="text-emerald-500" size={32}/>
@@ -244,8 +233,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         </div>
 
         <form onSubmit={guardarReglasGlobales} className="space-y-6">
-          
-          {/* LEY: FALTAS Y DESCANSO PROPORCIONAL */}
           <div className={`p-5 rounded-2xl border-2 transition-all ${reglasNomina.descuento_descanso_activo ? 'border-red-500 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between items-start mb-2">
               <div>
@@ -263,7 +250,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             )}
           </div>
 
-          {/* LEY: PRIMA DOMINICAL */}
           <div className={`p-5 rounded-2xl border-2 transition-all ${reglasNomina.prima_dominical_activa ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between items-start mb-2">
               <div>
@@ -281,7 +267,6 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             )}
           </div>
 
-          {/* LEY: IMPUESTOS Y DEDUCCIONES (ISR E IMSS) */}
           <div className="p-5 rounded-2xl border-2 border-slate-200 bg-slate-50">
              <h4 className="font-black text-slate-800 flex items-center gap-2 mb-4"><Landmark className="text-slate-500" size={18}/> Retenciones Fiscales (Fijas)</h4>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -314,30 +299,26 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
 
           <div className="border-t border-slate-200 my-6"></div>
 
-          {/* BONO DE OBSERVACIONES GENERALES */}
+          {/* BONO DE OBSERVACIONES */}
           <div className={`p-5 rounded-2xl border-2 transition-all mb-6 ${reglasNomina.bono_observaciones_activo ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h4 className="font-black text-slate-800 flex items-center gap-2"><ClipboardCheck className="text-indigo-500" size={18}/> Bono por Observaciones (Comportamiento)</h4>
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Recompensa el cumplimiento de reglas (Uniforme, celular, actitud).</p>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Recompensa el cumplimiento de reglas.</p>
               </div>
               <button type="button" onClick={() => setReglasNomina({...reglasNomina, bono_observaciones_activo: !reglasNomina.bono_observaciones_activo})} className={`px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider transition shrink-0 ${reglasNomina.bono_observaciones_activo ? 'bg-indigo-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>
                 {reglasNomina.bono_observaciones_activo ? 'Activado' : 'Apagado'}
               </button>
             </div>
-            
             {reglasNomina.bono_observaciones_activo && (
               <div className="grid grid-cols-2 gap-4 mt-4 animate-in fade-in slide-in-from-top-2">
                 <div>
                   <label className="text-[10px] font-black text-indigo-800 uppercase tracking-widest block mb-2">Monto del Bono ($)</label>
-                  <input type="number" min="0" value={reglasNomina.bono_observaciones_monto || ''} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_monto: Number(e.target.value)})} placeholder="Ej. 100" className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center shadow-sm" />
+                  <input type="number" min="0" value={reglasNomina.bono_observaciones_monto || ''} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_monto: Number(e.target.value)})} className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-indigo-800 uppercase tracking-widest block mb-2">Tolerancia (Fallas perdonadas)</label>
-                  <input type="number" min="0" value={reglasNomina.bono_observaciones_tolerancia || 0} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_tolerancia: Number(e.target.value)})} className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center shadow-sm" />
-                </div>
-                <div className="col-span-2">
-                  <p className="text-[10px] text-indigo-600 font-bold">Si el empleado acumula más de <b>{reglasNomina.bono_observaciones_tolerancia || 0}</b> observaciones negativas (NO), perderá este bono automáticamente.</p>
+                  <input type="number" min="0" value={reglasNomina.bono_observaciones_tolerancia || 0} onChange={e => setReglasNomina({...reglasNomina, bono_observaciones_tolerancia: Number(e.target.value)})} className="w-full bg-white border border-indigo-200 rounded-xl p-3 font-black text-indigo-900 outline-none text-center" />
                 </div>
               </div>
             )}
@@ -421,9 +402,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
         </form>
       </div>
 
-      {/* ==================================================== */}
-      {/* 2. SECCIÓN: FICHA FINANCIERA Y GESTIÓN DEL EMPLEADO  */}
-      {/* ==================================================== */}
+      {/* 2. SECCIÓN: FICHA FINANCIERA */}
       <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
           <User className="text-blue-500" size={32}/>
@@ -447,28 +426,32 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
               <input type="checkbox" checked={prestacionesEmp.generar_nomina} onChange={(e) => manejarToggleGenerarNomina(e.target.checked)} className="w-6 h-6 accent-blue-600 rounded-md cursor-pointer" />
             </div>
 
-            {/* SUELDO Y FRECUENCIA */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+            {/* CAMPO DE TARIFA DE APOYO */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Sueldo Base ($)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Sueldo Base ($)</label>
                 <input type="number" required value={prestacionesEmp.sueldo_base} onChange={e => setPrestacionesEmp({...prestacionesEmp, sueldo_base: Number(e.target.value)})} className="w-full bg-white border border-slate-300 rounded-xl p-3 font-black focus:border-blue-500 outline-none transition-colors" />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-500 uppercase">Frecuencia (Base)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Frecuencia (Base)</label>
                 <select value={prestacionesEmp.tipo_sueldo} onChange={e => setPrestacionesEmp({...prestacionesEmp, tipo_sueldo: e.target.value})} className="w-full bg-white border border-slate-300 rounded-xl p-3 font-black outline-none focus:border-blue-500 transition-colors cursor-pointer">
                   <option value="Semanal">Semanal (Normal)</option>
                   <option value="Quincenal">Quincenal (Normal)</option>
                   <option value="Mensual">Mensual (Normal)</option>
-                  <option value="Diario">Diario (Paga por día exacto)</option>
-                  <option value="Por Hora">Por Hora (Medio turno/Eventual)</option>
+                  <option value="Diario">Diario (Pago exacto)</option>
+                  <option value="Por Hora">Por Hora (Medio turno)</option>
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <p className="text-[10px] font-bold text-slate-500 leading-tight">💡 Nota: El sistema convertirá esto a un <b>Sueldo Diario Exacto</b> invisiblemente para calcular de forma proporcional si faltan, o si la nómina se cobra antes de tiempo.</p>
+              <div>
+                <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1 block">Tarifa Apoyo ($)</label>
+                <input type="number" required value={prestacionesEmp.tarifa_apoyo_dia || 0} onChange={e => setPrestacionesEmp({...prestacionesEmp, tarifa_apoyo_dia: Number(e.target.value)})} className="w-full bg-blue-50 border border-blue-200 rounded-xl p-3 font-black focus:border-blue-500 text-blue-700 outline-none transition-colors" title="Tarifa fija que se pagará si asiste en un día 'No Laboral'" />
+              </div>
+              <div className="md:col-span-3">
+                <p className="text-[10px] font-bold text-slate-500 leading-tight">💡 Nota: La <b>Tarifa de Apoyo</b> se aplicará automáticamente si el empleado se presenta a trabajar en un día que estaba configurado como "No Laboral", evitando que se le pague por horas y manteniendo su sueldo regular intacto.</p>
               </div>
             </div>
 
-            {/* ANTIGÜEDAD, VACACIONES Y BANCO DE HORAS */}
+            {/* ANTIGÜEDAD Y VACACIONES */}
             <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100">
                <h4 className="font-black text-emerald-900 flex items-center gap-2 mb-3 text-sm"><CalendarDays size={16}/> Fechas, Vacaciones y Banco de Horas</h4>
                <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 items-end">
@@ -481,7 +464,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                     <input type="date" value={prestacionesEmp.fecha_nacimiento} onChange={e => setPrestacionesEmp({...prestacionesEmp, fecha_nacimiento: e.target.value})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-bold text-emerald-900 outline-none text-xs" />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-emerald-700 uppercase leading-tight block truncate" title="Base: 12 días primer año">Días Vac.</label>
+                    <label className="text-[10px] font-bold text-emerald-700 uppercase leading-tight block truncate">Días Vac.</label>
                     <input type="number" min="0" required value={prestacionesEmp.dias_vacaciones_disponibles} onChange={e => setPrestacionesEmp({...prestacionesEmp, dias_vacaciones_disponibles: Number(e.target.value)})} className="w-full bg-white border border-emerald-200 rounded-xl p-2.5 font-black text-center text-emerald-900 outline-none text-sm" />
                   </div>
                   <div>
@@ -493,12 +476,11 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                     <input type="number" step="0.01" min="0" value={prestacionesEmp.horas_extras_acumuladas} onChange={e => setPrestacionesEmp({...prestacionesEmp, horas_extras_acumuladas: Number(e.target.value)})} className="w-full bg-emerald-100 border border-emerald-300 rounded-xl p-2.5 font-black text-center text-emerald-900 outline-none text-sm" />
                   </div>
                </div>
-               <p className="text-[10px] text-emerald-600 mt-2 leading-tight font-bold">Las horas extras que decidas acumular se sumarán aquí automáticamente.</p>
             </div>
 
-            {/* LIMITES DE COMEDOR (PRESTACIÓN) */}
+            {/* LIMITES DE COMEDOR */}
             <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100">
-               <h4 className="font-black text-orange-900 flex items-center gap-2 mb-3 text-sm"><Coffee size={16}/> Comida Personal (Prestación)</h4>
+               <h4 className="font-black text-orange-900 flex items-center gap-2 mb-3 text-sm"><Coffee size={16}/> Comida Personal</h4>
                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-[10px] font-bold text-orange-700 uppercase">Max. Platillos / Turno</label>
@@ -509,12 +491,11 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                     <input type="number" min="0" required value={prestacionesEmp.limite_bebidas} onChange={e => setPrestacionesEmp({...prestacionesEmp, limite_bebidas: Number(e.target.value)})} className="w-full bg-white border border-orange-200 rounded-xl p-2.5 font-black text-orange-900 outline-none text-center" />
                   </div>
                </div>
-               <p className="text-[10px] text-orange-600 mt-2 leading-tight font-bold">Límite permitido por día. Si pones "0", la Caja rechazará cualquier orden gratuita de este empleado.</p>
             </div>
 
             <div className="border-t border-slate-200 my-4"></div>
 
-            {/* 🏦 GESTOR DE PRÉSTAMOS */}
+            {/* GESTOR DE PRÉSTAMOS */}
             <div className="bg-rose-50 p-5 rounded-2xl border border-rose-100">
                <div className="flex justify-between items-center mb-4">
                   <h4 className="font-black text-rose-900 flex items-center gap-2 text-sm"><Banknote size={16}/> Préstamos y Vales</h4>
@@ -524,27 +505,27 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                  <p className="text-xs text-rose-500 font-bold text-center py-2 bg-white/50 rounded-xl">Sin deudas activas.</p>
                ) : (
                  <div className="space-y-3">
-                   {prestacionesEmp.prestamos.map((p, idx) => (
+                   {prestacionesEmp.prestamos.map((p) => (
                       <div key={p.id} className={`bg-white p-3 rounded-xl border relative shadow-sm ${p.activo ? 'border-rose-200' : 'border-slate-200 opacity-60'}`}>
                          <button type="button" onClick={() => eliminarPrestamo(p.id)} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
                          <input type="text" placeholder="Concepto (Ej. Préstamo Personal)" value={p.concepto} onChange={e => actualizarPrestamo(p.id, 'concepto', e.target.value)} className="w-[90%] text-sm font-black text-slate-800 outline-none border-b border-dashed border-slate-200 pb-1 mb-2" />
                          <div className="grid grid-cols-3 gap-2 mt-2">
                             <div>
                               <label className="text-[9px] font-black text-slate-400 uppercase">Monto Total</label>
-                              <input type="number" disabled={!p.activo} placeholder="$0.00" value={p.monto_total || ''} onChange={e => actualizarPrestamo(p.id, 'monto_total', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" />
+                              <input type="number" disabled={!p.activo} value={p.monto_total || ''} onChange={e => actualizarPrestamo(p.id, 'monto_total', Number(e.target.value))} className="w-full bg-slate-50 p-1.5 rounded text-xs font-bold outline-none border border-slate-100 text-center text-slate-700" />
                             </div>
                             <div>
-                              <label className="text-[9px] font-black text-rose-500 uppercase">Descontar x Nómina</label>
-                              <input type="number" disabled={!p.activo} placeholder="$0.00" value={p.descuento_por_nomina || ''} onChange={e => actualizarPrestamo(p.id, 'descuento_por_nomina', Number(e.target.value))} className="w-full bg-rose-50 p-1.5 rounded text-xs font-bold outline-none border border-rose-200 text-center text-rose-700" />
+                              <label className="text-[9px] font-black text-rose-500 uppercase">A Descontar</label>
+                              <input type="number" disabled={!p.activo} value={p.descuento_por_nomina || ''} onChange={e => actualizarPrestamo(p.id, 'descuento_por_nomina', Number(e.target.value))} className="w-full bg-rose-50 p-1.5 rounded text-xs font-bold outline-none border border-rose-200 text-center text-rose-700" />
                             </div>
                             <div>
-                              <label className="text-[9px] font-black text-slate-400 uppercase">Saldo Restante</label>
-                              <input type="number" disabled placeholder="Auto" value={p.saldo_restante} className="w-full bg-slate-100 p-1.5 rounded text-xs font-bold outline-none border border-slate-200 text-center text-slate-500 cursor-not-allowed" />
+                              <label className="text-[9px] font-black text-slate-400 uppercase">Restante</label>
+                              <input type="number" disabled value={p.saldo_restante} className="w-full bg-slate-100 p-1.5 rounded text-xs font-bold outline-none border border-slate-200 text-center text-slate-500 cursor-not-allowed" />
                             </div>
                          </div>
                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
                            <input type="checkbox" checked={p.activo} onChange={e => actualizarPrestamo(p.id, 'activo', e.target.checked)} className="w-3 h-3 accent-rose-500"/>
-                           <span className="text-[10px] font-bold text-slate-500 uppercase">Cobro Activo en Generador</span>
+                           <span className="text-[10px] font-bold text-slate-500 uppercase">Cobro Activo</span>
                          </div>
                       </div>
                    ))}
@@ -552,8 +533,8 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                )}
             </div>
 
-            {/* ⏳ BONOS Y DEDUCCIONES RECURRENTES */}
-            <div className="bg-purple-50 p-5 rounded-2xl border border-purple-100">
+            {/* 👇 RECUPERADO: BONOS Y DEDUCCIONES RECURRENTES */}
+            <div className="bg-purple-50 p-5 rounded-2xl border border-purple-100 mt-6">
                <div className="flex justify-between items-center mb-4">
                   <h4 className="font-black text-purple-900 flex items-center gap-2 text-sm"><Clock size={16}/> Ajustes Temporales (Recurrentes)</h4>
                   <button type="button" onClick={agregarBonoRecurrente} className="text-[10px] bg-purple-600 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-purple-700 transition"><PlusCircle size={12}/> Agregar</button>
@@ -562,7 +543,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                  <p className="text-xs text-purple-500 font-bold text-center py-2 bg-white/50 rounded-xl">Sin bonos ni descuentos temporales.</p>
                ) : (
                  <div className="space-y-3">
-                   {prestacionesEmp.bonos_recurrentes.map((b, idx) => (
+                   {prestacionesEmp.bonos_recurrentes.map((b) => (
                       <div key={b.id} className={`bg-white p-3 rounded-xl border relative shadow-sm ${b.activo ? 'border-purple-200' : 'border-slate-200 opacity-60'}`}>
                          <button type="button" onClick={() => eliminarBonoRecurrente(b.id)} className="absolute top-3 right-3 text-slate-300 hover:text-red-500 transition"><Trash2 size={16}/></button>
                          <div className="flex items-center gap-2 mb-2 w-[90%]">
@@ -609,20 +590,8 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                 <input type="text" value={prestacionesEmp.telefono} onChange={e => setPrestacionesEmp({...prestacionesEmp, telefono: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
               </div>
               <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase">Correo (Opcional)</label>
-                <input type="email" value={prestacionesEmp.correo} onChange={e => setPrestacionesEmp({...prestacionesEmp, correo: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
-              </div>
-              <div>
                 <label className="text-[10px] font-black text-slate-500 uppercase">RFC</label>
                 <input type="text" value={prestacionesEmp.rfc} onChange={e => setPrestacionesEmp({...prestacionesEmp, rfc: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase">CURP</label>
-                <input type="text" value={prestacionesEmp.curp} onChange={e => setPrestacionesEmp({...prestacionesEmp, curp: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold uppercase focus:border-blue-500 outline-none transition-colors" />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-500 uppercase">NSS (Seguro Social)</label>
-                <input type="text" value={prestacionesEmp.nss} onChange={e => setPrestacionesEmp({...prestacionesEmp, nss: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 outline-none transition-colors" />
               </div>
               <div className="col-span-2 grid grid-cols-2 gap-4 mt-2 border-t border-slate-200 pt-4">
                  <div>
@@ -636,7 +605,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
               </div>
             </div>
 
-            {/* 👇 NUEVA LÓGICA: BOTONES DE 3 ESTADOS (LABORAL, DESCANSO, NO LABORAL) */}
+            {/* CONFIGURACIÓN DE 3 ESTADOS (LABORAL, DESCANSO, NO LABORAL) */}
             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 mt-4">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 block">Configuración Semanal del Trabajador</label>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mt-2">
@@ -669,13 +638,10 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                       const noLaborales = prev.dias_no_laborales || [];
 
                       if (!isDescanso && !isNoLaboral) {
-                        // De Laboral -> a Descanso Oficial
                         return { ...prev, dias_descanso: [...descansos, dia], dias_no_laborales: noLaborales.filter(d => d !== dia) };
                       } else if (isDescanso) {
-                        // De Descanso -> a No Laboral
                         return { ...prev, dias_descanso: descansos.filter(d => d !== dia), dias_no_laborales: [...noLaborales, dia] };
                       } else {
-                        // De No Laboral -> a Laboral
                         return { ...prev, dias_descanso: descansos.filter(d => d !== dia), dias_no_laborales: noLaborales.filter(d => d !== dia) };
                       }
                     });
@@ -690,9 +656,9 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                 })}
               </div>
               <p className="text-[10px] text-slate-500 font-bold mt-4 leading-tight">
-                🔘 <b>Día Laboral:</b> Espera asistencia (Faltar causa sanción). <br/>
-                🟢 <b>Descanso Oficial:</b> Es su descanso de ley, se paga sin checar asistencia. <br/>
-                🔴 <b>No Laboral:</b> No asiste y NO se paga (Ideal para empleados de Fines de Semana).
+                🔘 <b>Día Laboral:</b> Espera asistencia normal.<br/>
+                🟢 <b>Descanso Oficial:</b> Es su descanso de ley.<br/>
+                🔴 <b>No Laboral:</b> Si asiste en este día, el sistema lo marcará como <b>Turno de Apoyo</b> y sugerirá pagar la tarifa plana configurada arriba.
               </p>
             </div>
 

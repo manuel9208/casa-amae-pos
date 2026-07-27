@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square } from 'lucide-react';
+import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square, CheckCircle2 } from 'lucide-react';
 
 const diasSemanaNombresFull = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGlobal }) => {
   const [fechaReferencia, setFechaReferencia] = useState(new Date());
 
-  // ESTRUCTURA DE DATOS
   const [areasBase, setAreasBase] = useState([]);
   const [asignaciones, setAsignaciones] = useState({});
   const [evidencias, setEvidencias] = useState({});
@@ -20,11 +19,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
   
-  // FILTROS MASIVOS (INTERFAZ VISUAL)
   const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
   const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
 
@@ -33,7 +30,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
   const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
 
-  // PRE-SELECCIONAR A TODOS AL CARGAR
   useEffect(() => {
     if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
       setEmpleadosSeleccionados(empleadosVisibles.map(e => String(e.id)));
@@ -50,17 +46,17 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     }
   };
 
-  // 🗓️ LÓGICA DE CALENDARIO DINÁMICO
   const year = fechaReferencia.getFullYear();
   const month = fechaReferencia.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+  // 👇 FIX APLICADO: Variable nombrada correctamente como 'nombreBreve'
   const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
     const date = new Date(year, month, i + 1);
     const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-    const nombre = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
+    const nombreBreve = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
     const nombreCompleto = diasSemanaNombresFull[date.getDay()];
-    return { num: i + 1, nombre, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
+    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
   });
 
   const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
@@ -69,7 +65,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     setFechaReferencia(new Date(year, month + direccion, 1));
   };
 
-  // PROTECCIÓN CONTRA CIERRE ACCIDENTAL
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (hayCambiosSinGuardar) {
@@ -81,14 +76,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hayCambiosSinGuardar]);
 
-  // CARGAR CONFIGURACIÓN GLOBAL (Horarios de cierre)
   useEffect(() => {
     if (configGlobal && configGlobal.horarios_semana) {
       try { setHorarioNegocio(typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana || {}); } catch (e) {}
     }
   }, [configGlobal]);
 
-  // 🔄 CARGA Y MIGRACIÓN DE DATOS
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
       .then(res => res.json())
@@ -167,7 +160,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       .catch(() => {});
   }, [apiUrl]);
 
-  // ➕ AGREGAR / ELIMINAR ÁREA
   const agregarArea = (e) => {
     e.preventDefault();
     const areaNombre = nuevaArea.trim();
@@ -182,7 +174,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   };
 
   const eliminarArea = (areaId) => {
-    showConfirm("Eliminar Área", `¿Seguro que deseas eliminar "${areaId}"? Se perderá su historial.`, () => {
+    showConfirm("Eliminar Área", `¿Seguro que deseas eliminar "${areaId}"? Se perderá todo su historial.`, () => {
       setHayCambiosSinGuardar(true);
       setAreasBase(prev => prev.filter(a => a.id !== areaId));
     });
@@ -311,7 +303,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     setIsSubmitting(false);
   };
 
-  // 👇 LÓGICA DE DUPLICADO (SOLO DUPLICA LOS EMPLEADOS VISIBLES/SELECCIONADOS)
   const duplicarSiguienteMes = () => {
     if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
 
@@ -343,7 +334,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             if (currentMonthDay && nuevasAsignaciones[claveArea][currentMonthDay.fechaStr]) {
               const asignados = nuevasAsignaciones[claveArea][currentMonthDay.fechaStr];
               
-              // REEVALUAR REGLAS Y COPIAR SOLO A LOS QUE ESTÁN ACTIVOS EN EL FILTRO
               const asignables = asignados.filter(empId => {
                   if (!empleadosSeleccionados.includes(String(empId))) return false;
 
@@ -375,7 +365,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     const isMasivo = !!modalMasivo;
     const data = modalCelda || modalMasivo;
 
-    // Filtro reactivo dentro del modal
     const empleadosParaMostrar = filtroRolMasivo 
       ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
       : empleadosVisibles;
@@ -479,7 +468,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           <h3 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">
             {isMasivo ? 'Asignación Masiva Mensual' : `Asignar: ${data.fechaStr}`}
           </h3>
-          <p className="text-sm font-bold text-blue-600 mb-4 bg-blue-50 px-4 py-2 rounded-xl w-fit mt-2 border border-blue-100">
+          <p className="text-sm font-bold text-teal-600 mb-4 bg-teal-50 px-4 py-2 rounded-xl w-fit mt-2 border border-teal-100">
             {data.areaId} - Turno {data.turno}
           </p>
 
@@ -498,7 +487,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                       onClick={() => toggleDiaSemana(ds.idx)}
                       className={`flex-1 py-2 rounded-lg font-black text-[10px] sm:text-xs transition-all ${
                         isSelected
-                          ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                          ? 'bg-teal-600 text-white shadow-md transform scale-105'
                           : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-100'
                       }`}
                     >
@@ -512,12 +501,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
             {empleadosParaMostrar.map(emp => (
-              <label key={emp.id} className={`flex items-center p-3 rounded-xl border cursor-pointer transition-all shadow-sm ${data.seleccionados.includes(String(emp.id)) ? 'bg-white border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:border-blue-300'}`}>
+              <label key={emp.id} className={`flex items-center p-3 rounded-xl border cursor-pointer transition-all shadow-sm ${data.seleccionados.includes(String(emp.id)) ? 'bg-white border-teal-500 ring-1 ring-teal-500' : 'bg-white border-slate-200 hover:border-teal-300'}`}>
                 <input 
                   type="checkbox" 
                   checked={data.seleccionados.includes(String(emp.id))} 
                   onChange={() => toggleEmpleado(emp.id)} 
-                  className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 ml-2" 
+                  className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 ml-2" 
                 />
                 <div className="ml-4">
                   <p className="font-black text-slate-800 text-sm leading-tight">{emp.nombre}</p>
@@ -534,7 +523,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             <button onClick={() => isMasivo ? setModalMasivo(null) : setModalCelda(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
               Cancelar
             </button>
-            <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition active:scale-95">
+            <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-lg shadow-teal-500/30 transition active:scale-95">
               Aplicar Reglas
             </button>
           </div>
@@ -543,8 +532,18 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     );
   };
 
+  const baseUrlClean = apiUrl.replace('/api', '');
+  const empleadosTabla = empleadosFiltrados.filter(e => empleadosSeleccionados.includes(String(e.id)));
+
   return (
     <>
+      <style>{`
+        .scroll-horarios::-webkit-scrollbar { height: 16px; width: 16px; }
+        .scroll-horarios::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 12px; }
+        .scroll-horarios::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 12px; border: 3px solid #f1f5f9; }
+        .scroll-horarios::-webkit-scrollbar-thumb:hover { background: #64748b; }
+      `}</style>
+
       <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
         
         {/* HEADER Y BOTONES GLOBALES */}
@@ -598,21 +597,50 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         </div>
 
-        {/* 👇 NUEVO PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
-        <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
+        {/* 👇 PANEL RESTAURADO: GESTIÓN DE ÁREAS Y TURNOS */}
+        {areasBase.length > 0 && (
+          <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm mb-6 print:hidden">
+            <h4 className="font-black text-slate-700 mb-4 flex items-center gap-2"><Sparkles size={18}/> Áreas y Turnos Configurados</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {areasBase.map(area => (
+                <div key={area.id} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl shadow-sm">
+                  <div className="flex justify-between items-center mb-3 border-b border-slate-200 pb-2">
+                    <span className="font-black text-slate-800 uppercase tracking-wider text-sm">{area.nombre}</span>
+                    <button onClick={() => eliminarArea(area.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-600">
+                    {['General', 'Mañana', 'Tarde', 'Noche'].map(t => {
+                      const isActive = area.turnos.includes(t);
+                      return (
+                        <label key={t} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border ${isActive ? 'bg-teal-100 border-teal-300 text-teal-800' : 'bg-white border-slate-200 hover:border-teal-400'}`}>
+                          <input type="checkbox" checked={isActive} onChange={() => toggleTurno(area.id, t)} className="hidden"/>
+                          {isActive && <CheckCircle2 size={12} className="text-teal-600"/>}
+                          {t}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
+        <div className="bg-teal-50 border border-teal-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
           <div className="flex-1 w-full xl:pr-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-              <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
-              <button onClick={toggleSeleccionMasiva} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition bg-white px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm whitespace-nowrap">
+              <h3 className="font-black text-teal-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
+              <button onClick={toggleSeleccionMasiva} className="text-xs font-bold text-teal-600 hover:text-teal-800 transition bg-white px-3 py-1.5 rounded-lg border border-teal-200 shadow-sm whitespace-nowrap">
                 {todosFiltradosSeleccionados ? `Desmarcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}` : `Marcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}`}
               </button>
             </div>
             
             <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
-              <Filter size={14} className="text-blue-400 shrink-0 mr-1"/>
-              <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+              <Filter size={14} className="text-teal-400 shrink-0 mr-1"/>
+              <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
               {rolesDisponibles.map(rol => (
-                <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+                <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
               ))}
             </div>
 
@@ -620,14 +648,14 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
               {empleadosFiltrados.map(emp => {
                 const seleccionado = empleadosSeleccionados.includes(String(emp.id));
                 return (
-                  <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                  <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`}>
                     {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
                   </button>
                 )
               })}
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-blue-200/50 w-full">
+            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-teal-200/50 w-full">
               <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-indigo-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
                 <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
               </button>
@@ -635,152 +663,167 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         </div>
 
-        {/* TABLA PRINCIPAL DE ZONAS */}
-        <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 custom-scrollbar">
+        {/* MATRIZ INVERTIDA DE LIMPIEZA */}
+        <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 scroll-horarios h-[650px] relative">
           {areasBase.length === 0 ? (
             <div className="p-16 text-center text-slate-400">
               <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
               <p className="font-bold text-lg">Aún no hay tareas registradas.</p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse min-w-max">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-black tracking-widest">
-                  <th className="p-4 border-r border-slate-200 w-56 sticky left-0 bg-slate-100 z-30 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Tarea / Turnos</th>
-                  {diasMes.map(d => (
-                    <th key={d.fechaStr} className="p-3 text-center border-r border-slate-200 min-w-[140px]">
-                      <div className={`text-xs font-black p-1.5 rounded-lg ${d.nombre.startsWith('S') || d.nombre.startsWith('D') ? 'bg-red-100 text-red-600' : 'bg-slate-200 text-slate-600'}`}>
-                        {d.num} {d.nombre}
+            <table className="w-full text-left border-collapse min-w-max relative">
+              <thead className="sticky top-0 z-30">
+                <tr className="bg-slate-100 shadow-[0_2px_5px_rgba(0,0,0,0.05)]">
+                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100 z-40 border-r border-slate-200 min-w-[120px]">
+                    Día / Fecha
+                  </th>
+                  {empleadosTabla.map(emp => (
+                    <th key={emp.id} className="p-4 text-center border-r border-slate-200 min-w-[260px] align-top z-30 bg-slate-100">
+                      <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+                        <p className="font-black text-slate-800 text-sm truncate" title={emp.nombre}>{emp.nombre.split(' ')[0]}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{emp.rol}</p>
                       </div>
                     </th>
                   ))}
-                  <th className="p-4 text-center w-24 sticky right-0 bg-slate-100 z-30 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">Acciones</th>
+                  <th className="p-4 text-center w-32 sticky right-0 bg-slate-100 z-40 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] text-xs font-black text-slate-500 uppercase tracking-widest border-l border-slate-200">
+                    Mes Completo
+                  </th>
                 </tr>
               </thead>
-              <tbody>
-                {areasBase.map((area) => (
-                  <React.Fragment key={area.id}>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <td className="p-4 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.05)] border-r border-slate-200">
-                        <div className="flex justify-between items-start mb-3">
-                          <span className="font-black text-slate-800 uppercase tracking-wider text-sm">{area.nombre}</span>
-                          <button onClick={() => eliminarArea(area.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600">
-                          {['General', 'Mañana', 'Tarde', 'Noche'].map(t => (
-                            <label key={t} className="flex items-center gap-1.5 cursor-pointer hover:text-blue-600 transition-colors">
-                              <input type="checkbox" checked={area.turnos.includes(t)} onChange={() => toggleTurno(area.id, t)} className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"/>
-                              {t}
-                            </label>
-                          ))}
+              <tbody className="divide-y divide-slate-100">
+                {diasMes.map((d, index) => {
+                  const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
+                  const isCerrado = diasCerrados.includes(d.fechaStr);
+
+                  return (
+                    <tr key={d.fechaStr} className={`hover:bg-slate-50 transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                      {/* CELDA DEL DÍA */}
+                      <td className="p-3 sticky left-0 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20 border-r border-slate-100 align-middle">
+                        <div className={`flex items-center gap-3 p-2 rounded-xl border ${esFinSemana ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-200'}`}>
+                          <span className={`text-2xl font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
+                          <div>
+                            <span className={`block text-[10px] font-black uppercase tracking-widest ${esFinSemana ? 'text-red-400' : 'text-slate-400'}`}>{d.nombreBreve}</span>
+                            <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{d.fechaStr.split('-').slice(1).join('/')}</span>
+                          </div>
                         </div>
                       </td>
-                      <td colSpan={diasMes.length + 1} className="bg-slate-50">
-                        {area.turnos.length === 0 && <p className="text-xs text-slate-400 font-bold pl-6 flex items-center gap-2"><Lock size={14}/> Activa un turno a la izquierda para poder asignar personal.</p>}
-                      </td>
-                    </tr>
 
-                    {/* SUB-FILAS POR CADA TURNO ACTIVADO */}
-                    {area.turnos.map(turno => (
-                      <tr key={`${area.id}_${turno}`} className="border-b border-slate-100 bg-white transition">
-                        <td className="p-3 pl-8 sticky left-0 bg-white z-20 shadow-[2px_0_5px_rgba(0,0,0,0.05)] border-r border-slate-100 font-black text-blue-600 text-[11px] uppercase tracking-widest">
-                          ↳ Turno {turno}
-                        </td>
-                        
-                        {diasMes.map(d => {
-                          const isCerrado = diasCerrados.includes(d.fechaStr);
-                          const asignadosDb = asignaciones[`${area.id}_${turno}`]?.[d.fechaStr] || [];
-                          // 👇 AQUÍ FILTRAMOS VISUALMENTE A LOS EMPLEADOS DE LA TABLA
-                          const asignadosVisibles = asignadosDb.filter(empId => empleadosSeleccionados.includes(String(empId)));
-
+                      {/* EVALUACIONES Y FOTOS POR EMPLEADO */}
+                      {empleadosTabla.map(emp => {
+                        if (isCerrado) {
                           return (
-                            <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
-                              {isCerrado ? (
-                                <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
-                                  <Lock size={16} className="text-slate-400 mb-1" />
-                                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Auditoría<br/>Cerrada</span>
-                                </div>
-                              ) : (
-                                <div className="flex flex-col gap-1.5 h-full">
-                                  
-                                  {/* BOTÓN ASIGNAR MODAL */}
-                                  <button 
-                                    onClick={() => setModalCelda({ areaId: area.id, turno, fechaStr: d.fechaStr, seleccionados: asignadosDb })} 
-                                    className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignadosVisibles.length > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500 hover:bg-slate-50'}`}
-                                  >
-                                    <Users size={12}/> {asignadosVisibles.length > 0 ? `${asignadosVisibles.length} Visibles` : 'Asignar'}
-                                  </button>
-
-                                  {/* EVIDENCIAS Y EVALUACIÓN INDIVIDUAL POR EMPLEADO */}
-                                  {asignadosVisibles.length > 0 && (
-                                    <div className="mt-auto border-t border-slate-100 pt-2 space-y-2 w-full">
-                                      {asignadosVisibles.map(empId => {
-                                        const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-                                        if(!emp) return null;
-                                        
-                                        const evidenciaObj = evidencias[`${area.id}_${turno}`]?.[d.fechaStr] || {};
-                                        const photoUrl = evidenciaObj[empId];
-                                        
-                                        const evalObj = evaluaciones[`${area.id}_${turno}`]?.[d.fechaStr] || {};
-                                        const status = evalObj[empId];
-
-                                        return (
-                                          <div key={empId} className="flex flex-col gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full animate-in zoom-in-95">
-                                            
-                                            <span className="text-[10px] font-black text-slate-700 truncate w-full text-center">
-                                              {emp.nombre.split(' ')[0]}
-                                            </span>
-
-                                            {/* FOTO DEL EMPLEADO */}
-                                            {photoUrl ? (
-                                              <a href={photoUrl} target="_blank" rel="noreferrer" className="block w-full h-12 rounded-lg overflow-hidden border border-slate-300 relative group/foto">
-                                                <img src={photoUrl} alt="Evidencia" className="w-full h-full object-cover"/>
-                                                <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
-                                                  <Camera size={14} className="text-white"/>
-                                                </div>
-                                              </a>
-                                            ) : (
-                                              <div className="w-full h-8 bg-slate-100 rounded-lg flex items-center justify-center border border-dashed border-slate-300">
-                                                <span className="text-[8px] text-slate-400 font-bold uppercase">Sin Foto</span>
-                                              </div>
-                                            )}
-
-                                            {/* BOTONES DE EVALUACIÓN INDIVIDUAL */}
-                                            {!status ? (
-                                              <div className="flex gap-1 w-full mt-1">
-                                                <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(empId), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white text-[9px] py-1.5 rounded-md font-black shadow-sm transition-all">SÍ</button>
-                                                <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(empId), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white text-[9px] py-1.5 rounded-md font-black shadow-sm transition-all">NO</button>
-                                              </div>
-                                            ) : (
-                                              <div className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md font-black text-[9px] uppercase tracking-wider shadow-sm mt-1 ${status === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
-                                                <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
-                                                <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(empId), null)} className="opacity-80 hover:opacity-100 bg-black/20 p-1 rounded"><RotateCcw size={10}/></button>
-                                              </div>
-                                            )}
-
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-
-                                </div>
-                              )}
+                            <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 bg-slate-100/50 opacity-80 align-middle z-10">
+                              <div className="flex items-center justify-center gap-1 p-2 rounded-xl bg-white border border-slate-200 shadow-inner h-[60px]">
+                                <Lock size={14} className="text-slate-400" />
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Auditoría Cerrada</span>
+                              </div>
                             </td>
                           );
-                        })}
+                        }
 
-                        {/* ACCIÓN MASIVA PARA ESTE TURNO */}
-                        <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                          <button onClick={() => setModalMasivo({ areaId: area.id, turno, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="p-3 bg-white hover:bg-blue-600 hover:text-white text-blue-600 border border-blue-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
-                            <Calendar size={18}/>
-                          </button>
-                        </td>
+                        // Buscar qué áreas y turnos tiene asignados ESTE empleado HOY
+                        const areasAsignadasHoy = [];
+                        areasBase.forEach(area => {
+                          area.turnos.forEach(turno => {
+                            const claveArea = `${area.id}_${turno}`;
+                            const asignados = asignaciones[claveArea]?.[d.fechaStr] || [];
+                            if (asignados.includes(String(emp.id))) {
+                              areasAsignadasHoy.push({ area, turno, claveArea });
+                            }
+                          });
+                        });
 
-                      </tr>
-                    ))}
-                  </React.Fragment>
-                ))}
+                        return (
+                          <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 align-top z-10">
+                            {areasAsignadasHoy.length === 0 ? (
+                              <div className="h-full flex items-center justify-center min-h-[60px] opacity-30">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">-</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                {areasAsignadasHoy.map(({ area, turno, claveArea }) => {
+                                  const evidenciaObj = evidencias[claveArea]?.[d.fechaStr] || {};
+                                  const photoUrl = evidenciaObj[emp.id];
+                                  
+                                  const evalObj = evaluaciones[claveArea]?.[d.fechaStr] || {};
+                                  const status = evalObj[emp.id];
+
+                                  return (
+                                    <div key={claveArea} className="bg-slate-50 border border-slate-200 p-2 rounded-xl shadow-sm flex flex-col gap-1.5 animate-in zoom-in-95">
+                                      <div className="flex justify-between items-center mb-1">
+                                        <span className="text-[10px] font-black text-slate-700 truncate max-w-[120px]" title={area.nombre}>{area.nombre}</span>
+                                        <span className="text-[8px] font-bold uppercase tracking-widest text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded">{turno}</span>
+                                      </div>
+
+                                      {/* FOTO BLINDADA CONTRA CRASHEOS */}
+                                      {photoUrl && typeof photoUrl === 'string' ? (
+                                        <a href={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} target="_blank" rel="noreferrer" className="block w-full h-16 rounded-lg overflow-hidden border border-slate-300 relative group/foto">
+                                          <img src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
+                                          <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
+                                            <Camera size={14} className="text-white"/>
+                                          </div>
+                                        </a>
+                                      ) : (
+                                        <div className="w-full h-10 bg-slate-100 rounded-lg flex items-center justify-center border border-dashed border-slate-300">
+                                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Sin Foto</span>
+                                        </div>
+                                      )}
+
+                                      {/* BOTONES DE EVALUACIÓN */}
+                                      {!status ? (
+                                        <div className="flex gap-1 w-full mt-1">
+                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">SÍ</button>
+                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">NO</button>
+                                        </div>
+                                      ) : (
+                                        <div className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm mt-1 ${status === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
+                                          <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
+                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), null)} className="opacity-80 hover:opacity-100 bg-black/20 p-1.5 rounded"><RotateCcw size={12}/></button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      {/* ACCIONES MASIVAS DEL MES */}
+                      <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
+                        <div className="flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
+                           {areasBase.map(area => 
+                             area.turnos.map(turno => (
+                               <button key={`${area.id}_${turno}`} onClick={() => setModalCelda({ areaId: area.id, turno, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignaciones[`${area.id}_${turno}`]?.[d.fechaStr] || [] })} className="w-full text-[9px] font-black uppercase bg-teal-50 text-teal-600 border border-teal-200 py-1.5 rounded truncate px-1 hover:bg-teal-100 transition" title={`Asignar ${area.nombre} (${turno}) este día`}>
+                                 + {area.nombre.split(' ')[0]} ({turno.charAt(0)})
+                               </button>
+                             ))
+                           )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                
+                {/* FILA DE ASIGNACIÓN MASIVA PARA TODO EL MES */}
+                <tr className="bg-slate-100 border-t-2 border-slate-200">
+                    <td className="p-4 sticky left-0 bg-slate-100 z-30 font-black text-slate-500 uppercase tracking-widest text-xs border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                      ASIGNAR AL MES:
+                    </td>
+                    <td colSpan={empleadosTabla.length} className="p-2 z-10">
+                       <div className="flex flex-wrap gap-2 p-2">
+                          {areasBase.map(area => 
+                            area.turnos.map(turno => (
+                              <button key={`${area.id}_${turno}`} onClick={() => setModalMasivo({ areaId: area.id, turno, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="bg-white border border-teal-300 text-teal-700 font-black text-[10px] uppercase px-3 py-2 rounded-lg hover:bg-teal-50 shadow-sm flex items-center gap-1 transition">
+                                <Calendar size={12}/> {area.nombre.split(' ')[0]} ({turno})
+                              </button>
+                            ))
+                          )}
+                       </div>
+                    </td>
+                    <td className="sticky right-0 bg-slate-100 z-30 border-l border-slate-200 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]"></td>
+                </tr>
               </tbody>
             </table>
           )}

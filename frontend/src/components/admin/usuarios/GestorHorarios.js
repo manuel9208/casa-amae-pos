@@ -368,7 +368,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
     <div className="space-y-6 animate-in fade-in">
       
       <style>{`
-        .scroll-horarios::-webkit-scrollbar { height: 16px; }
+        .scroll-horarios::-webkit-scrollbar { height: 16px; width: 16px; }
         .scroll-horarios::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 12px; }
         .scroll-horarios::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 12px; border: 3px solid #f1f5f9; }
         .scroll-horarios::-webkit-scrollbar-thumb:hover { background: #64748b; }
@@ -416,8 +416,8 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>
       )}
 
+      {/* PANEL DE ASIGNACIÓN MASIVA Y FILTROS */}
       <div className="bg-blue-50 border border-blue-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden">
-        
         <div className="flex-1 w-full border-b xl:border-b-0 xl:border-r border-blue-200 pb-6 xl:pb-0 xl:pr-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
             <h3 className="font-black text-blue-900 flex items-center gap-2"><Users size={20}/> Selección Múltiple</h3>
@@ -471,6 +471,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </div>
       </div>
 
+      {/* BARRA SUPERIOR DE LA TABLA (MESE Y BOTÓN GUARDAR) */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-[32px] border border-slate-200 shadow-sm print:hidden">
         <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl">
           <button onClick={() => { setMesActivo(m => m === 0 ? 11 : m - 1); if(mesActivo===0) setYearActivo(y=>y-1); }} className="p-2 hover:bg-white rounded-xl text-slate-600 transition shadow-sm"><ChevronLeft size={20}/></button>
@@ -491,47 +492,69 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         </button>
       </div>
 
-      <div className="w-full overflow-x-auto bg-white rounded-[32px] border border-slate-200 shadow-sm scroll-horarios max-w-full pb-4">
-        <table className="w-full text-left border-collapse min-w-max">
-          <thead>
-            <tr className="bg-slate-100 border-b border-slate-200">
-              <th className="p-5 text-xs font-black text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.03)] z-20">Empleado</th>
-              {diasMes.map(d => (
-                <th key={d.fechaStr} className="p-3 text-center border-l border-slate-200 min-w-[140px]">
-                  <div className={`text-xs font-black p-2 rounded-xl ${d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D') ? 'bg-red-100 text-red-600' : 'bg-white text-slate-600 border border-slate-200 shadow-sm'}`}>
-                    {d.num} <span className="block mt-0.5 text-[9px] uppercase tracking-widest">{d.nombreBreve}</span>
-                  </div>
-                </th>
-              ))}
+      {/* 👇 NUEVA MATRIZ INVERTIDA (DÍAS = FILAS, EMPLEADOS = COLUMNAS) */}
+      <div className="w-full overflow-x-auto bg-white rounded-[32px] border border-slate-200 shadow-sm scroll-horarios max-w-full pb-4 h-[650px] relative">
+        <table className="w-full text-left border-collapse min-w-max relative">
+          
+          {/* ENCABEZADOS (EMPLEADOS) */}
+          <thead className="sticky top-0 z-30">
+            <tr className="bg-slate-100 shadow-[0_2px_5px_rgba(0,0,0,0.05)]">
+              {/* Esquina superior izquierda fija */}
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100 z-40 border-r border-slate-200 min-w-[120px]">
+                Día / Fecha
+              </th>
+              
+              {/* Iteramos los Empleados seleccionados como columnas */}
+              {empleadosTabla.map(emp => {
+                 const diasSinPagar = detectarDiasSinPagar(emp);
+                 return (
+                  <th key={emp.id} className="p-4 text-center border-r border-slate-200 min-w-[180px] align-top">
+                    <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+                      <p className="font-black text-slate-800 text-sm truncate" title={emp.nombre}>{emp.nombre.split(' ')[0]}</p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{emp.rol}</p>
+                      {diasSinPagar > 0 && (
+                        <div className="mt-2 flex items-center justify-center gap-1 bg-red-50 border border-red-200 p-1.5 rounded-lg text-red-600 animate-pulse">
+                          <AlertTriangle size={12} className="shrink-0"/>
+                          <span className="text-[9px] font-black uppercase tracking-widest leading-tight">{diasSinPagar} Días Deuda</span>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+                 );
+              })}
             </tr>
           </thead>
+
           <tbody className="divide-y divide-slate-100">
-            {empleadosTabla.map(emp => {
-              const cambiosEmp = horariosTemp[emp.id] || {};
-              const horBD = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
-              const diasSinPagar = detectarDiasSinPagar(emp);
-
-              let diasNoLaborales = [];
-              try {
-                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
-                diasNoLaborales = pres.dias_no_laborales || [];
-              } catch(e) {}
-
-              const noLabNormalizado = diasNoLaborales.map(x => String(x).toLowerCase().trim());
-
+            {diasMes.map((d, index) => {
+              const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
+              
               return (
-                <tr key={emp.id} className="hover:bg-slate-50 transition-colors group">
-                  <td className="p-5 sticky left-0 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-10 group-hover:bg-slate-50 border-r border-slate-100">
-                    <p className="font-black text-slate-800 text-sm whitespace-nowrap">{emp.nombre}</p>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">{emp.rol}</p>
-                    {diasSinPagar > 0 && (
-                      <div className="mt-2 flex items-start gap-1 bg-red-50 border border-red-200 p-1.5 rounded-lg text-red-600 animate-pulse">
-                        <AlertTriangle size={12} className="shrink-0 mt-0.5"/>
-                        <span className="text-[9px] font-black uppercase tracking-widest leading-tight">Deuda atrasada:<br/>{diasSinPagar} Días sin pagar</span>
+                <tr key={d.fechaStr} className={`hover:bg-slate-50 transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                  
+                  {/* CELDA DEL DÍA (Fija a la izquierda) */}
+                  <td className="p-3 sticky left-0 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20 border-r border-slate-100 align-middle">
+                    <div className={`flex items-center gap-3 p-2 rounded-xl border ${esFinSemana ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className={`text-2xl font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
+                      <div>
+                        <span className={`block text-[10px] font-black uppercase tracking-widest ${esFinSemana ? 'text-red-400' : 'text-slate-400'}`}>{d.nombreBreve}</span>
+                        <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{d.fechaStr.split('-').slice(1).join('/')}</span>
                       </div>
-                    )}
+                    </div>
                   </td>
-                  {diasMes.map(d => {
+
+                  {/* ITERAMOS LOS EMPLEADOS PARA ESE DÍA */}
+                  {empleadosTabla.map(emp => {
+                    const cambiosEmp = horariosTemp[emp.id] || {};
+                    const horBD = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+                    
+                    let diasNoLaborales = [];
+                    try {
+                      const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones) : (emp.prestaciones || {});
+                      diasNoLaborales = pres.dias_no_laborales || [];
+                    } catch(e) {}
+                    const noLabNormalizado = diasNoLaborales.map(x => String(x).toLowerCase().trim());
+
                     const horDef = cambiosEmp[d.fechaStr] !== undefined ? cambiosEmp[d.fechaStr] : horBD[d.fechaStr];
                     const activo = horDef?.activo || false;
                     const isDescanso = horDef?.es_descanso || false; 
@@ -587,35 +610,35 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
                     };
 
                     return (
-                      <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top ${isVacaciones ? 'bg-amber-50/50' : !activo ? 'bg-slate-50/50' : ''}`}>
+                      <td key={`${emp.id}-${d.fechaStr}`} className={`p-2 border-r border-slate-100 align-middle z-10 ${isVacaciones ? 'bg-amber-50/50' : !activo ? 'bg-slate-50/50' : ''}`}>
                         {isPagado ? (
-                          <div className="flex flex-col items-center justify-center p-3 h-full rounded-xl bg-slate-50 border border-slate-200/50 opacity-80">
-                            <Lock size={14} className="text-slate-400 mb-1" />
-                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest text-center">Nómina<br/>Pagada</span>
+                          <div className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-50 border border-slate-200/50 opacity-80 h-[56px]">
+                            <Lock size={14} className="text-slate-400" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Pagada</span>
                           </div>
                         ) : isVacaciones ? (
-                          <div className="flex flex-col items-center justify-center p-3 h-full rounded-xl bg-amber-50 border border-amber-200">
-                            <Palmtree size={16} className="text-amber-500 mb-1" />
-                            <span className="text-[9px] font-black text-amber-700 uppercase tracking-widest text-center">En<br/>Vacaciones</span>
+                          <div className="flex items-center justify-center gap-1 p-2 rounded-xl bg-amber-50 border border-amber-200 h-[56px]">
+                            <Palmtree size={16} className="text-amber-500" />
+                            <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest text-center">Vacaciones</span>
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2">
                             <button
                               onClick={cycleState}
-                              className={`w-full py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors border ${btnClass}`}
+                              className={`flex-1 py-3 px-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors border h-[56px] ${btnClass}`}
                             >
                               {btnText}
                             </button>
                             {activo && (
-                              <div className="flex flex-col gap-1 opacity-100 transition-opacity">
-                                <input type="time" value={horDef.entrada || configDiaGlobal.apertura || '08:00'} onChange={e => handleHorarioChange(emp.id, d.fechaStr, 'entrada', e.target.value, configDiaGlobal, false)} className="w-full text-center p-1.5 text-xs font-black bg-white border border-slate-200 rounded-md outline-none focus:border-blue-400 shadow-sm" />
-                                <input type="time" value={horDef.salida || configDiaGlobal.cierre || '22:00'} onChange={e => handleHorarioChange(emp.id, d.fechaStr, 'salida', e.target.value, configDiaGlobal, false)} className="w-full text-center p-1.5 text-xs font-black bg-white border border-slate-200 rounded-md outline-none focus:border-blue-400 shadow-sm" />
+                              <div className="flex flex-col gap-1 w-24 shrink-0">
+                                <input type="time" value={horDef.entrada || configDiaGlobal.apertura || '08:00'} onChange={e => handleHorarioChange(emp.id, d.fechaStr, 'entrada', e.target.value, configDiaGlobal, false)} className="w-full text-center p-1 text-[11px] font-black bg-white border border-slate-200 rounded-md outline-none focus:border-blue-400 shadow-sm" />
+                                <input type="time" value={horDef.salida || configDiaGlobal.cierre || '22:00'} onChange={e => handleHorarioChange(emp.id, d.fechaStr, 'salida', e.target.value, configDiaGlobal, false)} className="w-full text-center p-1 text-[11px] font-black bg-white border border-slate-200 rounded-md outline-none focus:border-blue-400 shadow-sm" />
                               </div>
                             )}
                           </div>
                         )}
                       </td>
-                    )
+                    );
                   })}
                 </tr>
               )

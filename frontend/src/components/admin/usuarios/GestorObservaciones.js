@@ -6,7 +6,6 @@ const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Vi
 const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGlobal }) => {
   const [fechaReferencia, setFechaReferencia] = useState(new Date());
 
-  // ESTRUCTURA DE DATOS
   const [observacionesBase, setObservacionesBase] = useState([]);
   const [asignaciones, setAsignaciones] = useState({});
   const [evaluaciones, setEvaluaciones] = useState({});
@@ -19,11 +18,9 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // MODALES
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
 
-  // FILTROS MASIVOS (INTERFAZ VISUAL)
   const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
   const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
 
@@ -32,7 +29,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
   const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
   const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
 
-  // PRE-SELECCIONAR A TODOS AL CARGAR
   useEffect(() => {
     if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
       setEmpleadosSeleccionados(empleadosVisibles.map(e => String(e.id)));
@@ -49,7 +45,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     }
   };
 
-  // 🗓️ LÓGICA DE CALENDARIO DINÁMICO
   const year = fechaReferencia.getFullYear();
   const month = fechaReferencia.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -66,7 +61,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
 
   const cambiarMes = (direccion) => setFechaReferencia(new Date(year, month + direccion, 1));
 
-  // PROTECCIÓN CONTRA CIERRE ACCIDENTAL
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (hayCambiosSinGuardar) { e.preventDefault(); e.returnValue = ''; }
@@ -75,14 +69,12 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hayCambiosSinGuardar]);
 
-  // CARGAR CONFIGURACIÓN GLOBAL
   useEffect(() => {
     if (configGlobal && configGlobal.horarios_semana) {
       try { setHorarioNegocio(typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana || {}); } catch (e) {}
     }
   }, [configGlobal]);
 
-  // 🔄 CARGA DE DATOS
   useEffect(() => {
     fetch(`${apiUrl}/configuracion`)
       .then(res => res.json())
@@ -90,7 +82,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
         if (data && data.horarios_semana) {
           try { setHorarioNegocio(typeof data.horarios_semana === 'string' ? JSON.parse(data.horarios_semana) : data.horarios_semana); } catch(e){}
         }
-
         if (data && !data.error && data.matriz_observaciones) {
           const matriz = typeof data.matriz_observaciones === 'string' ? JSON.parse(data.matriz_observaciones) : data.matriz_observaciones;
           setObservacionesBase(matriz.observacionesBase || []);
@@ -102,7 +93,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
       .catch(() => {});
   }, [apiUrl]);
 
-  // ➕ AGREGAR / ELIMINAR OBSERVACIÓN
   const agregarObservacion = (e) => {
     e.preventDefault();
     const obsNombre = nuevaObservacion.trim();
@@ -123,7 +113,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     });
   };
 
-  // EVALUACIÓN A NIVEL EMPLEADO (SÍ/NO)
   const evaluarObservacion = (obsNombre, fechaStr, empId, status) => {
     if (diasCerrados.includes(fechaStr)) return;
     setHayCambiosSinGuardar(true);
@@ -150,7 +139,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     return fechas;
   };
 
-  // 🧹 CORTE DE AUDITORÍA
   const realizarCorteObservaciones = () => {
     if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango para auditoría.", "info");
     if (fechaDesde > fechaHasta) return showAlert("Aviso", "'Desde' no puede ser mayor que 'Hasta'.", "warning");
@@ -209,7 +197,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     setIsSubmitting(false);
   };
 
-  // 👇 LÓGICA DE DUPLICAR CON REGLAS DE NEGOCIO (SOLO DUPLICA LOS ACTIVOS EN EL FILTRO)
   const duplicarSiguienteMes = () => {
     if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
 
@@ -267,13 +254,11 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     );
   };
 
-  // MODAL DE ASIGNACIÓN (INDIVIDUAL Y MASIVA)
   const renderModalAsignacion = () => {
     if (!modalCelda && !modalMasivo) return null;
     const isMasivo = !!modalMasivo;
     const data = modalCelda || modalMasivo;
 
-    // Filtro reactivo dentro del modal
     const empleadosParaMostrar = filtroRolMasivo 
       ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
       : empleadosVisibles;
@@ -306,7 +291,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
       { idx: 0, label: 'DOM' }
     ];
 
-    // 👇 GUARDADO CON REGLAS DE NEGOCIO ESTRICTAS
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
       const obsNombre = data.obsNombre;
@@ -318,7 +302,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
             if (data.diasSemana.includes(d.dayIndex)) {
-              // APLICAR LAS 3 REGLAS DE NEGOCIO
               const asignables = data.seleccionados.filter(empId => {
                 const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                 if (!emp) return false;
@@ -461,8 +444,17 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
     );
   };
 
+  const empleadosTabla = empleadosFiltrados.filter(e => empleadosSeleccionados.includes(String(e.id)));
+
   return (
     <>
+      <style>{`
+        .scroll-horarios::-webkit-scrollbar { height: 16px; width: 16px; }
+        .scroll-horarios::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 12px; }
+        .scroll-horarios::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 12px; border: 3px solid #f1f5f9; }
+        .scroll-horarios::-webkit-scrollbar-thumb:hover { background: #64748b; }
+      `}</style>
+      
       <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
         
         {/* HEADER Y BOTONES GLOBALES */}
@@ -499,7 +491,22 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
           </div>
         </div>
 
-        {/* 👇 NUEVO PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
+        {/* 👇 NUEVO PANEL: GESTIÓN DE OBSERVACIONES */}
+        {observacionesBase.length > 0 && (
+          <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm mb-6 print:hidden">
+            <h4 className="font-black text-slate-700 mb-4 flex items-center gap-2"><ClipboardCheck size={18}/> Catálogo de Observaciones</h4>
+            <div className="flex flex-wrap gap-3">
+              {observacionesBase.map(obs => (
+                <div key={obs} className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-xl shadow-sm">
+                  <span className="font-black text-xs uppercase tracking-wider">{obs}</span>
+                  <button onClick={() => eliminarObservacion(obs)} className="text-indigo-400 hover:text-red-500 transition-colors ml-2"><Trash2 size={16}/></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* PANEL DE SELECCIÓN DE EMPLEADOS */}
         <div className="bg-indigo-50 border border-indigo-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
           <div className="flex-1 w-full xl:pr-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
@@ -536,102 +543,135 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
           </div>
         </div>
 
-        {/* TABLA PRINCIPAL */}
-        <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 custom-scrollbar">
+        {/* MATRIZ INVERTIDA DE OBSERVACIONES */}
+        <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 scroll-horarios h-[650px] relative">
           {observacionesBase.length === 0 ? (
             <div className="p-16 text-center text-slate-400">
               <ClipboardCheck size={48} className="mx-auto mb-4 opacity-30" />
               <p className="font-bold text-lg">Aún no hay observaciones registradas.</p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse min-w-max">
-              <thead>
-                <tr className="bg-slate-100 border-b border-slate-200 text-slate-500 text-[10px] uppercase font-black tracking-widest">
-                  <th className="p-4 border-r border-slate-200 w-56 sticky left-0 bg-slate-100 z-30 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">Observación / Regla</th>
-                  {diasMes.map(d => (
-                    <th key={d.fechaStr} className="p-3 text-center border-r border-slate-200 min-w-[140px]">
-                      <div className={`text-xs font-black p-1.5 rounded-lg ${d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D') ? 'bg-red-100 text-red-600' : 'bg-slate-200 text-slate-600'}`}>
-                        {d.num} {d.nombreBreve}
+            <table className="w-full text-left border-collapse min-w-max relative">
+              <thead className="sticky top-0 z-30">
+                <tr className="bg-slate-100 shadow-[0_2px_5px_rgba(0,0,0,0.05)]">
+                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100 z-40 border-r border-slate-200 min-w-[120px]">
+                    Día / Fecha
+                  </th>
+                  {empleadosTabla.map(emp => (
+                    <th key={emp.id} className="p-4 text-center border-r border-slate-200 min-w-[220px] align-top z-30 bg-slate-100">
+                      <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+                        <p className="font-black text-slate-800 text-sm truncate" title={emp.nombre}>{emp.nombre.split(' ')[0]}</p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{emp.rol}</p>
                       </div>
                     </th>
                   ))}
-                  <th className="p-4 text-center w-24 sticky right-0 bg-slate-100 z-30 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]">Acciones</th>
+                  <th className="p-4 text-center w-32 sticky right-0 bg-slate-100 z-40 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] text-xs font-black text-slate-500 uppercase tracking-widest border-l border-slate-200">
+                    Mes Completo
+                  </th>
                 </tr>
               </thead>
-              <tbody>
-                {observacionesBase.map((obsNombre) => (
-                  <tr key={obsNombre} className="border-b border-slate-100 bg-white transition">
-                    <td className="p-4 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.05)] border-r border-slate-200">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="font-black text-slate-800 uppercase tracking-wider text-[11px] leading-tight pr-2">{obsNombre}</span>
-                        <button onClick={() => eliminarObservacion(obsNombre)} className="text-slate-400 hover:text-red-500 transition-colors shrink-0"><Trash2 size={16}/></button>
-                      </div>
-                    </td>
-                    
-                    {diasMes.map(d => {
-                      const isCerrado = diasCerrados.includes(d.fechaStr);
-                      const asignadosDb = asignaciones[obsNombre]?.[d.fechaStr] || [];
-                      // 👇 AQUÍ FILTRAMOS VISUALMENTE A LOS EMPLEADOS DE LA TABLA
-                      const asignadosVisibles = asignadosDb.filter(empId => empleadosSeleccionados.includes(String(empId)));
+              <tbody className="divide-y divide-slate-100">
+                {diasMes.map((d, index) => {
+                  const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
+                  const isCerrado = diasCerrados.includes(d.fechaStr);
+                  
+                  return (
+                    <tr key={d.fechaStr} className={`hover:bg-slate-50 transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
+                      {/* CELDA DEL DÍA */}
+                      <td className="p-3 sticky left-0 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20 border-r border-slate-100 align-middle">
+                        <div className={`flex items-center gap-3 p-2 rounded-xl border ${esFinSemana ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-200'}`}>
+                          <span className={`text-2xl font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
+                          <div>
+                            <span className={`block text-[10px] font-black uppercase tracking-widest ${esFinSemana ? 'text-red-400' : 'text-slate-400'}`}>{d.nombreBreve}</span>
+                            <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{d.fechaStr.split('-').slice(1).join('/')}</span>
+                          </div>
+                        </div>
+                      </td>
 
-                      return (
-                        <td key={d.fechaStr} className={`p-2 border-r border-slate-100 align-top transition-all ${isCerrado ? 'bg-slate-100/50 opacity-80' : ''}`}>
-                          {isCerrado ? (
-                            <div className="flex flex-col items-center justify-center bg-white border border-slate-200 rounded-xl p-3 h-full shadow-inner min-h-[90px]">
-                              <Lock size={16} className="text-slate-400 mb-1" />
-                              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Auditoría<br/>Cerrada</span>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1.5 h-full">
-                              
-                              <button onClick={() => setModalCelda({ obsNombre, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignadosDb })} className={`w-full py-2 px-2 rounded-xl text-[10px] font-black tracking-wider flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${asignadosVisibles.length > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 shadow-sm' : 'bg-white border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-slate-50'}`}>
-                                <Users size={12}/> {asignadosVisibles.length > 0 ? `${asignadosVisibles.length} Visibles` : 'Asignar'}
+                      {/* EVALUACIONES POR EMPLEADO */}
+                      {empleadosTabla.map(emp => {
+                        if (isCerrado) {
+                          return (
+                            <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 bg-slate-100/50 opacity-80 align-middle z-10">
+                              <div className="flex items-center justify-center gap-1 p-2 rounded-xl bg-white border border-slate-200 shadow-inner h-[60px]">
+                                <Lock size={14} className="text-slate-400" />
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Auditoría Cerrada</span>
+                              </div>
+                            </td>
+                          );
+                        }
+
+                        // Buscar qué observaciones tiene asignadas ESTE empleado HOY
+                        const obsAsignadas = observacionesBase.filter(obs => {
+                          const asignados = asignaciones[obs]?.[d.fechaStr] || [];
+                          return asignados.includes(String(emp.id));
+                        });
+
+                        return (
+                          <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 align-top z-10">
+                            {obsAsignadas.length === 0 ? (
+                              <div className="h-full flex items-center justify-center min-h-[60px] opacity-30">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">-</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                {obsAsignadas.map(obsNombre => {
+                                  const evalObj = evaluaciones[obsNombre]?.[d.fechaStr] || {};
+                                  const status = evalObj[emp.id];
+
+                                  return (
+                                    <div key={obsNombre} className="bg-slate-50 border border-slate-200 p-2 rounded-xl shadow-sm">
+                                      <p className="text-[10px] font-black text-slate-700 truncate w-full text-center mb-2" title={obsNombre}>{obsNombre}</p>
+                                      {!status ? (
+                                        <div className="flex gap-1 w-full">
+                                          <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(emp.id), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">SÍ</button>
+                                          <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(emp.id), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">NO</button>
+                                        </div>
+                                      ) : (
+                                        <div className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm ${status === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
+                                          <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
+                                          <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(emp.id), null)} className="opacity-80 hover:opacity-100 bg-black/20 p-1.5 rounded"><RotateCcw size={12}/></button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      {/* ACCIONES MASIVAS DEL MES */}
+                      <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
+                        <div className="flex flex-col gap-1">
+                           {observacionesBase.map(obs => (
+                             <button key={obs} onClick={() => setModalCelda({ obsNombre: obs, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignaciones[obs]?.[d.fechaStr] || [] })} className="w-full text-[9px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-200 py-1.5 rounded truncate px-1 hover:bg-indigo-100 transition" title={`Asignar ${obs} este día`}>
+                               + {obs}
+                             </button>
+                           ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                
+                {/* FILA DE ASIGNACIÓN MASIVA PARA TODO EL MES */}
+                <tr className="bg-slate-100 border-t-2 border-slate-200">
+                    <td className="p-4 sticky left-0 bg-slate-100 z-30 font-black text-slate-500 uppercase tracking-widest text-xs border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                      ASIGNAR AL MES:
+                    </td>
+                    <td colSpan={empleadosTabla.length} className="p-2 z-10">
+                       <div className="flex flex-wrap gap-2 p-2">
+                          {observacionesBase.map(obs => (
+                              <button key={obs} onClick={() => setModalMasivo({ obsNombre: obs, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="bg-white border border-indigo-300 text-indigo-700 font-black text-[10px] uppercase px-3 py-2 rounded-lg hover:bg-indigo-50 shadow-sm flex items-center gap-1 transition">
+                                <Calendar size={12}/> {obs}
                               </button>
-
-                              {asignadosVisibles.length > 0 && (
-                                <div className="mt-auto border-t border-slate-100 pt-2 space-y-2 w-full">
-                                  {asignadosVisibles.map(empId => {
-                                    const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-                                    if(!emp) return null;
-                                    
-                                    const evalObj = evaluaciones[obsNombre]?.[d.fechaStr] || {};
-                                    const status = evalObj[empId];
-
-                                    return (
-                                      <div key={empId} className="flex flex-col gap-1 p-2 bg-slate-50 border border-slate-200 rounded-xl shadow-sm w-full animate-in zoom-in-95">
-                                        <span className="text-[10px] font-black text-slate-700 truncate w-full text-center mb-1">{emp.nombre.split(' ')[0]}</span>
-                                        
-                                        {!status ? (
-                                          <div className="flex gap-1 w-full">
-                                            <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(empId), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white text-[9px] py-1.5 rounded-md font-black shadow-sm transition-all">SÍ</button>
-                                            <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(empId), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white text-[9px] py-1.5 rounded-md font-black shadow-sm transition-all">NO</button>
-                                          </div>
-                                        ) : (
-                                          <div className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md font-black text-[9px] uppercase tracking-wider shadow-sm ${status === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
-                                            <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
-                                            <button onClick={() => evaluarObservacion(obsNombre, d.fechaStr, String(empId), null)} className="opacity-80 hover:opacity-100 bg-black/20 p-1 rounded"><RotateCcw size={10}/></button>
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    
-                    {/* ACCIÓN MASIVA PARA EL MES COMPLETO */}
-                    <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                      <button onClick={() => setModalMasivo({ obsNombre, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="p-3 bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 border border-indigo-200 rounded-xl transition shadow-sm" title="Asignar masivamente al mes">
-                        <Calendar size={18}/>
-                      </button>
+                          ))}
+                       </div>
                     </td>
-
-                  </tr>
-                ))}
+                    <td className="sticky right-0 bg-slate-100 z-30 border-l border-slate-200 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]"></td>
+                </tr>
               </tbody>
             </table>
           )}
