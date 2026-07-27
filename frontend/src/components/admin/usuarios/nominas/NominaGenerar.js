@@ -109,7 +109,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const hor = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         
-        // 👇 PARSEO PARANOICO: Escanea arreglos, strings sueltos o separados por comas
         let rawDescansos = [];
         let pd = pres.dias_descanso;
         if (typeof pd === 'string') {
@@ -180,11 +179,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 VERIFICACIÓN ABSOLUTA EN TODO EL PERFIL
           let esDescanso = arrDescansosNum.includes(diaSemanaNum);
           let esNoLaboral = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
 
-          // Escanea el horario_semanal por si la UI nueva guarda los días genéricos ahí ("5", "Viernes", "vie")
           for (const key of Object.keys(hor)) {
               if (obtenerDiaNum(key) === diaSemanaNum && !key.includes('-')) {
                   const confGen = hor[key];
@@ -198,7 +195,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               }
           }
 
-          // Override final por si editaste el día exacto en el calendario (ej. "2026-07-03")
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              if (hor[dateStr].es_descanso !== undefined) {
                  esDescanso = hor[dateStr].es_descanso;
@@ -372,7 +368,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // AHORA SÍ: Detectará el descanso sin importar en qué variable lo haya ocultado la UI
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -413,6 +408,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
         
+        // 👉 REGLA 2: Dividir el sueldo SOLO entre los días activos a la semana
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaboralesNum.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
@@ -752,7 +748,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             const presActual = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
             
             const horNuevo = { ...horActual };
-            p.metricas.diasAuditados.forEach(diaPagado => { if (!horNuevo[diaPagado]) horNuevo[diaPagado] = {}; horNuevo[diaPagado].nomina_pagada = true; });
+            // 👇 SOLUCIÓN APLICADA AQUÍ: Se asegura de que p.diasAuditados exista o sea un array vacío.
+            (p.diasAuditados || []).forEach(diaPagado => { 
+                if (!horNuevo[diaPagado]) horNuevo[diaPagado] = {}; 
+                horNuevo[diaPagado].nomina_pagada = true; 
+            });
+
             await fetch(`${apiUrl}/usuarios/${p.empleado_id}/horario`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: horNuevo }) });
 
             let nuevosPrestamos = presActual.prestamos || [];
@@ -779,7 +780,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           showAlert("✅ Nómina Aprobada", "Recibos generados, préstamos cobrados y días bloqueados con éxito.", "success");
           setPreNomina([]); 
         }
-      } catch(e) { showAlert("Error", "Error al procesar la nómina.", "error"); }
+      } catch(e) { 
+        console.error("Error completo al procesar corte:", e);
+        showAlert("Error", "Error al procesar la nómina.", "error"); 
+      }
       setIsSubmitting(false);
     });
   };
