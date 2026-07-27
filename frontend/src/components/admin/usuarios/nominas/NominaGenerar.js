@@ -3,13 +3,21 @@ import { Calculator, CheckCircle2, PlusCircle, Trash2, Gift, Clock, Banknote, Su
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
-// 👇 UTILIDAD ROBUSTA: Quita acentos, espacios y normaliza a minúsculas para un match perfecto
-const normalizarDia = (diaStr) => {
-    if (!diaStr) return '';
-    return String(diaStr).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+// 👇 UTILIDAD ROBUSTA DEFINITIVA: Convierte cualquier formato (Vie, Viernes, 5) al número nativo del día (0-6)
+const obtenerDiaNum = (diaVal) => {
+    if (diaVal === null || diaVal === undefined || String(diaVal).trim() === '') return -1;
+    const t = String(diaVal).normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+    if (!isNaN(t) && t >= 0 && t <= 6) return Number(t);
+    if (t.includes('dom')) return 0;
+    if (t.includes('lun')) return 1;
+    if (t.includes('mar')) return 2;
+    if (t.includes('mie')) return 3;
+    if (t.includes('jue')) return 4;
+    if (t.includes('vie')) return 5;
+    if (t.includes('sab')) return 6;
+    return -1;
 };
 
-// 👇 FIX DE TIMEZONE GLOBAL: Extrae el YYYY-MM-DD en HORA LOCAL exacta, sin desfases por UTC
 const getLocalTodayStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -88,7 +96,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
       const resultados = [];
       const empleadosYaPagados = [];
-      const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
       const hoyStrCalculo = getLocalTodayStr();
 
       const gApertura = String(configGlobal.hora_apertura || 17).padStart(2, '0') + ':00';
@@ -109,18 +116,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             rawDescansos = [pres.dia_descanso];
         }
         
-        // 👇 FIX ANDREA: Transforma automáticamente números [5] a textos ["Viernes"] antes de normalizar
-        const parsearDia = (d) => {
-            if (d === null || d === undefined || String(d).trim() === '') return '';
-            if (!isNaN(d)) {
-                const num = Number(d);
-                if (num >= 0 && num <= 6) return normalizarDia(diasSemanaMap[num]);
-            }
-            return normalizarDia(d);
-        };
-
-        const arrDescansos = rawDescansos.map(parsearDia);  
-        const arrNoLaborales = (pres.dias_no_laborales || []).map(parsearDia);
+        // 👇 FIX ANDREA: Transforma cualquier basura ("Vie", "Viernes", 5) a un array de enteros (ej. [5])
+        const arrDescansosNum = rawDescansos.map(obtenerDiaNum).filter(n => n !== -1);  
+        const arrNoLaboralesNum = (pres.dias_no_laborales || []).map(obtenerDiaNum).filter(n => n !== -1);
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -153,15 +151,14 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         while (currentDate <= endDate) {
           diasEnRango++;
           
-          // 👇 FIX ESTRICTO TIMEZONE ITERADOR: Construimos fecha local, sin afectar el offset (UTC shift).
           const yyyy = currentDate.getFullYear();
           const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
           const dd = String(currentDate.getDate()).padStart(2, '0');
           const dateStr = `${yyyy}-${mm}-${dd}`;
           
-          const nombreDiaActual = diasSemanaMap[currentDate.getDay()];
-          const diaLimpio = normalizarDia(nombreDiaActual);
-          const esDomingo = currentDate.getDay() === 0;  
+          // Número nativo del día (0-6) en lugar de usar strings propensos a fallos
+          const diaSemanaNum = currentDate.getDay(); 
+          const esDomingo = diaSemanaNum === 0;  
 
           if (pres.fecha_nacimiento && !alertasEmpleado.some(a => a.tipo === 'cumpleaños')) {
             const fBday = new Date(pres.fecha_nacimiento + 'T12:00:00');
@@ -176,9 +173,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // 👇 ASIGNACIÓN ESTRICTA: La Ficha Técnica manda sobre todo
-          let esDescanso = arrDescansos.includes(diaLimpio);
-          let esNoLaboral = arrNoLaborales.includes(diaLimpio) || diasCerradosLocal.map(normalizarDia).includes(diaLimpio);
+          // 👇 ASIGNACIÓN ESTRICTA POR ENTEROS
+          let esDescanso = arrDescansosNum.includes(diaSemanaNum);
+          let esNoLaboral = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
           let esDiaLaboral = !esDescanso && !esNoLaboral;
 
           // Solo permitimos que una configuración MANUAL del día específico altere la ficha técnica
@@ -354,7 +351,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     diasAuditados.push(dateStr);
                   }
                } else if (esDescanso) {
-                  // 👇 AHORA SÍ: El descanso se evalúa correctamente y no genera falta.
+                  // AHORA SÍ: El descanso se evalúa matemáticamente, sin riesgo a fallos de texto.
                   diasProgramados++;
                   diasDescanso++;
                   horasTrabajadasTotales += 8;
@@ -395,7 +392,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let ingresoSueldo = 0;
         let sueldoDiarioExacto = 0;  
         
-        const diasActivosSemanales = Math.max(1, 7 - arrNoLaborales.length);
+        const diasActivosSemanales = Math.max(1, 7 - arrNoLaboralesNum.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
         if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
