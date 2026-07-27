@@ -440,8 +440,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const diasActivosSemanales = Math.max(1, 7 - arrNoLaboralesNum.length);
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
-        if (diasActivosSemanales < 5 && tipoSueldoAplicado === 'Semanal') {
-            tipoSueldoAplicado = 'Por Hora (Auto)';
+        // NUEVA LÓGICA: Evalúa dinámicamente si los días asistidos fueron menos de 5
+        if (tipoSueldoAplicado === 'Semanal') {
+            if (diasProgramados > 0 && diasProgramados < 5) {
+                tipoSueldoAplicado = 'Por Hora (Auto)';
+            } else if (diasProgramados === 0) {
+                tipoSueldoAplicado = 'Sin Asistencia';
+            }
         }
 
         if (tipoSueldoAplicado === 'Diario') { 
@@ -468,6 +473,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         else if (tipoSueldoAplicado === 'Mensual') { 
             sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; 
             ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+        }
+        else if (tipoSueldoAplicado === 'Sin Asistencia') {
+            sueldoDiarioExacto = sueldoBase / diasActivosSemanales; // Se guarda para cálculos de descuentos
+            ingresoSueldo = 0; // Se asegura de que no se inyecte pago
         }
 
         const ingresosList = [];
@@ -505,12 +514,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let perdioPuntualidad = false;
         let motivoPuntualidad = "Perfecta";  
 
-        // SOLO EVALUAR BONOS SI REALMENTE TRABAJÓ
-        if (diasProgramados > 0 || diasApoyoTrabajados > 0) {
+        // ESCUDO BLINDADO: SOLO EVALUAR BONOS SI REALMENTE TRABAJÓ Y NO TIENE FALTAS INJUSTIFICADAS
+        if ((diasProgramados > 0 || diasApoyoTrabajados > 0) && diasFaltaInjustificada === 0) {
             
-            if (reglasNomina.bono_puntualidad_activo && esPuntualidadPerfecta && diasFaltaInjustificada > 0) {
-              perdioPuntualidad = true; motivoPuntualidad = "Perdido por Falta Injustificada.";
-            }
+            // BONO PUNTUALIDAD
             if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
               perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
             }
@@ -524,6 +531,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
             }  
 
+            // BONO LIMPIEZA
             if (reglasNomina.bono_limpieza_activo) {
               if (fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
                 ingresosList.push({ concepto: `Bono de Limpieza (${fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
@@ -532,6 +540,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
               }
             }
 
+            // BONO OBSERVACIONES
             if (reglasNomina.bono_observaciones_activo) {
               const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
               if (fallasObservaciones <= toleranciaFallas) {
@@ -540,6 +549,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                  alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
               }
             }
+        } else if (diasFaltaInjustificada > 0) {
+            // Si faltó injustificadamente, pierde todos los bonos en automático y le avisamos al cajero/RH.
+            alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-bono-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió todos los bonos semanales por acumular ${diasFaltaInjustificada} falta(s) injustificada(s).`, estadoAuditoria: 'rechazado', resuelta: true });
         } // Fin del escudo de bonos
 
         (pres.bonos_recurrentes || []).forEach(b => {
@@ -667,7 +679,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const faltasRestantes = Math.max(0, p.metricas.diasFaltaInjustificada - p.metricas.faltasJustificadas);
 
     let diasADescontar = faltasRestantes;
-    if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
+    if (configGlobal.reglas_nomina?.descuento_descanso_activo && !['Diario', 'Por Hora', 'Por Hora (Auto)', 'Sin Asistencia'].includes(p.tipo_sueldo)) {
         diasADescontar += (faltasRestantes * 0.16666);
     }
     const nuevoDescuento = p.metricas.sueldoDiarioExacto * diasADescontar;
@@ -686,7 +698,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
     
-    if (ingresoBase && !['Por Hora', 'Por Hora (Auto)'].includes(p.tipo_sueldo)) {
+    if (ingresoBase && !['Por Hora', 'Por Hora (Auto)', 'Sin Asistencia'].includes(p.tipo_sueldo)) {
         ingresoBase.monto = nuevoSueldo;
         ingresoBase.concepto = `Sueldo Base Proporcional (${p.metricas.diasProgramados} días evaluados)`;
 
