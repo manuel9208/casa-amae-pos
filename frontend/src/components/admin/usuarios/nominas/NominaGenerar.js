@@ -191,7 +191,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // --- MOTOR BLINDADO DE DÍAS (IGNORA CONFIGURACIONES GLOBALES CONTAMINADAS) ---
+          // --- MOTOR BLINDADO DE DÍAS ---
           const esDescansoFicha = arrDescansosNum.includes(diaSemanaNum);
           const esNoLaboralFicha = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
 
@@ -445,11 +445,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         
         let tipoSueldoAplicado = pres.tipo_sueldo;
 
-        // SWITCH DINÁMICO EXACTO: Si suma menos de 5 días de trabajo, se pasa a tarifa por hora.
+        // SWITCH DINÁMICO REPARADO: Evalúa los días estipulados en su contrato, no los días seleccionados en el filtro
         if (tipoSueldoAplicado === 'Semanal') {
-            if (diasProgramados > 0 && diasProgramados < 5) {
+            if (diasActivosSemanales < 5) {
                 tipoSueldoAplicado = 'Por Hora (Auto)';
-            } else if (diasProgramados === 0) {
+            } else if (diasProgramados === 0 && diasApoyoTrabajados === 0 && diasDescanso === 0 && diasVacaciones === 0) {
                 tipoSueldoAplicado = 'Sin Asistencia';
             }
         }
@@ -496,7 +496,8 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }
 
         if (diasApoyoTrabajados > 0) {
-            ingresosList.push({ concepto: `Turnos de Apoyo / Comodín (${diasApoyoTrabajados} días x $${tarifaApoyoDia})`, monto: diasApoyoTrabajados * tarifaApoyoDia, es_apoyo: true });
+            const tarifaUsar = tarifaApoyoDia > 0 ? tarifaApoyoDia : sueldoDiarioExacto;
+            ingresosList.push({ concepto: `Turnos de Apoyo / Comodín (${diasApoyoTrabajados} días x $${tarifaUsar.toFixed(2)})`, monto: diasApoyoTrabajados * tarifaUsar, es_apoyo: true });
         }
 
         if (diasFaltaInjustificada > 0) {
@@ -516,21 +517,29 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let perdioPuntualidad = false;
         let motivoPuntualidad = "Perfecta";  
 
-        if ((diasProgramados > 0 || diasApoyoTrabajados > 0) && diasFaltaInjustificada === 0) {
+        if (diasProgramados > 0 || diasApoyoTrabajados > 0) {
             
-            if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
-              perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
+            // --- 1. BONO DE PUNTUALIDAD (Estrictamente ligado a Faltas y Asistencia) ---
+            if (diasFaltaInjustificada > 0) {
+                perdioPuntualidad = true;
+                motivoPuntualidad = `Perdido: Acumuló ${diasFaltaInjustificada} faltas.`;
+                alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-bono-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de puntualidad por acumular ${diasFaltaInjustificada} falta(s) injustificada(s).`, estadoAuditoria: 'rechazado', resuelta: true });
+            } else {
+                if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
+                  perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
+                }
+                if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
+                  perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
+                }
+                
+                if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
+                  ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
+                } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
+                  ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
+                }
             }
-            if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
-              perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
-            }
-            
-            if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
-              ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
-            } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
-              ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
-            }  
 
+            // --- 2. BONOS DE LIMPIEZA Y OBSERVACIONES (Desacoplados de Faltas) ---
             if (reglasNomina.bono_limpieza_activo) {
               if (fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
                 ingresosList.push({ concepto: `Bono de Limpieza (${fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
@@ -547,8 +556,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                  alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
               }
             }
-        } else if (diasFaltaInjustificada > 0) {
-            alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-bono-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió todos los bonos semanales por acumular ${diasFaltaInjustificada} falta(s) injustificada(s).`, estadoAuditoria: 'rechazado', resuelta: true });
         } 
 
         (pres.bonos_recurrentes || []).forEach(b => {
@@ -692,7 +699,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }
     }
 
-    // Ya no es necesario sumar diasProgramados aquí porque ahora lo sumamos directamente desde la generación base de la falta
     const nuevoSueldo = p.metricas.sueldoDiarioExacto * p.metricas.diasProgramados;
     const ingresoBase = p.ingresos.find(i => i.es_sueldo_base === true);
     
@@ -744,7 +750,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
       setPreNomina(prev => {
           const arr = [...prev];
           const p = arr[idxEmp];
-          const tarifaApoyo = Number(p.metricas.tarifaApoyoDia) || 0;
+          const tarifaApoyo = Number(p.metricas.tarifaApoyoDia) || p.metricas.sueldoDiarioExacto;
           
           const alt = p.metricas.alertasEmpleado.find(a => a.idUnico === alerta.idUnico);
           if (alt) alt.resuelta = true;
@@ -763,7 +769,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           
           return arr;
       });
-      showAlert("Turno Aprobado", `Se agregó el pago automático por apoyo extra al recibo.`, "success");
+      showAlert("Turno Aprobado", `Se agregó el pago por apoyo extra al recibo.`, "success");
   };
 
   const accionRapidaAguinaldo = (idxEmp) => {
