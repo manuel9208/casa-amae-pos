@@ -22,6 +22,170 @@ const getLocalTodayStr = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// ============================================================================
+// 🏗️ ARQUITECTURA MODULAR: MÉTODOS PUROS DE CÁLCULO FINANCIERO
+// ============================================================================
+
+// 1. CÁLCULO DE HORAS REALES (Evita el bug de las 40+ horas)
+const calcularHorasReales = (checkins, tEntradaOficial, tSalidaOficial, dateStr, toleranciaMinutos) => {
+    if (!checkins || checkins.length === 0) return { horasDetectadas: 0, olvidoSalida: false, esRetardo: false, minutesTarde: 0, hrsOficiales: 8 };
+
+    let minEntrada = new Date(checkins[0].hora_entrada);
+    let maxSalida = checkins[0].hora_salida ? new Date(checkins[0].hora_salida) : null;
+    let tieneNullSalida = !checkins[0].hora_salida;
+
+    for (let i = 1; i < checkins.length; i++) {
+        const inD = new Date(checkins[i].hora_entrada);
+        if (inD < minEntrada) minEntrada = inD;
+        if (checkins[i].hora_salida) {
+            const outD = new Date(checkins[i].hora_salida);
+            if (!maxSalida || outD > maxSalida) maxSalida = outD;
+        } else {
+            tieneNullSalida = true;
+        }
+    }
+
+    let olvidoSalida = tieneNullSalida && checkins.some(h => h.olvido_salida === true);
+
+    const [hE, mE] = (tEntradaOficial || '00:00').split(':').map(Number);
+    let dEntradaLimite = new Date(dateStr + 'T00:00:00');
+    dEntradaLimite.setHours(hE, mE, 0, 0);
+    dEntradaLimite.setMinutes(dEntradaLimite.getMinutes() + toleranciaMinutos);
+    
+    const esRetardo = minEntrada > dEntradaLimite;
+
+    let hrsOficiales = 8;
+    if (tEntradaOficial && tSalidaOficial) {
+        const [hS, mS] = tSalidaOficial.split(':').map(Number);
+        let minutosTurno = (hS * 60 + mS) - (hE * 60 + mE);
+        if (minutosTurno < 0) minutosTurno += 24 * 60;
+        if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;
+    }
+
+    let minsDetectados = 0;
+    if (maxSalida && minEntrada) { 
+        minsDetectados = (maxSalida - minEntrada) / 60000; 
+    } else if (minEntrada && olvidoSalida) {
+        const [hC, mC] = (tSalidaOficial || '23:59').split(':').map(Number);
+        let dCierre = new Date(dateStr + 'T00:00:00');
+        dCierre.setHours(hC, mC, 0, 0);
+        if (dCierre < minEntrada) dCierre.setDate(dCierre.getDate() + 1);
+        minsDetectados = (dCierre - minEntrada) / 60000;
+    }
+    
+    let horasDetectadas = minsDetectados / 60;
+
+    // 🛡️ BLINDAJE: TOPE MÁXIMO PARA EVITAR BUG DE +40 HORAS
+    if (horasDetectadas > 14) {
+        horasDetectadas = hrsOficiales; // Se recorta al turno estándar si hubo un desbordamiento de checada
+    }
+
+    let minutesTarde = 0;
+    if (esRetardo) {
+        const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
+        minutesTarde = Math.max(0, (minEntrada - dOficial) / 60000);
+    }
+
+    return { horasDetectadas, olvidoSalida, esRetardo, minutesTarde, hrsOficiales };
+};
+
+// 2. DETERMINAR ESQUEMA DE PAGO (< 5 días vs >= 5 días)
+const determinarEsquemaPago = (diasActivosSemanales, tipoSueldoBase, diasProgramados, diasApoyoTrabajados, diasDescanso, diasVacaciones) => {
+    let tipo = tipoSueldoBase;
+    const esMedioTiempo = diasActivosSemanales < 5;
+
+    if (tipo === 'Semanal') {
+        if (esMedioTiempo) {
+            tipo = 'Por Hora (Auto)';
+        } else if (diasProgramados === 0 && diasApoyoTrabajados === 0 && diasDescanso === 0 && diasVacaciones === 0) {
+            tipo = 'Sin Asistencia';
+        }
+    }
+    return { tipo, esMedioTiempo };
+};
+
+// 3. CALCULAR SUELDO BASE (Evita $0 por Olvido de Salida)
+const calcularSueldoBase = (esquema, sueldoBase, diasActivosSemanales, diasProgramados, horasTrabajadasTotales) => {
+    let sueldoDiarioExacto = 0;
+    let ingresoSueldo = 0;
+
+    if (esquema === 'Diario') { 
+        sueldoDiarioExacto = sueldoBase; 
+        ingresoSueldo = sueldoBase * diasProgramados; 
+    } else if (esquema === 'Por Hora') { 
+        sueldoDiarioExacto = sueldoBase * 8; 
+        ingresoSueldo = sueldoBase * horasTrabajadasTotales; 
+    } else if (esquema === 'Por Hora (Auto)') {
+        sueldoDiarioExacto = sueldoBase / diasActivosSemanales;
+        const tarifaPorHora = sueldoDiarioExacto / 8;
+        ingresoSueldo = tarifaPorHora * horasTrabajadasTotales;
+    } else if (esquema === 'Semanal') { 
+        sueldoDiarioExacto = sueldoBase / diasActivosSemanales; 
+        ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+    } else if (esquema === 'Quincenal') { 
+        sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; 
+        ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+    } else if (esquema === 'Mensual') { 
+        sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; 
+        ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
+    } else if (esquema === 'Sin Asistencia') {
+        sueldoDiarioExacto = sueldoBase / diasActivosSemanales; 
+        ingresoSueldo = 0; 
+    }
+
+    return { sueldoDiarioExacto, ingresoSueldo };
+};
+
+// 4. EVALUAR BONOS Y PENALIZACIONES
+const evaluarBonos = (metricas, reglasNomina) => {
+    let perdioPuntualidad = false;
+    let motivoPuntualidad = "Perfecta";
+    const bonosAgregados = [];
+    const alertasGeneradas = [];
+
+    if (metricas.diasFaltaInjustificada > 0) {
+        perdioPuntualidad = true;
+        motivoPuntualidad = `Perdido: Acumuló ${metricas.diasFaltaInjustificada} faltas.`;
+        alertasGeneradas.push({ tipo: 'falta', idUnico: `falta-bono-${metricas.empId}`, fecha: metricas.endDateStr, msg: `⚠️ Perdió bono de puntualidad por acumular ${metricas.diasFaltaInjustificada} falta(s) injustificada(s).`, estadoAuditoria: 'rechazado', resuelta: true });
+    } else {
+        if (reglasNomina.bono_puntualidad_eventos_activo && !perdioPuntualidad && metricas.eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
+            perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${metricas.eventosTarde} retardos.`;
+        }
+        if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && metricas.minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
+            perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${metricas.minutesTardeTotales.toFixed(0)} mins tarde.`;
+        }
+        
+        if (!perdioPuntualidad && reglasNomina.bono_puntualidad_eventos_activo) {
+            bonosAgregados.push({ concepto: `Bono de Puntualidad Clásica`, monto: reglasNomina.bono_puntualidad_eventos_monto || 0 });
+        } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
+            bonosAgregados.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
+        }
+    }
+
+    if (reglasNomina.bono_limpieza_activo) {
+        if (metricas.fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
+            bonosAgregados.push({ concepto: `Bono de Limpieza (${metricas.fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
+        } else {
+            alertasGeneradas.push({ tipo: 'observacion', idUnico: `limp-${metricas.empId}`, fecha: metricas.endDateStr, msg: `⚠️ Perdió bono limpieza. Acumuló ${metricas.fallasLimpieza} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
+        }
+    }
+
+    if (reglasNomina.bono_observaciones_activo) {
+        const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
+        if (metricas.fallasObservaciones <= toleranciaFallas) {
+            bonosAgregados.push({ concepto: `Bono Observaciones (${metricas.fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
+        } else {
+            alertasGeneradas.push({ tipo: 'observacion', idUnico: `obs-${metricas.empId}`, fecha: metricas.endDateStr, msg: `⚠️ Perdió bono de observaciones. Acumuló ${metricas.fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
+        }
+    }
+
+    return { perdioPuntualidad, motivoPuntualidad, bonosAgregados, alertasGeneradas };
+};
+
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
+
 const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const hoyStr = getLocalTodayStr();
   const [fechaInicio, setFechaInicio] = useState(hoyStr);
@@ -127,7 +291,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         if (Array.isArray(nl)) rawNoLab = nl;
         const arrNoLaboralesNum = rawNoLab.map(obtenerDiaNum).filter(n => n !== -1);
 
-        // CÁLCULO DE LA SEMANA ACTIVA EXACTA (Por ej. Si descansan 3, su semana laboral es de 4)
         let conteoNoLaborales = 0;
         for (let i = 0; i <= 6; i++) {
            if (arrNoLaboralesNum.includes(i) || diasCerradosLocal.map(obtenerDiaNum).includes(i)) {
@@ -160,6 +323,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let currentDate = new Date(fechaInicio + 'T12:00:00');
         const endDate = new Date(fechaFin + 'T12:00:00');  
 
+        // 🟢 INYECCIÓN DEL ESQUEMA MODULAR
+        const { tipo: tipoSueldoAplicado, esMedioTiempo } = determinarEsquemaPago(diasActivosSemanales, pres.tipo_sueldo, diasProgramados, diasApoyoTrabajados, diasDescanso, diasVacaciones);
+
         if (pres.fecha_ingreso) {
           const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
           if (fIng.getMonth() === currentDate.getMonth() && fIng.getFullYear() < currentDate.getFullYear()) {
@@ -191,7 +357,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             continue;
           }  
 
-          // --- MOTOR BLINDADO DE DÍAS ---
           const esDescansoFicha = arrDescansosNum.includes(diaSemanaNum);
           const esNoLaboralFicha = arrNoLaboralesNum.includes(diaSemanaNum) || diasCerradosLocal.map(obtenerDiaNum).includes(diaSemanaNum);
 
@@ -199,7 +364,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           let esNoLaboral = esNoLaboralFicha;
           let esDiaLaboral = !esDescanso && !esNoLaboral;
 
-          // Solo permitimos override en Días Específicos (Ej. "2024-11-20")
           if (hor[dateStr] !== undefined && Object.keys(hor[dateStr]).length > 0) {
              const hs = hor[dateStr];
              if (hs.es_descanso !== undefined) {
@@ -232,45 +396,11 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }  
 
           if (checkinsDelDia.length > 0) {
-            let minEntrada = new Date(checkinsDelDia[0].hora_entrada);
-            let maxSalida = checkinsDelDia[0].hora_salida ? new Date(checkinsDelDia[0].hora_salida) : null;
-            let tieneNullSalida = !checkinsDelDia[0].hora_salida;  
-
-            for (let i = 1; i < checkinsDelDia.length; i++) {
-              const inD = new Date(checkinsDelDia[i].hora_entrada);
-              if (inD < minEntrada) minEntrada = inD;
-              if (checkinsDelDia[i].hora_salida) {
-                const outD = new Date(checkinsDelDia[i].hora_salida);
-                if (!maxSalida || outD > maxSalida) maxSalida = outD;
-              } else { tieneNullSalida = true; }
-            }  
-
-            const [hE, mE] = tEntradaOficial.split(':').map(Number);
-            let dEntradaLimite = new Date(dateStr + 'T00:00:00');
-            dEntradaLimite.setHours(hE, mE, 0, 0);
-            dEntradaLimite.setMinutes(dEntradaLimite.getMinutes() + (Number(reglasNomina.puntualidad_eventos_tolerancia_minutos) || 15));
-
-            const esRetardo = minEntrada > dEntradaLimite;
-            let olvidoSalida = tieneNullSalida && checkinsDelDia.some(h => h.olvido_salida === true);
+            // 🟢 INYECCIÓN DEL CÁLCULO DE HORAS PURO (BLINDADO)
+            const calcHoras = calcularHorasReales(checkinsDelDia, tEntradaOficial, tSalidaOficial, dateStr, Number(reglasNomina.puntualidad_eventos_tolerancia_minutos) || 15);
+            let { horasDetectadas, olvidoSalida, esRetardo, hrsOficiales } = calcHoras;
+            
             if (esRetardo) { eventosTarde++; }  
-
-            let hrsOficiales = 8;
-            const [hS, mS] = tSalidaOficial.split(':').map(Number);
-            let minutosTurno = (hS * 60 + mS) - (hE * 60 + mE);
-            if (minutosTurno < 0) minutosTurno += 24 * 60;
-            if (minutosTurno > 0) hrsOficiales = minutosTurno / 60;  
-
-            let minsDetectados = 0;
-            if (maxSalida && minEntrada) { 
-                minsDetectados = (maxSalida - minEntrada) / 60000; 
-            } else if (minEntrada && olvidoSalida) {
-                const [hC, mC] = tSalidaOficial.split(':').map(Number);
-                let dCierre = new Date(dateStr + 'T00:00:00');
-                dCierre.setHours(hC, mC, 0, 0);
-                if (dCierre < minEntrada) dCierre.setDate(dCierre.getDate() + 1);
-                minsDetectados = (dCierre - minEntrada) / 60000;
-            }
-            let horasDetectadas = minsDetectados / 60;  
 
             let estadoAudParsed = { estado: 'pendiente' };
             if (auditoriaDia['auditoria_turno']) {
@@ -288,7 +418,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
             if (esDescanso || esNoLaboral) {
                 requiereAuditoria = true;
-                
                 if (esDescanso) {
                     motivosAnomalia.push("Trabajó en su Descanso");
                     diasProgramados++;
@@ -319,22 +448,19 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
                 if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
 
+                // 🛡️ SOLUCIÓN AL BUG 2: ASIGNACIÓN DE PAGO GARANTIZADO SI OLVIDA SALIDA
                 if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
                   horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
                   olvidoSalida = false;
-                  if (esRetardo) {
-                    const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
-                    minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
-                  }
+                  if (esRetardo) minutesTardeTotales += calcHoras.minutesTarde;
                 } else if (estadoAudParsed.estado === 'rechazado') {
                   horasFinalesAprobadas = 0;
                 } else if (olvidoSalida) {
-                  horasFinalesAprobadas = 0;
+                  // Pago oficial por defecto, sin castigar dejando en cero al empleado por error de dedo
+                  horasFinalesAprobadas = calcHoras.hrsOficiales; 
                 } else {
-                  if (esRetardo) {
-                    const dOficial = new Date(dateStr + 'T' + tEntradaOficial);
-                    minutesTardeTotales += Math.max(0, (minEntrada - dOficial) / 60000);
-                  }
+                  horasFinalesAprobadas = calcHoras.horasDetectadas;
+                  if (esRetardo) minutesTardeTotales += calcHoras.minutesTarde;
                 }  
 
                 if (estadoAudParsed.estado !== 'rechazado' && !olvidoSalida) {
@@ -381,12 +507,18 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     horasTrabajadasTotales += 8;
                     diasAuditados.push(dateStr);
                   } else {
-                    // FUNDAMOS LA BASE SALARIAL PARA PODER APLICAR EL DESCUENTO LIMPIO
-                    diasProgramados++;
-                    horasTrabajadasTotales += 8;
-                    diasFaltaInjustificada++;
-                    alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
-                    diasAuditados.push(dateStr);
+                    // 🛡️ SOLUCIÓN AL BUG 3: SALVAGUARDAR BONOS PARA MEDIO TIEMPO
+                    if (esMedioTiempo && hor[dateStr]?.activo !== true) {
+                        // El empleado es de medio tiempo y no tenía turno explícito este día, se perdona.
+                        diasAuditados.push(dateStr);
+                    } else {
+                        // Sí estaba programado y no vino
+                        diasProgramados++;
+                        horasTrabajadasTotales += 8;
+                        diasFaltaInjustificada++;
+                        alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-${dateStr}`, fecha: dateStr, msg: `⚠️ Falta Injustificada.`, estadoAuditoria: estadoFaltaParsed.estado, resuelta: estadoFaltaParsed.estado === 'rechazado' });
+                        diasAuditados.push(dateStr);
+                    }
                   }
                } else if (esDescanso) {
                   diasProgramados++;
@@ -412,7 +544,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
             }
           }
 
-          // Auditorías de Limpieza y Observaciones
+          // Limpieza y Observaciones
           for (const area of Object.keys(matrizLimpieza.asignaciones || {})) {
             const asignadosEnFecha = matrizLimpieza.asignaciones[area]?.[dateStr] || [];
             if (asignadosEnFecha.map(String).includes(String(emp.id))) {
@@ -440,49 +572,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }
 
         const sueldoBase = Number(pres.sueldo_base) || 0;
-        let ingresoSueldo = 0;
-        let sueldoDiarioExacto = 0;  
         
-        let tipoSueldoAplicado = pres.tipo_sueldo;
-
-        // SWITCH DINÁMICO REPARADO: Evalúa los días estipulados en su contrato, no los días seleccionados en el filtro
-        if (tipoSueldoAplicado === 'Semanal') {
-            if (diasActivosSemanales < 5) {
-                tipoSueldoAplicado = 'Por Hora (Auto)';
-            } else if (diasProgramados === 0 && diasApoyoTrabajados === 0 && diasDescanso === 0 && diasVacaciones === 0) {
-                tipoSueldoAplicado = 'Sin Asistencia';
-            }
-        }
-
-        if (tipoSueldoAplicado === 'Diario') { 
-            sueldoDiarioExacto = sueldoBase; 
-            ingresoSueldo = sueldoBase * diasProgramados; 
-        }
-        else if (tipoSueldoAplicado === 'Por Hora') { 
-            sueldoDiarioExacto = sueldoBase * 8; 
-            ingresoSueldo = sueldoBase * horasTrabajadasTotales; 
-        }
-        else if (tipoSueldoAplicado === 'Por Hora (Auto)') {
-            sueldoDiarioExacto = sueldoBase / diasActivosSemanales;
-            const tarifaPorHora = sueldoDiarioExacto / 8;
-            ingresoSueldo = tarifaPorHora * horasTrabajadasTotales;
-        }
-        else if (tipoSueldoAplicado === 'Semanal') { 
-            sueldoDiarioExacto = sueldoBase / diasActivosSemanales; 
-            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
-        }
-        else if (tipoSueldoAplicado === 'Quincenal') { 
-            sueldoDiarioExacto = (sueldoBase / 2) / diasActivosSemanales; 
-            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
-        }
-        else if (tipoSueldoAplicado === 'Mensual') { 
-            sueldoDiarioExacto = (sueldoBase / 4) / diasActivosSemanales; 
-            ingresoSueldo = sueldoDiarioExacto * diasProgramados; 
-        }
-        else if (tipoSueldoAplicado === 'Sin Asistencia') {
-            sueldoDiarioExacto = sueldoBase / diasActivosSemanales; 
-            ingresoSueldo = 0; 
-        }
+        // 🟢 INYECCIÓN DEL CÁLCULO DE SUELDO PURO
+        const calcSalario = calcularSueldoBase(tipoSueldoAplicado, sueldoBase, diasActivosSemanales, diasProgramados, horasTrabajadasTotales);
+        let { sueldoDiarioExacto, ingresoSueldo } = calcSalario;
 
         const ingresosList = [];
         const egresosList = [];  
@@ -514,49 +607,28 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Prima Dominical (${reglasNomina.prima_dominical_porcentaje}% x ${domingosTrabajados} Dom)`, monto: montoPrima });
         }  
 
+        // 🟢 INYECCIÓN DEL EVALUADOR DE BONOS PURO CON FIX DEL WARNING DE ESLINT
         let perdioPuntualidad = false;
-        let motivoPuntualidad = "Perfecta";  
+        let motivoPuntualidad = "Sin Asistencia";
 
         if (diasProgramados > 0 || diasApoyoTrabajados > 0) {
+            const metricasEvaluacion = {
+                empId: emp.id,
+                diasFaltaInjustificada,
+                eventosTarde,
+                minutesTardeTotales,
+                fallasLimpieza,
+                fallasObservaciones,
+                endDateStr: endDate.toISOString().split('T')[0]
+            };
+
+            const bonosObj = evaluarBonos(metricasEvaluacion, reglasNomina);
+            perdioPuntualidad = bonosObj.perdioPuntualidad;
+            motivoPuntualidad = bonosObj.motivoPuntualidad;
             
-            // --- 1. BONO DE PUNTUALIDAD (Estrictamente ligado a Faltas y Asistencia) ---
-            if (diasFaltaInjustificada > 0) {
-                perdioPuntualidad = true;
-                motivoPuntualidad = `Perdido: Acumuló ${diasFaltaInjustificada} faltas.`;
-                alertasEmpleado.push({ tipo: 'falta', idUnico: `falta-bono-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de puntualidad por acumular ${diasFaltaInjustificada} falta(s) injustificada(s).`, estadoAuditoria: 'rechazado', resuelta: true });
-            } else {
-                if (reglasNomina.bono_puntualidad_activo && !perdioPuntualidad && eventosTarde > (reglasNomina.puntualidad_eventos_retardos_permitidos || 0)) {
-                  perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${eventosTarde} retardos.`;
-                }
-                if (reglasNomina.bono_puntualidad_estricta_activo && !perdioPuntualidad && minutesTardeTotales > (reglasNomina.puntualidad_estricta_limite_minutos_semana || 0)) {
-                  perdioPuntualidad = true; motivoPuntualidad = `Perdido: Acumuló ${minutesTardeTotales.toFixed(0)} mins tarde.`;
-                }
-                
-                if (!perdioPuntualidad && reglasNomina.bono_puntualidad_activo) {
-                  ingresosList.push({ concepto: `Bono de Puntualidad (Por Ley / Regla)`, monto: reglasNomina.bono_puntualidad_monto || 0 });
-                } else if (!perdioPuntualidad && reglasNomina.bono_puntualidad_estricta_activo) {
-                  ingresosList.push({ concepto: `Bono Estricto Puntualidad`, monto: reglasNomina.bono_puntualidad_estricta_monto || 0 });
-                }
-            }
-
-            // --- 2. BONOS DE LIMPIEZA Y OBSERVACIONES (Desacoplados de Faltas) ---
-            if (reglasNomina.bono_limpieza_activo) {
-              if (fallasLimpieza <= (Number(reglasNomina.limpieza_omisiones_permitidas) || 0)) {
-                ingresosList.push({ concepto: `Bono de Limpieza (${fallasLimpieza} Faltas / Tol: ${reglasNomina.limpieza_omisiones_permitidas})`, monto: reglasNomina.bono_limpieza_monto || 0 });
-              } else {
-                alertasEmpleado.push({ tipo: 'observacion', idUnico: `limp-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono limpieza. Acumuló ${fallasLimpieza} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
-              }
-            }
-
-            if (reglasNomina.bono_observaciones_activo) {
-              const toleranciaFallas = Number(reglasNomina.bono_observaciones_tolerancia) || 0;
-              if (fallasObservaciones <= toleranciaFallas) {
-                ingresosList.push({ concepto: `Bono Observaciones (${fallasObservaciones} fallas / Tol: ${toleranciaFallas})`, monto: reglasNomina.bono_observaciones_monto || 0 });
-              } else {
-                 alertasEmpleado.push({ tipo: 'observacion', idUnico: `obs-${emp.id}`, fecha: endDate.toISOString().split('T')[0], msg: `⚠️ Perdió bono de observaciones. Acumuló ${fallasObservaciones} fallas.`, estadoAuditoria: 'rechazado', resuelta: true });
-              }
-            }
-        } 
+            bonosObj.bonosAgregados.forEach(b => ingresosList.push(b));
+            bonosObj.alertasGeneradas.forEach(a => alertasEmpleado.push(a));
+        }
 
         (pres.bonos_recurrentes || []).forEach(b => {
           if (b.activo) ingresosList.push({ concepto: `Bono Recurrente: ${b.concepto}`, monto: Number(b.monto) });
