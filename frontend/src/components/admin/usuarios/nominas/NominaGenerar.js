@@ -26,7 +26,6 @@ const getLocalTodayStr = () => {
 // 🏗️ ARQUITECTURA MODULAR: MÉTODOS PUROS DE CÁLCULO FINANCIERO
 // ============================================================================
 
-// 1. CÁLCULO DE HORAS REALES (Evita el bug de las 40+ horas)
 const calcularHorasReales = (checkins, tEntradaOficial, tSalidaOficial, dateStr, toleranciaMinutos) => {
     if (!checkins || checkins.length === 0) return { horasDetectadas: 0, olvidoSalida: false, esRetardo: false, minutesTarde: 0, hrsOficiales: 8 };
 
@@ -75,10 +74,7 @@ const calcularHorasReales = (checkins, tEntradaOficial, tSalidaOficial, dateStr,
     
     let horasDetectadas = minsDetectados / 60;
 
-    // 🛡️ BLINDAJE: TOPE MÁXIMO PARA EVITAR BUG DE +40 HORAS
-    if (horasDetectadas > 14) {
-        horasDetectadas = hrsOficiales; // Se recorta al turno estándar si hubo un desbordamiento de checada
-    }
+    if (horasDetectadas > 14) horasDetectadas = hrsOficiales;
 
     let minutesTarde = 0;
     if (esRetardo) {
@@ -89,7 +85,6 @@ const calcularHorasReales = (checkins, tEntradaOficial, tSalidaOficial, dateStr,
     return { horasDetectadas, olvidoSalida, esRetardo, minutesTarde, hrsOficiales };
 };
 
-// 2. DETERMINAR ESQUEMA DE PAGO (< 5 días vs >= 5 días)
 const determinarEsquemaPago = (diasActivosSemanales, tipoSueldoBase, diasProgramados, diasApoyoTrabajados, diasDescanso, diasVacaciones) => {
     let tipo = tipoSueldoBase;
     const esMedioTiempo = diasActivosSemanales < 5;
@@ -101,10 +96,9 @@ const determinarEsquemaPago = (diasActivosSemanales, tipoSueldoBase, diasProgram
             tipo = 'Sin Asistencia';
         }
     }
-    return { tipo, esMedioTiempo };
+    return tipo;
 };
 
-// 3. CALCULAR SUELDO BASE (Evita $0 por Olvido de Salida)
 const calcularSueldoBase = (esquema, sueldoBase, diasActivosSemanales, diasProgramados, horasTrabajadasTotales) => {
     let sueldoDiarioExacto = 0;
     let ingresoSueldo = 0;
@@ -136,7 +130,6 @@ const calcularSueldoBase = (esquema, sueldoBase, diasActivosSemanales, diasProgr
     return { sueldoDiarioExacto, ingresoSueldo };
 };
 
-// 4. EVALUAR BONOS Y PENALIZACIONES
 const evaluarBonos = (metricas, reglasNomina) => {
     let perdioPuntualidad = false;
     let motivoPuntualidad = "Perfecta";
@@ -298,6 +291,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
            }
         }
         const diasActivosSemanales = Math.max(1, 7 - conteoNoLaborales);
+        
+        // 🟢 Calculamos si es medio tiempo ANTES del ciclo para la lógica de perdonar faltas
+        const esMedioTiempo = diasActivosSemanales < 5;
 
         let diasAsistidos = 0;
         let diasProgramados = 0;
@@ -322,9 +318,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
         const endDate = new Date(fechaFin + 'T12:00:00');  
-
-        // 🟢 INYECCIÓN DEL ESQUEMA MODULAR
-        const { tipo: tipoSueldoAplicado, esMedioTiempo } = determinarEsquemaPago(diasActivosSemanales, pres.tipo_sueldo, diasProgramados, diasApoyoTrabajados, diasDescanso, diasVacaciones);
 
         if (pres.fecha_ingreso) {
           const fIng = new Date(pres.fecha_ingreso + 'T12:00:00');
@@ -396,7 +389,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           }  
 
           if (checkinsDelDia.length > 0) {
-            // 🟢 INYECCIÓN DEL CÁLCULO DE HORAS PURO (BLINDADO)
             const calcHoras = calcularHorasReales(checkinsDelDia, tEntradaOficial, tSalidaOficial, dateStr, Number(reglasNomina.puntualidad_eventos_tolerancia_minutos) || 15);
             let { horasDetectadas, olvidoSalida, esRetardo, hrsOficiales } = calcHoras;
             
@@ -448,7 +440,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 if (!olvidoSalida && horasDetectadas > hrsOficiales + 0.5) motivosAnomalia.push("Exceso de Horas");
                 if (!olvidoSalida && horasDetectadas < hrsOficiales - 0.5) motivosAnomalia.push("Jornada Incompleta");  
 
-                // 🛡️ SOLUCIÓN AL BUG 2: ASIGNACIÓN DE PAGO GARANTIZADO SI OLVIDA SALIDA
                 if (estadoAudParsed.estado === 'aprobado' && estadoAudParsed.horasAprobadas !== undefined) {
                   horasFinalesAprobadas = Number(estadoAudParsed.horasAprobadas);
                   olvidoSalida = false;
@@ -456,7 +447,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                 } else if (estadoAudParsed.estado === 'rechazado') {
                   horasFinalesAprobadas = 0;
                 } else if (olvidoSalida) {
-                  // Pago oficial por defecto, sin castigar dejando en cero al empleado por error de dedo
                   horasFinalesAprobadas = calcHoras.hrsOficiales; 
                 } else {
                   horasFinalesAprobadas = calcHoras.horasDetectadas;
@@ -507,12 +497,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     horasTrabajadasTotales += 8;
                     diasAuditados.push(dateStr);
                   } else {
-                    // 🛡️ SOLUCIÓN AL BUG 3: SALVAGUARDAR BONOS PARA MEDIO TIEMPO
                     if (esMedioTiempo && hor[dateStr]?.activo !== true) {
-                        // El empleado es de medio tiempo y no tenía turno explícito este día, se perdona.
                         diasAuditados.push(dateStr);
                     } else {
-                        // Sí estaba programado y no vino
                         diasProgramados++;
                         horasTrabajadasTotales += 8;
                         diasFaltaInjustificada++;
@@ -573,6 +560,10 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
 
         const sueldoBase = Number(pres.sueldo_base) || 0;
         
+        // 🟢 INYECCIÓN DEL ESQUEMA MODULAR DESPUÉS DEL CICLO
+        // Aquí ya conoce los días programados y salva a Andrea de quedar en $0
+        const tipoSueldoAplicado = determinarEsquemaPago(diasActivosSemanales, pres.tipo_sueldo, diasProgramados, diasApoyoTrabajados, diasDescanso, diasVacaciones);
+
         // 🟢 INYECCIÓN DEL CÁLCULO DE SUELDO PURO
         const calcSalario = calcularSueldoBase(tipoSueldoAplicado, sueldoBase, diasActivosSemanales, diasProgramados, horasTrabajadasTotales);
         let { sueldoDiarioExacto, ingresoSueldo } = calcSalario;
@@ -607,7 +598,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           ingresosList.push({ concepto: `Prima Dominical (${reglasNomina.prima_dominical_porcentaje}% x ${domingosTrabajados} Dom)`, monto: montoPrima });
         }  
 
-        // 🟢 INYECCIÓN DEL EVALUADOR DE BONOS PURO CON FIX DEL WARNING DE ESLINT
         let perdioPuntualidad = false;
         let motivoPuntualidad = "Sin Asistencia";
 
