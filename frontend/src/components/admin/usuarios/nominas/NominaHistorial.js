@@ -1,39 +1,42 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { History, Printer, Trash2, Calendar, Users, Filter } from 'lucide-react';
-import ReciboNomina from './ReciboNomina';  
+import ReciboNomina from './ReciboNomina';
+import io from 'socket.io-client';
 
-const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);  
+const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
 const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) => {
     const [historicoNominas, setHistoricoNominas] = useState([]);
     const [cargando, setCargando] = useState(true);
-    const [reciboPrint, setReciboPrint] = useState(null);  
-    const [configGlobal, setConfigGlobal] = useState({});  
+    const [reciboPrint, setReciboPrint] = useState(null);
+    const [configGlobal, setConfigGlobal] = useState({});
     const [filtroEmpleado, setFiltroEmpleado] = useState('');
-    const [filtroPeriodo, setFiltroPeriodo] = useState('');  
-    
-    const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global').sort((a, b) => a.nombre.localeCompare(b.nombre));  
-    
+    const [filtroPeriodo, setFiltroPeriodo] = useState('');
+
+    const empleadosVisibles = usuariosDB
+        .filter(u => u.nombre !== 'Administrador Global')
+        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
     const periodosUnicos = [...new Set(historicoNominas.map(nomina => {
         const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
         if (!datos?.metadata?.fecha_inicio || !datos?.metadata?.fecha_fin) return null;
         return `${datos.metadata.fecha_inicio} al ${datos.metadata.fecha_fin}`;
-    }).filter(Boolean))];  
-    
+    }).filter(Boolean))];
+
     useEffect(() => {
         fetch(`${apiUrl}/configuracion`)
-        .then(res => res.json())
-        .then(data => {
-            if (data) setConfigGlobal(data);
-        })
-        .catch(() => {});
-    }, [apiUrl]);  
-    
+            .then(res => res.json())
+            .then(data => {
+                if (data) setConfigGlobal(data);
+            })
+            .catch(() => {});
+    }, [apiUrl]);
+
     const cargarHistorico = useCallback(async () => {
         setCargando(true);
         try {
             const hoyStr = new Date().toISOString().split('T')[0];
-            const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0,4)}-01-01`);
+            const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0, 4)}-01-01`);
             if (res.ok) {
                 const data = await res.json();
                 const nominas = (data.cortesNomina || []).filter(c => {
@@ -46,69 +49,164 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
             console.error(e);
         }
         setCargando(false);
-    }, [apiUrl]);  
-    
+    }, [apiUrl]);
+
     useEffect(() => {
         cargarHistorico();
-    }, [cargarHistorico]);  
-    
-    // 👇 SOLUCIÓN MÓVIL EXACTA APLICADA AQUÍ
+    }, [cargarHistorico]);
+
+    // Lógica para asegurar impresión en móviles y PC
     useEffect(() => {
         if (reciboPrint) {
             const timer = setTimeout(() => {
                 window.print();
-                
                 const handleAfterPrint = () => {
                     setReciboPrint(null);
                     window.removeEventListener('afterprint', handleAfterPrint);
                 };
-
                 window.addEventListener('afterprint', handleAfterPrint);
                 setTimeout(handleAfterPrint, 10000); // Respaldo 10s para celulares
-            }, 1500); // 1.5s para asegurar renderizado de fuente y logos
+            }, 1500); // 1.5s para asegurar renderizado de fuentes y logos
             return () => clearTimeout(timer);
         }
-    }, [reciboPrint]);  
-    
-    const eliminarNomina = (id) => {
-        showConfirm("Eliminar Nómina", "Al eliminarla, el dinero desaparecerá de los registros y reportes financieros. ¿Continuar?", async () => {
-            try {
-                const res = await fetch(`${apiUrl}/usuarios/corte-nomina/${id}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showAlert("Éxito", "Nómina eliminada correctamente.", "success");
-                    cargarHistorico();
-                } else {
-                    showAlert("Error", "No se pudo eliminar la nómina.", "error");
+    }, [reciboPrint]);
+
+    // Función de Eliminación Blindada y Reversible
+    const eliminarNomina = (id, datosCorte) => {
+        showConfirm(
+            "Eliminar Nómina y Liberar Días",
+            "Al eliminarla, los días pagados volverán a estar 'Pendientes', se regresará el saldo a los préstamos descontados y podrás volver a generar esta nómina. ¿Continuar?",
+            async () => {
+                try {
+                    // 1. Eliminar de la base de datos de cortes
+                    const res = await fetch(`${apiUrl}/usuarios/corte-nomina/${id}`, { method: 'DELETE' });
+
+                    if (res.ok) {
+                        // 2. Obtener usuarios frescos para revertir los estados exactos
+                        const resUsuarios = await fetch(`${apiUrl}/usuarios`);
+                        if (resUsuarios.ok) {
+                            const usuariosActualizados = await resUsuarios.json();
+                            const recibos = datosCorte.recibos || [];
+
+                            await Promise.all(recibos.map(async (r) => {
+                                const emp = usuariosActualizados.find(u => String(u.id) === String(r.empleado_id));
+                                if (!emp) return;
+
+                                const horActual = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+                                const presActual = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+
+                                let huboCambioHorario = false;
+                                let huboCambioPrestaciones = false;
+
+                                // A. Liberar los días (quitar nomina_pagada)
+                                const diasAuditados = r.metricas?.diasAuditados || [];
+                                diasAuditados.forEach(dia => {
+                                    if (horActual[dia] && horActual[dia].nomina_pagada) {
+                                        horActual[dia].nomina_pagada = false;
+                                        delete horActual[dia].nomina_pagada;
+                                        huboCambioHorario = true;
+                                    }
+                                });
+
+                                // B. Revertir cobro de préstamos
+                                let prestamosActuales = presActual.prestamos || [];
+                                const prestamosAplicados = r.metricas?.prestamosAplicados || [];
+                                
+                                if (prestamosAplicados.length > 0) {
+                                    prestamosActuales = prestamosActuales.map(prestamo => {
+                                        const aplico = prestamosAplicados.find(pa => String(pa.id) === String(prestamo.id));
+                                        if (aplico) {
+                                            const nuevoSaldo = Number(prestamo.saldo_restante) + Number(aplico.descontado);
+                                            return { ...prestamo, saldo_restante: nuevoSaldo, activo: true };
+                                        }
+                                        return prestamo;
+                                    });
+                                    huboCambioPrestaciones = true;
+                                }
+
+                                // C. Revertir horas extras acumuladas en este recibo (Si aplica)
+                                let horasExtrasHistoricas = Number(presActual.horas_extras_acumuladas) || 0;
+                                const horasExtraAplicadas = Number(r.metricas?.horasExtrasAcumulables) || 0;
+                                if (horasExtraAplicadas > 0) {
+                                    horasExtrasHistoricas = Math.max(0, horasExtrasHistoricas - horasExtraAplicadas);
+                                    huboCambioPrestaciones = true;
+                                }
+
+                                // 3. Enviar actualizaciones revertidas al servidor
+                                if (huboCambioHorario) {
+                                    await fetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ horario_semanal: horActual })
+                                    });
+                                }
+
+                                if (huboCambioPrestaciones) {
+                                    await fetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ 
+                                            prestaciones: { 
+                                                ...presActual, 
+                                                prestamos: prestamosActuales,
+                                                horas_extras_acumuladas: horasExtrasHistoricas
+                                            } 
+                                        })
+                                    });
+                                }
+                            }));
+                        }
+
+                        showAlert("Éxito", "Nómina eliminada y días liberados correctamente. Puedes volver a generarla.", "success");
+                        cargarHistorico();
+
+                        // Sincronización por Sockets para actualizar "Generar Nómina" en vivo
+                        try {
+                            const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket'] });
+                            socket.emit('horarios_actualizados');
+                            socket.disconnect();
+                        } catch (errSocket) {
+                            console.error('Socket silenciado', errSocket);
+                        }
+
+                    } else {
+                        showAlert("Error", "No se pudo eliminar la nómina de la Base de Datos.", "error");
+                    }
+                } catch (e) {
+                    showAlert("Error", "Fallo de conexión al intentar eliminar la nómina.", "error");
                 }
-            } catch(e) { showAlert("Error", "Fallo de conexión.", "error"); }
-        });
-    };  
-    
+            }
+        );
+    };
+
     const nominasFiltradas = historicoNominas.filter(nomina => {
         const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
         const recibos = datos.recibos || [];
-        const periodoStr = `${datos.metadata?.fecha_inicio} al ${datos.metadata?.fecha_fin}`;  
-        if (filtroPeriodo && periodoStr !== filtroPeriodo) return false;  
+        const periodoStr = `${datos.metadata?.fecha_inicio} al ${datos.metadata?.fecha_fin}`;
+        
+        if (filtroPeriodo && periodoStr !== filtroPeriodo) return false;
+        
         if (filtroEmpleado) {
             const tieneAlEmpleado = recibos.some(r => String(r.empleado_id) === String(filtroEmpleado));
             if (!tieneAlEmpleado) return false;
-        }  
+        }
+        
         return true;
-    });  
-    
+    });
+
     return (
         <div className="bg-white p-4 md:p-8 rounded-3xl shadow-sm border border-slate-200 main-container-nomina animate-in fade-in">
             <div className="flex flex-col md:flex-row items-start md:items-center gap-3 mb-6 border-b border-slate-100 pb-4 print-hidden">
-                <History className="text-blue-500 hidden md:block" size={32}/>
+                <History className="text-blue-500 hidden md:block" size={32} />
                 <div>
                     <h3 className="text-xl md:text-2xl font-black text-slate-800">Historial de Nóminas</h3>
                     <p className="text-xs md:text-sm font-bold text-slate-400">Consulta o reimprime recibos de pagos anteriores.</p>
                 </div>
-            </div>  
-            
+            </div>
+
             <div className="flex flex-col md:flex-row gap-4 mb-8 bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-sm print-hidden">
                 <div className="flex-1">
-                    <label className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={14}/> Empleado</label>
+                    <label className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Users size={14} /> Empleado</label>
                     <select
                         value={filtroEmpleado}
                         onChange={(e) => setFiltroEmpleado(e.target.value)}
@@ -119,9 +217,9 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                             <option key={emp.id} value={emp.id}>{emp.nombre} ({emp.rol})</option>
                         ))}
                     </select>
-                </div>  
+                </div>
                 <div className="flex-1">
-                    <label className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Calendar size={14}/> Periodo de Nómina</label>
+                    <label className="text-[10px] md:text-xs font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Calendar size={14} /> Periodo de Nómina</label>
                     <select
                         value={filtroPeriodo}
                         onChange={(e) => setFiltroPeriodo(e.target.value)}
@@ -132,7 +230,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                             <option key={idx} value={periodo}>{periodo}</option>
                         ))}
                     </select>
-                </div>  
+                </div>
                 {(filtroEmpleado || filtroPeriodo) && (
                     <div className="flex items-end mt-2 md:mt-0">
                         <button
@@ -144,8 +242,8 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                         </button>
                     </div>
                 )}
-            </div>  
-            
+            </div>
+
             {cargando ? (
                 <div className="py-20 text-center flex flex-col items-center justify-center opacity-50 print-hidden">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-800 mx-auto mb-3"></div>
@@ -168,24 +266,24 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                     {nominasFiltradas.map(nomina => {
                         const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
                         const recibos = datos.recibos || [];
-                        const metadata = datos.metadata || {};  
-                        
+                        const metadata = datos.metadata || {};
+
                         const recibosAMostrar = filtroEmpleado
                             ? recibos.filter(r => String(r.empleado_id) === String(filtroEmpleado))
-                            : recibos;  
-                            
+                            : recibos;
+
                         return (
                             <div key={nomina.id} className="bg-slate-50 p-4 md:p-6 rounded-3xl border border-slate-200">
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 border-b border-slate-200 pb-4 gap-4">
                                     <div>
-                                        <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={14}/> {new Date(nomina.fecha_creacion).toLocaleString()}</p>
+                                        <p className="text-[10px] md:text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar size={14} /> {new Date(nomina.fecha_creacion).toLocaleString()}</p>
                                         <p className="text-base md:text-lg font-black text-slate-800 mt-1">Periodo: {metadata.fecha_inicio} al {metadata.fecha_fin}</p>
                                     </div>
-                                    <button onClick={() => eliminarNomina(nomina.id)} className="w-full md:w-auto bg-red-50 hover:bg-red-100 text-red-500 p-3 rounded-xl transition shadow-sm flex items-center justify-center gap-2" title="Eliminar Nómina Completa">
+                                    <button onClick={() => eliminarNomina(nomina.id, datos)} className="w-full md:w-auto bg-red-50 hover:bg-red-100 text-red-500 p-3 rounded-xl transition shadow-sm flex items-center justify-center gap-2" title="Eliminar Nómina Completa">
                                         <Trash2 size={18} /> <span className="md:hidden font-bold text-sm">Eliminar Nómina</span>
                                     </button>
-                                </div>  
-                                
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                     {recibosAMostrar.map((r, i) => (
                                         <div key={i} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition">
@@ -210,7 +308,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                                                 }}
                                                 className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 md:py-4 rounded-xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95"
                                             >
-                                                <Printer size={16}/> Imprimir / PDF
+                                                <Printer size={16} /> Imprimir / PDF
                                             </button>
                                         </div>
                                     ))}
@@ -219,82 +317,78 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                         );
                     })}
                 </div>
-            )}  
-            
+            )}
+
             {/* ÁREA DE IMPRESIÓN EXCLUSIVA */}
             {reciboPrint && (
                 <div className="print-receipt-wrapper">
                     <ReciboNomina recibo={reciboPrint} configGlobal={configGlobal} />
                 </div>
-            )}  
-            
+            )}
+
             {/* 👇 🛡️ BLINDAJE DE IMPRESIÓN MÓVIL ESTRICTO */}
             <style>{`
-            @media screen {
-                .print-receipt-wrapper { display: none !important; }
-            }  
-            @media print {
-                /* APAGAR TODO LO QUE NO SEA EL TICKET */
-                .print-hidden, header, nav, aside, footer, button, .tabs-container {
-                    display: none !important;
-                }  
-                /* ROMPER CONFINAMIENTO DE PANTALLAS (El causante de las páginas en blanco en celular) */
-                html, body, #root, main, .main-container-nomina, .h-screen, .min-h-screen, .overflow-hidden, .overflow-y-auto {
-                    height: auto !important;
-                    min-height: 100% !important;
-                    width: 100% !important;
-                    overflow: visible !important;
-                    position: static !important;
-                    display: block !important;
-                    background: #ffffff !important;
-                    box-shadow: none !important;
-                    border: none !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }  
-                /* MOSTRAR SOLO EL WRAPPER */
-                body > *:not(#root) { display: none !important; }
-                #root > *:not(.print-receipt-wrapper-container) { /* Fallback */ }  
-                .print-receipt-wrapper {
-                    display: block !important;
-                    position: absolute !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    width: 100% !important;
-                    padding: 5mm !important;
-                    background-color: #ffffff !important;
-                    z-index: 9999999 !important;
-                }  
-                .print-receipt-wrapper * {
-                    visibility: visible !important;
-                    color: #000000 !important;
-                    opacity: 1 !important;
-                }  
-                /* FORZAR LA TABLA A RENDERIZARSE EN CELULAR */
-                .print-receipt-wrapper table {
-                    display: table !important;
-                    width: 100% !important;
-                    border-collapse: collapse !important;
-                    page-break-inside: auto !important;
+                @media screen {
+                    .print-receipt-wrapper { display: none !important; }
                 }
-                .print-receipt-wrapper tr {
-                    display: table-row !important;
-                    page-break-inside: avoid !important;
-                    page-break-after: auto !important;
+                @media print {
+                    .print-hidden, header, nav, aside, footer, button, .tabs-container {
+                        display: none !important;
+                    }
+                    html, body, #root, main, .main-container-nomina, .h-screen, .min-h-screen, .overflow-hidden, .overflow-y-auto {
+                        height: auto !important;
+                        min-height: 100% !important;
+                        width: 100% !important;
+                        overflow: visible !important;
+                        position: static !important;
+                        display: block !important;
+                        background: #ffffff !important;
+                        box-shadow: none !important;
+                        border: none !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
+                    body > *:not(#root) { display: none !important; }
+                    .print-receipt-wrapper {
+                        display: block !important;
+                        position: absolute !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        width: 100% !important;
+                        padding: 5mm !important;
+                        background-color: #ffffff !important;
+                        z-index: 9999999 !important;
+                    }
+                    .print-receipt-wrapper * {
+                        visibility: visible !important;
+                        color: #000000 !important;
+                        opacity: 1 !important;
+                    }
+                    .print-receipt-wrapper table {
+                        display: table !important;
+                        width: 100% !important;
+                        border-collapse: collapse !important;
+                        page-break-inside: auto !important;
+                    }
+                    .print-receipt-wrapper tr {
+                        display: table-row !important;
+                        page-break-inside: avoid !important;
+                        page-break-after: auto !important;
+                    }
+                    .print-receipt-wrapper th,
+                    .print-receipt-wrapper td {
+                        display: table-cell !important;
+                    }
+                    @page {
+                        size: auto;
+                        margin: 5mm;
+                    }
                 }
-                .print-receipt-wrapper th,
-                .print-receipt-wrapper td {
-                    display: table-cell !important;
-                }  
-                @page {
-                    size: auto;
-                    margin: 5mm;
-                }
-            }
             `}</style>
         </div>
     );
-};  
+};
+
 export default NominaHistorial;

@@ -263,6 +263,23 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
       ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
       : empleadosVisibles;
 
+    // LÓGICA DE SELECCIÓN MASIVA DENTRO DEL MODAL
+    const todosModalSeleccionados = empleadosParaMostrar.length > 0 && empleadosParaMostrar.every(e => data.seleccionados.includes(String(e.id)));
+
+    const toggleTodosModal = () => {
+      if (todosModalSeleccionados) {
+        const idsVisibles = empleadosParaMostrar.map(e => String(e.id));
+        const nuevos = data.seleccionados.filter(id => !idsVisibles.includes(id));
+        if (isMasivo) setModalMasivo({ ...modalMasivo, seleccionados: nuevos });
+        else setModalCelda({ ...modalCelda, seleccionados: nuevos });
+      } else {
+        const idsVisibles = empleadosParaMostrar.map(e => String(e.id));
+        const nuevos = [...new Set([...data.seleccionados, ...idsVisibles])];
+        if (isMasivo) setModalMasivo({ ...modalMasivo, seleccionados: nuevos });
+        else setModalCelda({ ...modalCelda, seleccionados: nuevos });
+      }
+    };
+
     const toggleEmpleado = (empId) => {
       const stringId = String(empId);
       const nuevos = data.seleccionados.includes(stringId) 
@@ -366,7 +383,7 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
           </p>
 
           {isMasivo && (
-            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+            <div className="mb-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">
                 Repetir cada semana los días:
               </label>
@@ -392,6 +409,20 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
             </div>
           )}
           
+          {/* CONTROL RÁPIDO PARA MARCAR/DESMARCAR TODOS EN EL MODAL */}
+          <div className="flex justify-between items-center mb-2 mt-2">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+               Lista de Empleados
+            </span>
+            <button
+               type="button"
+               onClick={toggleTodosModal}
+               className="text-[10px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition"
+            >
+               {todosModalSeleccionados ? 'Desmarcar Todos' : 'Marcar Todos'}
+            </button>
+          </div>
+
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
             {empleadosParaMostrar.map(emp => {
               const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
@@ -507,7 +538,7 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
         )}
 
         {/* PANEL DE SELECCIÓN DE EMPLEADOS */}
-        <div className="bg-indigo-50 border border-indigo-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
+        <div className="bg-indigo-50 border border-indigo-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start w-full max-w-full print:hidden mb-6">  
           <div className="flex-1 w-full xl:pr-8">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
               <h3 className="font-black text-indigo-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
@@ -529,17 +560,39 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                 const seleccionado = empleadosSeleccionados.includes(String(emp.id));
                 return (
                   <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'}`}>
-                    {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
+                    {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} 
+                    <span>
+                      {emp.nombre.split(' ')[0]} 
+                      <span className={`opacity-70 text-[9px] font-bold uppercase tracking-widest ml-1.5 ${seleccionado ? 'text-indigo-200' : 'text-slate-400'}`}>
+                        ({emp.rol})
+                      </span>
+                    </span>
                   </button>
                 )
               })}
             </div>
             
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-indigo-200/50 w-full">
-              <button onClick={duplicarSiguienteMes} className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
-                <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
-              </button>
+            {/* NUEVO PANEL: ASIGNACIÓN MASIVA REUBICADO */}
+            <div className="pt-6 mt-2 border-t border-indigo-200/50 w-full flex flex-col gap-4">
+               <div>
+                 <h4 className="text-xs font-black text-indigo-900 uppercase tracking-widest mb-3 flex items-center gap-2"><Calendar size={16}/> Asignación Masiva Mensual</h4>
+                 <div className="flex flex-wrap gap-2">
+                    {observacionesBase.map(obs => (
+                       <button key={`masivo-${obs}`} onClick={() => setModalMasivo({ obsNombre: obs, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="bg-white border border-indigo-300 text-indigo-700 font-black text-[10px] uppercase px-4 py-2.5 rounded-xl hover:bg-indigo-50 shadow-sm flex items-center gap-2 transition active:scale-95">
+                         <Plus size={14}/> Asignar {obs}
+                       </button>
+                    ))}
+                    {observacionesBase.length === 0 && <p className="text-[10px] text-indigo-500 font-bold italic">No hay observaciones creadas para asignar.</p>}
+                 </div>
+               </div>
+
+               <div className="flex flex-col sm:flex-row gap-3 pt-6 mt-2 border-t border-indigo-200/50 w-full">
+                  <button onClick={duplicarSiguienteMes} className="md:w-max bg-blue-500 hover:bg-blue-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-blue-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
+                    <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
+                  </button>
+               </div>
             </div>
+
           </div>
         </div>
 
@@ -566,7 +619,6 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                     </th>
                   ))}
                   <th className="p-4 text-center w-32 sticky right-0 bg-slate-100 z-40 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] text-xs font-black text-slate-500 uppercase tracking-widest border-l border-slate-200">
-                    Mes Completo
                   </th>
                 </tr>
               </thead>
@@ -642,36 +694,12 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert, showConfirm, confi
                         );
                       })}
 
-                      {/* ACCIONES MASIVAS DEL MES */}
+                      {/* ACCIONES MASIVAS DEL MES - AHORA VACÍO PUES SE MOVIERON AL PANEL SUPERIOR */}
                       <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                        <div className="flex flex-col gap-1">
-                           {observacionesBase.map(obs => (
-                             <button key={obs} onClick={() => setModalCelda({ obsNombre: obs, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignaciones[obs]?.[d.fechaStr] || [] })} className="w-full text-[9px] font-black uppercase bg-indigo-50 text-indigo-600 border border-indigo-200 py-1.5 rounded truncate px-1 hover:bg-indigo-100 transition" title={`Asignar ${obs} este día`}>
-                               + {obs}
-                             </button>
-                           ))}
-                        </div>
                       </td>
                     </tr>
                   );
                 })}
-                
-                {/* FILA DE ASIGNACIÓN MASIVA PARA TODO EL MES */}
-                <tr className="bg-slate-100 border-t-2 border-slate-200">
-                    <td className="p-4 sticky left-0 bg-slate-100 z-30 font-black text-slate-500 uppercase tracking-widest text-xs border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                      ASIGNAR AL MES:
-                    </td>
-                    <td colSpan={empleadosTabla.length} className="p-2 z-10">
-                       <div className="flex flex-wrap gap-2 p-2">
-                          {observacionesBase.map(obs => (
-                              <button key={obs} onClick={() => setModalMasivo({ obsNombre: obs, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="bg-white border border-indigo-300 text-indigo-700 font-black text-[10px] uppercase px-3 py-2 rounded-lg hover:bg-indigo-50 shadow-sm flex items-center gap-1 transition">
-                                <Calendar size={12}/> {obs}
-                              </button>
-                          ))}
-                       </div>
-                    </td>
-                    <td className="sticky right-0 bg-slate-100 z-30 border-l border-slate-200 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]"></td>
-                </tr>
               </tbody>
             </table>
           )}

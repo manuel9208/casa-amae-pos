@@ -19,6 +19,11 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
+  // 👇 NUEVOS ESTADOS DEL PANEL DE ASIGNACIONES MÚLTIPLES
+  const [asigArea, setAsigArea] = useState('');
+  const [asigTurno, setAsigTurno] = useState('');
+  const [asigFechas, setAsigFechas] = useState([]); // Arreglo para guardar los días aleatorios seleccionados
+
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
   
@@ -29,6 +34,23 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const rolesDisponibles = [...new Set(empleadosVisibles.map(e => e.rol))];
   const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
   const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
+
+  const year = fechaReferencia.getFullYear();
+  const month = fechaReferencia.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
+    const date = new Date(year, month, i + 1);
+    const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+    const nombreBreve = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
+    const nombreCompleto = diasSemanaNombresFull[date.getDay()];
+    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
+  });
+
+  // Limpiar selección de días si cambias de mes en el calendario
+  useEffect(() => {
+    setAsigFechas([]);
+  }, [year, month]);
 
   useEffect(() => {
     if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
@@ -45,19 +67,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
     }
   };
-
-  const year = fechaReferencia.getFullYear();
-  const month = fechaReferencia.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  // 👇 FIX APLICADO: Variable nombrada correctamente como 'nombreBreve'
-  const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
-    const date = new Date(year, month, i + 1);
-    const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-    const nombreBreve = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
-    const nombreCompleto = diasSemanaNombresFull[date.getDay()];
-    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
-  });
 
   const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
 
@@ -166,7 +175,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     if (!areaNombre) return;
     if (!areasBase.find(a => a.id.toLowerCase() === areaNombre.toLowerCase())) {
       setHayCambiosSinGuardar(true);
-      setAreasBase([...areasBase, { id: areaNombre, nombre: areaNombre, turnos: [] }]);
+      // Blindaje: Para que los turnos nunca estén vacíos, nace con 'General' por defecto
+      setAreasBase([...areasBase, { id: areaNombre, nombre: areaNombre, turnos: ['General'] }]);
       setNuevaArea('');
     } else {
       showAlert('Aviso', 'Esta área ya existe en la lista.', 'warning');
@@ -207,6 +217,70 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
 
       return { ...prev, [clave]: { ...prevArea, [fechaStr]: { ...prevFecha, [empId]: status } } };
     });
+  };
+
+  // 👇 LÓGICAS DEL NUEVO MINI-CALENDARIO SELECTOR 👇
+  const toggleDiaSemanaPanel = (dayIndex) => {
+    const fechasDelDia = diasMes.filter(d => d.dayIndex === dayIndex).map(d => d.fechaStr);
+    const todasSeleccionadas = fechasDelDia.length > 0 && fechasDelDia.every(f => asigFechas.includes(f));
+    
+    if (todasSeleccionadas) {
+        setAsigFechas(prev => prev.filter(f => !fechasDelDia.includes(f)));
+    } else {
+        const nuevas = new Set(asigFechas);
+        fechasDelDia.forEach(f => nuevas.add(f));
+        setAsigFechas(Array.from(nuevas));
+    }
+  };
+
+  const toggleDiaEspecificoPanel = (fechaStr) => {
+    setAsigFechas(prev => prev.includes(fechaStr) ? prev.filter(f => f !== fechaStr) : [...prev, fechaStr]);
+  };
+
+  const seleccionarTodoElMes = () => {
+    if (asigFechas.length === diasMes.length) {
+        setAsigFechas([]);
+    } else {
+        setAsigFechas(diasMes.map(d => d.fechaStr));
+    }
+  };
+
+  const aplicarAsignacionRango = () => {
+    if (!asigArea || !asigTurno || asigFechas.length === 0 || empleadosSeleccionados.length === 0) {
+        return showAlert('Aviso', 'Completa la Tarea, Turno, Días (En el mini-calendario) y Empleados.', 'warning');
+    }
+    
+    const claveArea = `${asigArea}_${asigTurno}`;
+    const nuevasAsignaciones = { ...asignaciones };
+    if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
+    
+    let diasAfectados = 0;
+    
+    asigFechas.forEach(dateStr => {
+        if (!diasCerrados.includes(dateStr)) {
+            const currentDate = new Date(dateStr + 'T12:00:00');
+            const nombreDiaCompleto = diasSemanaNombresFull[currentDate.getDay()];
+            
+            const asignables = empleadosSeleccionados.filter(empId => {
+                const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
+                if (!emp) return false;
+                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+                const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
+                const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
+                const esNoLaboral = pres.dias_no_laborales?.includes(dateStr) || false;
+                return !(restauranteCerrado || esDescanso || esNoLaboral);
+            });
+
+            nuevasAsignaciones[claveArea][dateStr] = asignables;
+            diasAfectados++;
+        }
+    });
+    
+    setAsignaciones(nuevasAsignaciones);
+    setHayCambiosSinGuardar(true);
+    
+    setAsigArea(''); setAsigTurno(''); setAsigFechas([]); 
+    showAlert('¡Asignación Exitosa!', `Tarea aplicada a ${diasAfectados} días laborables. No olvides dar clic en Guardar Cambios.`, 'success');
   };
 
   const obtenerRangoFechas = (inicioStr, finStr) => {
@@ -364,6 +438,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     if (!modalCelda && !modalMasivo) return null;
     const isMasivo = !!modalMasivo;
     const data = modalCelda || modalMasivo;
+    const claveArea = `${data.areaId}_${data.turno}`;
 
     const empleadosParaMostrar = filtroRolMasivo 
       ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
@@ -399,7 +474,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
 
     const guardarAsignacion = () => {
       setHayCambiosSinGuardar(true);
-      const claveArea = `${data.areaId}_${data.turno}`;
 
       if (isMasivo) {
         const nuevasAsignaciones = { ...asignaciones };
@@ -407,17 +481,14 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
 
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
-            
             if (data.diasSemana.includes(d.dayIndex)) {
               const asignables = data.seleccionados.filter(empId => {
                 const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
                 if (!emp) return false;
-                
                 const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
                 const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
                 const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
                 const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
-
                 if (restauranteCerrado || esDescanso || esNoLaboral) return false;
                 return true;
               });
@@ -466,7 +537,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
         <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
           <h3 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">
-            {isMasivo ? 'Asignación Masiva Mensual' : `Asignar: ${data.fechaStr}`}
+            {isMasivo ? 'Asignación Masiva Mensual' : `Asignar y Auditar: ${data.fechaStr}`}
           </h3>
           <p className="text-sm font-bold text-teal-600 mb-4 bg-teal-50 px-4 py-2 rounded-xl w-fit mt-2 border border-teal-100">
             {data.areaId} - Turno {data.turno}
@@ -499,21 +570,68 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             </div>
           )}
           
+          {/* LISTA DE EMPLEADOS (CON MÓDULO DE AUDITORÍA INTEGRADO SI NO ES MASIVO) */}
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
-            {empleadosParaMostrar.map(emp => (
-              <label key={emp.id} className={`flex items-center p-3 rounded-xl border cursor-pointer transition-all shadow-sm ${data.seleccionados.includes(String(emp.id)) ? 'bg-white border-teal-500 ring-1 ring-teal-500' : 'bg-white border-slate-200 hover:border-teal-300'}`}>
-                <input 
-                  type="checkbox" 
-                  checked={data.seleccionados.includes(String(emp.id))} 
-                  onChange={() => toggleEmpleado(emp.id)} 
-                  className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500 ml-2" 
-                />
-                <div className="ml-4">
-                  <p className="font-black text-slate-800 text-sm leading-tight">{emp.nombre}</p>
-                  <p className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">{emp.rol}</p>
-                </div>
-              </label>
-            ))}
+            {empleadosParaMostrar.map(emp => {
+                const isChecked = data.seleccionados.includes(String(emp.id));
+                const status = !isMasivo ? (evaluaciones[claveArea]?.[data.fechaStr]?.[emp.id] || null) : null;
+                const photoUrl = !isMasivo ? (evidencias[claveArea]?.[data.fechaStr]?.[emp.id] || null) : null;
+
+                return (
+                    <div key={emp.id} className={`p-3 rounded-xl border transition-all shadow-sm ${isChecked ? 'bg-white border-teal-500' : 'bg-slate-50 border-slate-200 opacity-70 hover:opacity-100'}`}>
+                        
+                        <div className="flex items-center justify-between">
+                            <label className="flex items-center cursor-pointer flex-1">
+                                <input 
+                                    type="checkbox" 
+                                    checked={isChecked} 
+                                    onChange={() => toggleEmpleado(emp.id)} 
+                                    className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500" 
+                                />
+                                <div className="ml-3">
+                                    <p className="font-black text-slate-800 text-sm leading-tight">{emp.nombre}</p>
+                                    <p className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">{emp.rol}</p>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        {/* PANEL DE AUDITORÍA (SÓLO SI ESTÁ SELECCIONADO Y ES UN DÍA ESPECÍFICO) */}
+                        {isChecked && !isMasivo && (
+                            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 animate-in fade-in zoom-in-95">
+                                {/* Visor de Foto */}
+                                {photoUrl ? (
+                                    <a href={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} target="_blank" rel="noreferrer" className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 shrink-0 relative group/foto">
+                                        <img src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
+                                        <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
+                                            <Camera size={12} className="text-white"/>
+                                        </div>
+                                    </a>
+                                ) : (
+                                    <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center border border-dashed border-slate-300 shrink-0" title="Sin foto">
+                                        <Camera size={12} className="text-slate-300"/>
+                                    </div>
+                                )}
+                                
+                                {/* Botones SÍ / NO */}
+                                <div className="flex-1 flex gap-1">
+                                    {!status ? (
+                                        <>
+                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 text-[10px] py-1.5 rounded-lg font-black transition-all">SÍ</button>
+                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-50 text-[10px] py-1.5 rounded-lg font-black transition-all">NO</button>
+                                        </>
+                                    ) : (
+                                        <div className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg font-black text-[10px] uppercase shadow-inner ${status === 'cumplio' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                            <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
+                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), null)} className="hover:opacity-70 bg-white/50 p-1 rounded"><RotateCcw size={10}/></button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
+            
             {empleadosParaMostrar.length === 0 && (
               <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados con ese rol.</p>
             )}
@@ -521,10 +639,10 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
 
           <div className="flex gap-3 shrink-0">
             <button onClick={() => isMasivo ? setModalMasivo(null) : setModalCelda(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
-              Cancelar
+              {!isMasivo ? 'Cerrar' : 'Cancelar'}
             </button>
             <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-lg shadow-teal-500/30 transition active:scale-95">
-              Aplicar Reglas
+              Guardar Empleados
             </button>
           </div>
         </div>
@@ -533,15 +651,14 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   };
 
   const baseUrlClean = apiUrl.replace('/api', '');
-  const empleadosTabla = empleadosFiltrados.filter(e => empleadosSeleccionados.includes(String(e.id)));
 
   return (
     <>
       <style>{`
-        .scroll-horarios::-webkit-scrollbar { height: 16px; width: 16px; }
-        .scroll-horarios::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 12px; }
-        .scroll-horarios::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 12px; border: 3px solid #f1f5f9; }
-        .scroll-horarios::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
       `}</style>
 
       <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
@@ -550,9 +667,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-4 border-b border-slate-100 pb-6">
           <div>
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-              <Sparkles className="text-teal-500"/> Matriz de Limpieza Operativa
+              <Sparkles className="text-teal-500"/> Calendario de Limpieza
             </h3>
-            <p className="text-sm font-bold text-slate-400 mt-1">Configura las áreas, activa turnos y audita la limpieza.</p>
+            <p className="text-sm font-bold text-slate-400 mt-1">Configura las tareas, asigna por días y audita la limpieza mensual.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <button 
@@ -565,7 +682,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         </div>
 
-        {/* CONTROLES DEL CALENDARIO Y BÚSQUEDA */}
+        {/* CONTROLES DEL MES Y NUEVAS ÁREAS */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-6 gap-4">
           
           <div className="flex items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
@@ -597,7 +714,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         </div>
 
-        {/* 👇 PANEL RESTAURADO: GESTIÓN DE ÁREAS Y TURNOS */}
+        {/* PANEL DE ÁREAS Y TURNOS */}
         {areasBase.length > 0 && (
           <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm mb-6 print:hidden">
             <h4 className="font-black text-slate-700 mb-4 flex items-center gap-2"><Sparkles size={18}/> Áreas y Turnos Configurados</h4>
@@ -626,211 +743,212 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
           </div>
         )}
 
-        {/* PANEL DE SELECCIÓN DE EMPLEADOS Y FILTROS */}
-        <div className="bg-teal-50 border border-teal-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start xl:items-center w-full max-w-full print:hidden mb-6">  
-          <div className="flex-1 w-full xl:pr-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
-              <h3 className="font-black text-teal-900 flex items-center gap-2"><Users size={20}/> Selección de Empleados</h3>
-              <button onClick={toggleSeleccionMasiva} className="text-xs font-bold text-teal-600 hover:text-teal-800 transition bg-white px-3 py-1.5 rounded-lg border border-teal-200 shadow-sm whitespace-nowrap">
-                {todosFiltradosSeleccionados ? `Desmarcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}` : `Marcar ${filtroRolMasivo ? filtroRolMasivo : 'Visibles'}`}
-              </button>
-            </div>
+        {/* 👇 NUEVO PANEL MAESTRO DE ASIGNACIONES POR CALENDARIO MINI 👇 */}
+        <div className="bg-teal-50 border border-teal-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start w-full print:hidden mb-8">
             
-            <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
-              <Filter size={14} className="text-teal-400 shrink-0 mr-1"/>
-              <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
-              {rolesDisponibles.map(rol => (
-                <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
-              ))}
+            {/* Columna Izquierda: Mini Calendario y Selector de Tareas */}
+            <div className="flex-[1.5] w-full border-b xl:border-b-0 xl:border-r border-teal-200 pb-6 xl:pb-0 xl:pr-8">
+                
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-black text-teal-900 flex items-center gap-2"><Calendar size={20}/> 1. Elige los Días</h3>
+                    <button onClick={seleccionarTodoElMes} className="text-[10px] font-black bg-white border border-teal-200 text-teal-700 px-2 py-1 rounded shadow-sm hover:bg-teal-50 transition active:scale-95">
+                        {asigFechas.length === diasMes.length ? 'Limpiar Días' : 'Seleccionar Todo'}
+                    </button>
+                </div>
+                
+                {/* Selector rápido por día de la semana */}
+                <div className="flex justify-between gap-1 mb-3">
+                    {[{i:1, l:'LUN'}, {i:2, l:'MAR'}, {i:3, l:'MIÉ'}, {i:4, l:'JUE'}, {i:5, l:'VIE'}, {i:6, l:'SÁB'}, {i:0, l:'DOM'}].map(ds => {
+                        const fechasDelDia = diasMes.filter(d => d.dayIndex === ds.i).map(d => d.fechaStr);
+                        const isSelected = fechasDelDia.length > 0 && fechasDelDia.every(f => asigFechas.includes(f));
+                        return (
+                            <button key={ds.i} onClick={() => toggleDiaSemanaPanel(ds.i)} className={`flex-1 py-1.5 rounded-lg text-[9px] font-black transition-all ${isSelected ? 'bg-teal-600 text-white shadow-md' : 'bg-white text-teal-700 border border-teal-200 hover:bg-teal-50'}`}>
+                                {ds.l}
+                            </button>
+                        )
+                    })}
+                </div>
+
+                {/* Cuadrícula de números aleatorios */}
+                <div className="grid grid-cols-7 gap-1 mb-6">
+                    {/* Espacios vacíos iniciales */}
+                    {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
+                        <div key={`blank-${i}`}></div>
+                    ))}
+                    {/* Días del mes cliqueables */}
+                    {diasMes.map(d => {
+                        const isSelected = asigFechas.includes(d.fechaStr);
+                        const isClosed = diasCerrados.includes(d.fechaStr);
+                        return (
+                            <button key={d.fechaStr} disabled={isClosed} onClick={() => toggleDiaEspecificoPanel(d.fechaStr)} className={`h-8 rounded-lg text-[10px] sm:text-xs font-black transition-all ${isClosed ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : isSelected ? 'bg-teal-500 text-white shadow-md scale-[1.05]' : 'bg-white text-slate-600 border border-slate-200 hover:border-teal-400 hover:bg-teal-50'}`} title={isClosed ? 'Auditoría Cerrada' : d.fechaStr}>
+                                {d.num}
+                            </button>
+                        )
+                    })}
+                </div>
+
+                <h3 className="font-black text-teal-900 flex items-center gap-2 mb-4"><Sparkles size={20}/> 2. Tarea a Asignar</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <select value={asigArea} onChange={e => { setAsigArea(e.target.value); setAsigTurno(''); }} className="w-full bg-white border border-teal-200 rounded-xl p-3 font-bold text-sm outline-none focus:border-teal-500 shadow-sm cursor-pointer text-slate-700">
+                            <option value="">-- Selecciona Tarea --</option>
+                            {areasBase.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        {/* 👇 FIX APLICADO: Blindaje tipo String y Fallback Visual 👇 */}
+                        <select value={asigTurno} onChange={e => setAsigTurno(e.target.value)} disabled={!asigArea} className="w-full bg-white border border-teal-200 rounded-xl p-3 font-bold text-sm outline-none focus:border-teal-500 shadow-sm cursor-pointer disabled:opacity-50 text-slate-700">
+                            <option value="">-- Turno --</option>
+                            {asigArea && areasBase.find(a => String(a.id) === String(asigArea))?.turnos.map(t => <option key={t} value={t}>{t}</option>)}
+                            {asigArea && areasBase.find(a => String(a.id) === String(asigArea))?.turnos.length === 0 && <option value="" disabled>⚠️ Agrega turnos en el panel de áreas</option>}
+                        </select>
+                    </div>
+                </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar pr-2 mb-6">
-              {empleadosFiltrados.map(emp => {
-                const seleccionado = empleadosSeleccionados.includes(String(emp.id));
-                return (
-                  <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300'}`}>
-                    {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} {emp.nombre}
-                  </button>
-                )
-              })}
+            {/* Columna Derecha: Empleados y Acción */}
+            <div className="flex-1 w-full flex flex-col h-full">
+                <div className="flex justify-between items-center mb-4 gap-2">
+                    <h3 className="font-black text-teal-900 flex items-center gap-2"><Users size={20}/> 3. Selecciona Empleados</h3>
+                    <button onClick={toggleSeleccionMasiva} className="text-[10px] font-black text-teal-600 bg-white px-3 py-2 rounded-lg border border-teal-200 shadow-sm uppercase tracking-wider hover:bg-teal-100 transition active:scale-95">
+                        {todosFiltradosSeleccionados ? 'Desmarcar Todos' : 'Marcar Todos'}
+                    </button>
+                </div>
+
+                <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
+                    <Filter size={14} className="text-teal-400 shrink-0 mr-1"/>
+                    <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
+                    {rolesDisponibles.map(rol => (
+                        <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
+                    ))}
+                </div>
+
+                <div className="flex flex-wrap gap-2 overflow-y-auto custom-scrollbar pr-2 mb-6 flex-1 min-h-[90px] content-start">
+                    {empleadosFiltrados.map(emp => {
+                        const seleccionado = empleadosSeleccionados.includes(String(emp.id));
+                        return (
+                            <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:bg-teal-50'}`}>
+                                {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} 
+                                <span>
+                                    {emp.nombre.split(' ')[0]} 
+                                    <span className="opacity-70 text-[9px] font-bold uppercase tracking-widest ml-1.5">
+                                        ({emp.rol})
+                                    </span>
+                                </span>
+                            </button>
+                        )
+                    })}
+                </div>
+
+                {/* 👇 FIX APLICADO: Botón de Duplicar Mes agregado y usando el ícono Copy 👇 */}
+                <div className="mt-auto pt-4 border-t border-teal-200/50 flex flex-col sm:flex-row gap-3">
+                    <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-indigo-500/30 active:scale-95 flex items-center justify-center gap-2">
+                        <Copy size={16}/> Copiar a Sig. Mes
+                    </button>
+                    <button onClick={aplicarAsignacionRango} className="flex-[1.5] bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-teal-500/30 active:scale-95 flex items-center justify-center gap-2">
+                        <CheckCircle2 size={18}/> Asignar a los Días
+                    </button>
+                </div>
             </div>
-            
-            <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-teal-200/50 w-full">
-              <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3.5 rounded-2xl font-black text-sm transition-all shadow-md shadow-indigo-500/20 active:scale-95 flex items-center justify-center gap-2" title="Copia el patrón de días al mes próximo">
-                <Copy size={16}/> Duplicar Asignaciones al Sig. Mes
-              </button>
-            </div>
-          </div>
         </div>
 
-        {/* MATRIZ INVERTIDA DE LIMPIEZA */}
-        <div className="w-full max-w-full overflow-x-auto border border-slate-200 rounded-3xl mb-8 scroll-horarios h-[650px] relative">
-          {areasBase.length === 0 ? (
-            <div className="p-16 text-center text-slate-400">
-              <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
-              <p className="font-bold text-lg">Aún no hay tareas registradas.</p>
+        {/* CALENDARIO MENSUAL DE CUADRÍCULA COMPLETA */}
+        <div className="w-full bg-slate-50 border border-slate-200 rounded-[32px] overflow-hidden shadow-sm mb-8 print:hidden animate-in zoom-in-95">
+            
+            {/* Cabecera: Días de la Semana */}
+            <div className="grid grid-cols-7 bg-white border-b border-slate-200">
+                {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
+                    <div key={d} className={`p-4 text-center text-xs font-black uppercase tracking-widest ${d === 'Dom' || d === 'Sáb' ? 'text-red-400' : 'text-slate-500'}`}>
+                        {d}
+                    </div>
+                ))}
             </div>
-          ) : (
-            <table className="w-full text-left border-collapse min-w-max relative">
-              <thead className="sticky top-0 z-30">
-                <tr className="bg-slate-100 shadow-[0_2px_5px_rgba(0,0,0,0.05)]">
-                  <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-widest sticky left-0 bg-slate-100 z-40 border-r border-slate-200 min-w-[120px]">
-                    Día / Fecha
-                  </th>
-                  {empleadosTabla.map(emp => (
-                    <th key={emp.id} className="p-4 text-center border-r border-slate-200 min-w-[260px] align-top z-30 bg-slate-100">
-                      <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
-                        <p className="font-black text-slate-800 text-sm truncate" title={emp.nombre}>{emp.nombre.split(' ')[0]}</p>
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{emp.rol}</p>
-                      </div>
-                    </th>
-                  ))}
-                  <th className="p-4 text-center w-32 sticky right-0 bg-slate-100 z-40 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] text-xs font-black text-slate-500 uppercase tracking-widest border-l border-slate-200">
-                    Mes Completo
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {diasMes.map((d, index) => {
-                  const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
-                  const isCerrado = diasCerrados.includes(d.fechaStr);
-
-                  return (
-                    <tr key={d.fechaStr} className={`hover:bg-slate-50 transition-colors group ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}>
-                      {/* CELDA DEL DÍA */}
-                      <td className="p-3 sticky left-0 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_rgba(0,0,0,0.05)] z-20 border-r border-slate-100 align-middle">
-                        <div className={`flex items-center gap-3 p-2 rounded-xl border ${esFinSemana ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-200'}`}>
-                          <span className={`text-2xl font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
-                          <div>
-                            <span className={`block text-[10px] font-black uppercase tracking-widest ${esFinSemana ? 'text-red-400' : 'text-slate-400'}`}>{d.nombreBreve}</span>
-                            <span className="block text-[9px] font-bold text-slate-400 mt-0.5">{d.fechaStr.split('-').slice(1).join('/')}</span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* EVALUACIONES Y FOTOS POR EMPLEADO */}
-                      {empleadosTabla.map(emp => {
-                        if (isCerrado) {
-                          return (
-                            <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 bg-slate-100/50 opacity-80 align-middle z-10">
-                              <div className="flex items-center justify-center gap-1 p-2 rounded-xl bg-white border border-slate-200 shadow-inner h-[60px]">
-                                <Lock size={14} className="text-slate-400" />
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Auditoría Cerrada</span>
-                              </div>
-                            </td>
-                          );
-                        }
-
-                        // Buscar qué áreas y turnos tiene asignados ESTE empleado HOY
-                        const areasAsignadasHoy = [];
-                        areasBase.forEach(area => {
-                          area.turnos.forEach(turno => {
-                            const claveArea = `${area.id}_${turno}`;
-                            const asignados = asignaciones[claveArea]?.[d.fechaStr] || [];
-                            if (asignados.includes(String(emp.id))) {
-                              areasAsignadasHoy.push({ area, turno, claveArea });
-                            }
-                          });
-                        });
-
-                        return (
-                          <td key={`${emp.id}-${d.fechaStr}`} className="p-2 border-r border-slate-100 align-top z-10">
-                            {areasAsignadasHoy.length === 0 ? (
-                              <div className="h-full flex items-center justify-center min-h-[60px] opacity-30">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">-</span>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-2">
-                                {areasAsignadasHoy.map(({ area, turno, claveArea }) => {
-                                  const evidenciaObj = evidencias[claveArea]?.[d.fechaStr] || {};
-                                  const photoUrl = evidenciaObj[emp.id];
-                                  
-                                  const evalObj = evaluaciones[claveArea]?.[d.fechaStr] || {};
-                                  const status = evalObj[emp.id];
-
-                                  return (
-                                    <div key={claveArea} className="bg-slate-50 border border-slate-200 p-2 rounded-xl shadow-sm flex flex-col gap-1.5 animate-in zoom-in-95">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <span className="text-[10px] font-black text-slate-700 truncate max-w-[120px]" title={area.nombre}>{area.nombre}</span>
-                                        <span className="text-[8px] font-bold uppercase tracking-widest text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded">{turno}</span>
-                                      </div>
-
-                                      {/* FOTO BLINDADA CONTRA CRASHEOS */}
-                                      {photoUrl && typeof photoUrl === 'string' ? (
-                                        <a href={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} target="_blank" rel="noreferrer" className="block w-full h-16 rounded-lg overflow-hidden border border-slate-300 relative group/foto">
-                                          <img src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
-                                          <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
-                                            <Camera size={14} className="text-white"/>
-                                          </div>
-                                        </a>
-                                      ) : (
-                                        <div className="w-full h-10 bg-slate-100 rounded-lg flex items-center justify-center border border-dashed border-slate-300">
-                                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Sin Foto</span>
-                                        </div>
-                                      )}
-
-                                      {/* BOTONES DE EVALUACIÓN */}
-                                      {!status ? (
-                                        <div className="flex gap-1 w-full mt-1">
-                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">SÍ</button>
-                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-500 hover:text-white text-[10px] py-2 rounded-lg font-black shadow-sm transition-all">NO</button>
-                                        </div>
-                                      ) : (
-                                        <div className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider shadow-sm mt-1 ${status === 'cumplio' ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>
-                                          <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
-                                          <button onClick={() => evaluarLimpieza(area.id, turno, d.fechaStr, String(emp.id), null)} className="opacity-80 hover:opacity-100 bg-black/20 p-1.5 rounded"><RotateCcw size={12}/></button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
-
-                      {/* ACCIONES MASIVAS DEL MES */}
-                      <td className="p-2 text-center sticky right-0 bg-white z-20 shadow-[-2px_0_5px_rgba(0,0,0,0.05)] border-l border-slate-100 align-middle">
-                        <div className="flex flex-col gap-1 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
-                           {areasBase.map(area => 
-                             area.turnos.map(turno => (
-                               <button key={`${area.id}_${turno}`} onClick={() => setModalCelda({ areaId: area.id, turno, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asignaciones[`${area.id}_${turno}`]?.[d.fechaStr] || [] })} className="w-full text-[9px] font-black uppercase bg-teal-50 text-teal-600 border border-teal-200 py-1.5 rounded truncate px-1 hover:bg-teal-100 transition" title={`Asignar ${area.nombre} (${turno}) este día`}>
-                                 + {area.nombre.split(' ')[0]} ({turno.charAt(0)})
-                               </button>
-                             ))
-                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+            
+            {/* Cuadrícula de Fechas */}
+            <div className="grid grid-cols-7 gap-px bg-slate-200">
                 
-                {/* FILA DE ASIGNACIÓN MASIVA PARA TODO EL MES */}
-                <tr className="bg-slate-100 border-t-2 border-slate-200">
-                    <td className="p-4 sticky left-0 bg-slate-100 z-30 font-black text-slate-500 uppercase tracking-widest text-xs border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
-                      ASIGNAR AL MES:
-                    </td>
-                    <td colSpan={empleadosTabla.length} className="p-2 z-10">
-                       <div className="flex flex-wrap gap-2 p-2">
-                          {areasBase.map(area => 
-                            area.turnos.map(turno => (
-                              <button key={`${area.id}_${turno}`} onClick={() => setModalMasivo({ areaId: area.id, turno, seleccionados: [], diasSemana: [1,2,3,4,5,6,0] })} className="bg-white border border-teal-300 text-teal-700 font-black text-[10px] uppercase px-3 py-2 rounded-lg hover:bg-teal-50 shadow-sm flex items-center gap-1 transition">
-                                <Calendar size={12}/> {area.nombre.split(' ')[0]} ({turno})
-                              </button>
-                            ))
-                          )}
-                       </div>
-                    </td>
-                    <td className="sticky right-0 bg-slate-100 z-30 border-l border-slate-200 shadow-[-2px_0_5px_rgba(0,0,0,0.05)]"></td>
-                </tr>
-              </tbody>
-            </table>
-          )}
+                {/* Espacios vacíos para alinear el 1er día del mes */}
+                {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
+                    <div key={`empty-${i}`} className="bg-slate-50/40 min-h-[140px]"></div>
+                ))}
+
+                {/* Días del Mes */}
+                {diasMes.map((d) => {
+                    const isCerrado = diasCerrados.includes(d.fechaStr);
+                    const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
+                    
+                    // Recopilar qué tareas se asignaron este día específico
+                    const asignacionesHoy = [];
+                    areasBase.forEach(area => {
+                        area.turnos.forEach(turno => {
+                            const clave = `${area.id}_${turno}`;
+                            const empIds = asignaciones[clave]?.[d.fechaStr] || [];
+                            if (empIds.length > 0) {
+                                asignacionesHoy.push({ area, turno, empIds, clave });
+                            }
+                        });
+                    });
+
+                    return (
+                        <div key={d.fechaStr} className={`bg-white min-h-[150px] flex flex-col transition-colors group relative ${isCerrado ? 'opacity-60 bg-slate-100' : 'hover:bg-teal-50/20'}`}>
+                            
+                            {/* Número del día */}
+                            <div className="flex justify-between items-center p-2.5 border-b border-slate-50 bg-slate-50/50">
+                                <span className={`text-base font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
+                                {isCerrado && <Lock size={12} className="text-slate-400" title="Auditoría Cerrada" />}
+                            </div>
+                            
+                            {/* Lista de Tareas Asignadas (Píldoras) */}
+                            <div className="flex-1 p-1.5 flex flex-col gap-1.5 overflow-y-auto custom-scrollbar max-h-[160px] pb-8">
+                                {asignacionesHoy.map((asig, i) => {
+                                    // Ver si todas las tareas de este grupo ya se cumplieron para poner color verde
+                                    const evaluacionesGrupo = asig.empIds.map(empId => evaluaciones[asig.clave]?.[d.fechaStr]?.[empId]);
+                                    const todoCumplido = evaluacionesGrupo.length > 0 && evaluacionesGrupo.every(e => e === 'cumplio');
+                                    const algunFallo = evaluacionesGrupo.some(e => e === 'no_cumplio');
+
+                                    const colorPildora = todoCumplido ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : algunFallo ? 'bg-red-50 text-red-700 border-red-200' : 'bg-teal-50 text-teal-800 border-teal-200';
+
+                                    return (
+                                        <div key={i} 
+                                            onClick={() => !isCerrado && setModalCelda({ areaId: asig.area.id, turno: asig.turno, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asig.empIds })}
+                                            className={`text-[9px] border rounded-lg p-1.5 font-bold leading-tight cursor-pointer hover:shadow-md transition-all relative group/tag ${colorPildora}`}
+                                            title="Clic para Editar Empleados o Calificar (SÍ/NO)">
+                                            <div className="flex justify-between items-center gap-1">
+                                                <span className="font-black uppercase tracking-wider truncate">{asig.area.nombre.split(' ')[0]} <span className="opacity-70">({asig.turno[0]})</span></span>
+                                                <span className="bg-white/60 px-1 py-0.5 rounded text-[8px] shrink-0">{asig.empIds.length} <Users size={8} className="inline"/></span>
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                
+                                {!isCerrado && asignacionesHoy.length === 0 && (
+                                    <div className="h-full flex items-center justify-center opacity-30 pt-4">
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sin Tareas</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Botón Flotante para asignar rápidamente algo a este día específico */}
+                            {!isCerrado && (
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-white via-white to-transparent">
+                                    <button onClick={() => {
+                                        setAsigFechas([d.fechaStr]); // Selecciona este día directamente en el panel
+                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                        showAlert('Día Seleccionado', `Se fijó el día ${d.num} en el panel superior. Configura la tarea y aplica.`, 'info');
+                                    }} 
+                                    className="w-full bg-slate-800 text-white text-[9px] font-black py-2 rounded-lg shadow-sm flex items-center justify-center gap-1 hover:bg-slate-700 uppercase tracking-widest transition-transform active:scale-95">
+                                        <Plus size={12}/> Tarea aquí
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
 
         {/* ZONA INFERIOR DE CERRAR AUDITORÍA */}
-        <div className="flex flex-col lg:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-6">
+        <div className="flex flex-col lg:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-6 mt-8">
           <div className="flex flex-col lg:flex-row items-center gap-4 w-full md:w-auto">
             {areasBase.length > 0 && (
               <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">

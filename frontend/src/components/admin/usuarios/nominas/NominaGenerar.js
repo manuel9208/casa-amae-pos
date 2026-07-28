@@ -313,7 +313,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         let minutesTardeTotales = 0;
         let diasFaltaInjustificada = 0;  
 
-        let diasEnRango = 0;
         let diasYaPagados = 0;
 
         let currentDate = new Date(fechaInicio + 'T12:00:00');
@@ -327,7 +326,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         }  
 
         while (currentDate <= endDate) {
-          diasEnRango++;
           
           const yyyy = currentDate.getFullYear();
           const mm = String(currentDate.getMonth() + 1).padStart(2, '0');
@@ -553,9 +551,16 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
           currentDate.setDate(currentDate.getDate() + 1);
         }  
 
-        if (diasEnRango > 0 && diasYaPagados === diasEnRango) {
-            empleadosYaPagados.push(emp.nombre);
-            continue;
+        if (diasProgramados === 0 && diasApoyoTrabajados === 0 && horasTrabajadasTotales === 0 && diasVacaciones === 0) {
+            
+            // Si no hay nada que pagarle, pero sí detectamos días que ya tenían candado,
+            // significa que la semana ya fue cobrada y lo que sobra son días libres.
+            if (diasYaPagados > 0) {
+                empleadosYaPagados.push(emp.nombre);
+            }
+            
+            // Saltamos a este empleado para que NO aparezca en $0.00
+            continue; 
         }
 
         const sueldoBase = Number(pres.sueldo_base) || 0;
