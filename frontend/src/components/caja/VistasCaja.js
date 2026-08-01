@@ -119,7 +119,8 @@ const VistasCaja = (props) => {
     setLimpiandoMesas(false);
   };
 
-  const totalGastos = (props.gastosDia || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
+    // 👇 NUEVO: Ahora calculamos los gastos basados estrictamente en el turno aislado del cajero
+  const totalGastos = (props.gastosTurnoActivo || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
   
   const pedidosValidos = pedidos.filter(p => 
       p.estado_preparacion !== 'Pendiente' && 

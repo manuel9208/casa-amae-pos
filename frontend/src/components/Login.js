@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ImagenCachada from './ImagenCachada'; // 👈 IMPORTACIÓN DEL MOTOR DE CACHÉ
 
 const Login = ({ onLogin, onInvitado }) => {
   const [telefono, setTelefono] = useState('');
@@ -69,7 +70,8 @@ const Login = ({ onLogin, onInvitado }) => {
           {/* Contenedor del Logo Gigante */}
           {config.logo_url ? (
             <div className="flex justify-center items-center h-32 md:h-40 mb-10 mt-4">
-              <img 
+              {/* 👇 APLICACIÓN DEL CACHÉ EXTREMO EN EL LOGO */}
+              <ImagenCachada 
                  src={getImageUrl(config.logo_url)}
                  alt="Logo" 
                  className="w-full h-full object-contain drop-shadow-xl scale-[1.7] hover:scale-[1.8] transition-transform duration-300" 

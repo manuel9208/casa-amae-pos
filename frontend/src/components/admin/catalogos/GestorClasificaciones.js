@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit, Trash2, Star, Image as ImageIcon, Gift } from 'lucide-react';  
+import { Edit, Trash2, Star, Image as ImageIcon, Gift, Clock, CalendarDays } from 'lucide-react';  
 
 const GestorClasificaciones = ({
   clasificaciones, EMOJIS_POR_GIRO, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm
@@ -9,9 +9,15 @@ const GestorClasificaciones = ({
   const [nuevaClasifDestino, setNuevaClasifDestino] = useState('Cocina');
   const [nuevaClasifEmoji, setNuevaClasifEmoji] = useState('🍽️');
   const [generaPuntos, setGeneraPuntos] = useState(true);
-  const [permiteCanje, setPermiteCanje] = useState(true); // 👈 NUEVO ESTADO
+  const [permiteCanje, setPermiteCanje] = useState(true); 
   const [imagenBlob, setImagenBlob] = useState(null);
   const [imagenPrevio, setImagenPrevio] = useState(null);
+
+  // 👇 NUEVOS ESTADOS: Control de Horario para la Categoría Completa
+  const [usaHorario, setUsaHorario] = useState(false);
+  const [diasDisponibles, setDiasDisponibles] = useState([1, 2, 3, 4, 5, 6, 7]); // Lunes a Domingo
+  const [horaInicio, setHoraInicio] = useState('00:00');
+  const [horaFin, setHoraFin] = useState('23:59');
 
   const prepararEdicionClasif = (c) => {
     setEditandoClasifId(c.id);
@@ -19,9 +25,17 @@ const GestorClasificaciones = ({
     setNuevaClasifDestino(c.destino || 'Cocina');
     setNuevaClasifEmoji(c.emoji || '🍽️');
     setGeneraPuntos(c.genera_puntos === false || c.genera_puntos === 'false' ? false : true);
-    setPermiteCanje(c.permite_canje === false || c.permite_canje === 'false' ? false : true); // 👈 NUEVO
+    setPermiteCanje(c.permite_canje === false || c.permite_canje === 'false' ? false : true); 
     setImagenBlob(null);
     setImagenPrevio(c.imagen_url || null); 
+
+    // 👇 Cargar configuración de Horarios
+    setUsaHorario(c.usa_horario === true || c.usa_horario === 'true');
+    try {
+      setDiasDisponibles(typeof c.dias_disponibles === 'string' ? JSON.parse(c.dias_disponibles) : (c.dias_disponibles || [1,2,3,4,5,6,7]));
+    } catch (e) { setDiasDisponibles([1,2,3,4,5,6,7]); }
+    setHoraInicio(c.hora_inicio || '00:00');
+    setHoraFin(c.hora_fin || '23:59');
   };  
 
   const cancelarEdicionClasif = () => {
@@ -30,9 +44,15 @@ const GestorClasificaciones = ({
     setNuevaClasifDestino('Cocina');
     setNuevaClasifEmoji('🍽️');
     setGeneraPuntos(true);
-    setPermiteCanje(true); // 👈 NUEVO
+    setPermiteCanje(true); 
     setImagenBlob(null);
     setImagenPrevio(null);
+
+    // 👇 Limpiar estados de Horario
+    setUsaHorario(false);
+    setDiasDisponibles([1, 2, 3, 4, 5, 6, 7]);
+    setHoraInicio('00:00');
+    setHoraFin('23:59');
   };  
 
   const handleFileChange = (e) => {
@@ -50,7 +70,13 @@ const GestorClasificaciones = ({
     formData.append('destino', nuevaClasifDestino);
     formData.append('emoji', nuevaClasifEmoji);
     formData.append('genera_puntos', generaPuntos);
-    formData.append('permite_canje', permiteCanje); // 👈 NUEVO
+    formData.append('permite_canje', permiteCanje); 
+
+    // 👇 Inyectar los campos de Horario
+    formData.append('usa_horario', usaHorario);
+    formData.append('dias_disponibles', JSON.stringify(diasDisponibles));
+    formData.append('hora_inicio', horaInicio);
+    formData.append('hora_fin', horaFin);
 
     if (imagenBlob) formData.append('imagen', imagenBlob);  
 
@@ -107,7 +133,6 @@ const GestorClasificaciones = ({
           </select>
         </div>  
 
-        {/* 👇 NUEVO BLOQUE: SWITCHES DE PUNTOS Y CANJES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="flex items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
             <label className="flex items-center gap-3 cursor-pointer w-full">
@@ -139,6 +164,65 @@ const GestorClasificaciones = ({
             </label>
           </div>
         </div>
+
+        {/* 👇 NUEVO BLOQUE: HORARIO ESPECIAL PARA LA CLASIFICACIÓN COMPLETA */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 transition-all shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-sm font-black text-slate-700 flex items-center gap-2">
+                <Clock size={16} className={usaHorario ? "text-blue-600" : "text-slate-400"}/>
+                Habilitar Horario Especial
+              </p>
+              <p className="text-[10px] font-bold text-slate-400">Limita la venta de toda esta categoría a días y horas específicas.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer" checked={usaHorario} onChange={e => setUsaHorario(e.target.checked)} />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          {usaHorario && (
+            <div className="pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
+              <div className="mb-4">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><CalendarDays size={12}/> Días Disponibles</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 1, label: 'L', name: 'Lunes' }, { id: 2, label: 'M', name: 'Martes' },
+                    { id: 3, label: 'M', name: 'Miércoles' }, { id: 4, label: 'J', name: 'Jueves' },
+                    { id: 5, label: 'V', name: 'Viernes' }, { id: 6, label: 'S', name: 'Sábado' },
+                    { id: 7, label: 'D', name: 'Domingo' }
+                  ].map(dia => {
+                    const isSelected = diasDisponibles.includes(dia.id);
+                    return (
+                      <button
+                        key={dia.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected && diasDisponibles.length === 1) return; // No dejar 0 días
+                          setDiasDisponibles(prev => isSelected ? prev.filter(d => d !== dia.id) : [...prev, dia.id].sort());
+                        }}
+                        className={`w-8 h-8 rounded-full font-black text-xs transition-all shadow-sm ${isSelected ? 'bg-blue-600 text-white shadow-blue-500/30' : 'bg-slate-100 text-slate-400 border border-slate-200 hover:bg-slate-200'}`}
+                        title={dia.name}
+                      >
+                        {dia.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Hora Inicio</label>
+                  <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-xl p-3 outline-none focus:border-blue-500 transition-all" required={usaHorario}/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Hora Fin</label>
+                  <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-xl p-3 outline-none focus:border-blue-500 transition-all" required={usaHorario}/>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         
         <div className="flex flex-col md:flex-row gap-4 items-center mt-2 p-4 bg-white rounded-xl border border-slate-200">
           {imagenPrevio ? (
@@ -169,7 +253,10 @@ const GestorClasificaciones = ({
       <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
         {(clasificaciones || []).map(c => {
           const daPuntos = c.genera_puntos === false || c.genera_puntos === 'false' ? false : true;
-          const seCanjea = c.permite_canje === false || c.permite_canje === 'false' ? false : true; // 👈 LECTURA NUEVO ESTADO
+          const seCanjea = c.permite_canje === false || c.permite_canje === 'false' ? false : true; 
+          
+          // 👇 Agregamos indicador visual si tiene horario especial
+          const tieneHorario = c.usa_horario === true || c.usa_horario === 'true';
 
           return (
             <div key={c.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border transition hover:border-slate-300 ${editandoClasifId === c.id ? 'border-orange-300 bg-orange-50 shadow-sm' : 'border-slate-100'}`}>
@@ -191,6 +278,12 @@ const GestorClasificaciones = ({
                     <span className={`text-[10px] px-2 py-1 rounded-md font-black uppercase tracking-widest flex items-center gap-1 ${seCanjea ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-500'}`}>
                       <Gift size={12}/> {seCanjea ? 'Permite Canje' : 'No Canjeable'}
                     </span>
+                    {/* 👇 Etiqueta de Horario */}
+                    {tieneHorario && (
+                      <span className="text-[10px] px-2 py-1 rounded-md font-black uppercase tracking-widest flex items-center gap-1 bg-blue-100 text-blue-600">
+                        <Clock size={12}/> Horario Especial
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>  

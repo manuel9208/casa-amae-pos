@@ -84,7 +84,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             liquidarPedidoRepartidor={c.liquidarPedidoRepartidor}
             fondoCaja={c.fondoCaja} 
             configGlobal={c.configGlobal} 
-            gastosDia={c.gastosDia} 
+            gastosDia={c.gastosDia}
+            gastosTurnoActivo={c.gastosTurnoActivo}
+            turnoActivo={c.turnoActivo} 
             abrirModalResolver={c.abrirModalResolver}
             limpiarAlerta={c.limpiarAlerta} 
             setModalPago={c.setModalPago} 

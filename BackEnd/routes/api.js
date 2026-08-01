@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('cloudinary').v2;  
+const cloudinary = require('cloudinary').v2;
+const db = require('../config/db'); // Necesario para el Cron Job  
 
 // Controladores
 const configCtrl = require('../controllers/configController');
@@ -15,7 +16,7 @@ const clasificacionCtrl = require('../controllers/clasificacionController');
 const ingredienteCtrl = require('../controllers/ingredienteController');
 const insumoCtrl = require('../controllers/insumoController');
 const recetaCtrl = require('../controllers/recetaController');
-const reporteCtrl = require('../controllers/reporteController'); 
+const reporteCtrl = require('../controllers/reporteController');
 const promocionCtrl = require('../controllers/promocionController');
 const mesaCtrl = require('../controllers/mesaController');
 const notificacionCtrl = require('../controllers/notificacionController');
@@ -23,8 +24,8 @@ const repartidorCtrl = require('../controllers/repartidorController');
 const corteCtrl = require('../controllers/corteController');
 const mensajeCtrl = require('../controllers/mensajeController');
 const biometricoCtrl = require('../controllers/biometricoController');
-const mermaCtrl = require('../controllers/mermaController');  
-const impresionCtrl = require('../controllers/impresionController'); // 🖨️ Controlador Impresión IP
+const mermaCtrl = require('../controllers/mermaController');
+const impresionCtrl = require('../controllers/impresionController'); 
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -37,12 +38,26 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
-  params: {
-    folder: 'pos_uploads',
-    resource_type: 'auto',
-    allowedFormats: ['jpeg', 'png', 'jpg', 'webp', 'mp4', 'webm', 'mov']
+  params: async (req, file) => {
+    // Si es un video, aplicamos compresión de video y bajamos la resolución a 720p
+    if (file.mimetype.includes('video')) {
+      return {
+        folder: 'pos_uploads',
+        resource_type: 'video',
+        allowedFormats: ['mp4', 'webm', 'mov'],
+        transformation: [{ width: 1280, crop: "limit", quality: "auto" }]
+      };
+    }
+    // Si es imagen, forzamos calidad automática y límite de 800px (Suficiente para POS)
+    return {
+      folder: 'pos_uploads',
+      resource_type: 'image',
+      allowedFormats: ['jpeg', 'png', 'jpg', 'webp'],
+      transformation: [{ width: 800, crop: "limit", quality: "auto", fetch_format: "auto" }]
+    };
   }
 });
+
 const upload = multer({ storage: storage });  
 
 // ==========================================
@@ -50,8 +65,8 @@ const upload = multer({ storage: storage });
 // ==========================================
 router.get('/configuracion', configCtrl.obtenerConfiguracion);
 router.put('/configuracion', upload.any(), configCtrl.actualizarConfiguracion);
-router.post('/configuracion/evidencia', upload.any(), configCtrl.subirEvidenciaLimpieza);  
-router.post('/configuracion/eliminar-archivos', configCtrl.eliminarArchivosCloudinary);
+router.post('/configuracion/evidencia', upload.any(), configCtrl.subirEvidenciaLimpieza);
+router.post('/configuracion/eliminar-archivos', configCtrl.eliminarArchivosCloudinary);  
 
 // ==========================================
 // CUPONES DE DESCUENTO
@@ -84,7 +99,6 @@ router.post('/login', authCtrl.login);
 router.post('/logout', authCtrl.logout);
 router.post('/clientes/registro', clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', clienteCtrl.verificarNip);
-// 👇 NUEVA RUTA: Para la recuperación del NIP de seguridad por correo
 router.post('/clientes/solicitar-codigo-nip', clienteCtrl.solicitarCodigoNip);
 router.post('/clientes/cambiar-nip-codigo', clienteCtrl.cambiarNipConCodigo);
 router.post('/clientes/cambiar-correo-codigo', clienteCtrl.cambiarCorreoConCodigo);
@@ -187,8 +201,8 @@ router.get('/mermas', mermaCtrl.obtenerMermas);
 // REPORTES Y ESTADÍSTICAS
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
-router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);  
-router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla);
+router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);
+router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla);  
 
 // ==========================================
 // GESTIÓN DE MESAS (MAPEO Y QR)
@@ -217,10 +231,90 @@ router.get('/iclock/getrequest', biometricoCtrl.getComandos);
 // ==========================================
 router.post('/imprimir', impresionCtrl.imprimirTicketIP); 
 
-// 👇 NUEVO: RUTA PARA FORZAR LA ACTUALIZACIÓN MANUAL (Botón del Frontend)
-router.post('/configuracion/actualizar-sistema', configCtrl.forzarActualizacionGlobal);
+// RUTAS PARA EL WEBHOOK AUTOMÁTICO Y ACTUALIZACIONES
+router.post('/configuracion/actualizar-sistema', configCtrl.forzarActualizacionGlobal);  
+router.post('/webhook/vercel-deploy', configCtrl.webhookVercelDeploy);  
 
-// 👇 NUEVO: RUTA PARA EL WEBHOOK AUTOMÁTICO DE VERCEL
-router.post('/webhook/vercel-deploy', configCtrl.webhookVercelDeploy);
+// ==========================================
+// 🌐 MIDDLEWARE PARA EMITIR WEBOCKETS (MAGIA EN VIVO)
+// ==========================================
+let globalIo = null;
+router.use((req, res, next) => {
+  if (!globalIo && req.app) globalIo = req.app.get('io');
+  next();
+});
+
+// ==========================================
+// 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS)
+// Se ejecuta cada 60 segundos
+// ==========================================
+setInterval(async () => {
+  try {
+    // ZONA HORARIA APLICADA: 'America/Mazatlan'
+    const queryTime = "SELECT EXTRACT(ISODOW FROM CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan') as dia, TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan', 'HH24:MI') as hora";
+    const res = await db.query(queryTime);
+    
+    if (res.rows.length === 0) return;  
+
+    const diaActual = res.rows[0].dia.toString();
+    const horaActual = res.rows[0].hora;  
+    let huboCambios = false;
+
+    // 1. FORZAR APAGADO SI ESTÁ FUERA DE SU HORARIO ESTRICTO
+    const apagarProd = await db.query(`
+      UPDATE productos SET disponible = false
+      WHERE usa_horario = true AND disponible = true
+      AND (
+        dias_disponibles NOT LIKE '%' || $1 || '%'
+        OR (hora_inicio <= hora_fin AND ( $2 < TO_CHAR(hora_inicio, 'HH24:MI') OR $2 > TO_CHAR(hora_fin, 'HH24:MI') ))
+        OR (hora_inicio > hora_fin AND ( $2 < TO_CHAR(hora_inicio, 'HH24:MI') AND $2 > TO_CHAR(hora_fin, 'HH24:MI') ))
+      )
+    `, [diaActual, horaActual]);
+    if (apagarProd.rowCount > 0) huboCambios = true;
+
+    const apagarClas = await db.query(`
+      UPDATE clasificaciones SET disponible = false
+      WHERE usa_horario = true AND disponible = true
+      AND (
+        dias_disponibles NOT LIKE '%' || $1 || '%'
+        OR (hora_inicio <= hora_fin AND ( $2 < TO_CHAR(hora_inicio, 'HH24:MI') OR $2 > TO_CHAR(hora_fin, 'HH24:MI') ))
+        OR (hora_inicio > hora_fin AND ( $2 < TO_CHAR(hora_inicio, 'HH24:MI') AND $2 > TO_CHAR(hora_fin, 'HH24:MI') ))
+      )
+    `, [diaActual, horaActual]);
+    if (apagarClas.rowCount > 0) huboCambios = true;
+
+    // 2. ENCENDER (Se elimina la ventana de 2 minutos. Ahora verifica el rango de forma continua)
+    const prenderProd = await db.query(`
+      UPDATE productos SET disponible = true
+      WHERE usa_horario = true AND disponible = false
+      AND dias_disponibles LIKE '%' || $1 || '%'
+      AND (
+        (hora_inicio <= hora_fin AND $2 >= TO_CHAR(hora_inicio, 'HH24:MI') AND $2 <= TO_CHAR(hora_fin, 'HH24:MI'))
+        OR (hora_inicio > hora_fin AND ($2 >= TO_CHAR(hora_inicio, 'HH24:MI') OR $2 <= TO_CHAR(hora_fin, 'HH24:MI')))
+      )
+      AND (usa_stock = false OR stock_preparado > 0)
+    `, [diaActual, horaActual]);
+    if (prenderProd.rowCount > 0) huboCambios = true;
+
+    const prenderClas = await db.query(`
+      UPDATE clasificaciones SET disponible = true
+      WHERE usa_horario = true AND disponible = false
+      AND dias_disponibles LIKE '%' || $1 || '%'
+      AND (
+        (hora_inicio <= hora_fin AND $2 >= TO_CHAR(hora_inicio, 'HH24:MI') AND $2 <= TO_CHAR(hora_fin, 'HH24:MI'))
+        OR (hora_inicio > hora_fin AND ($2 >= TO_CHAR(hora_inicio, 'HH24:MI') OR $2 <= TO_CHAR(hora_fin, 'HH24:MI')))
+      )
+    `, [diaActual, horaActual]);
+    if (prenderClas.rowCount > 0) huboCambios = true;
+
+    // AVISAR A LAS PANTALLAS KIOSCO SI HUBO UN CAMBIO
+    if (huboCambios && globalIo) {
+      globalIo.emit('catalogo_actualizado');
+    }
+
+  } catch (error) {
+    console.error("Error en el Vigilante de Horarios (Cron):", error);
+  }
+}, 60000); 
 
 module.exports = router;

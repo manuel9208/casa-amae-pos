@@ -1,7 +1,7 @@
 import React from 'react';
-import { Trash2, Edit, Gift, ArrowUpRight, Tag, Clock } from 'lucide-react';  
+import { Trash2, Edit, Gift, Tag, Clock, Layers } from 'lucide-react';  
 
-const ListaPromociones = ({ promociones, apiUrl, showAlert, showConfirm, refrescarDatos, isSubmitting, setPromoAEditar }) => {  
+const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfirm, refrescarDatos, isSubmitting, setPromoAEditar }) => {  
   const formatDinero = (val) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);  
 
   const toggleEstado = async (id, estadoActual) => {
@@ -50,8 +50,25 @@ const ListaPromociones = ({ promociones, apiUrl, showAlert, showConfirm, refresc
             
             const esTodoElDia = promo.hora_inicio === '00:00:00' && promo.hora_fin === '23:59:00';  
             
+            // PROCESAMIENTO DINÁMICO DEL TEXTO DE OFERTA
+            let limiteText = '1 platillo específico';
+            let desgloseOpciones = promo.oferta_nombre || 'Producto no encontrado';
+
+            if (promo.config_oferta) {
+                try {
+                    const conf = typeof promo.config_oferta === 'string' ? JSON.parse(promo.config_oferta) : promo.config_oferta;
+                    limiteText = conf.limite > 0 ? `Hasta ${conf.limite} artículo(s)` : `Artículos Ilimitados`;
+                    
+                    desgloseOpciones = conf.selecciones.map(s => {
+                        if (s.tipo === 'categoria') return `Cat. ${s.valor}`;
+                        const pFound = (productos || []).find(x => String(x.id) === String(s.valor));
+                        return pFound ? pFound.nombre : `Producto #${s.valor}`;
+                    }).join(' | ');
+                } catch(e) {}
+            }
+
             return (
-              <div key={promo.id} className={`bg-white rounded-[30px] shadow-sm border-2 overflow-hidden transition-all relative ${promo.activo ? (isUpsell ? 'border-orange-200 hover:shadow-orange-100/50' : 'border-purple-200 hover:shadow-purple-100/50') : 'border-slate-200 opacity-70 grayscale'}`}>  
+              <div key={promo.id} className={`bg-white rounded-[30px] shadow-sm border-2 overflow-hidden transition-all relative flex flex-col ${promo.activo ? (isUpsell ? 'border-orange-200 hover:shadow-orange-100/50' : 'border-purple-200 hover:shadow-purple-100/50') : 'border-slate-200 opacity-70 grayscale'}`}>  
                 <div className={`p-4 flex justify-between items-start border-b ${isUpsell ? 'bg-orange-50/50 border-orange-100' : 'bg-purple-50/50 border-purple-100'}`}>
                   <div>
                     <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${isUpsell ? 'bg-orange-200 text-orange-800' : 'bg-purple-200 text-purple-800'}`}>
@@ -64,26 +81,28 @@ const ListaPromociones = ({ promociones, apiUrl, showAlert, showConfirm, refresc
                   </label>
                 </div>  
 
-                <div className="p-5 flex flex-col h-full gap-4">
+                <div className="p-5 flex flex-col flex-1 gap-4">
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center justify-between">
                     <div className="text-xs font-bold text-slate-500 text-center w-full">
                       <span className="block text-[10px] uppercase mb-1">Si compran...</span>
                       <span className="text-slate-800 font-black">{textoTrigger}</span>
                     </div>
-                    <ArrowUpRight className="text-slate-300 mx-2 shrink-0"/>
-                    <div className="text-xs font-black text-emerald-600 text-center w-full">
-                      <span className="block text-[10px] uppercase text-emerald-600/70 mb-1">Ofrécele...</span>
-                      <span>{promo.oferta_nombre}</span>
-                    </div>
                   </div>  
+
+                  {/* NUEVA ESTRUCTURA DE OFERTA MÚLTIPLE */}
+                  <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-2xl">
+                     <span className="block text-[10px] font-black uppercase text-emerald-600/70 mb-1 flex items-center justify-center gap-1"><Layers size={12}/> Ofrécele la opción de llevar:</span>
+                     <p className="text-xs font-black text-emerald-700 text-center mb-1">{limiteText}</p>
+                     <p className="text-[10px] font-bold text-emerald-600/80 text-center leading-snug break-words">{desgloseOpciones}</p>
+                  </div>
 
                   <div className="flex items-center gap-2 mt-auto">
                     <Tag className="text-slate-400 shrink-0" size={16}/>
                     <p className="text-sm font-bold text-slate-700">
                       {promo.tipo_descuento === 'porcentaje' ? (
-                        <>Aplica un <strong className="text-red-500">{promo.valor_descuento}% de descuento</strong></>
+                        <>Cada artículo tendrá un <strong className="text-red-500">{promo.valor_descuento}% de descuento</strong></>
                       ) : (
-                        <>Precio fijo de <strong className="text-blue-600">{formatDinero(promo.valor_descuento)}</strong></>
+                        <>Cada artículo se cobrará a <strong className="text-blue-600">{formatDinero(promo.valor_descuento)}</strong></>
                       )}
                     </p>
                   </div>  
@@ -99,12 +118,11 @@ const ListaPromociones = ({ promociones, apiUrl, showAlert, showConfirm, refresc
                   </div>
                 </div>  
 
-                {/* 👇 FIX: Agregamos el botón de editar al lado del botón de eliminar */}
                 <div className="absolute bottom-4 right-4 flex items-center gap-2">
-                  <button onClick={() => setPromoAEditar(promo)} className="p-2 bg-blue-50 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-xl transition" disabled={isSubmitting} title="Editar Promoción">
+                  <button onClick={() => setPromoAEditar(promo)} className="p-2 bg-blue-50 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-xl transition shadow-sm" disabled={isSubmitting} title="Editar Promoción">
                     <Edit size={18}/>
                   </button>
-                  <button onClick={() => eliminarPromocion(promo.id)} className="p-2 bg-red-50 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition" disabled={isSubmitting} title="Eliminar Promoción">
+                  <button onClick={() => eliminarPromocion(promo.id)} className="p-2 bg-red-50 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition shadow-sm" disabled={isSubmitting} title="Eliminar Promoción">
                     <Trash2 size={18}/>
                   </button>
                 </div>

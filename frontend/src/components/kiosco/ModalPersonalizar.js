@@ -6,8 +6,13 @@ const ModalPersonalizar = ({
   itemAEditar, setItemAEditar, 
   carrito, setCarrito, 
   catalogoIngredientes, clasificaciones,
-  configGlobal = {} 
+  configGlobal = {},
+  setPromocionVigente
 }) => {
+
+  // 👇 MOTOR DE COLA SECUENCIAL
+  const queue = Array.isArray(productoEnEspera) ? productoEnEspera : (productoEnEspera ? [productoEnEspera] : []);
+  const currentItem = queue.length > 0 ? queue[0] : null;
 
   const [cantidadProducto, setCantidadProducto] = useState(1);
   const [notaEspecial, setNotaEspecial] = useState('');
@@ -20,19 +25,18 @@ const ModalPersonalizar = ({
   const [ingredienteDesplegado, setIngredienteDesplegado] = useState(null);
 
   const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
-
   const [promociones, setPromociones] = useState([]);
-  const [productosData, setProductosData] = useState([]);
-  const [promocionVigente, setPromocionVigente] = useState(null);
+  
+  // Estado UI Custom para el Stock (Cero Alertas Nativas)
+  const [errorStock, setErrorStock] = useState('');
 
   useEffect(() => {
     const apiUrlLocal = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
     fetch(`${apiUrlLocal}/promociones`).then(r => r.json()).then(d => setPromociones(Array.isArray(d) ? d : [])).catch(()=>{});
-    fetch(`${apiUrlLocal}/productos`).then(r => r.json()).then(d => setProductosData(Array.isArray(d) ? d : [])).catch(()=>{});
   }, []);
 
   useEffect(() => {
-    if (!productoEnEspera) return;
+    if (!currentItem) return;
 
     if (itemAEditar) {
       const removidosTemp = []; 
@@ -78,15 +82,20 @@ const ModalPersonalizar = ({
       setIngredienteDesplegado(null);
     }
     setPasoPersonalizacion(0);
-  }, [productoEnEspera, itemAEditar]);
+    setErrorStock('');
+  }, [currentItem, itemAEditar]);
 
   const seleccionarVariacion = (categoria, opcion) => { 
     setVariacionesSeleccionadas({ ...variacionesSeleccionadas, [categoria]: opcion }); 
     setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
   };
 
-  const cerrarModal = () => {
-    setProductoEnEspera(null);
+  const avanzarCola = () => {
+    if (queue.length > 1) {
+        setProductoEnEspera(queue.slice(1));
+    } else {
+        setProductoEnEspera(null);
+    }
     setItemAEditar(null);
   };
 
@@ -112,29 +121,6 @@ const ModalPersonalizar = ({
     });
   };
 
-  const agregarUpsellAlCarrito = () => {
-    let precioFinal = Number(promocionVigente.valor_descuento);
-    if (promocionVigente.tipo_descuento === 'porcentaje') {
-        let precioBase = 0;
-        const prodOriginal = productosData.find(p => p.id === promocionVigente.producto_oferta_id);
-        if (prodOriginal) precioBase = Number(prodOriginal.precio_base);
-        precioFinal = precioBase - (precioBase * (precioFinal / 100));
-    }
-    
-    const nuevoItem = {
-        idTicket: Date.now().toString() + '_promo',
-        id: promocionVigente.producto_oferta_id,
-        nombre: promocionVigente.oferta_nombre,
-        precioFinal: Math.max(0, precioFinal), 
-        cantidad: 1,
-        extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precioExtra: 0, tipo: 'nota' }]
-    };
-    
-    setCarrito(prev => [...prev, nuevoItem]);
-    setPromocionVigente(null);
-    cerrarModal();
-  };
-
   const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
     let politicas = { activa: false, modalidad: 'proporcional', tarifa_fija: 0 };
     try {
@@ -158,9 +144,9 @@ const ModalPersonalizar = ({
     return diferencia > 0 ? diferencia : 0; 
   };
 
-  if (!productoEnEspera) return null;
+  if (!currentItem) return null;
 
-  const totalPlatilloCalculado = (Number(productoEnEspera.precio_base) + 
+  const totalPlatilloCalculado = (Number(currentItem.precio_base) + 
     extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
     Object.values(variacionesSeleccionadas).reduce((s, v) => s + Number(v.precioExtra || 0), 0) +
     Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra || 0), 0) +
@@ -168,7 +154,7 @@ const ModalPersonalizar = ({
   ) * cantidadProducto;
 
   const objGruposOpcionales = {};
-  (productoEnEspera.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
+  (currentItem.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
     if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
     objGruposOpcionales[o.categoria].opciones.push(o);
   });
@@ -176,19 +162,19 @@ const ModalPersonalizar = ({
 
   let pasosWiz = [];
 
-  const tamanosList = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
+  const tamanosList = (currentItem.opciones || []).filter(o => o.categoria === 'Tamaño');
   if (tamanosList.length > 0) pasosWiz.push({ id: 'tamano', tipo: 'obligatorio', titulo: 'Elige el Tamaño *', opciones: tamanosList });
 
-  const saboresList = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
+  const saboresList = (currentItem.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
   if (saboresList.length > 0) pasosWiz.push({ id: 'sabor', tipo: 'obligatorio', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
 
-  const categoriasObligatorias = [...new Set(productoEnEspera.opciones?.filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
+  const categoriasObligatorias = [...new Set(currentItem.opciones?.filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
   categoriasObligatorias.forEach(cat => {
       pasosWiz.push({
         id: cat,
         tipo: 'obligatorio',
         titulo: `Elige: ${cat} *`,
-        opciones: productoEnEspera.opciones.filter(o => o.categoria === cat).sort((a, b) => a.nombre.localeCompare(b.nombre))
+        opciones: currentItem.opciones.filter(o => o.categoria === cat).sort((a, b) => a.nombre.localeCompare(b.nombre))
       });
   });
 
@@ -203,7 +189,7 @@ const ModalPersonalizar = ({
       });
   });
 
-  const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const bases = (currentItem.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
   if (bases.length > 0) {
       pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
   }
@@ -216,20 +202,27 @@ const ModalPersonalizar = ({
   try { if (configGlobal && configGlobal.politicas_sustitucion) politicasSustUI = typeof configGlobal.politicas_sustitucion === 'string' ? JSON.parse(configGlobal.politicas_sustitucion) : configGlobal.politicas_sustitucion; } catch(e){}
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in">
       <div className="bg-white p-6 md:p-8 rounded-[40px] w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] border border-slate-100 relative">
         
+        {queue.length > 1 && (
+            <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-1.5 rounded-full text-[10px] md:text-xs font-black shadow-md uppercase tracking-widest z-10 flex items-center gap-2">
+                <span className="animate-pulse w-2 h-2 bg-white rounded-full block"></span>
+                Personalizando {queue.length} restante(s)
+            </div>
+        )}
+
         {pasoPersonalizacion > 0 && (
             <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-6 top-6 md:top-8 text-slate-400 hover:text-slate-800 font-black text-sm transition-colors z-10">
               ⬅ Volver
             </button>
         )}
 
-        <h2 className="text-2xl md:text-3xl font-black text-center mb-2 text-slate-800 mt-2">{productoEnEspera.nombre}</h2>
-        {productoEnEspera.descripcion && (
+        <h2 className="text-2xl md:text-3xl font-black text-center mb-2 text-slate-800 mt-2">{currentItem.nombre}</h2>
+        {currentItem.descripcion && (
           <div className="bg-slate-50 border border-slate-100 p-3 md:p-4 rounded-2xl mb-4 shadow-sm mx-2">
             <p className="text-slate-600 font-medium text-xs md:text-sm leading-relaxed text-center">
-              {productoEnEspera.descripcion}
+              {currentItem.descripcion}
             </p>
           </div>
         )}
@@ -352,7 +345,7 @@ const ModalPersonalizar = ({
                                 <p className="text-[10px] uppercase font-black text-slate-500 mb-3 tracking-widest">Elige el ingrediente de reemplazo:</p>
                                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
                                     {catalogoIngredientes.filter(i => 
-                                        (i.clasificacion_id === productoEnEspera.clasificacion_id || i.es_extra || i.tipo === 'extra') && 
+                                        (i.clasificacion_id === currentItem.clasificacion_id || i.es_extra || i.tipo === 'extra') && 
                                         i.permite_extra !== false
                                     ).map((ex, idxEx) => {
                                         const extraCost = calcularPrecioSustitucion(o.nombre, ex.nombre);
@@ -381,14 +374,14 @@ const ModalPersonalizar = ({
               <p className="text-center text-slate-400 font-bold mb-4 uppercase tracking-widest text-[10px] md:text-xs border-b pb-4">Añadir Extras (Opcional)</p>
               
               {(() => {
-                const categoriaItem = productoEnEspera.categoria || '';
+                const categoriaItem = currentItem.categoria || '';
                 const extrasDelSistema = catalogoIngredientes.filter(i => 
                   (i.clasificacion_nombre === categoriaItem || i.es_extra || i.tipo === 'extra') && 
                   i.permite_extra !== false
                 );
                 
                 const extrasMap = new Map();
-                (productoEnEspera.opciones || []).forEach(o => { if (o.tipo === 'extra') extrasMap.set(o.nombre, o); });
+                (currentItem.opciones || []).forEach(o => { if (o.tipo === 'extra') extrasMap.set(o.nombre, o); });
                 extrasDelSistema.forEach(o => { extrasMap.set(o.nombre, { nombre: o.nombre, precioExtra: o.precio_extra || 0 }); });
 
                 const extrasTodos = Array.from(extrasMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -426,28 +419,36 @@ const ModalPersonalizar = ({
         <div className="pt-4 md:pt-6 md:p-8 bg-white border-t border-slate-200 shrink-0">
           <div className="flex justify-between items-center mb-6">
             {pasoActualObj.tipo === 'extras_notas' ? (
-                <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200">
-                  <button type="button" onClick={() => setCantidadProducto(Math.max(1, cantidadProducto - 1))} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">-</button>
-                  <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
-                  {/* 👇 FIX DE CANTIDAD: Candado para no superar el Stock Estricto en el Modal */}
-                  <button type="button" onClick={() => {
-                     const isUsaStock = productoEnEspera.usa_stock === true || productoEnEspera.usa_stock === 'true';
-                     const stockActual = Number(productoEnEspera.stock_preparado) || 0;
-                     
-                     if (isUsaStock) {
-                        const enCarrito = carrito.filter(i => (i.id || i.producto_id) === productoEnEspera.id).reduce((s, i) => s + (i.cantidad || 1), 0);
-                        if ((cantidadProducto + enCarrito) >= stockActual) {
-                            alert(`Límite alcanzado. Solo hay ${stockActual} unidades disponibles de este producto.`);
-                            return;
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 w-fit">
+                    <button type="button" onClick={() => {
+                        setCantidadProducto(Math.max(1, cantidadProducto - 1));
+                        setErrorStock('');
+                    }} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">-</button>
+                    
+                    <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
+                    
+                    <button type="button" onClick={() => {
+                        const isUsaStock = currentItem.usa_stock === true || currentItem.usa_stock === 'true';
+                        const stockActual = Number(currentItem.stock_preparado) || 0;
+                        
+                        if (isUsaStock) {
+                            const enCarrito = carrito.filter(i => (i.id || i.producto_id) === currentItem.id).reduce((s, i) => s + (i.cantidad || 1), 0);
+                            if ((cantidadProducto + enCarrito) >= stockActual) {
+                                setErrorStock(`Solo quedan ${stockActual} disponibles.`);
+                                setTimeout(() => setErrorStock(''), 4000);
+                                return;
+                            }
                         }
-                     }
-                     setCantidadProducto(cantidadProducto + 1);
-                  }} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
+                        setCantidadProducto(cantidadProducto + 1);
+                        setErrorStock('');
+                    }} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
+                  </div>
+                  {/* 👇 UI CUSTOM: Reemplazo elegante de alert() */}
+                  {errorStock && <p className="text-[10px] font-black text-red-500 uppercase tracking-wide animate-in slide-in-from-top-1">{errorStock}</p>}
                 </div>
             ) : (
-                <div className="flex items-center">
-                    {/* Placeholder */}
-                </div>
+                <div className="flex items-center"></div>
             )}
 
             <div className="text-right">
@@ -459,7 +460,9 @@ const ModalPersonalizar = ({
           </div>
 
           <div className="flex gap-3 md:gap-4">
-            <button type="button" onClick={cerrarModal} className="flex-1 py-4 md:py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200 text-sm md:text-base">Cancelar</button>
+            <button type="button" onClick={avanzarCola} className="flex-1 py-4 md:py-5 bg-slate-50 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition border border-slate-200 text-sm md:text-base">
+                {queue.length > 1 ? 'Omitir y Siguiente' : 'Cancelar'}
+            </button>
             
             {pasoActualObj.tipo === 'extras_notas' ? (
               <button type="button" onClick={() => {
@@ -475,51 +478,73 @@ const ModalPersonalizar = ({
                 extrasAgregados.forEach(ex => extrasFinales.push({ nombre: `Extra ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                 if (notaEspecial.trim() !== '') extrasFinales.push({ nombre: `📝 Nota: ${notaEspecial.trim()}`, precioExtra: 0, tipo: 'nota' });
 
-                const precioIndividualCalculado = Number(productoEnEspera.precio_base) + 
+                // 👇 INYECTAMOS LA ETIQUETA PROMOCIONAL AUTOMÁTICA
+                if (currentItem._esPromo) {
+                    extrasFinales.push({ nombre: `⭐ Promo: ${currentItem._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
+                }
+
+                const precioIndividualCalculado = Number(currentItem.precio_base) + 
                   Object.values(variacionesSeleccionadas).reduce((s, v) => s + (v.precioExtra || 0), 0) + 
                   Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + 
                   Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) + 
                   extrasAgregados.reduce((s, e) => s + Number(e.precioExtra), 0);
                 
                 const nuevoItem = {
-                  idTicket: Date.now().toString(),
-                  producto_id: productoEnEspera.id,
-                  nombre: productoEnEspera.nombre,
-                  categoria: productoEnEspera.categoria,
-                  destino: clasificaciones.find(c => c.nombre === (productoEnEspera.categoria || 'General'))?.destino || 'Cocina',
-                  tiempo_preparacion: productoEnEspera.tiempo_preparacion,
-                  precio_base: productoEnEspera.precio_base,
+                  idTicket: Date.now().toString() + Math.random().toString(36).substr(2, 4), // Generador único inquebrantable
+                  producto_id: currentItem.id,
+                  nombre: currentItem.nombre,
+                  categoria: currentItem.categoria,
+                  destino: clasificaciones.find(c => c.nombre === (currentItem.categoria || 'General'))?.destino || 'Cocina',
+                  tiempo_preparacion: currentItem.tiempo_preparacion,
+                  precio_base: currentItem.precio_base,
                   precioFinal: precioIndividualCalculado,
                   cantidad: cantidadProducto,
-                  opciones: productoEnEspera.opciones || [],
-                  extras: extrasFinales
+                  opciones: currentItem.opciones || [],
+                  extras: extrasFinales,
+                  _esPromo: currentItem._esPromo // 👈 FUNDAMENTAL: Preservar la bandera
                 };
 
                 if (itemAEditar) {
                     setCarrito(carrito.map(item => item.idTicket === itemAEditar.idTicket ? nuevoItem : item));
-                    cerrarModal();
+                    avanzarCola();
                 } else {
                     const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
                     const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
-                    const indexExistente = carrito.findIndex(item => (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) && getExtrasStr(item.extras) === extrasStrNuevo && item.precioFinal === nuevoItem.precioFinal);
+                    
+                    setCarrito(prev => {
+                        // 👇 FIX DEFINITIVO: Prohibido agrupar platillos que sean promociones. Siempre irán separados.
+                        let indexExistente = -1;
 
-                    if (indexExistente >= 0) {
-                        const nuevoCarrito = [...carrito];
-                        nuevoCarrito[indexExistente].cantidad = (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto;
-                        setCarrito(nuevoCarrito);
-                    } else {
-                        setCarrito([...carrito, nuevoItem]);
-                    }
+                        if (!nuevoItem._esPromo) {
+                            indexExistente = prev.findIndex(item => 
+                                !item._esPromo && // Tampoco agrupar normales con promos accidentalmente
+                                (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) && 
+                                getExtrasStr(item.extras) === extrasStrNuevo && 
+                                item.precioFinal === nuevoItem.precioFinal
+                            );
+                        }
 
-                    const promo = evaluarUpsell(productoEnEspera.id, productoEnEspera.categoria);
-                    if (promo) {
-                        setPromocionVigente(promo);
-                    } else {
-                        cerrarModal();
+                        if (indexExistente >= 0) {
+                            const nuevoCarrito = [...prev];
+                            nuevoCarrito[indexExistente].cantidad = (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto;
+                            return nuevoCarrito;
+                        } else {
+                            return [...prev, nuevoItem];
+                        }
+                    });
+
+                    // Lanzar Upsell recursivo solo si NO era promo y es el último de la cola
+                    if (!currentItem._esPromo && queue.length <= 1) {
+                        const promo = evaluarUpsell(currentItem.id, currentItem.categoria);
+                        if (promo && setPromocionVigente) {
+                            setPromocionVigente(promo);
+                        }
                     }
+                    
+                    avanzarCola(); 
                 }
               }} className="flex-[2] py-4 md:py-5 bg-emerald-500 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">
-                {itemAEditar ? 'Actualizar' : `Añadir (${cantidadProducto})`}
+                {itemAEditar ? 'Actualizar' : (queue.length > 1 ? `Añadir y Siguiente ➡` : `Añadir a la Orden`)}
               </button>
             ) : (
               <button 
@@ -533,34 +558,6 @@ const ModalPersonalizar = ({
             )}
           </div>
         </div>
-
-        {/* MODAL PROMOCIÓN / UPSELL */}
-        {promocionVigente && (
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[200] p-4">
-            <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300 border-4 border-orange-400">
-              <div className="bg-orange-100 text-orange-600 w-20 h-20 md:w-24 md:h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                 <span className="text-4xl md:text-5xl">🎁</span>
-              </div>
-              <h2 className="text-2xl md:text-3xl font-black text-slate-800 mb-2 leading-tight">¡Oferta Especial! 🔥</h2>
-              <p className="text-slate-500 font-medium mb-6 text-sm md:text-base">¿Te gustaría agregar esto a tu orden?</p>
-              
-              <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-4 md:p-6 mb-8 transform hover:scale-105 transition">
-                 {promocionVigente.oferta_imagen && (
-                    <img src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${(process.env.REACT_APP_API_URL || 'http://localhost:4000/api').replace('/api', '')}${promocionVigente.oferta_imagen}`} className="w-24 h-24 md:w-32 md:h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" alt="promo" />
-                 )}
-                 <h3 className="font-black text-xl md:text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
-                 <p className="text-base md:text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
-                   {promocionVigente.tipo_descuento === 'porcentaje' ? `Llévalo con ${promocionVigente.valor_descuento}% de descuento` : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
-                 </p>
-              </div>
-              
-              <div className="flex flex-col gap-3">
-                <button type="button" onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-lg md:text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a la orden!</button>
-                <button type="button" onClick={() => { setPromocionVigente(null); cerrarModal(); }} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias</button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div> 
   );

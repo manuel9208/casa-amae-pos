@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, ArrowUpRight, Clock, X } from 'lucide-react';  
+import { Zap, Clock, X, Plus, Trash2, Layers } from 'lucide-react';  
 
 const FormularioPromocion = ({
   productos, clasificaciones, apiUrl, showAlert, refrescarDatos, isSubmitting, setIsSubmitting,
-  promoAEditar, setPromoAEditar // 👈 Nuevas props recibidas
+  promoAEditar, setPromoAEditar
 }) => {
   const diasSemana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];  
   const [tipoCondicion, setTipoCondicion] = useState('global');
@@ -11,21 +11,23 @@ const FormularioPromocion = ({
 
   const estadoInicialFormulario = {
     nombre: '', tipo: 'upselling', producto_trigger_id: '', categoria_trigger: '',
-    producto_oferta_id: '', tipo_descuento: 'porcentaje', valor_descuento: '',
+    tipo_descuento: 'porcentaje', valor_descuento: '',
     dias_aplicables: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
     hora_inicio: '00:00', hora_fin: '23:59'
   };  
 
   const [formulario, setFormulario] = useState(estadoInicialFormulario);  
+  
+  // ESTADOS: Motor Dinámico de Opciones
+  const [seleccionesPermitidas, setSeleccionesPermitidas] = useState([{ tipo: 'categoria', valor: '' }]);
+  const [limiteOpciones, setLimiteOpciones] = useState(0); // 0 = Sin límite
 
-  // 👇 LÓGICA DE EDICIÓN: Rellenamos el formulario si hay data
   useEffect(() => {
     if (promoAEditar) {
       setFormulario({
         ...promoAEditar,
         producto_trigger_id: promoAEditar.producto_trigger_id || '',
         categoria_trigger: promoAEditar.categoria_trigger || '',
-        producto_oferta_id: promoAEditar.producto_oferta_id || '',
         dias_aplicables: Array.isArray(promoAEditar.dias_aplicables) ? promoAEditar.dias_aplicables : JSON.parse(promoAEditar.dias_aplicables || '[]')
       });
       
@@ -34,11 +36,30 @@ const FormularioPromocion = ({
       else setTipoCondicion('global');
       
       setTodoElDia(promoAEditar.hora_inicio === '00:00:00' && promoAEditar.hora_fin === '23:59:00');
-      window.scrollTo({ top: 0, behavior: 'smooth' }); // Subir pantalla para ver el form
+      
+      // Cargar la configuración dinámica si existe
+      if (promoAEditar.config_oferta) {
+          try {
+              const conf = typeof promoAEditar.config_oferta === 'string' ? JSON.parse(promoAEditar.config_oferta) : promoAEditar.config_oferta;
+              setLimiteOpciones(conf.limite || 0);
+              setSeleccionesPermitidas(conf.selecciones && conf.selecciones.length > 0 ? conf.selecciones : [{ tipo: 'categoria', valor: '' }]);
+          } catch(e) {
+              setLimiteOpciones(0);
+              setSeleccionesPermitidas([{ tipo: 'categoria', valor: '' }]);
+          }
+      } else if (promoAEditar.producto_oferta_id) {
+          // Retrocompatibilidad con promociones creadas antes del update
+          setLimiteOpciones(1);
+          setSeleccionesPermitidas([{ tipo: 'producto', valor: promoAEditar.producto_oferta_id }]);
+      }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
       setFormulario(estadoInicialFormulario);
       setTipoCondicion('global');
       setTodoElDia(false);
+      setLimiteOpciones(0);
+      setSeleccionesPermitidas([{ tipo: 'categoria', valor: '' }]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promoAEditar]);
@@ -55,14 +76,25 @@ const FormularioPromocion = ({
     });
   };  
 
-  const guardarPromocion = async (e) => { // 👈 Renombrada
+  const agregarSeleccion = () => setSeleccionesPermitidas([...seleccionesPermitidas, { tipo: 'categoria', valor: '' }]);
+  const removerSeleccion = (idx) => setSeleccionesPermitidas(seleccionesPermitidas.filter((_, i) => i !== idx));
+  const actualizarSeleccion = (idx, campo, valorCampo) => {
+      const copia = [...seleccionesPermitidas];
+      copia[idx][campo] = valorCampo;
+      if (campo === 'tipo') copia[idx].valor = ''; // Resetear valor al cambiar de tipo
+      setSeleccionesPermitidas(copia);
+  };
+
+  const guardarPromocion = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;  
 
     if (formulario.dias_aplicables.length === 0) return showAlert("Atención", "Debes seleccionar al menos un día de la semana.", "warning");
-    if (!formulario.producto_oferta_id) return showAlert("Atención", "Debes seleccionar el producto en oferta.", "warning");
     if (tipoCondicion === 'producto' && !formulario.producto_trigger_id) return showAlert("Atención", "Selecciona el producto detonador.", "warning");
     if (tipoCondicion === 'categoria' && !formulario.categoria_trigger) return showAlert("Atención", "Selecciona la categoría detonadora.", "warning");  
+
+    if (seleccionesPermitidas.length === 0) return showAlert("Atención", "Debes agregar al menos una opción al pool de la oferta.", "warning");
+    if (seleccionesPermitidas.some(s => !s.valor)) return showAlert("Atención", "Tienes opciones vacías en el bloque de oferta. Selecciona la categoría o platillo.", "warning");
 
     setIsSubmitting(true);
     try {
@@ -70,11 +102,15 @@ const FormularioPromocion = ({
         ...formulario,
         producto_trigger_id: tipoCondicion === 'producto' ? Number(formulario.producto_trigger_id) : null,
         categoria_trigger: tipoCondicion === 'categoria' ? formulario.categoria_trigger : null,
-        producto_oferta_id: Number(formulario.producto_oferta_id),
-        valor_descuento: Number(formulario.valor_descuento)
+        producto_oferta_id: null, // Lo enviamos nulo, ya no dependemos de él
+        valor_descuento: Number(formulario.valor_descuento),
+        // Inyección del JSON Dinámico
+        config_oferta: JSON.stringify({
+            limite: Number(limiteOpciones),
+            selecciones: seleccionesPermitidas
+        })
       };  
       
-      // 👇 FIX: Definir si es POST (Nuevo) o PUT (Editar)
       const url = promoAEditar ? `${apiUrl}/promociones/${promoAEditar.id}` : `${apiUrl}/promociones`;
       const method = promoAEditar ? 'PUT' : 'POST';
 
@@ -84,8 +120,7 @@ const FormularioPromocion = ({
 
       if (res.ok) {
         showAlert("¡Éxito!", `Promoción ${promoAEditar ? 'actualizada' : 'creada y activada'} correctamente.`, "success");
-        setPromoAEditar(null);
-        setFormulario(estadoInicialFormulario); setTipoCondicion('global'); setTodoElDia(false);
+        cancelarEdicion();
         refrescarDatos();
       } else {
         const data = await res.json();
@@ -102,6 +137,8 @@ const FormularioPromocion = ({
     setFormulario(estadoInicialFormulario);
     setTipoCondicion('global');
     setTodoElDia(false);
+    setLimiteOpciones(0);
+    setSeleccionesPermitidas([{ tipo: 'categoria', valor: '' }]);
   };
 
   return (
@@ -122,7 +159,7 @@ const FormularioPromocion = ({
         <div className="space-y-5">
           <div>
             <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">Nombre interno de la Promoción *</label>
-            <input required value={formulario.nombre} onChange={e => setFormulario({...formulario, nombre: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700" placeholder="Ej. Papas a mitad de precio por hamburguesa" disabled={isSubmitting}/>
+            <input required value={formulario.nombre} onChange={e => setFormulario({...formulario, nombre: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700" placeholder="Ej. Papas a mitad de precio o Combos Flexibles" disabled={isSubmitting}/>
           </div>  
 
           <div className="grid grid-cols-2 gap-4">
@@ -163,27 +200,68 @@ const FormularioPromocion = ({
             </div>
           )}  
 
-          <div className="p-5 bg-orange-50 rounded-3xl border border-orange-100 mt-2">
-            <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2 flex items-center gap-2"><ArrowUpRight size={16}/> Producto a Ofrecer/Descontar *</label>
-            <select required value={formulario.producto_oferta_id} onChange={e => setFormulario({...formulario, producto_oferta_id: e.target.value})} className="w-full p-4 bg-white border border-orange-200 rounded-2xl outline-none focus:border-orange-500 font-black text-orange-700 mb-4 shadow-sm" disabled={isSubmitting}>
-              <option value="">-- Selecciona el producto --</option>
-              {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </select>
-            <div className="grid grid-cols-2 gap-4">
+          {/* MOTOR DINÁMICO: Constructor de Combos / Ofertas Múltiples */}
+          <div className="p-5 bg-orange-50 rounded-3xl border border-orange-200 mt-2">
+            <label className="block text-sm font-black text-orange-800 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <Layers size={18}/> Opciones de la Oferta *
+            </label>
+            
+            <div className="space-y-3 mb-5">
+                {seleccionesPermitidas.map((sel, idx) => (
+                    <div key={idx} className="flex items-center gap-2 bg-white p-2 rounded-xl border border-orange-200 shadow-sm animate-in fade-in">
+                        <select value={sel.tipo} onChange={e => actualizarSeleccion(idx, 'tipo', e.target.value)} className="p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs w-28 shrink-0">
+                            <option value="categoria">Categoría</option>
+                            <option value="producto">Producto</option>
+                        </select>
+
+                        {sel.tipo === 'categoria' ? (
+                            <select required value={sel.valor} onChange={e => actualizarSeleccion(idx, 'valor', e.target.value)} className="flex-1 p-3 bg-white border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate">
+                                <option value="">-- Clasificación --</option>
+                                {clasificaciones.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                            </select>
+                        ) : (
+                            <select required value={sel.valor} onChange={e => actualizarSeleccion(idx, 'valor', e.target.value)} className="flex-1 p-3 bg-white border border-slate-200 rounded-lg outline-none font-bold text-slate-700 text-xs truncate">
+                                <option value="">-- Platillo Específico --</option>
+                                {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </select>
+                        )}
+
+                        {seleccionesPermitidas.length > 1 && (
+                            <button type="button" onClick={() => removerSeleccion(idx)} className="p-3 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition shrink-0"><Trash2 size={16}/></button>
+                        )}
+                    </div>
+                ))}
+                
+                <button type="button" onClick={agregarSeleccion} className="w-full py-3 bg-orange-100 text-orange-700 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-orange-200 transition flex items-center justify-center gap-2 shadow-sm border border-orange-200">
+                    <Plus size={16}/> Añadir otra opción al grupo
+                </button>
+            </div>
+
+            <div className="mb-5 bg-white p-4 rounded-2xl border border-orange-200 shadow-sm">
+                <label className="block text-[10px] font-black text-orange-800 uppercase tracking-widest mb-2">Límite Total de Artículos a Elegir</label>
+                <div className="flex items-center gap-3">
+                    <input type="number" min="0" value={limiteOpciones} onChange={e => setLimiteOpciones(e.target.value)} className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-orange-500 font-black text-slate-800 text-center" disabled={isSubmitting}/>
+                    <span className="text-xs font-bold text-slate-500 leading-tight">Pon <strong className="text-slate-700">0</strong> si deseas que puedan elegir una cantidad ilimitada de artículos de la lista superior.</span>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 border-t border-orange-200 pt-4">
               <div>
-                <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">Tipo Rebaja *</label>
-                <select required value={formulario.tipo_descuento} onChange={e => setFormulario({...formulario, tipo_descuento: e.target.value})} className="w-full p-4 bg-white border border-orange-200 rounded-2xl outline-none focus:border-orange-500 font-bold text-slate-700" disabled={isSubmitting}>
+                <label className="block text-[10px] font-black text-orange-800 uppercase tracking-widest mb-2">Tipo Rebaja *</label>
+                <select required value={formulario.tipo_descuento} onChange={e => setFormulario({...formulario, tipo_descuento: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none focus:border-orange-500 font-bold text-slate-700" disabled={isSubmitting}>
                   <option value="porcentaje">Porcentaje (%)</option>
-                  <option value="precio_fijo">Precio Fijo ($)</option>
+                  <option value="precio_fijo">Precio Fijo Unitario ($)</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-black text-orange-800 uppercase tracking-widest mb-2">Valor *</label>
-                <input required type="number" step="0.01" min="0.1" value={formulario.valor_descuento} onChange={e => setFormulario({...formulario, valor_descuento: e.target.value})} className="w-full p-4 bg-white border border-orange-200 rounded-2xl outline-none focus:border-orange-500 font-black text-slate-800" placeholder={formulario.tipo_descuento === 'porcentaje' ? 'Ej. 50' : 'Ej. 25.00'} disabled={isSubmitting}/>
+                <label className="block text-[10px] font-black text-orange-800 uppercase tracking-widest mb-2">Valor *</label>
+                <input required type="number" step="0.01" min="0.1" value={formulario.valor_descuento} onChange={e => setFormulario({...formulario, valor_descuento: e.target.value})} className="w-full p-3 bg-white border border-orange-200 rounded-xl outline-none focus:border-orange-500 font-black text-slate-800" placeholder={formulario.tipo_descuento === 'porcentaje' ? 'Ej. 50' : 'Ej. 25.00'} disabled={isSubmitting}/>
               </div>
             </div>
-            <p className="text-[10px] font-bold text-orange-600 mt-3 text-center">
-              {formulario.tipo_descuento === 'porcentaje' ? `El producto se ofrecerá con un ${formulario.valor_descuento || 'X'}% de descuento.` : `El producto se ofrecerá a un precio exacto de $${formulario.valor_descuento || 'X'}.`}
+            <p className="text-[10px] font-bold text-orange-600 mt-4 text-center bg-orange-100/50 p-2 rounded-lg">
+              {formulario.tipo_descuento === 'porcentaje' 
+                  ? `Se aplicará un ${formulario.valor_descuento || 'X'}% de descuento a CADA artículo que elijan del grupo.` 
+                  : `CADA artículo que elijan del grupo se cobrará exactamente a $${formulario.valor_descuento || 'X'}.`}
             </p>
           </div>
         </div>  

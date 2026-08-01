@@ -91,11 +91,47 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const dataGastos = await resGastos.json();
       setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
 
+      // 👇 NUEVA LÓGICA: Evaluación en tiempo real de horarios para el Cajero
+      const estaDisponiblePorHorario = (item) => {
+        if (item.disponible === false || item.disponible === 'false' || item.disponible === 0) return false;
+        if (item.usa_horario !== true && item.usa_horario !== 'true') return true;
+
+        try {
+          const ahora = new Date();
+          let diaActual = ahora.getDay();
+          diaActual = diaActual === 0 ? 7 : diaActual; // Convertir Domingo (0) a 7
+
+          let dias = item.dias_disponibles;
+          if (typeof dias === 'string') dias = JSON.parse(dias);
+          if (!Array.isArray(dias)) return true; // Fallback de seguridad
+
+          if (!dias.includes(diaActual)) return false;
+
+          const minutosActuales = ahora.getHours() * 60 + ahora.getMinutes();
+          const [hIni, mIni] = (item.hora_inicio || '00:00').split(':').map(Number);
+          const [hFin, mFin] = (item.hora_fin || '23:59').split(':').map(Number);
+
+          const minIni = hIni * 60 + mIni;
+          const minFin = hFin * 60 + mFin;
+
+          if (minIni <= minFin) {
+              // Horario diurno (Ej: 08:00 a 14:00)
+              if (minutosActuales < minIni || minutosActuales > minFin) return false;
+          } else {
+              // Horario cruzado/nocturno (Ej: 20:00 a 02:00)
+              if (minutosActuales < minIni && minutosActuales > minFin) return false;
+          }
+          return true;
+        } catch (e) {
+          return true; // En caso de falla técnica, no esconder el producto
+        }
+      };
+
       const dataProd = await resProd.json();
-      setProductos(Array.isArray(dataProd) ? dataProd.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0) : []);
+      setProductos(Array.isArray(dataProd) ? dataProd.filter(estaDisponiblePorHorario) : []);
 
       const dataClas = await resClas.json();
-      setClasificaciones(Array.isArray(dataClas) ? dataClas : []);
+      setClasificaciones(Array.isArray(dataClas) ? dataClas.filter(estaDisponiblePorHorario) : []);
 
       const dataIng = await resIng.json();
       setCatalogoIngredientes(Array.isArray(dataIng) ? dataIng : []);
@@ -124,6 +160,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const [fondoCaja, setFondoCaja] = useState(null);
   const [inputFondo, setInputFondo] = useState('');
+  const [turnoActivo, setTurnoActivo] = useState(null);
 
   useEffect(() => {
     if (operadorActual && apiUrl) {
@@ -140,8 +177,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
                 if (ultimoEvento.turno_cerrado === false && ultimoEvento.fondo_inicial !== null) {
                     setFondoCaja(Number(ultimoEvento.fondo_inicial));
+                    setTurnoActivo(ultimoEvento); // 👇 NUEVO: Guardamos el turno para leer su hora de apertura
                 } else {
                     setFondoCaja(null);
+                    setTurnoActivo(null);
                 }
             } else {
                 setFondoCaja(null); 
@@ -261,6 +300,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setTicketImprimir(pedido);
     const modoImpresion = configGlobal?.ticket_modo_impresion || 'pdf';
 
+    // Función auxiliar para quitar emojis y dejar solo texto limpio
     const stripEmojis = (str) => {
       return String(str || '')
         .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
@@ -268,85 +308,96 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         .trim();
     };
 
+    // Función maestra que arma el texto del ticket
     const construirTextoTicket = () => {
       let receipt = "";
-      const dividirTexto = (texto, maxLen) => {
-        if (!texto) return [];
+      
+      // Ajusta el texto sin cortarlo, haciéndolo saltar de línea si pasa los 32 caracteres (tamaño impresora 58mm)
+      const formatearLinea = (texto, maxLen = 32, prefijo = '') => {
+        if (!texto) return '';
         const words = String(texto).split(' ');
-        const lines = [];
-        let currentLine = '';
+        let result = '';
+        let currentLine = prefijo;
+
         words.forEach(word => {
-          if (word.length > maxLen) {
-            if (currentLine.length > 0) { lines.push(currentLine.trim()); currentLine = ''; }
-            lines.push(word.substring(0, maxLen));
-            currentLine = word.substring(maxLen) + ' ';
-          } else if ((currentLine + word).length > maxLen) {
-            if (currentLine.length > 0) lines.push(currentLine.trim());
-            currentLine = word + ' ';
+          if ((currentLine + word).length > maxLen) {
+            if (currentLine.trim() !== '') result += currentLine.trim() + '\n';
+            currentLine = prefijo + word + ' ';
           } else {
             currentLine += word + ' ';
           }
         });
-        if (currentLine.trim().length > 0) {
-          lines.push(currentLine.trim());
-        }
-        return lines;
+        if (currentLine.trim() !== '') result += currentLine.trim() + '\n';
+        return result;
       };
 
       const center = (text) => {
         const str = String(text || '');
         if (str.length > 32) {
-          const lineas = dividirTexto(str, 32);
-          return lineas.map(line => {
-            const pad = Math.max(0, Math.floor((32 - line.length) / 2));
-            return " ".repeat(pad) + line + "\n";
-          }).join("");
+            return formatearLinea(str, 32); // Si es muy largo, lo centra dividiéndolo en líneas
         }
         const pad = Math.floor((32 - str.length) / 2);
-        return " ".repeat(pad) + str + "\n";
+        return " ".repeat(Math.max(0, pad)) + str + "\n";
       };
 
+      // 1. Cabecera del Negocio
       receipt += center(stripEmojis(configGlobal?.nombre_negocio || 'Mi Negocio'));
       if (configGlobal?.ticket_domicilio) receipt += center(stripEmojis(configGlobal.ticket_domicilio));
       if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);
       receipt += `--------------------------------\n`;
+      
+      // 2. Datos Generales de la Orden
       receipt += `TICKET: #${pedido.numero_pedido}\n`;
       receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
+      receipt += formatearLinea(stripEmojis(pedido.cliente_nombre || 'Invitado'), 32, 'CLIENTE: ');
       
-      const clienteLineas = dividirTexto(`CLIENTE: ${stripEmojis(pedido.cliente_nombre || 'Invitado')}`, 32);
-      clienteLineas.forEach(line => receipt += `${line}\n`);
+      if (pedido.cliente_telefono) receipt += `TEL: ${pedido.cliente_telefono}\n`;
       
-      // 👇 NUEVO: Mostrar el teléfono del cliente
-      if (pedido.cliente_telefono) {
-          receipt += `TEL: ${pedido.cliente_telefono}\n`;
-      }
-
-      // 👇 NUEVO: Mostrar la dirección formateada con envoltura de texto
+      // 👇 DIRECCIÓN COMPLETA SIN CORTES
       if (pedido.direccion_entrega) {
-          const dirLineas = dividirTexto(`DIR: ${stripEmojis(pedido.direccion_entrega)}`, 32);
-          dirLineas.forEach(line => receipt += `${line}\n`);
+          receipt += formatearLinea(stripEmojis(pedido.direccion_entrega), 32, 'DIR: ');
       }
 
       receipt += `TIPO: ${stripEmojis(pedido.tipo_consumo)}\n`;
       if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
       receipt += `--------------------------------\n`;
 
-      // Productos
+      // 3. Desglose del Carrito (Platillos y Extras COMPLETOS)
       const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
+      
       items.forEach(item => {
         const cant = item.cantidad || 1;
-        const nombre = stripEmojis(item.nombre).substring(0, 20);
+        const nombreItem = stripEmojis(item.nombre);
         const precio = Number(item.precioFinal || 0).toFixed(2);
-        receipt += `${cant}x ${nombre.padEnd(20)} $${precio}\n`;
+        
+        // Fila del producto principal (Ej: "2x Pizza Pepperoni   $200.00")
+        // Calculamos espacios para alinear el precio a la derecha
+        const itemLineStart = `${cant}x ${nombreItem}`;
+        const itemLineEnd = `$${precio}`;
+        
+        if ((itemLineStart.length + itemLineEnd.length + 1) <= 32) {
+             const spaces = 32 - (itemLineStart.length + itemLineEnd.length);
+             receipt += `${itemLineStart}${" ".repeat(Math.max(0, spaces))}${itemLineEnd}\n`;
+        } else {
+             // Si el nombre es muy largo, pone el nombre en una línea y el precio abajo a la derecha
+             receipt += formatearLinea(itemLineStart, 32);
+             const spaces = 32 - itemLineEnd.length;
+             receipt += `${" ".repeat(Math.max(0, spaces))}${itemLineEnd}\n`;
+        }
+
+        // 👇 EXTRAS Y NOTAS SIN LIMITAR CARACTERES
         if (item.extras && item.extras.length > 0) {
           item.extras.forEach(ex => {
-            receipt += `  + ${stripEmojis(ex.nombre).substring(0, 24)}\n`;
+            const nombreExtra = stripEmojis(ex.nombre);
+            // El prefijo "  + " da indentación visual para que se note que pertenece al platillo de arriba
+            receipt += formatearLinea(nombreExtra, 32, '  + '); 
           });
         }
       });
+      
       receipt += `--------------------------------\n`;
       
-      // 👇 NUEVO: Desglosar Costo de Envío si existe
+      // 4. Totales
       const costoEnvio = Number(pedido.costo_envio || 0);
       if (costoEnvio > 0) {
           const subtotal = Number(pedido.total) - costoEnvio;
@@ -354,11 +405,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           receipt += `ENVIO: $${costoEnvio.toFixed(2)}\n`;
       }
 
+      // Si pagó con Puntos, lo mostramos
+      if (Number(pedido.descuento_puntos) > 0) {
+          receipt += `PAGO C/ PUNTOS: -${pedido.descuento_puntos} pts\n`;
+      }
+
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
-      receipt += `\n\n\n\n`; // Avance extra de papel para corte
+      
+      // 5. Pie de página
+      if (configGlobal?.ticket_mensaje_final) {
+          receipt += `\n`;
+          receipt += center(stripEmojis(configGlobal.ticket_mensaje_final));
+      }
+      
+      receipt += `\n\n\n\n`; 
       return receipt;
     };
 
+    // Ejecución de la Impresión según la configuración (Igual que antes)
     if (modoImpresion === 'bluetooth') {
       setTimeout(() => setTicketImprimir(null), 1000);
     } else if (modoImpresion === 'rawbt_nativo') {
@@ -373,32 +437,23 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
       setTimeout(() => setTicketImprimir(null), 1000);
 
-    // =========================================================================
-    // 👇 SOLUCIÓN DEFINITIVA: EL TRUCO DEL FORMULARIO FANTASMA
-    // =========================================================================
     } else if (modoImpresion === 'traductor_silencioso') {
       try {
         const receipt = construirTextoTicket();
 
-        // 1. Creamos un marco de página (Iframe) oculto en el sistema web.
-        // Esto será el "blanco" para evitar que al mandar el ticket nuestra web se recargue.
         const iframeName = "iframe_traductor_" + Date.now();
         const iframe = document.createElement("iframe");
         iframe.name = iframeName;
         iframe.style.display = "none";
         document.body.appendChild(iframe);
 
-        // 2. Creamos un Formulario HTML tradicional invisible.
-        // Evitamos usar fetch(). Chrome dejará pasar este formulario libremente
-        // pensando que el usuario simplemente dio clic en un botón tradicional de enviar.
         const form = document.createElement("form");
         form.target = iframeName; 
         form.method = "POST";
         form.action = "http://127.0.0.1:4000/imprimir";
-        form.enctype = "text/plain"; // Le decimos que viaja como texto simple crudo
+        form.enctype = "text/plain"; 
         form.style.display = "none";
 
-        // 3. Cargamos el texto del ticket en un campo.
         const input = document.createElement("input");
         input.type = "hidden";
         input.name = "---NUEVO TICKET---"; 
@@ -407,12 +462,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         form.appendChild(input);
         document.body.appendChild(form);
 
-        // 4. ¡Disparamos! Rompemos la barrera de HTTPS inyectando el ticket directo.
         form.submit();
 
         mostrarAlertaCaja('Enviado', 'Ticket inyectado al Traductor Silencioso con éxito.', 'success');
 
-        // 5. Limpiamos la basura después de 2 segundos para no alentar tu tablet
         setTimeout(() => {
           if (document.body.contains(form)) document.body.removeChild(form);
           if (document.body.contains(iframe)) document.body.removeChild(iframe);
@@ -422,7 +475,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         mostrarAlertaCaja('Error', 'Fallo interno al enviar el texto del ticket.', 'error');
       }
       setTimeout(() => setTicketImprimir(null), 1000);
-    // =========================================================================
 
     } else {
       setTimeout(() => {
@@ -690,8 +742,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const registrarCompraRapida = async (payload) => {
     if (isSubmitting) return; setIsSubmitting(true);
     try {
+
+      const payloadConUsuario = {
+        ...payload,
+        usuario_id: operadorActual?.id
+      };
+
       await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadConUsuario)
       });
       setInsumoComprar(null);
       setPaquetesComprados('');
@@ -870,9 +928,21 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion));
 
+  // 👇 NUEVO: Filtramos los gastos para aislar solo los de este cajero en su turno actual
+  const gastosTurnoActivo = gastosDia.filter(g => {
+      if (Number(g.usuario_id) !== Number(operadorActual?.id)) return false;
+      
+      // Si la base de datos devuelve timestamps, aseguramos que el gasto sea de DESPUÉS de abrir caja
+      if (turnoActivo && turnoActivo.created_at && g.created_at) {
+          return new Date(g.created_at).getTime() >= new Date(turnoActivo.created_at).getTime();
+      }
+      return true; 
+  });
+
   return {
     vistaActiva, setVistaActiva, subVistaHistorial, setSubVistaHistorial,
     pedidos, mesas, catalogoIngredientes, configGlobal, insumosDB, gastosDia, 
+    gastosTurnoActivo, turnoActivo,
     modalPago, setModalPago, montoRecibido, setMontoRecibido,
     modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx,
     accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo,

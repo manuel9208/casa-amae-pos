@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { XCircle, Star, ListChecks, Trash2, Gift } from 'lucide-react';  
+import { XCircle, Star, ListChecks, Trash2, Gift, Clock, CalendarDays } from 'lucide-react';  
 
 const FormularioProducto = ({
   productos, clasificaciones, catalogoIngredientes, EMOJIS_POR_GIRO,
@@ -18,10 +18,16 @@ const FormularioProducto = ({
 
   const [disponible, setDisponible] = useState(true);
   const [generaPuntos, setGeneraPuntos] = useState(true);  
-  const [permiteCanje, setPermiteCanje] = useState(true); // 👈 NUEVO ESTADO PARA CANJE
+  const [permiteCanje, setPermiteCanje] = useState(true); 
   
   const [usaStock, setUsaStock] = useState(false);
   const [stockPreparado, setStockPreparado] = useState(0);
+
+  // 👇 NUEVOS ESTADOS: Control de Horario
+  const [usaHorario, setUsaHorario] = useState(false);
+  const [diasDisponibles, setDiasDisponibles] = useState([1, 2, 3, 4, 5, 6, 7]); // Lunes a Domingo
+  const [horaInicio, setHoraInicio] = useState('00:00');
+  const [horaFin, setHoraFin] = useState('23:59');
 
   // Rastrear el stock previo para detectar cuando cruza el cero hacia arriba
   const prevStockRef = useRef(stockPreparado);
@@ -127,11 +133,17 @@ const FormularioProducto = ({
     setImagenBlob(null); 
     setDisponible(true); 
     setGeneraPuntos(true);
-    setPermiteCanje(true); // 👈 NUEVO: Resetear canje a true
+    setPermiteCanje(true); 
     
     setUsaStock(false);
     setStockPreparado(0);
-    prevStockRef.current = 0; // Resetear ref
+    prevStockRef.current = 0; 
+    
+    // 👇 Limpiar estados de Horario
+    setUsaHorario(false);
+    setDiasDisponibles([1, 2, 3, 4, 5, 6, 7]);
+    setHoraInicio('00:00');
+    setHoraFin('23:59');
     
     setAplicaTamanos(false); 
     setTamanos({ 
@@ -165,13 +177,21 @@ const FormularioProducto = ({
       
       setDisponible(p.disponible !== false);
       setGeneraPuntos(p.genera_puntos === false || p.genera_puntos === 'false' ? false : true);  
-      setPermiteCanje(p.permite_canje === false || p.permite_canje === 'false' ? false : true); // 👈 LECTURA NUEVA
+      setPermiteCanje(p.permite_canje === false || p.permite_canje === 'false' ? false : true); 
       
       setUsaStock(p.usa_stock === true || p.usa_stock === 'true');
       const sPrep = Number(p.stock_preparado) || 0;
       setStockPreparado(sPrep);
-      prevStockRef.current = sPrep; // Sincronizar ref con carga
+      prevStockRef.current = sPrep; 
       
+      // 👇 Cargar configuración de Horarios
+      setUsaHorario(p.usa_horario === true || p.usa_horario === 'true');
+      try {
+        setDiasDisponibles(typeof p.dias_disponibles === 'string' ? JSON.parse(p.dias_disponibles) : (p.dias_disponibles || [1,2,3,4,5,6,7]));
+      } catch (e) { setDiasDisponibles([1,2,3,4,5,6,7]); }
+      setHoraInicio(p.hora_inicio || '00:00');
+      setHoraFin(p.hora_fin || '23:59');
+
       let tieneTamanos = false;
       let tieneSabores = false;
       const tempSabores = [];
@@ -334,10 +354,15 @@ const FormularioProducto = ({
     formData.append('opciones', JSON.stringify(opcionesArmadas));
     formData.append('disponible', disponible);
     formData.append('genera_puntos', generaPuntos);
-    formData.append('permite_canje', permiteCanje); // 👈 NUEVO: Enviar flag al backend
-    
+    formData.append('permite_canje', permiteCanje); 
     formData.append('usa_stock', usaStock);
     formData.append('stock_preparado', stockPreparado);
+    
+    // 👇 NUEVO: Inyectar campos de Horario
+    formData.append('usa_horario', usaHorario);
+    formData.append('dias_disponibles', JSON.stringify(diasDisponibles));
+    formData.append('hora_inicio', horaInicio);
+    formData.append('hora_fin', horaFin);
 
     if (imagenBlob) {
       formData.append('imagen', imagenBlob);
@@ -433,7 +458,7 @@ const FormularioProducto = ({
           </div>
         </div>
 
-        {/* 👇 NUEVA REJILLA: SWITCHES CON PERMITE CANJE */}
+        {/* REJILLA: SWITCHES CON PERMITE CANJE */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className={`p-4 rounded-3xl border transition-all flex items-center justify-center ${disponible ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
              <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 select-none">
@@ -462,6 +487,65 @@ const FormularioProducto = ({
                <input type="number" min="0" value={stockPreparado} onChange={e => setStockPreparado(Number(e.target.value))} className="w-full p-1 border border-amber-300 rounded-lg outline-none focus:border-amber-500 font-black text-center text-xs shadow-sm bg-white" />
              )}
           </div>
+        </div>
+
+        {/* 👇 NUEVO BLOQUE: HORARIO ESPECIAL */}
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 transition-all shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-sm font-black text-slate-700 flex items-center gap-2">
+                <Clock size={16} className={usaHorario ? "text-blue-600" : "text-slate-400"}/>
+                Habilitar Horario Especial
+              </p>
+              <p className="text-xs font-bold text-slate-400">Limita la venta de este platillo a días y horas específicas.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" className="sr-only peer" checked={usaHorario} onChange={e => setUsaHorario(e.target.checked)} />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          {usaHorario && (
+            <div className="pt-4 border-t border-slate-200 animate-in fade-in slide-in-from-top-2">
+              <div className="mb-4">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><CalendarDays size={14}/> Días Disponibles</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: 1, label: 'L', name: 'Lunes' }, { id: 2, label: 'M', name: 'Martes' },
+                    { id: 3, label: 'M', name: 'Miércoles' }, { id: 4, label: 'J', name: 'Jueves' },
+                    { id: 5, label: 'V', name: 'Viernes' }, { id: 6, label: 'S', name: 'Sábado' },
+                    { id: 7, label: 'D', name: 'Domingo' }
+                  ].map(dia => {
+                    const isSelected = diasDisponibles.includes(dia.id);
+                    return (
+                      <button
+                        key={dia.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected && diasDisponibles.length === 1) return; // No dejar 0 días
+                          setDiasDisponibles(prev => isSelected ? prev.filter(d => d !== dia.id) : [...prev, dia.id].sort());
+                        }}
+                        className={`w-10 h-10 rounded-full font-black text-sm transition-all shadow-sm ${isSelected ? 'bg-blue-600 text-white shadow-blue-500/30' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-100'}`}
+                        title={dia.name}
+                      >
+                        {dia.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Hora Inicio</label>
+                  <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} className="w-full bg-white border border-slate-200 text-slate-700 font-bold rounded-xl p-3 outline-none focus:border-blue-500 transition-all" required={usaHorario}/>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Hora Fin</label>
+                  <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} className="w-full bg-white border border-slate-200 text-slate-700 font-bold rounded-xl p-3 outline-none focus:border-blue-500 transition-all" required={usaHorario}/>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-blue-50/30 p-6 rounded-3xl border border-blue-100">

@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowLeft, Package } from 'lucide-react';
+import ImagenCachada from '../../../ImagenCachada';
 
 const MenuCategoriasYProductos = ({
   categoriaActiva,
@@ -23,7 +24,7 @@ const MenuCategoriasYProductos = ({
               >
                 {imagen_url ? (
                    <div className="w-14 h-14 md:w-20 md:h-20 bg-slate-50 rounded-2xl p-2 group-hover:scale-110 transition-transform">
-                     <img src={imagen_url} alt={cat} className="w-full h-full object-contain" />
+                     <ImagenCachada src={imagen_url} alt={cat} className="w-full h-full object-contain" />
                    </div>
                 ) : (
                    <span className="text-5xl md:text-6xl group-hover:scale-110 transition-transform drop-shadow-sm">{emoji}</span>
@@ -53,7 +54,6 @@ const MenuCategoriasYProductos = ({
               const stockActual = Number(p.stock_preparado) || 0;
 
               return (
-              // 👇 FIX APLICADO: min-h-[180px] y justify-start para evitar que se aplaste en móviles
               <button 
                 key={p.id} 
                 onClick={() => abrirModalProducto(p)} 
@@ -61,7 +61,7 @@ const MenuCategoriasYProductos = ({
               >
                 {p.imagen_url ? (
                    <div className="w-16 h-16 md:w-24 md:h-24 mb-3 rounded-2xl overflow-hidden shadow-sm shrink-0">
-                     <img src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                     <ImagenCachada src={p.imagen_url} alt={p.nombre} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                    </div>
                 ) : (
                    <span className="text-4xl md:text-6xl mb-3 group-hover:scale-110 transition-transform drop-shadow-sm shrink-0">{p.emoji}</span>
@@ -83,7 +83,6 @@ const MenuCategoriasYProductos = ({
                   </span>
                 )}
                 
-                {/* Botón de precio empujado siempre hacia abajo */}
                 <span className="mt-auto text-blue-600 font-black bg-blue-50 px-3 md:px-4 py-1.5 rounded-xl text-xs md:text-sm border border-blue-100">
                   ${p.precio_base}
                 </span>

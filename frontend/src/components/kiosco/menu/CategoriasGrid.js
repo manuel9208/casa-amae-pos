@@ -1,4 +1,5 @@
 import React from 'react';
+import ImagenCachada from '../../ImagenCachada';
 
 const CategoriasGrid = ({ configGlobal, categoriasUnicas, getPortadaCategoria, setCategoriaActiva, baseUrl }) => {
   return (
@@ -16,7 +17,7 @@ const CategoriasGrid = ({ configGlobal, categoriasUnicas, getPortadaCategoria, s
               className="bg-white p-4 md:p-8 rounded-3xl md:rounded-[40px] shadow-sm border border-gray-100 flex flex-col items-center justify-center active:scale-95 transition-all hover:shadow-lg min-h-[140px] md:min-h-[220px] group"
             >
               {portada.imagen_url ? (
-                <img 
+                <ImagenCachada 
                   src={portada.imagen_url?.startsWith('http') ? portada.imagen_url : `${baseUrl}${portada.imagen_url}`} 
                   alt={cat} 
                   className="w-16 h-16 md:w-24 md:h-24 object-cover rounded-full shadow-md mb-3 md:mb-6 group-hover:scale-110 transition-transform" 

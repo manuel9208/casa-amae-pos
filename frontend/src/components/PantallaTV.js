@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize, RotateCw } from 'lucide-react';
+// 👇 APLICACIÓN: Importación directa del motor de caché
+import ImagenCachada from './ImagenCachada';
 
 const PantallaTV = ({ onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
@@ -10,7 +12,7 @@ const PantallaTV = ({ onLogout }) => {
   const [rotacion, setRotacion] = useState(() => Number(localStorage.getItem('pos_tv_rotacion')) || 0);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  const baseUrl = apiUrl.replace('/api', '');
+  // 👇 FIX: Se eliminó la variable "baseUrl" porque ImagenCachada ya hace el trabajo internamente, eliminando el warning.
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -49,7 +51,7 @@ const PantallaTV = ({ onLogout }) => {
   const carruselActivo = config?.tv_carrusel_activo === true || config?.tv_carrusel_activo === 'true';
   const carruselSegundos = parseInt(config?.tv_carrusel_segundos) || 10;
 
-  // 👇 FIX APLICADO: Creador de la secuencia exacta (Imágenes -> Órdenes -> Video -> Repetir)
+  // Creador de la secuencia exacta (Imágenes -> Órdenes -> Video -> Repetir)
   const sequence = useMemo(() => {
     const seq = [];
     if (config.tv_imagen_1) seq.push({ type: 'image', url: config.tv_imagen_1 });
@@ -63,7 +65,7 @@ const PantallaTV = ({ onLogout }) => {
     return seq;
   }, [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video]);
 
-  // 👇 FIX APLICADO: Motor del Carrusel con detección de tipo (Video o Imagen/Órdenes)
+  // Motor del Carrusel con detección de tipo (Video o Imagen/Órdenes)
   useEffect(() => {
     if (!carruselActivo || sequence.length <= 1) return;
 
@@ -145,7 +147,7 @@ const PantallaTV = ({ onLogout }) => {
     let esVideo = false;
 
     if (!isOrdersView) {
-      urlCompleta = currentItem.url?.startsWith('http') ? currentItem.url : `${baseUrl}${currentItem.url}`;
+      urlCompleta = currentItem.url;
       esVideo = currentItem.type === 'video';
     }
 
@@ -157,32 +159,31 @@ const PantallaTV = ({ onLogout }) => {
           {!isOrdersView ? (
             <>
               <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
-                {esVideo ? <video src={urlCompleta} autoPlay muted loop className="w-full h-full object-cover opacity-20 blur-2xl scale-110" /> : <img src={urlCompleta} className="w-full h-full object-cover opacity-20 blur-2xl scale-110" alt="" />}
+                {/* 👇 APLICACIÓN DEL CACHÉ EN EL FONDO DIFUMINADO */}
+                <ImagenCachada 
+                  tipo={esVideo ? 'video' : 'image'} 
+                  src={urlCompleta} 
+                  className="w-full h-full object-cover opacity-20 blur-2xl scale-110" 
+                  alt="" 
+                />
               </div>
-              {esVideo ? (
-                <video 
-                  key={`v-${step}`} 
-                  src={urlCompleta} 
-                  autoPlay 
-                  muted 
-                  playsInline 
-                  onEnded={() => setStep(s => s + 1)} // 👈 Salta a la siguiente diapositiva al terminar
-                  className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10" 
-                />
-              ) : (
-                <img 
-                  key={`i-${step}`} 
-                  src={urlCompleta} 
-                  className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" 
-                  alt="Publicidad" 
-                />
-              )}
+              
+              {/* 👇 APLICACIÓN DEL CACHÉ EN EL CONTENIDO PRINCIPAL */}
+              <ImagenCachada 
+                key={`${esVideo ? 'v' : 'i'}-${step}`} 
+                tipo={esVideo ? 'video' : 'image'}
+                src={urlCompleta} 
+                onEnded={esVideo ? () => setStep(s => s + 1) : undefined}
+                className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" 
+                alt="Publicidad" 
+              />
+              
               <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none"></div>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full w-full relative z-10">
                {config.logo_url && (
-                   <img src={config.logo_url.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`} className="h-32 landscape:h-48 object-contain mb-8 drop-shadow-2xl" alt="Logo" />
+                   <ImagenCachada src={config.logo_url} className="h-32 landscape:h-48 object-contain mb-8 drop-shadow-2xl" alt="Logo" />
                )}
                <h1 className="text-white text-5xl landscape:text-7xl font-black z-10 uppercase text-center px-6 drop-shadow-lg">{config.nombre_negocio || 'BIENVENIDO'}</h1>
             </div>
@@ -204,7 +205,8 @@ const PantallaTV = ({ onLogout }) => {
         <div className="flex flex-col landscape:flex-row items-center justify-between p-4 landscape:p-6 bg-white shadow-sm border-b-4 shrink-0 gap-4 landscape:gap-0" style={{ borderColor: config.color_primario || '#2563eb' }}>
           <div className="hidden landscape:block w-32"></div>
           <div className="flex items-center gap-4 landscape:gap-6 flex-1 justify-center">
-            {config.logo_url && <img src={config.logo_url?.startsWith('http') ? config.logo_url : `${baseUrl}${config.logo_url}`} className="h-12 landscape:h-16 object-contain" alt="Logo" />}
+            {/* 👇 APLICACIÓN DEL CACHÉ EN LOGO ESQUINA */}
+            {config.logo_url && <ImagenCachada src={config.logo_url} className="h-12 landscape:h-16 object-contain" alt="Logo" />}
             <h1 className="text-3xl landscape:text-5xl font-black tracking-tight text-slate-800 uppercase text-center" style={{ fontFamily: config.fuente_titulos, color: config.color_texto_principal }}>ESTADO DE TU ORDEN</h1>
           </div>
           <div className="text-center landscape:text-right bg-slate-100 px-5 py-2.5 rounded-2xl border border-slate-200 shrink-0 w-full landscape:w-auto">
@@ -262,4 +264,4 @@ const PantallaTV = ({ onLogout }) => {
   );
 };
 
-export default PantallaTV; 
+export default PantallaTV;

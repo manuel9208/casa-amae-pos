@@ -18,14 +18,17 @@ exports.obtenerPromociones = async (req, res) => {
 };
 
 exports.crearPromocion = async (req, res) => {
-  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin } = req.body;
+  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
   
   try {
+    // Sanitizamos el JSON para evitar errores si viene vacío o mal formado
+    const configOfertaParsed = typeof config_oferta === 'string' ? config_oferta : JSON.stringify(config_oferta || {});
+
     const result = await db.query(
       `INSERT INTO promociones 
-      (nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) RETURNING *`,
-      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin]
+      (nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb) RETURNING *`,
+      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -56,15 +59,17 @@ exports.eliminarPromocion = async (req, res) => {
 
 exports.actualizarPromocion = async (req, res) => {
   const { id } = req.params;
-  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin } = req.body;
+  const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
   try {
+    const configOfertaParsed = typeof config_oferta === 'string' ? config_oferta : JSON.stringify(config_oferta || {});
+
     const result = await db.query(
       `UPDATE promociones SET 
         nombre = $1, tipo = $2, producto_trigger_id = $3, categoria_trigger = $4, 
         producto_oferta_id = $5, tipo_descuento = $6, valor_descuento = $7, 
-        dias_aplicables = $8::jsonb, hora_inicio = $9, hora_fin = $10
-      WHERE id = $11 RETURNING *`,
-      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, id]
+        dias_aplicables = $8::jsonb, hora_inicio = $9, hora_fin = $10, config_oferta = $11::jsonb
+      WHERE id = $12 RETURNING *`,
+      [nombre, tipo, producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valor_descuento, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Promoción no encontrada' });
     res.json(result.rows[0]);

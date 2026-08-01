@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
 import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, CheckCircle2, XCircle, AlertTriangle, MessageSquare, DollarSign, Camera } from 'lucide-react';
 
-// Importación de submódulos (Nóminas y Chat)
 import VistaMensajesEmpleado from './VistaMensajesEmpleado';
 import VistaNominasEmpleado from './VistaNominasEmpleado';
+// 👇 FIX: Subimos un nivel en la ruta para encontrar el motor de caché correctamente
+import ImagenCachada from '../ImagenCachada'; 
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -16,7 +17,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [alertaUI, setAlertaUI] = useState(null);
 
-  // Estados para el Calendario de Vacaciones
   const hoy = new Date();
   const [yearFiltro, setYearFiltro] = useState(hoy.getFullYear());
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1);
@@ -49,7 +49,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
     cargarDatosCentrales();
   }, [apiUrl, user.id, refreshTrigger]);
 
-  // Conexión Socket.io para tiempo real
   useEffect(() => {
     if (!apiUrl) return;
     const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket'] });
@@ -62,6 +61,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
     });
 
     socket.on('configuracion_actualizada', () => setRefreshTrigger(prev => prev + 1));
+    socket.on('config_actualizada', () => setRefreshTrigger(prev => prev + 1)); 
     
     socket.on('nomina_actualizada', () => {
       mostrarAlerta("💰 Recibo de Pago", "Tu recibo de nómina ha sido publicado.", "success");
@@ -71,7 +71,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
     return () => socket.disconnect();
   }, [apiUrl, user.id]);
 
-  // Matemáticas del Calendario
   const daysInMonth = new Date(yearFiltro, mesFiltro, 0).getDate();
   const primerDiaMesIndex = new Date(yearFiltro, mesFiltro - 1, 1).getDay();
   const espaciosBlancos = Array.from({ length: primerDiaMesIndex });
@@ -100,14 +99,14 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const diasSolicitados = vacacionesSeleccionadas.length;
   const excedido = diasSolicitados > diasRestantes;
 
-  // LÓGICA DE EVALUACIÓN DE TAREAS Y LIMPIEZA
   const matriz = typeof configGlobal?.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal?.matriz_limpieza || {});
   const asignaciones = matriz.asignaciones || {};
   const evidencias = matriz.evidencias || {};  
   const misLimpiezasHoy = [];
   
   Object.keys(asignaciones).forEach(area => {
-    if (String(asignaciones[area][strHoy]) === String(userData.id)) {
+    const asignadosHoy = asignaciones[area][strHoy] || [];
+    if (asignadosHoy.includes(String(userData.id)) || asignadosHoy.includes(Number(userData.id))) {
       misLimpiezasHoy.push({ area, fecha: strHoy, foto: evidencias[area]?.[strHoy] || null });
     }
   });  
@@ -135,13 +134,11 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
     setIsSubmitting(false);
   };
 
-  // LÓGICA DE CONTADORES DE PRESTACIÓN DE COMEDOR EN VIVO
   const limiteComedor = configGlobal.comedor_limite || 'ambos';
   let consumosPlatillos = 0; let consumosBebidas = 0;
   const catBebidas = typeof configGlobal.comedor_clasif_bebidas === 'string' ? JSON.parse(configGlobal.comedor_clasif_bebidas || '[]') : (configGlobal.comedor_clasif_bebidas || []);
   const catPlatillos = typeof configGlobal.comedor_clasif_platillos === 'string' ? JSON.parse(configGlobal.comedor_clasif_platillos || '[]') : (configGlobal.comedor_clasif_platillos || []);  
 
-  // 👇 FIX: Leemos el nombre exactamente de la direccion_entrega sin importar mayúsculas
   pedidosHoy.forEach(p => {
     if (p.metodo_pago === 'Comida Personal' && p.estado_preparacion !== 'Cancelado') {
       const empNombreLimpio = String(userData.nombre).trim().toLowerCase();
@@ -210,7 +207,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
         </div>
       )}
 
-      {/* NAVBAR SUPERIOR */}
       <div className="bg-slate-900 text-white p-4 sticky top-0 z-50 shadow-md print:hidden">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -235,7 +231,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
 
       <div className="max-w-5xl mx-auto mt-8 px-4">
 
-        {/* BARRA DE CONSUMO DEL COMEDOR */}
         <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
           <div>
             <p className="font-black text-slate-800">Tus consumos de hoy (Comedor)</p>
@@ -251,7 +246,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         </div>
         
-        {/* TABS DE NAVEGACIÓN */}
         <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-200 mb-8 overflow-x-auto custom-scrollbar print:hidden">
           <button onClick={() => setVistaActiva('horarios')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'horarios' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
             <Calendar size={18}/> Mi Horario
@@ -270,9 +264,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </button>
         </div>
 
-        {/* CONTENEDOR DE VISTAS */}
-
-        {/* MIS TAREAS / CÁMARA */}
         {vistaActiva === 'limpieza' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Sparkles className="text-teal-500"/> Zonas Asignadas a Mí (Hoy)</h3>
@@ -290,12 +281,18 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
                       <p className="text-[10px] font-black uppercase tracking-widest text-teal-600 mb-1">Área a limpiar</p>
                       <p className="text-2xl font-black text-slate-800">{limp.area}</p>
                     </div>
+                    {/* 👇 APLICACIÓN DEL CACHÉ EN EVIDENCIA DEL EMPLEADO */}
                     {limp.foto ? (
-                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-center gap-3 text-emerald-700">
-                        <CheckCircle2 size={24} className="shrink-0"/>
-                        <div>
+                      <div className="relative w-full bg-emerald-50 border border-emerald-200 rounded-2xl overflow-hidden group">
+                        <div className="h-24 md:h-32 w-full relative">
+                            <ImagenCachada src={limp.foto} alt="Evidencia" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                            <div className="absolute inset-0 bg-emerald-900/40 flex items-center justify-center pointer-events-none">
+                                <CheckCircle2 size={32} className="text-white drop-shadow-md"/>
+                            </div>
+                        </div>
+                        <div className="p-3 bg-emerald-50 text-emerald-800 text-center">
                           <p className="font-black text-sm">Evidencia Subida</p>
-                          <p className="text-xs font-medium opacity-80">El supervisor la validará pronto.</p>
+                          <p className="text-[10px] font-bold opacity-80 uppercase tracking-widest">Esperando validación</p>
                         </div>
                       </div>
                     ) : (
@@ -312,7 +309,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         )}
 
-        {/* HORARIOS */}
         {vistaActiva === 'horarios' && (
           <div className="animate-in slide-in-from-bottom-4 bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
@@ -350,7 +346,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         )}
 
-        {/* VACACIONES */}
         {vistaActiva === 'vacaciones' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Palmtree className="text-amber-500"/> Solicitud de Vacaciones</h3>
@@ -454,7 +449,6 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
           </div>
         )}
 
-        {/* MODULOS CONECTADOS */}
         {vistaActiva === 'mensajes' && <VistaMensajesEmpleado key={refreshTrigger} user={userData} apiUrl={apiUrl} />}
         {vistaActiva === 'nomina' && <VistaNominasEmpleado key={refreshTrigger} user={userData} apiUrl={apiUrl} />}
 

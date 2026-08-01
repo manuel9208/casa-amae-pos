@@ -76,54 +76,67 @@ exports.actualizarInsumo = async (req, res) => {
 };
 
 exports.comprarInsumo = async (req, res) => {
-  const { id } = req.params;
-  let paquetes_comprados = req.body.paquetes_comprados !== undefined ? req.body.paquetes_comprados : req.body.paquetes;
-  let nuevo_costo_paquete = req.body.nuevo_costo_paquete !== undefined ? req.body.nuevo_costo_paquete : req.body.costo_unitario;
-  let origen = req.body.origen || 'Caja';
-  try {
-    await db.query('BEGIN');
-    const ins = await db.query('SELECT cantidad_presentacion, costo_presentacion, stock_actual, factor_rendimiento FROM insumos WHERE id = $1', [id]);
-    if (ins.rows.length === 0) throw new Error(`Insumo no encontrado: ${id}`);
-    const cant_paquete = parseFloat(ins.rows[0].cantidad_presentacion) || 1;
-    const paquetes = parseFloat(paquetes_comprados) || 0;
-    const factor = parseFloat(ins.rows[0].factor_rendimiento) || 1;
-    let costo_uni = parseFloat(nuevo_costo_paquete);
-    if (isNaN(costo_uni)) {
-      costo_uni = parseFloat(ins.rows[0].costo_presentacion) || 0;
+    const { id } = req.params;
+    let paquetes_comprados = req.body.paquetes_comprados !== undefined ? req.body.paquetes_comprados : req.body.paquetes;
+    let nuevo_costo_paquete = req.body.nuevo_costo_paquete !== undefined ? req.body.nuevo_costo_paquete : req.body.costo_unitario;
+    let origen = req.body.origen || 'Caja';
+    let usuario_id = req.body.usuario_id || null; // 👈 NUEVO: Recibimos el ID del cajero
+
+    try {
+        // 👇 NUEVO: Escudo de seguridad para evitar crash si la columna no existe en PostgreSQL
+        await db.query(`ALTER TABLE compras_insumos ADD COLUMN IF NOT EXISTS usuario_id INTEGER;`).catch(()=>null);
+
+        await db.query('BEGIN');
+        const ins = await db.query('SELECT cantidad_presentacion, costo_presentacion, stock_actual, factor_rendimiento FROM insumos WHERE id = $1', [id]);
+        if (ins.rows.length === 0) throw new Error(`Insumo no encontrado: ${id}`);
+        
+        const cant_paquete = parseFloat(ins.rows[0].cantidad_presentacion) || 1;
+        const paquetes = parseFloat(paquetes_comprados) || 0;
+        const factor = parseFloat(ins.rows[0].factor_rendimiento) || 1;
+        
+        let costo_uni = parseFloat(nuevo_costo_paquete);
+        if (isNaN(costo_uni)) {
+            costo_uni = parseFloat(ins.rows[0].costo_presentacion) || 0;
+        }
+        
+        const stock_agregado = cant_paquete * paquetes * factor;
+        const costo_total = paquetes * costo_uni;
+        const stock_actual_real = parseFloat(ins.rows[0].stock_actual) || 0;
+        const nuevo_stock_total = stock_actual_real + stock_agregado;
+        
+        const result = await db.query(
+            'UPDATE insumos SET stock_actual = $1, costo_presentacion = $2 WHERE id = $3 RETURNING *',
+            [nuevo_stock_total, costo_uni, id]
+        );
+        
+        // 👇 NUEVO: Inyectamos el usuario_id en la inserción de la compra
+        await db.query(
+            'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen, usuario_id) VALUES ($1, $2, $3, $4, $5, $6)',
+            [id, paquetes, costo_uni, costo_total, origen, usuario_id]
+        );
+        
+        await db.query('COMMIT');
+        res.json(result.rows[0]);
+    } catch(e) {
+        await db.query('ROLLBACK');
+        console.error("Error al comprar insumo:", e);
+        res.status(500).json({error: 'Error al procesar la compra.'});
     }
-    const stock_agregado = cant_paquete * paquetes * factor;
-    const costo_total = paquetes * costo_uni;
-    const stock_actual_real = parseFloat(ins.rows[0].stock_actual) || 0;
-    const nuevo_stock_total = stock_actual_real + stock_agregado;
-    const result = await db.query(
-      'UPDATE insumos SET stock_actual = $1, costo_presentacion = $2 WHERE id = $3 RETURNING *',
-      [nuevo_stock_total, costo_uni, id]
-    );
-    await db.query(
-      'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen) VALUES ($1, $2, $3, $4, $5)',
-      [id, paquetes, costo_uni, costo_total, origen]
-    );
-    await db.query('COMMIT');
-    res.json(result.rows[0]);
-  } catch(e) {
-    await db.query('ROLLBACK');
-    console.error("Error al comprar insumo:", e);
-    res.status(500).json({error: 'Error al procesar la compra.'});
-  }
 };
 
 exports.obtenerComprasHoy = async (req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT ci.id, ci.costo_total, i.nombre
-      FROM compras_insumos ci
-      JOIN insumos i ON ci.insumo_id = i.id
-      WHERE DATE(ci.fecha_compra) = CURRENT_DATE AND ci.origen = 'Caja'
-    `);
-    res.json(result.rows);
-  } catch (e) {
-    res.status(500).json({error: 'Error al obtener compras de hoy'});
-  }
+    try {
+        // 👇 NUEVO: Solicitamos ci.usuario_id y ci.fecha_compra (como created_at)
+        const result = await db.query(`
+            SELECT ci.id, ci.costo_total, i.nombre, ci.usuario_id, ci.fecha_compra as created_at
+            FROM compras_insumos ci
+            JOIN insumos i ON ci.insumo_id = i.id
+            WHERE DATE(ci.fecha_compra) = CURRENT_DATE AND ci.origen = 'Caja'
+        `);
+        res.json(result.rows);
+    } catch (e) {
+        res.status(500).json({error: 'Error al obtener compras de hoy'});
+    }
 };
 
 // 👇 NUEVA LÓGICA DE FILTRADO PARA EL REPORTE DE COMPRAS

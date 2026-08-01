@@ -9,10 +9,11 @@ const AsistentePersonalizacion = ({
     ingredienteDesplegado, setIngredienteDesplegado, extrasSeleccionados, setExtrasSeleccionados,
     notaProducto, setNotaProducto, cantidadProducto, setCantidadProducto,
     catalogoIngredientes, politicasSustUI, calcularPrecioSustitucion, resetWizard, onTerminarPersonalizacion,
-    clasificaciones
+    clasificaciones, 
+    queueLength = 1, 
+    onCancelarPersonalizacion // 👈 NUEVO: Función para saltar u omitir en la cola
 }) => {
     
-    // 👇 NUEVO: Efecto Hidratador (Precarga los datos si estamos editando)
     useEffect(() => {
         if (itemEditando) {
             setCantidadProducto(itemEditando.cantidad || 1);
@@ -48,6 +49,11 @@ const AsistentePersonalizacion = ({
         extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra || 0, tipo: 'extra' }));
         if (notaProducto.trim()) extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
+        // 👇 INYECTAMOS LA ETIQUETA PROMOCIONAL AUTOMÁTICA
+        if (productoEnEspera._esPromo) {
+            extrasFinales.push({ nombre: `⭐ Promo: ${productoEnEspera._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
+        }
+
         const precioIndividualCalculado = Number(productoEnEspera.precio_base) +
             (opcionSeleccionada?.precioExtra || 0) +
             (saborSeleccionado?.precioExtra || 0) +
@@ -62,20 +68,13 @@ const AsistentePersonalizacion = ({
         const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
         const destinoReal = clasifObj?.destino || 'Cocina';
 
-        // 👇 NUEVO: Empaquetamos la configuración para que pueda ser re-editada en el futuro
         const configuracionOriginal = {
-            opcionSeleccionada,
-            saborSeleccionado,
-            gruposSeleccionados,
-            gruposOpcionalesSeleccionados,
-            ingredientesBase,
-            ingredientesSustituidos,
-            extrasSeleccionados,
-            notaProducto
+            opcionSeleccionada, saborSeleccionado, gruposSeleccionados, gruposOpcionalesSeleccionados,
+            ingredientesBase, ingredientesSustituidos, extrasSeleccionados, notaProducto
         };
 
         const nuevoItem = {
-            idTicket: itemEditando ? itemEditando.idTicket : Date.now().toString(), // Mantenemos la firma original si es edición
+            idTicket: itemEditando ? itemEditando.idTicket : Date.now().toString() + Math.random().toString(36).substr(2, 4),
             id: productoEnEspera.id,
             producto_id: productoEnEspera.id,
             nombre: nombreCompleto,
@@ -89,7 +88,7 @@ const AsistentePersonalizacion = ({
             extras: extrasFinales,
             usa_stock: isUsaStock,
             stock_preparado: stockActual,
-            configuracionOriginal // 👈 Inyección del estado semilla
+            configuracionOriginal 
         };
 
         onTerminarPersonalizacion(nuevoItem);
@@ -112,18 +111,26 @@ const AsistentePersonalizacion = ({
 
     return (
         <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
+            
+            {/* 👇 BADGE INDICADOR DE COLA */}
+            {queueLength > 1 && (
+                <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-1.5 rounded-full text-[10px] md:text-xs font-black shadow-md uppercase tracking-widest z-[120] flex items-center gap-2">
+                    <span className="animate-pulse w-2 h-2 bg-white rounded-full block"></span>
+                    Personalizando {queueLength} restante(s)
+                </div>
+            )}
+
             {pasoPersonalizacion > 0 && (
                 <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-4 top-4 md:left-6 md:top-6 text-white bg-slate-800/50 hover:bg-blue-600 p-2 md:p-3 rounded-full shadow-lg transition z-50 flex items-center gap-1">
                     <ArrowLeft size={20} /> <span className="hidden sm:inline font-bold">Volver</span>
                 </button>
             )}
 
-            <div className="bg-slate-50 rounded-[32px] md:rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100">
-                {/* ENCABEZADO */}
+            <div className="bg-slate-50 rounded-[32px] md:rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100 relative mt-8">
+                
                 <div className="p-6 md:p-8 text-center shrink-0 bg-white border-b border-slate-200">
                     <h3 className="text-2xl md:text-3xl font-black text-slate-800">
                         {productoEnEspera.nombre} 
-                        {/* 👇 NUEVO: Etiqueta sutil de edición */}
                         {itemEditando && <span className="text-emerald-500 text-sm md:text-lg align-middle ml-2 font-bold">(Editando)</span>}
                     </h3>
                     {productoEnEspera.descripcion && (
@@ -135,7 +142,6 @@ const AsistentePersonalizacion = ({
                     )}
                 </div>
 
-                {/* CUERPO DEL WIZARD */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
                     {['tamaño', 'sabor', 'grupo_obligatorio', 'grupo_opcional'].includes(pasoActualObj.tipo) && (
                         <div className="animate-in slide-in-from-right duration-200">
@@ -313,7 +319,6 @@ const AsistentePersonalizacion = ({
                     )}
                 </div>
 
-                {/* PIE DEL WIZARD (ACCIONES Y TOTALES) */}
                 <div className="p-6 md:p-8 bg-white border-t border-slate-200 shrink-0">
                     <div className="flex justify-between items-center mb-4 md:mb-6">
                         {pasoActualObj.tipo === 'extras_notas' ? (
@@ -340,8 +345,8 @@ const AsistentePersonalizacion = ({
                     </div>
 
                     <div className="flex gap-2 md:gap-4">
-                        <button onClick={resetWizard} className="px-4 md:px-6 py-4 md:py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-sm md:text-base">
-                            Cancelar
+                        <button onClick={onCancelarPersonalizacion} className="px-4 md:px-6 py-4 md:py-5 bg-slate-100 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl font-bold transition active:scale-95 text-sm md:text-base">
+                            {queueLength > 1 ? 'Omitir y Siguiente' : 'Cancelar'}
                         </button>
                         
                         {pasoPersonalizacion < pasosWiz.length - 1 ? (
@@ -353,9 +358,8 @@ const AsistentePersonalizacion = ({
                                 Siguiente Paso
                             </button>
                         ) : (
-                            // 👇 NUEVO: Botón inteligente que cambia de texto si estás editando
                             <button onClick={handleTerminarPersonalizacion} className={`flex-1 text-white font-black py-4 md:py-5 rounded-xl shadow-lg transition text-base md:text-xl active:scale-95 ${itemEditando ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'}`}>
-                                {itemEditando ? '✔ Actualizar Platillo' : '✔ Agregar a Orden'}
+                                {itemEditando ? '✔ Actualizar Platillo' : (queueLength > 1 ? 'Añadir y Siguiente ➡' : '✔ Agregar a Orden')}
                             </button>
                         )}
                     </div>

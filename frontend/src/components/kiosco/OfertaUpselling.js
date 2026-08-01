@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Gift, Plus, Minus, CheckCircle2 } from 'lucide-react';
-// 👇 FIX: Ruta corregida para subir 3 niveles exactos desde caja/modales/PuntoDeVenta/
-import ImagenCachada from '../../../ImagenCachada'; 
+import ImagenCachada from '../ImagenCachada';
 
 const OfertaUpselling = ({
   promocionVigente,

@@ -1,102 +1,155 @@
-const db = require('../config/db');
+const db = require('../config/db');  
 
 exports.obtenerClasificaciones = async (req, res) => {
   try {
+    // 👇 AUTO-MIGRACIÓN: Crea las columnas de horarios y la nueva de DISPONIBLE
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
+
     const result = await db.query('SELECT * FROM clasificaciones ORDER BY id ASC');
     res.json(result.rows);
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al obtener clasificaciones' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener clasificaciones' });
   }
-};
+};  
 
 exports.crearClasificacion = async (req, res) => {
-  // 👇 1. Agregamos permite_canje al body
-  const { nombre, destino, emoji, genera_puntos, permite_canje } = req.body;
+  const { 
+    nombre, destino, emoji, genera_puntos, permite_canje, disponible,
+    usa_horario, dias_disponibles, hora_inicio, hora_fin 
+  } = req.body;
+  
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
-  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); // 👈 2. Parseo seguro
+  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); 
+  const isDisponible = disponible === undefined ? true : (disponible === 'true' || disponible === true); 
+
+  const isUsaHorario = usa_horario === 'true' || usa_horario === true;
+  const diasDisp = dias_disponibles ? (typeof dias_disponibles === 'string' ? dias_disponibles : JSON.stringify(dias_disponibles)) : '[1,2,3,4,5,6,7]';
+  const hInicio = hora_inicio || '00:00';
+  const hFin = hora_fin || '23:59';
 
   try {
-    // 👇 3. Inyectamos permite_canje en el INSERT y en el arreglo de valores ($6)
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
+
     const result = await db.query(
-      'INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje]
-    );
+      `INSERT INTO clasificaciones 
+      (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje, disponible, usa_horario, dias_disponibles, hora_inicio, hora_fin) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin]
+    );  
     
-    // Sincronización en vivo Kiosco/Caja
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');
+    if (io) io.emit('catalogo_actualizado');  
     
     res.json(result.rows[0]);
-  } catch (error) { 
-    res.status(500).json({ error: 'Error al crear la clasificación' }); 
+  } catch (error) {
+    res.status(500).json({ error: 'Error al crear la clasificación' });
   }
-};
+};  
 
 exports.actualizarClasificacion = async (req, res) => {
   const { id } = req.params;
-  const { nombre, destino, emoji, genera_puntos, permite_canje } = req.body;
+  const { 
+    nombre, destino, emoji, genera_puntos, permite_canje, disponible,
+    usa_horario, dias_disponibles, hora_inicio, hora_fin 
+  } = req.body;
+  
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
-  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); // 👈 4. Parseo seguro
+  const isPermiteCanje = permite_canje === undefined ? true : (permite_canje === 'true' || permite_canje === true); 
+  const isDisponible = disponible === undefined ? true : (disponible === 'true' || disponible === true); 
+
+  const isUsaHorario = usa_horario === 'true' || usa_horario === true;
+  const diasDisp = dias_disponibles ? (typeof dias_disponibles === 'string' ? dias_disponibles : JSON.stringify(dias_disponibles)) : '[1,2,3,4,5,6,7]';
+  const hInicio = hora_inicio || '00:00';
+  const hFin = hora_fin || '23:59';
 
   try {
-    await db.query('BEGIN'); // 🛡️ Iniciamos transacción segura
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
+    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
+    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
 
-    // 1. Obtener nombre anterior para actualizar en cascada
+    await db.query('BEGIN'); 
+    
     const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1', [id]);
     if (oldRes.rows.length === 0) throw new Error("Clasificación no encontrada");
-    const nombreAnterior = oldRes.rows[0].nombre;
-
-    // 2. 👇 Actualizamos la clasificación inyectando permite_canje ($6)
+    const nombreAnterior = oldRes.rows[0].nombre;  
+    
     const result = await db.query(
-      'UPDATE clasificaciones SET nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url), genera_puntos=$5, permite_canje=$6 WHERE id=$7 RETURNING *',
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, id]
-    );
-
-    // 3. MEJORA (Evita desvinculación): Actualizar en cascada si cambió el nombre
+      `UPDATE clasificaciones SET 
+        nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url), 
+        genera_puntos=$5, permite_canje=$6, disponible=$7, usa_horario=$8, dias_disponibles=$9, hora_inicio=$10, hora_fin=$11 
+      WHERE id=$12 RETURNING *`,
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin, id]
+    );  
+    
     if (nombreAnterior !== nombre) {
       await db.query('UPDATE productos SET categoria = $1 WHERE categoria = $2', [nombre, nombreAnterior]);
       await db.query('UPDATE promociones SET categoria_trigger = $1 WHERE categoria_trigger = $2', [nombre, nombreAnterior]);
-    }
-
-    await db.query('COMMIT'); // 🛡️ Confirmamos transacción
-
-    // Sincronización en vivo
+    }  
+    
+    await db.query('COMMIT');  
+    
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');
-
+    if (io) io.emit('catalogo_actualizado');  
+    
     res.json(result.rows[0]);
-  } catch (error) { 
+  } catch (error) {
     await db.query('ROLLBACK');
-    res.status(500).json({ error: 'Error al actualizar la clasificación' }); 
+    res.status(500).json({ error: 'Error al actualizar la clasificación' });
   }
-};
+};  
 
 exports.eliminarClasificacion = async (req, res) => {
   try {
-    await db.query('BEGIN');
-
-    // 1. Obtener nombre antes de borrar
+    await db.query('BEGIN');  
+    
     const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1', [req.params.id]);
     if (oldRes.rows.length > 0) {
-        const nombreAnterior = oldRes.rows[0].nombre;
-        // 2. 🛡️ MEJORA: Reasignar platillos huérfanos para que no rompan el Kiosco
-        await db.query("UPDATE productos SET categoria = 'Sin Categoría' WHERE categoria = $1", [nombreAnterior]);
-    }
-
-    // 3. Borrar clasificación
-    await db.query('DELETE FROM clasificaciones WHERE id = $1', [req.params.id]);
+      const nombreAnterior = oldRes.rows[0].nombre;
+      await db.query("UPDATE productos SET categoria = 'Sin Categoría' WHERE categoria = $1", [nombreAnterior]);
+    }  
     
-    await db.query('COMMIT');
-
-    // Sincronización en vivo
+    await db.query('DELETE FROM clasificaciones WHERE id = $1', [req.params.id]);  
+    
+    await db.query('COMMIT');  
+    
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');
-
+    if (io) io.emit('catalogo_actualizado');  
+    
     res.json({ success: true });
-  } catch (error) { 
+  } catch (error) {
     await db.query('ROLLBACK');
-    res.status(500).json({ error: 'Error al eliminar. Asegúrate de borrar los ingredientes de esta clasificación primero.' }); 
+    res.status(500).json({ error: 'Error al eliminar. Asegúrate de borrar los ingredientes de esta clasificación primero.' });
+  }
+};
+
+// 👇 NUEVO: Atajo para encender o apagar toda la categoría rápidamente (El motor automático usará esto)
+exports.actualizarDisponibilidad = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { disponible } = req.body;
+    
+    const result = await db.query(
+      'UPDATE clasificaciones SET disponible = $1 WHERE id = $2 RETURNING *',
+      [disponible, id]
+    );  
+    
+    const io = req.app.get('io');
+    if (io) io.emit('catalogo_actualizado');  
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al cambiar disponibilidad' });
   }
 };

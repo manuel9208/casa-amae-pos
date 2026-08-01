@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square, CheckCircle2, AlertTriangle } from 'lucide-react';
+// 👇 APLICACIÓN: Importación del motor de caché para las fotos de evidencia
+import ImagenCachada from '../../ImagenCachada';
 
 const diasSemanaNombresFull = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -19,10 +21,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
 
-  // 👇 NUEVOS ESTADOS DEL PANEL DE ASIGNACIONES MÚLTIPLES
   const [asigArea, setAsigArea] = useState('');
   const [asigTurno, setAsigTurno] = useState('');
-  const [asigFechas, setAsigFechas] = useState([]); // Arreglo para guardar los días aleatorios seleccionados
+  const [asigFechas, setAsigFechas] = useState([]); 
 
   const [modalCelda, setModalCelda] = useState(null);
   const [modalMasivo, setModalMasivo] = useState(null);
@@ -30,9 +31,28 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
   const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
   const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
 
+  // 👇 FILTRADO INTELIGENTE: Ocultar empleados si descansan en los días seleccionados
   const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global' && u.rol !== 'tv').sort((a, b) => a.nombre.localeCompare(b.nombre));
-  const rolesDisponibles = [...new Set(empleadosVisibles.map(e => e.rol))];
-  const empleadosFiltrados = filtroRolMasivo ? empleadosVisibles.filter(u => u.rol === filtroRolMasivo) : empleadosVisibles;
+  
+  const empleadosDisponiblesMain = empleadosVisibles.filter(emp => {
+      if (asigFechas.length === 0) return true;
+      
+      const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+      
+      return asigFechas.some(dateStr => {
+          const currentDate = new Date(dateStr + 'T12:00:00');
+          const nombreDiaCompleto = diasSemanaNombresFull[currentDate.getDay()];
+          const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
+          const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
+          const esNoLaboral = pres.dias_no_laborales?.includes(dateStr) || false;
+          
+          return !(restauranteCerrado || esDescanso || esNoLaboral);
+      });
+  });
+
+  const empleadosOcultosCount = empleadosVisibles.length - empleadosDisponiblesMain.length;
+  const rolesDisponibles = [...new Set(empleadosDisponiblesMain.map(e => e.rol))];
+  const empleadosFiltrados = filtroRolMasivo ? empleadosDisponiblesMain.filter(u => u.rol === filtroRolMasivo) : empleadosDisponiblesMain;
   const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
 
   const year = fechaReferencia.getFullYear();
@@ -47,7 +67,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
   });
 
-  // Limpiar selección de días si cambias de mes en el calendario
   useEffect(() => {
     setAsigFechas([]);
   }, [year, month]);
@@ -169,13 +188,53 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       .catch(() => {});
   }, [apiUrl]);
 
+  const guardarMatrizDB = async (asignacionesActualizadas) => {
+    setIsSubmitting(true);
+    try {
+        const resConfig = await fetch(`${apiUrl}/configuracion`);
+        let matrizActual = {};
+        if (resConfig.ok) {
+            const dataConfig = await resConfig.json();
+            matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
+        }
+        
+        const payload = { 
+            ...matrizActual, 
+            areasBase, 
+            asignaciones: asignacionesActualizadas, 
+            evidencias, 
+            evaluaciones, 
+            dias_cerrados: diasCerrados 
+        };
+        
+        const formData = new FormData();
+        formData.append('matriz_limpieza', JSON.stringify(payload));
+
+        const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+        if (res.ok) {
+            setHayCambiosSinGuardar(false);
+            setIsSubmitting(false);
+            return true;
+        }
+    } catch (error) {
+        console.error("Error al guardar en DB:", error);
+    }
+    setIsSubmitting(false);
+    return false;
+  };
+
+  const guardarMatriz = async () => {
+      const exito = await guardarMatrizDB(asignaciones);
+      if (exito) showAlert('¡Guardado!', 'Todos los turnos y asignaciones fueron salvados en la base de datos.', 'success');
+      else showAlert('Error', 'Error de red al guardar la matriz general.', 'error');
+  };
+
   const agregarArea = (e) => {
     e.preventDefault();
     const areaNombre = nuevaArea.trim();
     if (!areaNombre) return;
     if (!areasBase.find(a => a.id.toLowerCase() === areaNombre.toLowerCase())) {
       setHayCambiosSinGuardar(true);
-      // Blindaje: Para que los turnos nunca estén vacíos, nace con 'General' por defecto
       setAreasBase([...areasBase, { id: areaNombre, nombre: areaNombre, turnos: ['General'] }]);
       setNuevaArea('');
     } else {
@@ -219,7 +278,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     });
   };
 
-  // 👇 LÓGICAS DEL NUEVO MINI-CALENDARIO SELECTOR 👇
   const toggleDiaSemanaPanel = (dayIndex) => {
     const fechasDelDia = diasMes.filter(d => d.dayIndex === dayIndex).map(d => d.fechaStr);
     const todasSeleccionadas = fechasDelDia.length > 0 && fechasDelDia.every(f => asigFechas.includes(f));
@@ -245,13 +303,13 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     }
   };
 
-  const aplicarAsignacionRango = () => {
+  const aplicarAsignacionRango = async () => {
     if (!asigArea || !asigTurno || asigFechas.length === 0 || empleadosSeleccionados.length === 0) {
-        return showAlert('Aviso', 'Completa la Tarea, Turno, Días (En el mini-calendario) y Empleados.', 'warning');
+        return showAlert('Aviso', 'Completa la Tarea, Turno, Días y Empleados.', 'warning');
     }
     
     const claveArea = `${asigArea}_${asigTurno}`;
-    const nuevasAsignaciones = { ...asignaciones };
+    const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
     if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
     
     let diasAfectados = 0;
@@ -271,16 +329,20 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                 return !(restauranteCerrado || esDescanso || esNoLaboral);
             });
 
-            nuevasAsignaciones[claveArea][dateStr] = asignables;
+            const actuales = nuevasAsignaciones[claveArea][dateStr] || [];
+            const fusionados = Array.from(new Set([...actuales, ...asignables]));
+
+            nuevasAsignaciones[claveArea][dateStr] = fusionados;
             diasAfectados++;
         }
     });
     
     setAsignaciones(nuevasAsignaciones);
-    setHayCambiosSinGuardar(true);
-    
     setAsigArea(''); setAsigTurno(''); setAsigFechas([]); 
-    showAlert('¡Asignación Exitosa!', `Tarea aplicada a ${diasAfectados} días laborables. No olvides dar clic en Guardar Cambios.`, 'success');
+    
+    const exito = await guardarMatrizDB(nuevasAsignaciones);
+    if(exito) showAlert('¡Asignación Exitosa!', `Tarea fusionada y sincronizada en vivo en ${diasAfectados} días laborables.`, 'success');
+    else showAlert('¡Asignación Exitosa!', `Tarea fusionada en ${diasAfectados} días laborables. Faltó conexión para sincronizar.`, 'warning');
   };
 
   const obtenerRangoFechas = (inicioStr, finStr) => {
@@ -353,30 +415,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     );
   };
 
-  const guardarMatriz = async () => {
-    setIsSubmitting(true);
-    try {
-      const resConfig = await fetch(`${apiUrl}/configuracion`);
-      let matrizActual = {};
-      if (resConfig.ok) {
-        const dataConfig = await resConfig.json();
-        matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
-      }
-      const payload = { ...matrizActual, areasBase, asignaciones, evidencias, evaluaciones, dias_cerrados: diasCerrados };
-      const formData = new FormData();
-      formData.append('matriz_limpieza', JSON.stringify(payload));
-
-      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-      if (res.ok) {
-        setHayCambiosSinGuardar(false);
-        showAlert('¡Guardado!', 'Todos los turnos y asignaciones fueron salvados en la base de datos.', 'success');
-      } else {
-        showAlert('Error', 'No se pudo guardar la matriz.', 'error');
-      }
-    } catch (error) { showAlert('Error', 'Error de red al guardar.', 'error'); }
-    setIsSubmitting(false);
-  };
-
   const duplicarSiguienteMes = () => {
     if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
 
@@ -392,7 +430,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
         const nextY = mesActivoLocal === 11 ? yearActivoLocal + 1 : yearActivoLocal;
         const diasNextMonth = new Date(nextY, nextM + 1, 0).getDate();
         
-        const nuevasAsignaciones = { ...asignaciones };
+        const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
 
         Object.keys(nuevasAsignaciones).forEach(claveArea => {
           for (let i = 1; i <= diasNextMonth; i++) {
@@ -423,7 +461,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                   return true;
               });
 
-              nuevasAsignaciones[claveArea][targetDateStr] = asignables;
+              const actuales = nuevasAsignaciones[claveArea][targetDateStr] || [];
+              nuevasAsignaciones[claveArea][targetDateStr] = Array.from(new Set([...actuales, ...asignables]));
             }
           }
         });
@@ -440,9 +479,21 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
     const data = modalCelda || modalMasivo;
     const claveArea = `${data.areaId}_${data.turno}`;
 
-    const empleadosParaMostrar = filtroRolMasivo 
+    const dModal = !isMasivo ? diasMes.find(dia => dia.fechaStr === data.fechaStr) : null;
+
+    let empleadosParaMostrar = filtroRolMasivo 
       ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
       : empleadosVisibles;
+
+    empleadosParaMostrar = empleadosParaMostrar.filter(emp => {
+        if (isMasivo) return true; 
+        const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
+        const restauranteCerrado = horarioNegocio && horarioNegocio[dModal.nombreCompleto] && horarioNegocio[dModal.nombreCompleto].activo === false;
+        const esDescanso = pres.dias_descanso?.includes(dModal.nombreCompleto) || false;
+        const esNoLaboral = pres.dias_no_laborales?.includes(dModal.fechaStr) || false;
+
+        return !(restauranteCerrado || esDescanso || esNoLaboral);
+    });
 
     const toggleEmpleado = (empId) => {
       const stringId = String(empId);
@@ -472,13 +523,11 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
       { idx: 0, label: 'DOM' }
     ];
 
-    const guardarAsignacion = () => {
-      setHayCambiosSinGuardar(true);
+    const guardarAsignacion = async () => {
+      const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
+      if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
 
       if (isMasivo) {
-        const nuevasAsignaciones = { ...asignaciones };
-        if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
-
         diasMes.forEach(d => {
           if (!diasCerrados.includes(d.fechaStr)) {
             if (data.diasSemana.includes(d.dayIndex)) {
@@ -503,33 +552,20 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             }
           }
         });
-
-        setAsignaciones(nuevasAsignaciones);
-        setModalMasivo(null);
-        showAlert('Éxito', `Asignado. Se omitieron automáticamente días de descanso, días no laborales y días cerrados.`, 'success');
       } else {
-        const d = diasMes.find(dia => dia.fechaStr === data.fechaStr);
-        const asignables = data.seleccionados.filter(empId => {
-          const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-          if (!emp) return false;
-          
-          const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-          const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
-          const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
-          const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
+        nuevasAsignaciones[claveArea][data.fechaStr] = data.seleccionados; 
+      }
 
-          if (restauranteCerrado || esDescanso || esNoLaboral) {
-             showAlert('Asignación omitida', `${emp.nombre} no puede ser asignado el ${d.fechaStr} por reglas de nómina.`, 'warning');
-             return false;
-          }
-          return true;
-        });
-
-        const nuevasAsignaciones = { ...asignaciones };
-        if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
-        nuevasAsignaciones[claveArea][data.fechaStr] = asignables;
-        setAsignaciones(nuevasAsignaciones);
-        setModalCelda(null);
+      setAsignaciones(nuevasAsignaciones);
+      
+      const exito = await guardarMatrizDB(nuevasAsignaciones);
+      
+      if (isMasivo) setModalMasivo(null); else setModalCelda(null);
+      
+      if (exito) {
+          showAlert('Éxito', `Empleados guardados y cambios sincronizados en vivo.`, 'success');
+      } else {
+          showAlert('Atención', `Cambio local realizado, pero ocurrió un problema al sincronizar con el servidor.`, 'warning');
       }
     };
 
@@ -570,7 +606,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             </div>
           )}
           
-          {/* LISTA DE EMPLEADOS (CON MÓDULO DE AUDITORÍA INTEGRADO SI NO ES MASIVO) */}
           <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
             {empleadosParaMostrar.map(emp => {
                 const isChecked = data.seleccionados.includes(String(emp.id));
@@ -595,13 +630,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                             </label>
                         </div>
                         
-                        {/* PANEL DE AUDITORÍA (SÓLO SI ESTÁ SELECCIONADO Y ES UN DÍA ESPECÍFICO) */}
                         {isChecked && !isMasivo && (
                             <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 animate-in fade-in zoom-in-95">
-                                {/* Visor de Foto */}
                                 {photoUrl ? (
                                     <a href={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} target="_blank" rel="noreferrer" className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 shrink-0 relative group/foto">
-                                        <img src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
+                                        {/* 👇 APLICACIÓN DEL CACHÉ EN EVIDENCIA LIMPIEZA */}
+                                        <ImagenCachada src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
                                         <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
                                             <Camera size={12} className="text-white"/>
                                         </div>
@@ -612,7 +646,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                                     </div>
                                 )}
                                 
-                                {/* Botones SÍ / NO */}
                                 <div className="flex-1 flex gap-1">
                                     {!status ? (
                                         <>
@@ -633,7 +666,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             })}
             
             {empleadosParaMostrar.length === 0 && (
-              <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados con ese rol.</p>
+              <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados disponibles/laborando este día.</p>
             )}
           </div>
 
@@ -641,8 +674,8 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
             <button onClick={() => isMasivo ? setModalMasivo(null) : setModalCelda(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
               {!isMasivo ? 'Cerrar' : 'Cancelar'}
             </button>
-            <button onClick={guardarAsignacion} className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-lg shadow-teal-500/30 transition active:scale-95">
-              Guardar Empleados
+            <button onClick={guardarAsignacion} disabled={isSubmitting} className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-lg shadow-teal-500/30 transition active:scale-95 disabled:opacity-50">
+              {isSubmitting ? 'Guardando...' : 'Guardar Empleados'}
             </button>
           </div>
         </div>
@@ -771,11 +804,9 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
 
                 {/* Cuadrícula de números aleatorios */}
                 <div className="grid grid-cols-7 gap-1 mb-6">
-                    {/* Espacios vacíos iniciales */}
                     {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
                         <div key={`blank-${i}`}></div>
                     ))}
-                    {/* Días del mes cliqueables */}
                     {diasMes.map(d => {
                         const isSelected = asigFechas.includes(d.fechaStr);
                         const isClosed = diasCerrados.includes(d.fechaStr);
@@ -796,7 +827,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                         </select>
                     </div>
                     <div>
-                        {/* 👇 FIX APLICADO: Blindaje tipo String y Fallback Visual 👇 */}
                         <select value={asigTurno} onChange={e => setAsigTurno(e.target.value)} disabled={!asigArea} className="w-full bg-white border border-teal-200 rounded-xl p-3 font-bold text-sm outline-none focus:border-teal-500 shadow-sm cursor-pointer disabled:opacity-50 text-slate-700">
                             <option value="">-- Turno --</option>
                             {asigArea && areasBase.find(a => String(a.id) === String(asigArea))?.turnos.map(t => <option key={t} value={t}>{t}</option>)}
@@ -814,6 +844,16 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                         {todosFiltradosSeleccionados ? 'Desmarcar Todos' : 'Marcar Todos'}
                     </button>
                 </div>
+                
+                {/* 👇 Alerta visual para indicar que se han ocultado empleados por reglas de nómina */}
+                {empleadosOcultosCount > 0 && asigFechas.length > 0 && (
+                    <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center gap-2 text-amber-700">
+                        <AlertTriangle size={14} className="shrink-0" />
+                        <p className="text-[10px] font-black uppercase tracking-widest leading-tight">
+                            {empleadosOcultosCount} empleado(s) oculto(s) en tu selección (Día de descanso).
+                        </p>
+                    </div>
+                )}
 
                 <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
                     <Filter size={14} className="text-teal-400 shrink-0 mr-1"/>
@@ -840,13 +880,12 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                     })}
                 </div>
 
-                {/* 👇 FIX APLICADO: Botón de Duplicar Mes agregado y usando el ícono Copy 👇 */}
                 <div className="mt-auto pt-4 border-t border-teal-200/50 flex flex-col sm:flex-row gap-3">
                     <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-indigo-500/30 active:scale-95 flex items-center justify-center gap-2">
                         <Copy size={16}/> Copiar a Sig. Mes
                     </button>
-                    <button onClick={aplicarAsignacionRango} className="flex-[1.5] bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-teal-500/30 active:scale-95 flex items-center justify-center gap-2">
-                        <CheckCircle2 size={18}/> Asignar a los Días
+                    <button disabled={isSubmitting} onClick={aplicarAsignacionRango} className="flex-[1.5] bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-teal-500/30 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
+                        <CheckCircle2 size={18}/> {isSubmitting ? 'Guardando...' : 'Asignar a los Días'}
                     </button>
                 </div>
             </div>
@@ -855,7 +894,6 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
         {/* CALENDARIO MENSUAL DE CUADRÍCULA COMPLETA */}
         <div className="w-full bg-slate-50 border border-slate-200 rounded-[32px] overflow-hidden shadow-sm mb-8 print:hidden animate-in zoom-in-95">
             
-            {/* Cabecera: Días de la Semana */}
             <div className="grid grid-cols-7 bg-white border-b border-slate-200">
                 {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
                     <div key={d} className={`p-4 text-center text-xs font-black uppercase tracking-widest ${d === 'Dom' || d === 'Sáb' ? 'text-red-400' : 'text-slate-500'}`}>
@@ -864,75 +902,79 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGloba
                 ))}
             </div>
             
-            {/* Cuadrícula de Fechas */}
             <div className="grid grid-cols-7 gap-px bg-slate-200">
-                
-                {/* Espacios vacíos para alinear el 1er día del mes */}
                 {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
                     <div key={`empty-${i}`} className="bg-slate-50/40 min-h-[140px]"></div>
                 ))}
 
-                {/* Días del Mes */}
                 {diasMes.map((d) => {
                     const isCerrado = diasCerrados.includes(d.fechaStr);
                     const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
                     
-                    // Recopilar qué tareas se asignaron este día específico
                     const asignacionesHoy = [];
+                    let totalAsignados = 0;
+                    
+                    // 👇 FIX: Ahora mapeamos SIEMPRE TODAS las zonas configuradas para detectar las vacías
                     areasBase.forEach(area => {
                         area.turnos.forEach(turno => {
                             const clave = `${area.id}_${turno}`;
                             const empIds = asignaciones[clave]?.[d.fechaStr] || [];
-                            if (empIds.length > 0) {
-                                asignacionesHoy.push({ area, turno, empIds, clave });
-                            }
+                            asignacionesHoy.push({ area, turno, empIds, clave });
+                            totalAsignados += empIds.length;
                         });
                     });
 
+                    // 👇 Alerta de celda completa en amarillo si no hay nadie asignado en todo el día
+                    const diaCompletamenteVacio = !isCerrado && areasBase.length > 0 && totalAsignados === 0;
+
                     return (
-                        <div key={d.fechaStr} className={`bg-white min-h-[150px] flex flex-col transition-colors group relative ${isCerrado ? 'opacity-60 bg-slate-100' : 'hover:bg-teal-50/20'}`}>
+                        <div key={d.fechaStr} className={`min-h-[150px] flex flex-col transition-colors group relative ${isCerrado ? 'opacity-60 bg-slate-100' : diaCompletamenteVacio ? 'bg-amber-50 hover:bg-amber-100/50' : 'bg-white hover:bg-teal-50/20'}`}>
                             
-                            {/* Número del día */}
-                            <div className="flex justify-between items-center p-2.5 border-b border-slate-50 bg-slate-50/50">
+                            <div className={`flex justify-between items-center p-2.5 border-b border-slate-50 ${diaCompletamenteVacio ? 'bg-amber-100/50' : 'bg-slate-50/50'}`}>
                                 <span className={`text-base font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
                                 {isCerrado && <Lock size={12} className="text-slate-400" title="Auditoría Cerrada" />}
                             </div>
                             
-                            {/* Lista de Tareas Asignadas (Píldoras) */}
                             <div className="flex-1 p-1.5 flex flex-col gap-1.5 overflow-y-auto custom-scrollbar max-h-[160px] pb-8">
                                 {asignacionesHoy.map((asig, i) => {
-                                    // Ver si todas las tareas de este grupo ya se cumplieron para poner color verde
+                                    
+                                    // 👇 FIX: Color especial para zonas sin nadie asignado (Amarillo)
+                                    const sinAsignar = asig.empIds.length === 0;
                                     const evaluacionesGrupo = asig.empIds.map(empId => evaluaciones[asig.clave]?.[d.fechaStr]?.[empId]);
-                                    const todoCumplido = evaluacionesGrupo.length > 0 && evaluacionesGrupo.every(e => e === 'cumplio');
-                                    const algunFallo = evaluacionesGrupo.some(e => e === 'no_cumplio');
+                                    const todoCumplido = !sinAsignar && evaluacionesGrupo.length > 0 && evaluacionesGrupo.every(e => e === 'cumplio');
+                                    const algunFallo = !sinAsignar && evaluacionesGrupo.some(e => e === 'no_cumplio');
 
-                                    const colorPildora = todoCumplido ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : algunFallo ? 'bg-red-50 text-red-700 border-red-200' : 'bg-teal-50 text-teal-800 border-teal-200';
+                                    let colorPildora = 'bg-teal-50 text-teal-800 border-teal-200';
+                                    if (sinAsignar) colorPildora = 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400 shadow-sm';
+                                    else if (todoCumplido) colorPildora = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                    else if (algunFallo) colorPildora = 'bg-red-50 text-red-700 border-red-200';
 
                                     return (
                                         <div key={i} 
                                             onClick={() => !isCerrado && setModalCelda({ areaId: asig.area.id, turno: asig.turno, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asig.empIds })}
                                             className={`text-[9px] border rounded-lg p-1.5 font-bold leading-tight cursor-pointer hover:shadow-md transition-all relative group/tag ${colorPildora}`}
-                                            title="Clic para Editar Empleados o Calificar (SÍ/NO)">
+                                            title={sinAsignar ? "Sin asignar. Clic para asignar empleados." : "Clic para Editar Empleados o Calificar (SÍ/NO)"}>
                                             <div className="flex justify-between items-center gap-1">
                                                 <span className="font-black uppercase tracking-wider truncate">{asig.area.nombre.split(' ')[0]} <span className="opacity-70">({asig.turno[0]})</span></span>
-                                                <span className="bg-white/60 px-1 py-0.5 rounded text-[8px] shrink-0">{asig.empIds.length} <Users size={8} className="inline"/></span>
+                                                <span className={`bg-white/60 px-1 py-0.5 rounded text-[8px] shrink-0 ${sinAsignar ? 'text-amber-700' : ''}`}>
+                                                    {asig.empIds.length} <Users size={8} className="inline"/>
+                                                </span>
                                             </div>
                                         </div>
                                     )
                                 })}
                                 
-                                {!isCerrado && asignacionesHoy.length === 0 && (
+                                {!isCerrado && areasBase.length === 0 && (
                                     <div className="h-full flex items-center justify-center opacity-30 pt-4">
                                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sin Tareas</span>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Botón Flotante para asignar rápidamente algo a este día específico */}
                             {!isCerrado && (
                                 <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-white via-white to-transparent">
                                     <button onClick={() => {
-                                        setAsigFechas([d.fechaStr]); // Selecciona este día directamente en el panel
+                                        setAsigFechas([d.fechaStr]); 
                                         window.scrollTo({ top: 0, behavior: 'smooth' });
                                         showAlert('Día Seleccionado', `Se fijó el día ${d.num} en el panel superior. Configura la tarea y aplica.`, 'info');
                                     }} 

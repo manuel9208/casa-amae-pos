@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const cloudinary = require('cloudinary').v2;
 
+// 👇 ESTA ES LA FUNCIÓN ROBUSTA QUE YA TENÍAS Y QUE AHORA USAREMOS PARA EL BORRADO MASIVO
 const extraerPublicId = (url) => {
   if (!url || !url.includes('cloudinary.com')) return null;
   try {
@@ -25,7 +26,6 @@ const borrarDeCloudinary = (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
-    // 👇 FIX: AÑADIMOS LAS COLUMNAS SMTP GENÉRICAS AUTOMÁTICAMENTE
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
@@ -124,7 +124,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
     gps_ciudad_estado, gps_direccion_local, gps_api_key,
     kiosco_pin_maestro,
-    smtp_email, smtp_password, smtp_host, smtp_port // 👈 VARIABLES GENÉRICAS
+    smtp_email, smtp_password, smtp_host, smtp_port
   } = mergedBody;
 
   let logo_url = configActual.logo_url || null;
@@ -205,7 +205,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         gps_ciudad_estado, gps_direccion_local, gps_api_key,
         matriz_observaciones,
         kiosco_pin_maestro,
-        smtp_email, smtp_password, smtp_host, smtp_port -- 👈 4 CAMPOS NUEVOS
+        smtp_email, smtp_password, smtp_host, smtp_port
       ) VALUES (
         1, $1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10,
@@ -226,7 +226,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         $58, $59, $60,
         $61,
         $62,
-        $63, $64, $65, $66 -- 👈 4 VALORES NUEVOS
+        $63, $64, $65, $66
       ) ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
@@ -292,8 +292,8 @@ exports.actualizarConfiguracion = async (req, res) => {
         kiosco_pin_maestro = COALESCE(EXCLUDED.kiosco_pin_maestro, '1234'),
         smtp_email = EXCLUDED.smtp_email, 
         smtp_password = EXCLUDED.smtp_password,
-        smtp_host = EXCLUDED.smtp_host, -- 👈 ACTUALIZACIÓN DE HOST
-        smtp_port = EXCLUDED.smtp_port -- 👈 ACTUALIZACIÓN DE PUERTO
+        smtp_host = EXCLUDED.smtp_host,
+        smtp_port = EXCLUDED.smtp_port
     `, [
       nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
       color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
@@ -313,10 +313,9 @@ exports.actualizarConfiguracion = async (req, res) => {
       gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
       matrizObsParsed,
       kiosco_pin_maestro || '1234',
-      smtp_email || '', smtp_password || '', smtp_host || '', smtp_port || '' // 👈 GUARDADO DE 4 CAMPOS
+      smtp_email || '', smtp_password || '', smtp_host || '', smtp_port || ''
     ]);
 
-    // Emitimos el socket para que las apps frontales se enteren del cambio manual
     const io = req.app.get('io');
     if (io) { io.emit('config_actualizada'); }
 
@@ -442,6 +441,7 @@ exports.webhookVercelDeploy = (req, res) => {
   }
 };
 
+// 👇 FIX: CIRUGÍA APLICADA - Ahora usamos extraerPublicId para procesar cualquier URL y garantizar el borrado
 exports.eliminarArchivosCloudinary = async (req, res) => {
   const { urls } = req.body;
   if (!urls || !Array.isArray(urls)) {
@@ -449,13 +449,12 @@ exports.eliminarArchivosCloudinary = async (req, res) => {
   }
 
   try {
-    const cloudinary = require('cloudinary').v2;
     const promises = urls.map(url => {
-      const parts = url.split('/');
-      const filename = parts.pop().split('.')[0]; 
-      const folder = parts.pop();
-      const public_id = `${folder}/${filename}`;
-      return cloudinary.uploader.destroy(public_id);
+      const public_id = extraerPublicId(url);
+      if (public_id) {
+        return cloudinary.uploader.destroy(public_id);
+      }
+      return Promise.resolve(); // Ignoramos URLs no válidas silenciosamente
     });
 
     await Promise.all(promises);

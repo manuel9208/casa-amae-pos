@@ -5,6 +5,7 @@ import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
 import CheckoutFlujo from './kiosco/CheckoutFlujo';
 import MisPedidos from './kiosco/MisPedidos';
+import OfertaUpselling from './kiosco/OfertaUpselling'; 
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -16,8 +17,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [estaSincronizando, setEstaSincronizando] = useState(false);
 
   const [alertaNotificacion, setAlertaNotificacion] = useState(null);
+  const [alertaGeneral, setAlertaGeneral] = useState(null); 
 
-  // === 1. DATOS GLOBALES ===
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
   const [clasificaciones, setClasificaciones] = useState([]); 
@@ -27,7 +28,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     puntos_porcentaje: 10, puntos_valor_peso: 1.00 
   });
 
-  // === 2. ESTADO DEL PEDIDO Y NAVEGACIÓN ===
   const [carrito, setCarrito] = useState([]); 
   const [pantallaActual, setPantallaActual] = useState('cargando'); 
   const [misPedidos, setMisPedidos] = useState([]);
@@ -37,7 +37,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [isSubmitting, setIsSubmitting] = useState(false); 
   const [esCargaInicial, setEsCargaInicial] = useState(true);
   
-  // === 3. ESTADOS DE CHECKOUT ===
   const [tipoConsumo, setTipoConsumo] = useState(null); 
   const [direccionEntrega, setDireccionEntrega] = useState(clienteActivo?.direccion || ''); 
   const [direccionesGuardadas, setDireccionesGuardadas] = useState([]);
@@ -46,7 +45,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [errorTransaccion, setErrorTransaccion] = useState('');
   const [metodoPagoFinal, setMetodoPagoFinal] = useState(null);
 
-  // === 4. ESTADOS DE MODALES, PUNTOS Y CUPONES ===
   const [productoEnEspera, setProductoEnEspera] = useState(null); 
   const [itemAEditar, setItemAEditar] = useState(null);
   const [descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos] = useState(0); 
@@ -65,6 +63,11 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [cuponActivo, setCuponActivo] = useState(null); 
   const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0); 
   const [promocionVigente, setPromocionVigente] = useState(null);
+
+  const mostrarAlerta = useCallback((mensaje, tipo = 'info') => {
+    setAlertaGeneral({ mensaje, tipo });
+    setTimeout(() => setAlertaGeneral(null), 4000);
+  }, []);
 
   const checarPedidosOffline = useCallback(() => {
     try {
@@ -92,21 +95,61 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     };
   }, []);
 
-  const fetchCatalogoProductos = useCallback(() => {
+  const fetchCatalogoCompleto = useCallback(() => {
+    const estaDisponiblePorHorario = (item) => {
+      if (item.disponible === false || item.disponible === 'false' || item.disponible === 0) return false;
+      if (item.usa_horario !== true && item.usa_horario !== 'true') return true;
+
+      try {
+        const ahora = new Date();
+        let diaActual = ahora.getDay();
+        diaActual = diaActual === 0 ? 7 : diaActual; 
+
+        let dias = item.dias_disponibles;
+        if (typeof dias === 'string') dias = JSON.parse(dias);
+        if (!Array.isArray(dias)) return true; 
+
+        if (!dias.includes(diaActual)) return false;
+
+        const minutosActuales = ahora.getHours() * 60 + ahora.getMinutes();
+        const [hIni, mIni] = (item.hora_inicio || '00:00').split(':').map(Number);
+        const [hFin, mFin] = (item.hora_fin || '23:59').split(':').map(Number);
+
+        const minIni = hIni * 60 + mIni;
+        const minFin = hFin * 60 + mFin;
+
+        if (minIni <= minFin) {
+            if (minutosActuales < minIni || minutosActuales > minFin) return false;
+        } else {
+            if (minutosActuales < minIni && minutosActuales > minFin) return false;
+        }
+        return true;
+      } catch (e) {
+        return true; 
+      }
+    };
+
     fetch(`${apiUrl}/productos`)
       .then(r => r.json())
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
-        setProductos(arr.filter(p => p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0));
+        setProductos(arr.filter(estaDisponiblePorHorario));
       })
       .catch(console.error); 
+
+    fetch(`${apiUrl}/clasificaciones`)
+      .then(r => r.json())
+      .then(data => {
+        const arr = Array.isArray(data) ? data : [];
+        setClasificaciones(arr.filter(estaDisponiblePorHorario));
+      })
+      .catch(console.error);
   }, []); 
 
   useEffect(() => { 
-    fetchCatalogoProductos();
+    fetchCatalogoCompleto();
       
     fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
-    fetch(`${apiUrl}/clasificaciones`).then(r => r.json()).then(data => setClasificaciones(Array.isArray(data) ? data : [])).catch(console.error);
     
     const fetchConfig = () => {
       if (!navigator.onLine) return; 
@@ -117,10 +160,15 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     };
     
     fetchConfig(); 
+    
+    const intervalCatalog = setInterval(fetchCatalogoCompleto, 60000); 
     const intervalConfig = setInterval(fetchConfig, 5000); 
-    return () => clearInterval(intervalConfig);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchCatalogoProductos]);
+    
+    return () => {
+        clearInterval(intervalConfig);
+        clearInterval(intervalCatalog);
+    };
+  }, [fetchCatalogoCompleto]);
 
   const verificarMisPedidos = useCallback(async (isInitial = false) => {
     if (!clienteActivo || ordenExterna || !navigator.onLine) return;
@@ -152,27 +200,25 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       setMisPedidos(nuevosPedidos); 
 
       if (esCargaInicial) { 
-        // 👇 FIX: Ahora SIEMPRE entra al menú sin importar si es cliente nuevo o viejo
         setPantallaActual('menu'); 
         setEsCargaInicial(false);
       } 
     } catch (error) {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteActivo, ordenExterna, esCargaInicial]); 
 
   useEffect(() => {
     if (!baseUrl || isOffline) return;
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
     
-    socket.on('catalogo_actualizado', () => fetchCatalogoProductos());
-    socket.on('nuevo_pedido', () => fetchCatalogoProductos());
+    socket.on('catalogo_actualizado', () => fetchCatalogoCompleto());
+    socket.on('nuevo_pedido', () => fetchCatalogoCompleto());
     socket.on('pedido_actualizado', () => {
-        fetchCatalogoProductos();
+        fetchCatalogoCompleto();
         if (clienteActivo) verificarMisPedidos(false);
     });
     
     return () => socket.disconnect();
-  }, [fetchCatalogoProductos, isOffline, clienteActivo, verificarMisPedidos]);
+  }, [fetchCatalogoCompleto, isOffline, clienteActivo, verificarMisPedidos]);
 
   useEffect(() => {
     if (clienteActivo && clienteActivo.id) {
@@ -301,7 +347,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setDescuentoPuntosDinero(dPts);
     setPuntosAplicados(ptsFisicosReales); 
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrito, cuponActivo, descuentoPuntosPuntosFisicos, configGlobal.puntos_valor_peso, calcularSubtotal, calcularSubtotalCanjeable]);
 
   const calcularTotal = useCallback(() => {
@@ -406,41 +451,25 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
            localStorage.removeItem('pedidos_offline');
        }
        checarPedidosOffline();
-       alert(`¡Se sincronizaron ${exitos} pedidos correctamente con la base de datos!`);
+       mostrarAlerta(`¡Se sincronizaron ${exitos} pedidos correctamente con la base de datos!`, 'success');
        
     } catch (e) {
        console.error("Fallo general de sincronización", e);
-       alert("Ocurrió un error al intentar sincronizar. Se volverá a intentar.");
+       mostrarAlerta("Ocurrió un error al intentar sincronizar. Se volverá a intentar.", 'error');
     }
     setEstaSincronizando(false);
   };
 
-  const agregarUpsellAlCarrito = () => {
-    let precioFinal = Number(promocionVigente.valor_descuento);
-    
-    if (promocionVigente.tipo_descuento === 'porcentaje') {
-       let precioBase = 0;
-       if (productos && productos.length > 0) {
-          const prodOriginal = productos.find(p => p.id === promocionVigente.producto_oferta_id);
-          if (prodOriginal) precioBase = Number(prodOriginal.precio_base);
-       }
-       precioFinal = precioBase - (precioBase * (precioFinal / 100));
+  const agregarUpsellAlCarrito = (itemsQueue) => {
+    // Si la oferta generó una cola de platillos, los mandamos a personalizar
+    if (itemsQueue && itemsQueue.length > 0) {
+        setProductoEnEspera(itemsQueue);
     }
-    
-    const nuevoItem = {
-       idTicket: Math.random().toString(36).substr(2, 9),
-       id: promocionVigente.producto_oferta_id,
-       nombre: promocionVigente.oferta_nombre,
-       precioFinal: Math.max(0, precioFinal), 
-       cantidad: 1,
-       extras: [{ nombre: `⭐ Promo: ${promocionVigente.nombre}`, precio: 0, tipo: 'nota' }]
-    };
-    
-    setCarrito([...carrito, nuevoItem]);
+    // Ocultamos el anuncio de Oferta
     setPromocionVigente(null); 
   };
 
-    const guardarEdicionDirecta = async () => {
+  const guardarEdicionDirecta = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -479,19 +508,38 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       if (res.ok) {
          reiniciarKiosco(); 
       } else {
-         alert("Error al actualizar la orden en el servidor.");
+         mostrarAlerta("Error al actualizar la orden en el servidor.", 'error');
       }
     } catch(e) {
-       alert("Error de red. Asegúrate de tener conexión.");
+       mostrarAlerta("Error de red. Asegúrate de tener conexión.", 'error');
     }
     setIsSubmitting(false);
   };
 
   const bloqueoPuntosActivo = carrito.length > 0 && calcularSubtotalCanjeable() === 0;
 
+  const nombresClasificacionesActivas = clasificaciones.map(c => c.nombre);
+  const productosDisponiblesMenu = productos.filter(p => {
+      const catName = p.categoria || 'General';
+      return catName === 'General' || nombresClasificacionesActivas.includes(catName);
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-4 md:p-8 relative overflow-x-hidden">
       
+      {alertaGeneral && (
+        <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300 pointer-events-none">
+            <div className={`bg-white border-2 ${alertaGeneral.tipo === 'error' ? 'border-red-500' : 'border-emerald-500'} rounded-full shadow-2xl px-8 py-4 flex items-center gap-4`}>
+                <span className="text-3xl">{alertaGeneral.tipo === 'error' ? '🚨' : '✅'}</span>
+                <div>
+                    <p className={`font-black tracking-tight text-lg ${alertaGeneral.tipo === 'error' ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {alertaGeneral.mensaje}
+                    </p>
+                </div>
+            </div>
+        </div>
+      )}
+
       {alertaNotificacion && (
         <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300">
             <div className="bg-white border-2 border-emerald-500 rounded-full shadow-2xl px-8 py-4 flex items-center gap-4">
@@ -542,7 +590,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
                 </p>
                 </div>
                 
-                {/* 👇 FIX: BOTONES INTERACTIVOS DE NAVEGACIÓN (PERFIL VS MENÚ) */}
                 <div className="flex gap-2 ml-4 pl-4 border-l border-slate-100">
                   {pantallaActual === 'menu' && (
                       <button onClick={() => setPantallaActual('mis_pedidos')} className="text-xs font-black bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl hover:bg-indigo-100 transition active:scale-95">
@@ -578,7 +625,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
 
       {pantallaActual === 'menu' && (
         <MenuPrincipal 
-          configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones} 
+          configGlobal={configGlobal} productos={productosDisponiblesMenu} clasificaciones={clasificaciones} 
           carrito={carrito} setCarrito={setCarrito} baseUrl={baseUrl} 
           setPantallaActual={setPantallaActual} pedidoEditandoId={pedidoEditandoId} 
           clienteActivo={clienteActivo} setModalNip={setModalNip} 
@@ -602,9 +649,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           direccionEntrega={direccionEntrega} setDireccionEntrega={setDireccionEntrega}
           direccionesGuardadas={direccionesGuardadas} setDireccionesGuardadas={setDireccionesGuardadas}
           carrito={carrito} calcularTotal={calcularTotal} setCarrito={setCarrito} productos={productos}
-          
           descuentoPuntos={puntosAplicados} 
-          
           cuponActivo={cuponActivo} descuentoCuponDinero={descuentoCuponDinero}
           clienteActivo={clienteActivo} ordenExterna={ordenExterna} user={user}
           pedidoEditandoId={pedidoEditandoId} apiUrl={apiUrl} configGlobal={configGlobal}
@@ -612,13 +657,11 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           numeroPedidoReal={numeroPedidoReal} setNumeroPedidoReal={setNumeroPedidoReal}
           contador={contador} setContador={setContador} reiniciarKiosco={reiniciarKiosco}
           metodoPagoFinal={metodoPagoFinal} mesaQR={mesaQR} isOffline={isOffline} 
-          setPromocionVigente={setPromocionVigente}
           modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
         />
       )}
 
-      {/* MODAL NIP FIDELIDAD */}
       {modalNip && ( 
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[60] p-4 animate-in fade-in">
           <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95">
@@ -638,7 +681,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div> 
       )}
 
-      {/* MODAL RECUPERAR NIP */}
       {modalRecuperarNip && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in">
           <form onSubmit={solicitarRecuperacionNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95">
@@ -690,7 +732,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
       
-      {/* MODAL PERSONALIZAR PLATILLO */}
       {productoEnEspera && ( 
         <ModalPersonalizar 
           productoEnEspera={productoEnEspera} setProductoEnEspera={setProductoEnEspera}
@@ -698,40 +739,19 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           carrito={carrito} setCarrito={setCarrito} 
           catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones}
           configGlobal={configGlobal}
+          setPromocionVigente={setPromocionVigente} 
         />
       )}
 
-      {/* MODAL PROMOCIÓN / UPSELL */}
-      {promocionVigente && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-[40px] p-8 max-w-md w-full shadow-2xl text-center animate-in zoom-in duration-300">
-            <div className="bg-orange-100 text-orange-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-               <span className="text-5xl">🎁</span>
-            </div>
-            <h2 className="text-3xl font-black text-slate-800 mb-2 leading-tight">¡Espera! Oferta Especial 🔥</h2>
-            <p className="text-slate-500 font-medium mb-6">¿Te gustaría agregar esto a tu orden?</p>
-            
-            <div className="bg-slate-50 border-2 border-orange-200 rounded-3xl p-6 mb-8 transform hover:scale-105 transition">
-               {promocionVigente.oferta_imagen && (
-                  <img 
-                      src={promocionVigente.oferta_imagen.startsWith('http') ? promocionVigente.oferta_imagen : `${baseUrl}${promocionVigente.oferta_imagen}`} 
-                      className="w-32 h-32 object-cover rounded-2xl mx-auto mb-4 shadow-sm" 
-                      alt="promo" 
-                  />
-               )}
-               <h3 className="font-black text-2xl text-slate-800 mb-2 leading-tight">{promocionVigente.oferta_nombre}</h3>
-               <p className="text-lg font-bold text-orange-600 bg-orange-100 px-4 py-2 rounded-xl inline-block mt-2">
-                 {promocionVigente.tipo_descuento === 'porcentaje' ? `¡Llévalo con ${promocionVigente.valor_descuento}% de descuento!` : `Precio especial: $${Number(promocionVigente.valor_descuento).toFixed(2)}`}
-               </p>
-            </div>
-            
-            <div className="flex flex-col gap-3">
-              <button onClick={agregarUpsellAlCarrito} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black text-xl shadow-lg shadow-orange-500/30 transition active:scale-95">¡Sí, agregarlo a mi orden!</button>
-              <button onClick={() => setPromocionVigente(null)} className="w-full bg-slate-100 text-slate-500 hover:bg-slate-200 py-4 rounded-2xl font-bold transition active:scale-95">No, gracias, continuar a pago</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 👇 MODAL PROMOCIÓN / UPSELL GLOBAL (1-a-muchos) */}
+      <OfertaUpselling 
+        promocionVigente={promocionVigente} 
+        setPromocionVigente={setPromocionVigente} 
+        agregarUpsellAlCarrito={agregarUpsellAlCarrito} 
+        apiUrl={apiUrl} 
+        productos={productos}
+        clasificaciones={clasificaciones} 
+      />
 
     </div>
   );
