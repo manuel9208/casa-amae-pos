@@ -48,12 +48,14 @@ const storage = new CloudinaryStorage({
         transformation: [{ width: 1280, crop: "limit", quality: "auto" }]
       };
     }
-    // Si es imagen, forzamos calidad automática y límite de 800px (Suficiente para POS)
+    
+    // Si es imagen, forzamos formato webp para un ahorro MASIVO de ancho de banda
     return {
       folder: 'pos_uploads',
       resource_type: 'image',
       allowedFormats: ['jpeg', 'png', 'jpg', 'webp'],
-      transformation: [{ width: 800, crop: "limit", quality: "auto", fetch_format: "auto" }]
+      format: 'webp', // 👈 OBLIGAMOS a que se guarde en WebP (máxima compresión, excelente calidad)
+      transformation: [{ width: 800, crop: "limit", quality: "auto" }] // 👈 ELIMINAMOS fetch_format: "auto"
     };
   }
 });
