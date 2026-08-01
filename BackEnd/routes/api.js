@@ -39,13 +39,12 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
-    // Si es un video, aplicamos compresión de video y bajamos la resolución a 720p
+    // Si es un video, lo mantenemos simple
     if (file.mimetype.includes('video')) {
       return {
         folder: 'pos_uploads',
         resource_type: 'video',
-        allowedFormats: ['mp4', 'webm', 'mov'],
-        transformation: [{ width: 1280, crop: "limit", quality: "auto" }]
+        allowedFormats: ['mp4', 'webm', 'mov']
       };
     }
     
@@ -54,8 +53,9 @@ const storage = new CloudinaryStorage({
       folder: 'pos_uploads',
       resource_type: 'image',
       allowedFormats: ['jpeg', 'png', 'jpg', 'webp'],
-      format: 'webp', // 👈 OBLIGAMOS a que se guarde en WebP (máxima compresión, excelente calidad)
-      transformation: [{ width: 800, crop: "limit", quality: "auto" }] // 👈 ELIMINAMOS fetch_format: "auto"
+      format: 'webp', // 👈 OBLIGAMOS a que se guarde en WebP (pesa 80% menos)
+      // 👇 FIX: Cambiamos "limit" por "scale" (es seguro y no crashea). Quitamos parámetros no permitidos en subida.
+      transformation: [{ width: 800, crop: "scale" }] 
     };
   }
 });
@@ -318,5 +318,13 @@ setInterval(async () => {
     console.error("Error en el Vigilante de Horarios (Cron):", error);
   }
 }, 60000); 
+
+// ==========================================
+// 🛡️ ATRAPADOR DE ERRORES DE CLOUDINARY/MULTER
+// ==========================================
+router.use((err, req, res, next) => {
+  console.error("🚨 Error de subida a Cloudinary:", JSON.stringify(err, null, 2));
+  res.status(500).json({ error: "Error al procesar la imagen en el servidor." });
+});
 
 module.exports = router;
