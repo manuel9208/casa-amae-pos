@@ -138,6 +138,10 @@ router.delete('/mensajes/:id', mensajeCtrl.eliminarMensaje);
 // ==========================================
 router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
 router.post('/clasificaciones', upload.single('imagen'), clasificacionCtrl.crearClasificacion);
+
+// 👇 NUEVA RUTA: Endpoint para clonar clasificaciones
+router.post('/clasificaciones/clonar', clasificacionCtrl.clonarClasificacion);
+
 router.put('/clasificaciones/:id', upload.single('imagen'), clasificacionCtrl.actualizarClasificacion);
 router.delete('/clasificaciones/:id', clasificacionCtrl.eliminarClasificacion);
 router.get('/ingredientes', ingredienteCtrl.obtenerIngredientes);

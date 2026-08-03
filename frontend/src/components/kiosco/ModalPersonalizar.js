@@ -27,7 +27,6 @@ const ModalPersonalizar = ({
   const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
   const [promociones, setPromociones] = useState([]);
   
-  // Estado UI Custom para el Stock (Cero Alertas Nativas)
   const [errorStock, setErrorStock] = useState('');
 
   useEffect(() => {
@@ -84,6 +83,30 @@ const ModalPersonalizar = ({
     setPasoPersonalizacion(0);
     setErrorStock('');
   }, [currentItem, itemAEditar]);
+
+  // 👇 MOTOR DE DELTA PRICING: Anula los costos absolutos de las variaciones base cuando hay promo
+  const getPrecioDelta = (opcionObj) => {
+    if (!opcionObj) return 0;
+    const precioBaseOpcion = Number(opcionObj.precioExtra || 0);
+
+    // Si no es promoción, cobramos el precio completo
+    if (!currentItem._esPromo) return precioBaseOpcion;
+    
+    // Identificamos si es una variación principal (Tamaño o Sabor)
+    const isVariacionBase = opcionObj.tipo === 'variacion' || opcionObj.categoria === 'Tamaño' || opcionObj.categoria === 'Sabor';
+    
+    // Las leches extra, toppings u otras cosas no se subsidian, conservan su precio original
+    if (!isVariacionBase) return precioBaseOpcion;
+
+    const opcionesMismoTipo = (currentItem.opciones || []).filter(o => o.categoria === opcionObj.categoria);
+    if (opcionesMismoTipo.length === 0) return precioBaseOpcion;
+
+    // Calculamos el costo base de esa categoría (ej. el tamaño más barato) y restamos
+    const precioMinimo = Math.min(...opcionesMismoTipo.map(o => Number(o.precioExtra || 0)));
+    const delta = precioBaseOpcion - precioMinimo;
+
+    return delta > 0 ? delta : 0;
+  };
 
   const seleccionarVariacion = (categoria, opcion) => { 
     setVariacionesSeleccionadas({ ...variacionesSeleccionadas, [categoria]: opcion }); 
@@ -146,9 +169,10 @@ const ModalPersonalizar = ({
 
   if (!currentItem) return null;
 
+  // 👇 APLICANDO DELTA AL CÁLCULO VISUAL EN TIEMPO REAL
   const totalPlatilloCalculado = (Number(currentItem.precio_base) + 
     extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
-    Object.values(variacionesSeleccionadas).reduce((s, v) => s + Number(v.precioExtra || 0), 0) +
+    Object.values(variacionesSeleccionadas).reduce((s, v) => s + getPrecioDelta(v), 0) + // <-- Motor Delta Injectado
     Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra || 0), 0) +
     Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0)
   ) * cantidadProducto;
@@ -259,6 +283,9 @@ const ModalPersonalizar = ({
                         const yaLlegoAlLimite = pasoActualObj.tipo === 'opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
                         const disabled = yaLlegoAlLimite && !estaSeleccionado;
 
+                        // 👇 MOSTRAMOS AL CLIENTE EL COSTO DELTA REAL (+0 si está cobijado por la promo)
+                        const precioAMostrar = getPrecioDelta(o);
+
                         return (
                             <button 
                                 key={idx} 
@@ -285,7 +312,7 @@ const ModalPersonalizar = ({
                                    </div>
                                 )}
                                 <span className="text-sm md:text-lg leading-tight">{o.nombre}</span>
-                                {o.precioExtra > 0 && <span className={`text-[10px] md:text-xs mt-1 font-black uppercase tracking-wider ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
+                                {precioAMostrar > 0 && <span className={`text-[10px] md:text-xs mt-1 font-black uppercase tracking-wider ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${precioAMostrar}</span>}
                             </button>
                         );
                     })}
@@ -444,7 +471,7 @@ const ModalPersonalizar = ({
                         setErrorStock('');
                     }} className="px-4 md:px-5 py-2 md:py-3 text-slate-400 hover:text-slate-800 text-lg md:text-xl font-black transition">+</button>
                   </div>
-                  {/* 👇 UI CUSTOM: Reemplazo elegante de alert() */}
+                  {/* UI CUSTOM para el error de Stock en el Kiosco */}
                   {errorStock && <p className="text-[10px] font-black text-red-500 uppercase tracking-wide animate-in slide-in-from-top-1">{errorStock}</p>}
                 </div>
             ) : (
@@ -467,7 +494,9 @@ const ModalPersonalizar = ({
             {pasoActualObj.tipo === 'extras_notas' ? (
               <button type="button" onClick={() => {
                 const extrasFinales = [];
-                Object.values(variacionesSeleccionadas).forEach(v => extrasFinales.push({ nombre: `🔸 ${v.category || v.categoria}: ${v.nombre}`, precioExtra: v.precioExtra, tipo: 'grupo_obligatorio' }));
+                
+                // 👇 APLICANDO DELTA A LA ORDEN FINAL
+                Object.values(variacionesSeleccionadas).forEach(v => extrasFinales.push({ nombre: `🔸 ${v.category || v.categoria}: ${v.nombre}`, precioExtra: getPrecioDelta(v), tipo: 'grupo_obligatorio' }));
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));
                 
                 Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
@@ -478,19 +507,18 @@ const ModalPersonalizar = ({
                 extrasAgregados.forEach(ex => extrasFinales.push({ nombre: `Extra ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                 if (notaEspecial.trim() !== '') extrasFinales.push({ nombre: `📝 Nota: ${notaEspecial.trim()}`, precioExtra: 0, tipo: 'nota' });
 
-                // 👇 INYECTAMOS LA ETIQUETA PROMOCIONAL AUTOMÁTICA
                 if (currentItem._esPromo) {
                     extrasFinales.push({ nombre: `⭐ Promo: ${currentItem._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
                 }
 
                 const precioIndividualCalculado = Number(currentItem.precio_base) + 
-                  Object.values(variacionesSeleccionadas).reduce((s, v) => s + (v.precioExtra || 0), 0) + 
+                  Object.values(variacionesSeleccionadas).reduce((s, v) => s + getPrecioDelta(v), 0) + 
                   Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + 
                   Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) + 
                   extrasAgregados.reduce((s, e) => s + Number(e.precioExtra), 0);
                 
                 const nuevoItem = {
-                  idTicket: Date.now().toString() + Math.random().toString(36).substr(2, 4), // Generador único inquebrantable
+                  idTicket: Date.now().toString() + Math.random().toString(36).substr(2, 4),
                   producto_id: currentItem.id,
                   nombre: currentItem.nombre,
                   categoria: currentItem.categoria,
@@ -501,7 +529,7 @@ const ModalPersonalizar = ({
                   cantidad: cantidadProducto,
                   opciones: currentItem.opciones || [],
                   extras: extrasFinales,
-                  _esPromo: currentItem._esPromo // 👈 FUNDAMENTAL: Preservar la bandera
+                  _esPromo: currentItem._esPromo 
                 };
 
                 if (itemAEditar) {
@@ -512,12 +540,10 @@ const ModalPersonalizar = ({
                     const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
                     
                     setCarrito(prev => {
-                        // 👇 FIX DEFINITIVO: Prohibido agrupar platillos que sean promociones. Siempre irán separados.
                         let indexExistente = -1;
 
                         if (!nuevoItem._esPromo) {
                             indexExistente = prev.findIndex(item => {
-                                // Garantizamos extraer el ID válido ya sea de 'id' o 'producto_id'
                                 const idExistente = item.producto_id || item.id;
                                 const idNuevo = nuevoItem.producto_id || nuevoItem.id;
 
@@ -537,7 +563,6 @@ const ModalPersonalizar = ({
                         }
                     });
 
-                    // Lanzar Upsell recursivo solo si NO era promo y es el último de la cola
                     if (!currentItem._esPromo && queue.length <= 1) {
                         const promo = evaluarUpsell(currentItem.id, currentItem.categoria);
                         if (promo && setPromocionVigente) {

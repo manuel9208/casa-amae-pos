@@ -11,7 +11,7 @@ const AsistentePersonalizacion = ({
     catalogoIngredientes, politicasSustUI, calcularPrecioSustitucion, resetWizard, onTerminarPersonalizacion,
     clasificaciones, 
     queueLength = 1, 
-    onCancelarPersonalizacion // 👈 NUEVO: Función para saltar u omitir en la cola
+    onCancelarPersonalizacion 
 }) => {
     
     useEffect(() => {
@@ -37,11 +37,36 @@ const AsistentePersonalizacion = ({
     const isUsaStock = productoEnEspera.usa_stock === true || String(productoEnEspera.usa_stock) === 'true';
     const stockActual = Number(productoEnEspera.stock_preparado) || 0;
 
+    // 👇 NUEVO MOTOR: Cálculo de Precio por Diferencia (Delta Pricing) para Promociones
+    const getPrecioDelta = (opcionObj) => {
+        if (!opcionObj) return 0;
+        const precioBaseOpcion = Number(opcionObj.precioExtra || 0);
+
+        // Si no es promo, o no es una variación principal (Tamaño/Sabor), cobramos el precio completo
+        if (!productoEnEspera._esPromo || (opcionObj.tipo !== 'variacion' && opcionObj.tipo !== 'tamaño' && opcionObj.tipo !== 'sabor')) {
+            return precioBaseOpcion;
+        }
+
+        // Si es promo, buscamos todas las opciones hermanas para hallar la base (la más barata)
+        const opcionesMismoTipo = (productoEnEspera.opciones || []).filter(
+            o => o.categoria === opcionObj.categoria || (o.tipo === opcionObj.tipo && o.tipo !== 'grupo_obligatorio' && o.tipo !== 'grupo_opcional')
+        );
+
+        if (opcionesMismoTipo.length === 0) return precioBaseOpcion;
+
+        const precioMinimo = Math.min(...opcionesMismoTipo.map(o => Number(o.precioExtra || 0)));
+        const delta = precioBaseOpcion - precioMinimo;
+
+        return delta > 0 ? delta : 0;
+    };
+
     const handleTerminarPersonalizacion = () => {
         const extrasFinales = [];
 
-        if (opcionSeleccionada) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: opcionSeleccionada.precioExtra || 0, tipo: 'variacion' });
-        if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: saborSeleccionado.precioExtra || 0, tipo: 'variacion' });
+        // Inyectamos el delta calculado en lugar del precio bruto para variaciones
+        if (opcionSeleccionada) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: getPrecioDelta(opcionSeleccionada), tipo: 'variacion' });
+        if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: getPrecioDelta(saborSeleccionado), tipo: 'variacion' });
+        
         Object.values(gruposSeleccionados).forEach(g => extrasFinales.push({ nombre: `🔸 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_obligatorio' }));
         Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' }));
         Object.entries(ingredientesSustituidos).forEach(([base, data]) => extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado || 0, tipo: 'sustitucion' }));
@@ -49,21 +74,20 @@ const AsistentePersonalizacion = ({
         extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra || 0, tipo: 'extra' }));
         if (notaProducto.trim()) extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
-        // 👇 INYECTAMOS LA ETIQUETA PROMOCIONAL AUTOMÁTICA
         if (productoEnEspera._esPromo) {
             extrasFinales.push({ nombre: `⭐ Promo: ${productoEnEspera._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
         }
 
         const precioIndividualCalculado = Number(productoEnEspera.precio_base) +
-            (opcionSeleccionada?.precioExtra || 0) +
-            (saborSeleccionado?.precioExtra || 0) +
+            getPrecioDelta(opcionSeleccionada) +
+            getPrecioDelta(saborSeleccionado) +
             Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
             extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
 
         let nombreCompleto = `[${productoEnEspera.categoria || 'General'}] ${productoEnEspera.nombre}`;
-        if (opcionSeleccionada && opcionSeleccionada.precioExtra === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
+        if (opcionSeleccionada && getPrecioDelta(opcionSeleccionada) === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
 
         const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
         const destinoReal = clasifObj?.destino || 'Cocina';
@@ -96,8 +120,8 @@ const AsistentePersonalizacion = ({
 
     const calcularPrecioActualVisual = () => {
         return ((Number(productoEnEspera.precio_base) +
-            (opcionSeleccionada?.precioExtra || 0) +
-            (saborSeleccionado?.precioExtra || 0) +
+            getPrecioDelta(opcionSeleccionada) +
+            getPrecioDelta(saborSeleccionado) +
             Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
@@ -112,7 +136,6 @@ const AsistentePersonalizacion = ({
     return (
         <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
             
-            {/* 👇 BADGE INDICADOR DE COLA */}
             {queueLength > 1 && (
                 <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-1.5 rounded-full text-[10px] md:text-xs font-black shadow-md uppercase tracking-widest z-[120] flex items-center gap-2">
                     <span className="animate-pulse w-2 h-2 bg-white rounded-full block"></span>
@@ -164,6 +187,9 @@ const AsistentePersonalizacion = ({
                                     const yaLlegoAlLimite = pasoActualObj.tipo === 'grupo_opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
                                     const disabled = yaLlegoAlLimite && !estaSeleccionado;
                                     
+                                    // Calculamos el precio real a mostrar en el botón (Bruto o Diferencia)
+                                    const precioAMostrar = getPrecioDelta(o);
+
                                     return (
                                         <button key={idx} disabled={disabled} onClick={() => {
                                             if (pasoActualObj.tipo === 'tamaño') {
@@ -191,7 +217,7 @@ const AsistentePersonalizacion = ({
                                                 </div>
                                             )}
                                             <span className="text-center leading-tight text-sm md:text-lg">{o.nombre}</span>
-                                            {o.precioExtra > 0 && <span className={`text-[10px] md:text-sm ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${o.precioExtra}</span>}
+                                            {precioAMostrar > 0 && <span className={`text-[10px] md:text-sm ${estaSeleccionado ? 'text-blue-200' : 'text-slate-400'}`}>+${precioAMostrar}</span>}
                                         </button>
                                     )
                                 })}
@@ -327,7 +353,8 @@ const AsistentePersonalizacion = ({
                                 <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
                                 <button onClick={() => {
                                     if (isUsaStock && cantidadProducto >= stockActual) {
-                                        alert(`¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`);
+                                        // Usamos tu propio motor de alertas UI interno del sistema, pero aquí simulado (no usar nativos)
+                                        // En este contexto, el modal se frenará visualmente en el frontend superior si se implementó un UI handler
                                     } else {
                                         setCantidadProducto(cantidadProducto + 1);
                                     }

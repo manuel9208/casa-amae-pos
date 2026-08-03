@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize, RotateCw } from 'lucide-react';
-// 👇 APLICACIÓN: Importación directa del motor de caché
+// Importación directa del motor de caché
 import ImagenCachada from './ImagenCachada';
 
 const PantallaTV = ({ onLogout }) => {
@@ -12,7 +12,6 @@ const PantallaTV = ({ onLogout }) => {
   const [rotacion, setRotacion] = useState(() => Number(localStorage.getItem('pos_tv_rotacion')) || 0);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-  // 👇 FIX: Se eliminó la variable "baseUrl" porque ImagenCachada ya hace el trabajo internamente, eliminando el warning.
 
   useEffect(() => {
     const cargarDatos = async () => {
@@ -65,7 +64,7 @@ const PantallaTV = ({ onLogout }) => {
     return seq;
   }, [config.tv_imagen_1, config.tv_imagen_2, config.tv_imagen_3, config.tv_video]);
 
-  // Motor del Carrusel con detección de tipo (Video o Imagen/Órdenes)
+  // Motor del Carrusel
   useEffect(() => {
     if (!carruselActivo || sequence.length <= 1) return;
 
@@ -73,7 +72,6 @@ const PantallaTV = ({ onLogout }) => {
     let timer;
 
     if (currentItem.type === 'video') {
-      // El video se cambiará solo con onEnded, pero ponemos 15s de respaldo por si falla la carga
       timer = setTimeout(() => setStep(s => s + 1), 15000);
     } else {
       timer = setTimeout(() => setStep(s => s + 1), carruselSegundos * 1000);
@@ -136,20 +134,16 @@ const PantallaTV = ({ onLogout }) => {
   const widthVal = isRotated ? '100vh' : '100vw';
   const heightVal = isRotated ? '100vw' : '100vh';
 
-  // LÓGICA DE VISTA ACTUAL
-  const currentItem = sequence.length > 0 ? sequence[step % sequence.length] : { type: 'orders' };
+  // 👇 NUEVA LÓGICA DE CAPAS PARA EVITAR FLASH DE NAVEGADOR
+  const activeIndex = sequence.length > 0 ? (step % sequence.length) : 0;
+  // Calculamos cuál fue la capa anterior para permitir que se desvanezca en lugar de destruirla instantáneamente
+  const prevIndex = sequence.length > 0 ? ((step - 1 + sequence.length) % sequence.length) : 0;
+  
+  const currentItem = sequence.length > 0 ? sequence[activeIndex] : { type: 'orders' };
   const isOrdersView = currentItem.type === 'orders' || !carruselActivo;
   
   // Si no hay pedidos, forzamos mostrar la publicidad (pantalla completa)
   const showFullScreen = !isOrdersView || (isOrdersView && subPedidos.length === 0);
-
-  let urlCompleta = '';
-  let esVideo = false;
-
-  if (!isOrdersView) {
-    urlCompleta = currentItem.url;
-    esVideo = currentItem.type === 'video';
-  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', overflow: 'hidden', backgroundColor: 'black', zIndex: 0 }}>
@@ -158,41 +152,60 @@ const PantallaTV = ({ onLogout }) => {
         {renderBotonesControl()}
 
         {/* ========================================================= */}
-        {/* CAPA 1: PUBLICIDAD Y STANDBY (CARRUSEL) */}
+        {/* CAPA 1: PUBLICIDAD Y STANDBY (MULTICAPA PRE-CARGADA) */}
         {/* ========================================================= */}
         <div className={`absolute inset-0 w-full h-full bg-black transition-opacity duration-1000 ease-in-out flex flex-col ${showFullScreen ? 'opacity-100 z-20 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}>
-          {!isOrdersView ? (
-            <>
-              <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
+          
+          {/* Renderizamos TODAS las imágenes juntas. Activamos/desactivamos opacidad para hacer un crossfade inmaculado. */}
+          {sequence.map((item, index) => {
+            if (item.type === 'orders') return null;
+
+            const isCurrentLayer = (activeIndex === index);
+            const isPrevLayer = (prevIndex === index);
+            const esVideo = item.type === 'video';
+
+            // Optimizador para Video: El video solo se monta en el DOM si es el principal o si se está desvaneciendo. 
+            // Esto evita que consuma procesador o suene en segundo plano.
+            if (esVideo && !isCurrentLayer && !isPrevLayer) return null;
+
+            // La capa actual solo se muestra si NO estamos enseñando el logo de bienvenida
+            const isVisible = isCurrentLayer && !isOrdersView;
+
+            return (
+              <div key={index} className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out ${isVisible ? 'opacity-100 z-10' : 'opacity-0 z-0'}`}>
+                {/* Fondo difuminado */}
+                <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
+                  <ImagenCachada 
+                    tipo={esVideo ? 'video' : 'image'} 
+                    src={item.url} 
+                    className="w-full h-full object-cover opacity-20 blur-2xl scale-110" 
+                    alt="" 
+                  />
+                </div>
+                
+                {/* Reproductor Principal */}
                 <ImagenCachada 
-                  tipo={esVideo ? 'video' : 'image'} 
-                  src={urlCompleta} 
-                  className="w-full h-full object-cover opacity-20 blur-2xl scale-110 transition-all duration-700" 
-                  alt="" 
+                  tipo={esVideo ? 'video' : 'image'}
+                  src={item.url} 
+                  onEnded={(esVideo && isCurrentLayer) ? () => setStep(s => s + 1) : undefined}
+                  className="absolute inset-0 w-full h-full object-contain drop-shadow-2xl z-10" 
+                  alt="Publicidad" 
                 />
               </div>
-              
-              <ImagenCachada 
-                key={esVideo ? 'main-video-player' : 'main-img-player'}
-                tipo={esVideo ? 'video' : 'image'}
-                src={urlCompleta} 
-                onEnded={esVideo ? () => setStep(s => s + 1) : undefined}
-                className="absolute inset-0 w-full h-full object-contain animate-in fade-in duration-1000 z-10 drop-shadow-2xl" 
-                alt="Publicidad" 
-              />
-              
-              <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none"></div>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full w-full relative z-10 bg-black">
-               {config.logo_url && (
-                   <ImagenCachada src={config.logo_url} className="h-32 landscape:h-48 object-contain mb-8 drop-shadow-2xl" alt="Logo" />
-               )}
-               <h1 className="text-white text-5xl landscape:text-7xl font-black z-10 uppercase text-center px-6 drop-shadow-lg">
-                 {config.nombre_negocio || 'BIENVENIDO'}
-               </h1>
-            </div>
-          )}
+            );
+          })}
+          
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none"></div>
+
+          {/* Pantalla de Bienvenida (sustituye a las imágenes en su turno) */}
+          <div className={`absolute inset-0 flex flex-col items-center justify-center bg-black transition-opacity duration-1000 ease-in-out z-30 ${isOrdersView ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+             {config.logo_url && (
+                 <ImagenCachada src={config.logo_url} className="h-32 landscape:h-48 object-contain mb-8 drop-shadow-2xl" alt="Logo" />
+             )}
+             <h1 className="text-white text-5xl landscape:text-7xl font-black uppercase text-center px-6 drop-shadow-lg">
+               {config.nombre_negocio || 'BIENVENIDO'}
+             </h1>
+          </div>
         </div>
 
         {/* ========================================================= */}

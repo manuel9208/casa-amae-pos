@@ -183,6 +183,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             clasificaciones={clasificaciones}
             catalogoIngredientes={catalogoIngredientes}
             EMOJIS_POR_GIRO={EMOJIS_POR_GIRO}
+            productos={productos}
           />
         )}  
         {seccion === 'configuracion' && canViewConfig && (
