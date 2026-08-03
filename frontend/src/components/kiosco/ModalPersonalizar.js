@@ -516,12 +516,16 @@ const ModalPersonalizar = ({
                         let indexExistente = -1;
 
                         if (!nuevoItem._esPromo) {
-                            indexExistente = prev.findIndex(item => 
-                                !item._esPromo && // Tampoco agrupar normales con promos accidentalmente
-                                (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) && 
-                                getExtrasStr(item.extras) === extrasStrNuevo && 
-                                item.precioFinal === nuevoItem.precioFinal
-                            );
+                            indexExistente = prev.findIndex(item => {
+                                // Garantizamos extraer el ID válido ya sea de 'id' o 'producto_id'
+                                const idExistente = item.producto_id || item.id;
+                                const idNuevo = nuevoItem.producto_id || nuevoItem.id;
+
+                                return !item._esPromo && 
+                                      idExistente === idNuevo && 
+                                      getExtrasStr(item.extras) === extrasStrNuevo &&
+                                      item.precioFinal === nuevoItem.precioFinal;
+                            });
                         }
 
                         if (indexExistente >= 0) {
