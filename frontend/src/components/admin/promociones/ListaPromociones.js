@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, Edit, Gift, Tag, Clock, Layers } from 'lucide-react';  
+import { Trash2, Edit, Gift, Tag, Clock, Layers, Settings2 } from 'lucide-react';  
 
 const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfirm, refrescarDatos, isSubmitting, setPromoAEditar }) => {  
   const formatDinero = (val) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);  
@@ -39,32 +39,54 @@ const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfi
           <p className="text-slate-500 font-bold">Aún no has configurado ninguna promoción.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {promociones.map(promo => {
             const isUpsell = promo.tipo === 'upselling';
             const dias = Array.isArray(promo.dias_aplicables) ? promo.dias_aplicables : JSON.parse(promo.dias_aplicables || '[]');  
             
             let textoTrigger = 'CUALQUIER COSA (GLOBAL)';
-            if (promo.producto_trigger_id) textoTrigger = `PRODUCTO: ${promo.trigger_nombre}`;
-            else if (promo.categoria_trigger) textoTrigger = `CATEGORÍA: ${promo.categoria_trigger}`;  
+            if (promo.producto_trigger_id) {
+                const triggerProd = (productos || []).find(p => String(p.id) === String(promo.producto_trigger_id));
+                textoTrigger = triggerProd ? `[${triggerProd.categoria || 'Cat'}] ${triggerProd.nombre}` : `PRODUCTO: ${promo.trigger_nombre}`;
+            } else if (promo.categoria_trigger) {
+                textoTrigger = `CATEGORÍA: ${promo.categoria_trigger}`;  
+            }
             
             const esTodoElDia = promo.hora_inicio === '00:00:00' && promo.hora_fin === '23:59:00';  
             
-            // PROCESAMIENTO DINÁMICO DEL TEXTO DE OFERTA
+            // ==========================================
+            // PROCESAMIENTO DEL MOTOR AVANZADO JSONB
+            // ==========================================
             let limiteText = '1 platillo específico';
-            let desgloseOpciones = promo.oferta_nombre || 'Producto no encontrado';
+            let desgloseOpciones = [];
+            let modoDescuento = 'global';
 
             if (promo.config_oferta) {
                 try {
                     const conf = typeof promo.config_oferta === 'string' ? JSON.parse(promo.config_oferta) : promo.config_oferta;
                     limiteText = conf.limite > 0 ? `Hasta ${conf.limite} artículo(s)` : `Artículos Ilimitados`;
+                    modoDescuento = conf.modo_descuento || 'global';
                     
-                    desgloseOpciones = conf.selecciones.map(s => {
-                        if (s.tipo === 'categoria') return `Cat. ${s.valor}`;
-                        const pFound = (productos || []).find(x => String(x.id) === String(s.valor));
-                        return pFound ? pFound.nombre : `Producto #${s.valor}`;
-                    }).join(' | ');
+                    desgloseOpciones = (conf.selecciones || []).map(s => {
+                        let nombreItem = '';
+                        if (s.tipo === 'categoria') {
+                            nombreItem = `Categoría: ${s.valor}`;
+                        } else {
+                            const pFound = (productos || []).find(x => String(x.id) === String(s.valor));
+                            nombreItem = pFound ? `[${pFound.categoria || 'Cat'}] ${pFound.nombre}` : `Producto #${s.valor}`;
+                        }
+
+                        return {
+                            nombre: nombreItem,
+                            variacion_base: s.variacion_base,
+                            tipo_descuento: s.tipo_descuento,
+                            valor_descuento: s.valor_descuento
+                        };
+                    });
                 } catch(e) {}
+            } else if (promo.producto_oferta_id) {
+                // Retrocompatibilidad con promociones viejas pre-motor
+                desgloseOpciones = [{ nombre: promo.oferta_nombre || 'Producto no encontrado' }];
             }
 
             return (
@@ -76,12 +98,14 @@ const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfi
                     </span>
                     <h4 className="font-black text-slate-800 text-lg mt-2 leading-tight pr-8">{promo.nombre}</h4>
                   </div>
-                  <label className="flex items-center cursor-pointer absolute top-4 right-4">
+                  <label className="flex items-center cursor-pointer absolute top-4 right-4 z-10">
                     <input type="checkbox" checked={promo.activo} onChange={() => toggleEstado(promo.id, promo.activo)} className={`w-5 h-5 ${isUpsell ? 'accent-orange-500' : 'accent-purple-500'}`} disabled={isSubmitting}/>
                   </label>
                 </div>  
 
                 <div className="p-5 flex flex-col flex-1 gap-4">
+                  
+                  {/* Bloque Detonador */}
                   <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center justify-between">
                     <div className="text-xs font-bold text-slate-500 text-center w-full">
                       <span className="block text-[10px] uppercase mb-1">Si compran...</span>
@@ -89,24 +113,53 @@ const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfi
                     </div>
                   </div>  
 
-                  {/* NUEVA ESTRUCTURA DE OFERTA MÚLTIPLE */}
-                  <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-2xl">
+                  {/* Estructura de Oferta Avanzada */}
+                  <div className="bg-emerald-50/50 border border-emerald-100 p-3 rounded-2xl flex flex-col">
                      <span className="block text-[10px] font-black uppercase text-emerald-600/70 mb-1 flex items-center justify-center gap-1"><Layers size={12}/> Ofrécele la opción de llevar:</span>
-                     <p className="text-xs font-black text-emerald-700 text-center mb-1">{limiteText}</p>
-                     <p className="text-[10px] font-bold text-emerald-600/80 text-center leading-snug break-words">{desgloseOpciones}</p>
+                     <p className="text-xs font-black text-emerald-700 text-center mb-2 pb-2 border-b border-emerald-100">{limiteText}</p>
+                     
+                     <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+                        {desgloseOpciones.map((opc, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded-xl border border-emerald-100 shadow-sm flex flex-col gap-1">
+                                <span className="text-[10px] font-bold text-slate-700 leading-tight">{opc.nombre}</span>
+                                
+                                <div className="flex flex-wrap items-center justify-between gap-1 mt-0.5">
+                                    {opc.variacion_base ? (
+                                        <span className="text-[9px] font-black uppercase text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                            <Settings2 size={10}/> Base: {opc.variacion_base}
+                                        </span>
+                                    ) : <span></span>}
+
+                                    {modoDescuento === 'individual' && opc.tipo_descuento && (
+                                        <span className="text-[9px] font-black text-orange-600">
+                                            {opc.tipo_descuento === 'porcentaje' ? `-${opc.valor_descuento}%` : opc.tipo_descuento === 'precio_fijo' ? `$${opc.valor_descuento} Fijo` : `-$${opc.valor_descuento} OFF`}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                     </div>
                   </div>
 
+                  {/* Resumen del Tipo de Descuento */}
                   <div className="flex items-center gap-2 mt-auto">
                     <Tag className="text-slate-400 shrink-0" size={16}/>
-                    <p className="text-sm font-bold text-slate-700">
-                      {promo.tipo_descuento === 'porcentaje' ? (
-                        <>Cada artículo tendrá un <strong className="text-red-500">{promo.valor_descuento}% de descuento</strong></>
+                    <p className="text-sm font-bold text-slate-700 leading-tight">
+                      {modoDescuento === 'individual' ? (
+                          <>Cada artículo tiene su <strong className="text-indigo-600">descuento individual</strong></>
                       ) : (
-                        <>Cada artículo se cobrará a <strong className="text-blue-600">{formatDinero(promo.valor_descuento)}</strong></>
+                          promo.tipo_descuento === 'porcentaje' ? (
+                            <>Todo artículo tendrá <strong className="text-red-500">{promo.valor_descuento}% de descuento</strong></>
+                          ) : promo.tipo_descuento === 'descuento_fijo' ? (
+                            <>Se descontarán <strong className="text-orange-500">{formatDinero(promo.valor_descuento)}</strong> a cada artículo</>
+                          ) : (
+                            <>Cada artículo se cobrará a <strong className="text-blue-600">{formatDinero(promo.valor_descuento)}</strong></>
+                          )
                       )}
                     </p>
                   </div>  
 
+                  {/* Horarios */}
                   <div className="flex items-start gap-2 pt-3 border-t border-slate-100 mb-8">
                     <Clock className="text-slate-400 shrink-0 mt-0.5" size={16}/>
                     <div className="text-xs font-bold text-slate-500 leading-snug">
@@ -118,6 +171,7 @@ const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfi
                   </div>
                 </div>  
 
+                {/* Controles Flotantes */}
                 <div className="absolute bottom-4 right-4 flex items-center gap-2">
                   <button onClick={() => setPromoAEditar(promo)} className="p-2 bg-blue-50 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-xl transition shadow-sm" disabled={isSubmitting} title="Editar Promoción">
                     <Edit size={18}/>

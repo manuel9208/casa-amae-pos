@@ -12,6 +12,11 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const [editCostoEnvio, setEditCostoEnvio] = useState(0);
   const [totalBase, setTotalBase] = useState(0);  
 
+  // 👇 FIX: Nuevos estados para el desglose del Pago Mixto
+  const [montoEfectivo, setMontoEfectivo] = useState('');
+  const [montoTarjeta, setMontoTarjeta] = useState('');
+  const [montoTransferencia, setMontoTransferencia] = useState('');
+
   const [clienteDataRespaldada, setClienteDataRespaldada] = useState(null);
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
   const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(editNombre, apiUrl);  
@@ -29,10 +34,14 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       setEditMetodoPago(modalEditarPedido.metodo_pago || 'Efectivo');
       setEditClienteId(modalEditarPedido.cliente_id || null);  
 
+      // 👇 FIX: Cargar el desglose original si ya existía en la BD
+      setMontoEfectivo(modalEditarPedido.monto_efectivo || '');
+      setMontoTarjeta(modalEditarPedido.monto_tarjeta || '');
+      setMontoTransferencia(modalEditarPedido.monto_transferencia || '');
+
       const isOriginalDomicilio = modalEditarPedido.tipo_consumo === 'Domicilio';
       const costoEnvioActual = isOriginalDomicilio ? (Number(modalEditarPedido.costo_envio) || 0) : 0;
       
-      // 👇 FIX: Sanador Matemático 2.0 (Ultra Estricto)
       let sumCart = 0;
       try {
           const arr = typeof modalEditarPedido.carrito === 'string' ? JSON.parse(modalEditarPedido.carrito) : (modalEditarPedido.carrito || []);
@@ -41,11 +50,9 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
 
       let calculoBase = Number(modalEditarPedido.total) - costoEnvioActual;
 
-      // Evaluamos descuentos de forma segura convirtiendo a número real
       const tienePuntos = Number(modalEditarPedido.descuento_puntos || 0) > 0;
       const tieneCupon = !!modalEditarPedido.cupon_codigo;
 
-      // Si hay un descuadre en la BD (ej. total 115 pero suma 100), reparamos el total automáticamente
       if (Math.abs(sumCart - calculoBase) > 1 && !tienePuntos && !tieneCupon) {
           calculoBase = sumCart;
       }
@@ -148,6 +155,12 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const canEditMetodo = !isCancelado && estado !== 'Pendiente';  
   const totalActualizado = totalBase + (editConsumo === 'Domicilio' ? Number(editCostoEnvio || 0) : 0);  
 
+  // 👇 FIX: Función matemática que calcula la diferencia en vivo para el Pago Mixto
+  const calcularRestanteMixto = () => {
+    const sum = Number(montoEfectivo || 0) + Number(montoTarjeta || 0) + Number(montoTransferencia || 0);
+    return (totalActualizado - sum).toFixed(2);
+  };
+
   const ejecutarGuardadoAvanzado = async (payload) => {
     try {
         await fetch(`${apiUrl}/pedidos/${modalEditarPedido.id}`, {
@@ -224,12 +237,39 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
         payload.total = totalBase + finalEnvio;
       }  
 
+      // 👇 FIX: Blindaje Total para el envío del Método de Pago al backend
       if (canEditMetodo) {
         payload.metodo_pago = editMetodoPago;
+        const finalTotal = (payload.total !== undefined) ? payload.total : totalActualizado;
+
+        if (editMetodoPago === 'Mixto') {
+            if (Number(calcularRestanteMixto()) !== 0) {
+                setErrorValidacion("Para el Pago Mixto, la suma del desglose debe ser exactamente igual al Nuevo Total.");
+                return;
+            }
+            payload.monto_efectivo = Number(montoEfectivo || 0);
+            payload.monto_tarjeta = Number(montoTarjeta || 0);
+            payload.monto_transferencia = Number(montoTransferencia || 0);
+        } else if (editMetodoPago === 'Efectivo') {
+            payload.monto_efectivo = finalTotal;
+            payload.monto_tarjeta = 0;
+            payload.monto_transferencia = 0;
+        } else if (editMetodoPago === 'Tarjeta') {
+            payload.monto_efectivo = 0;
+            payload.monto_tarjeta = finalTotal;
+            payload.monto_transferencia = 0;
+        } else if (editMetodoPago === 'Transferencia') {
+            payload.monto_efectivo = 0;
+            payload.monto_tarjeta = 0;
+            payload.monto_transferencia = finalTotal;
+        } else {
+            payload.monto_efectivo = 0;
+            payload.monto_tarjeta = 0;
+            payload.monto_transferencia = 0;
+        }
       }
     }  
 
-    // 👇 FIX: Interceptor Financiero Global (Compara Totales Absolutos)
     if (!isCancelado && canEditConsumo) {
       const totalOriginal = Number(modalEditarPedido.total || 0);
       const totalNuevo = payload.total;
@@ -481,6 +521,32 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
                   <option value="Por Cobrar">Por Cobrar (Repartidor)</option>
                   <option value="Mixto">Pago Mixto</option>
                 </select>
+
+                {/* 👇 FIX: INYECCIÓN DE LA INTERFAZ DE PAGO MIXTO */}
+                {editMetodoPago === 'Mixto' && (
+                  <div className="mt-4 p-4 bg-white rounded-2xl border border-emerald-200 shadow-sm animate-in fade-in slide-in-from-top-2">
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Desglose del Pago Mixto</p>
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                            <label className="w-24 text-xs font-bold text-slate-500 uppercase">Efectivo</label>
+                            <input type="number" min="0" step="0.5" value={montoEfectivo} onChange={e => setMontoEfectivo(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center font-black outline-none focus:border-emerald-500 text-slate-700 shadow-inner" placeholder="$0" />
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <label className="w-24 text-xs font-bold text-slate-500 uppercase">Tarjeta</label>
+                            <input type="number" min="0" step="0.5" value={montoTarjeta} onChange={e => setMontoTarjeta(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center font-black outline-none focus:border-blue-500 text-slate-700 shadow-inner" placeholder="$0" />
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <label className="w-24 text-xs font-bold text-slate-500 uppercase">Transf.</label>
+                            <input type="number" min="0" step="0.5" value={montoTransferencia} onChange={e => setMontoTransferencia(e.target.value)} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center font-black outline-none focus:border-purple-500 text-slate-700 shadow-inner" placeholder="$0" />
+                        </div>
+                    </div>
+                    <div className={`mt-4 p-2 rounded-xl text-center border-2 transition-all ${Number(calcularRestanteMixto()) === 0 ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                        <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5">Diferencia</p>
+                        <p className="text-xl font-black">${calcularRestanteMixto()}</p>
+                        {Number(calcularRestanteMixto()) !== 0 && <p className="text-[9px] font-bold mt-1 uppercase">La suma debe igualar el total</p>}
+                    </div>
+                  </div>
+                )}
               </div>
             )}  
           </div>  

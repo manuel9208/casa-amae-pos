@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Gift, Plus, Minus, CheckCircle2 } from 'lucide-react';
+// 👇 Ruta respetada para el Kiosco
 import ImagenCachada from '../ImagenCachada';
 
 const OfertaUpselling = ({
@@ -36,18 +37,78 @@ const OfertaUpselling = ({
           const [hIni, mIni] = (item.hora_inicio || '00:00').split(':').map(Number);
           const [hFin, mFin] = (item.hora_fin || '23:59').split(':').map(Number);
 
-          const minIni = hIni * 60 + mIni;
-          const minFin = hFin * 60 + mFin;
-
-          if (minIni <= minFin) {
-              if (minutosActuales < minIni || minutosActuales > minFin) return false;
+          if (hIni * 60 + mIni <= hFin * 60 + mFin) {
+              if (minutosActuales < hIni * 60 + mIni || minutosActuales > hFin * 60 + mFin) return false;
           } else {
-              if (minutosActuales < minIni && minutosActuales > minFin) return false;
+              if (minutosActuales < hIni * 60 + mIni && minutosActuales > hFin * 60 + mFin) return false;
           }
           return true;
       } catch (e) {
           return true;
       }
+  };
+
+  // 👇 NUEVO MOTOR LECTOR DE REGLAS DE DESCUENTO JSONB PARA KIOSCO
+  const calcularPrecioDescuento = (prodOriginal) => {
+      if (!promocionVigente) return { precioFinal: Number(prodOriginal.precio_base || 0), variacionBase: null, precioBaseReal: Number(prodOriginal.precio_base || 0) };
+
+      let tipoDesc = promocionVigente.tipo_descuento;
+      let valorDesc = Number(promocionVigente.valor_descuento || 0);
+      let variacionBase = null;
+
+      // Si el descuento es Mixto (Individual), extraemos la regla específica del JSON
+      if (tipoDesc === 'mixto' && promocionVigente.config_oferta) {
+          try {
+              const conf = typeof promocionVigente.config_oferta === 'string' ? JSON.parse(promocionVigente.config_oferta) : promocionVigente.config_oferta;
+              
+              // 1. Buscamos si hay una regla específica para el Platillo
+              let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(prodOriginal.id));
+              
+              // 2. Si no, buscamos si hay regla para su Categoría
+              if (!regla) {
+                  regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === prodOriginal.categoria);
+              }
+
+              if (regla) {
+                  // Soporte robusto por si el admin panel guarda las llaves con otros nombres
+                  tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
+                  valorDesc = Number(regla.valor_descuento || regla.valor || 0);
+                  variacionBase = regla.variacion_base;
+              }
+          } catch(e) {}
+      }
+
+      // 👇 LÓGICA CORREGIDA: Reconstruir el precio real sumando la variación (Tamaño/Sabor)
+      let precioBaseCrudo = Number(prodOriginal.precio_base || 0);
+      let precioVariacionExtra = 0;
+      
+      const opcionesVariacion = (prodOriginal.opciones || []).filter(o => o.tipo === 'variacion' || o.categoria === 'Tamaño' || o.categoria === 'Sabor');  
+
+      if (opcionesVariacion.length > 0) {
+          if (variacionBase) {
+              const vb = opcionesVariacion.find(o => String(o.nombre).trim().toLowerCase() === String(variacionBase).trim().toLowerCase());
+              if (vb) precioVariacionExtra = Number(vb.precioExtra || 0);
+              else precioVariacionExtra = Math.min(...opcionesVariacion.map(o => Number(o.precioExtra || 0)));
+          } else {
+              // Si no hay variación base configurada, toma la más económica por defecto
+              precioVariacionExtra = Math.min(...opcionesVariacion.map(o => Number(o.precioExtra || 0)));
+          }
+      }
+
+      // Precio Real con el que trabajará la matemática
+      let precioBaseReal = precioBaseCrudo + precioVariacionExtra;
+      let final = precioBaseReal;
+
+      // Ejecución de Descuentos
+      if (tipoDesc === 'porcentaje') {
+          final = precioBaseReal - (precioBaseReal * (valorDesc / 100));
+      } else if (tipoDesc === 'descuento_fijo' || tipoDesc === 'descontar_cantidad') {
+          final = precioBaseReal - valorDesc;
+      } else if (tipoDesc === 'precio_fijo') {
+          final = valorDesc;
+      }
+
+      return { precioFinal: Math.max(0, final), variacionBase, precioBaseReal };
   };
 
   const validData = useMemo(() => {
@@ -79,7 +140,6 @@ const OfertaUpselling = ({
       }
 
       opcionesTemp = [...new Map(opcionesTemp.map(item => [item.id, item])).values()];
-
       opcionesTemp = opcionesTemp.filter(prod => {
           if (!estaDisponible(prod)) return false;
           if (clasificaciones && clasificaciones.length > 0) {
@@ -122,17 +182,16 @@ const OfertaUpselling = ({
               const prodOriginal = productos.find(p => String(p.id) === String(prodId));
               if (!prodOriginal) return;
               
-              let precioFinal = Number(promocionVigente.valor_descuento);
-              if (promocionVigente.tipo_descuento === 'porcentaje') {
-                  precioFinal = Number(prodOriginal.precio_base) - (Number(prodOriginal.precio_base) * (precioFinal / 100));
-              }
+              // 👇 AQUÍ USAMOS LA NUEVA FUNCIÓN MATEMÁTICA
+              const infoDesc = calcularPrecioDescuento(prodOriginal);
               
               for(let i=0; i<qty; i++){
                    itemsQueue.push({
                        ...prodOriginal,
-                       precio_base: Math.max(0, precioFinal), 
+                       precio_base: infoDesc.precioFinal, 
                        _esPromo: true,
-                       _nombrePromo: promocionVigente.nombre
+                       _nombrePromo: promocionVigente.nombre,
+                       _variacionBasePromo: infoDesc.variacionBase // 👈 Inyectamos la variación al modal
                    });
               }
           }
@@ -159,14 +218,12 @@ const OfertaUpselling = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
            {opcionesValidas.map(p => {
                const qty = seleccionados[p.id] || 0;
-               let precioFinal = Number(promocionVigente.valor_descuento);
-               if (promocionVigente.tipo_descuento === 'porcentaje') {
-                   precioFinal = Number(p.precio_base) - (Number(p.precio_base) * (precioFinal / 100));
-               }
+               
+               // 👇 AQUÍ USAMOS LA NUEVA FUNCIÓN PARA LA INTERFAZ
+               const infoDesc = calcularPrecioDescuento(p);
 
                return (
                    <div key={p.id} className={`flex items-center gap-4 p-4 rounded-3xl border transition-all ${qty > 0 ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-white border-slate-200'}`}>
-                      {/* 👇 APLICACIÓN DEL CACHÉ EXTREMO */}
                       {p.imagen_url ? (
                           <ImagenCachada src={p.imagen_url} alt={p.nombre} className="w-16 h-16 rounded-2xl object-cover shadow-sm bg-white"/>
                       ) : (
@@ -178,8 +235,9 @@ const OfertaUpselling = ({
                       <div className="flex-1">
                           <p className="font-black text-slate-800 leading-tight">{p.nombre}</p>
                           <div className="flex items-center gap-2 mt-1.5">
-                              <span className="text-xs font-black text-blue-600 bg-blue-100 px-2.5 py-0.5 rounded-md border border-blue-200">${precioFinal.toFixed(2)}</span>
-                              <span className="text-[10px] font-bold text-slate-400 line-through">${Number(p.precio_base).toFixed(2)}</span>
+                              <span className="text-xs font-black text-blue-600 bg-blue-100 px-2.5 py-0.5 rounded-md border border-blue-200">${infoDesc.precioFinal.toFixed(2)}</span>
+                              {/* 👇 PRECIO TACHADO CORREGIDO: Refleja el precio con sus variaciones */}
+                              <span className="text-[10px] font-bold text-slate-400 line-through">${infoDesc.precioBaseReal.toFixed(2)}</span>
                           </div>
                       </div>
                       

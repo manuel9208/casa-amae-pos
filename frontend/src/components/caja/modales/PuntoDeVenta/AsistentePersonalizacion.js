@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, CheckSquare, Square } from 'lucide-react';
 
 const AsistentePersonalizacion = ({
@@ -14,6 +14,24 @@ const AsistentePersonalizacion = ({
     onCancelarPersonalizacion 
 }) => {
     
+    // 👇 ESTADOS PARA EL RECONSTRUCTOR DE PRECIOS Y STOCK UI
+    const [catalogoProductos, setCatalogoProductos] = useState([]);
+    const [promociones, setPromociones] = useState([]);
+    const [errorStock, setErrorStock] = useState('');
+
+    useEffect(() => {
+        const apiUrlLocal = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+        Promise.all([
+            fetch(`${apiUrlLocal}/promociones`),
+            fetch(`${apiUrlLocal}/productos`)
+        ])
+        .then(async ([resPromo, resProd]) => {
+            setPromociones(await resPromo.json());
+            setCatalogoProductos(await resProd.json());
+        })
+        .catch(() => {});
+    }, []);
+
     useEffect(() => {
         if (itemEditando) {
             setCantidadProducto(itemEditando.cantidad || 1);
@@ -37,35 +55,104 @@ const AsistentePersonalizacion = ({
     const isUsaStock = productoEnEspera.usa_stock === true || String(productoEnEspera.usa_stock) === 'true';
     const stockActual = Number(productoEnEspera.stock_preparado) || 0;
 
-    // 👇 NUEVO MOTOR: Cálculo de Precio por Diferencia (Delta Pricing) para Promociones
-    const getPrecioDelta = (opcionObj) => {
-        if (!opcionObj) return 0;
-        const precioBaseOpcion = Number(opcionObj.precioExtra || 0);
+    // =========================================================================
+    // 🧠 MOTOR MATEMÁTICO: RECONSTRUCTOR DE PRECIOS Y DELTAS (VERSIÓN FINAL)
+    // =========================================================================
+    const getPromoInfo = () => {
+        if (!productoEnEspera._esPromo) return null;
+        const promo = promociones.find(p => p.nombre === productoEnEspera._nombrePromo);
+        if (!promo) return null;
 
-        // Si no es promo, o no es una variación principal (Tamaño/Sabor), cobramos el precio completo
-        if (!productoEnEspera._esPromo || (opcionObj.tipo !== 'variacion' && opcionObj.tipo !== 'tamaño' && opcionObj.tipo !== 'sabor')) {
-            return precioBaseOpcion;
+        let tipoDesc = promo.tipo_descuento;
+        let valorDesc = Number(promo.valor_descuento || 0);
+
+        if (tipoDesc === 'mixto' && promo.config_oferta) {
+            try {
+                const conf = typeof promo.config_oferta === 'string' ? JSON.parse(promo.config_oferta) : promo.config_oferta;
+                let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(productoEnEspera.id || productoEnEspera.producto_id));
+                if (!regla) regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === productoEnEspera.categoria);
+                
+                if (regla) {
+                    tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
+                    valorDesc = Number(regla.valor_descuento || regla.valor || 0);
+                }
+            } catch(e) {}
+        }
+        return { tipoDesc, valorDesc };
+    };
+
+    const obtenerVariacionBaseEfectiva = (itemInfo) => {
+        if (itemInfo._variacionBasePromo) {
+            return String(itemInfo._variacionBasePromo).trim().toLowerCase();
+        }
+        const opcionesVariacion = (itemInfo.opciones || []).filter(o => o.tipo === 'variacion' || o.categoria === 'Tamaño' || o.categoria === 'Sabor');
+        if (opcionesVariacion.length > 0) {
+            const minOpcion = opcionesVariacion.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesVariacion[0]);
+            return String(minOpcion.nombre).trim().toLowerCase();
+        }
+        return null;
+    };
+
+    const calcularPrecioBaseConPromo = () => {
+        const prodOriginal = catalogoProductos ? catalogoProductos.find(p => String(p.id) === String(productoEnEspera.id || productoEnEspera.producto_id)) : null;
+        const baseReal = prodOriginal ? Number(prodOriginal.precio_base || 0) : Number(productoEnEspera.precio_base || 0);
+
+        let precioVariacionBase = 0;
+        const varEfectiva = obtenerVariacionBaseEfectiva(productoEnEspera);
+        if (varEfectiva) {
+            const opcionesVariacion = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' || o.categoria === 'Tamaño' || o.categoria === 'Sabor');
+            const vb = opcionesVariacion.find(o => String(o.nombre).trim().toLowerCase() === varEfectiva);
+            if (vb) {
+                precioVariacionBase = Number(vb.precioExtra || 0);
+            }
         }
 
-        // Si es promo, buscamos todas las opciones hermanas para hallar la base (la más barata)
-        const opcionesMismoTipo = (productoEnEspera.opciones || []).filter(
-            o => o.categoria === opcionObj.categoria || (o.tipo === opcionObj.tipo && o.tipo !== 'grupo_obligatorio' && o.tipo !== 'grupo_opcional')
-        );
+        let baseItemPrice = baseReal + precioVariacionBase;
+        
+        const promoInfo = getPromoInfo();
+        if (promoInfo) {
+            if (promoInfo.tipoDesc === 'porcentaje') {
+                baseItemPrice = baseItemPrice - (baseItemPrice * (promoInfo.valorDesc / 100));
+            } else if (promoInfo.tipoDesc === 'descuento_fijo' || promoInfo.tipoDesc === 'descontar_cantidad') {
+                baseItemPrice = baseItemPrice - promoInfo.valorDesc;
+            } else if (promoInfo.tipoDesc === 'precio_fijo') {
+                baseItemPrice = promoInfo.valorDesc;
+            }
+        }
 
-        if (opcionesMismoTipo.length === 0) return precioBaseOpcion;
-
-        const precioMinimo = Math.min(...opcionesMismoTipo.map(o => Number(o.precioExtra || 0)));
-        const delta = precioBaseOpcion - precioMinimo;
-
-        return delta > 0 ? delta : 0;
+        return Math.max(0, baseItemPrice);
     };
+
+    const getPrecioDeltaVisual = (opcionObj) => {
+        if (!opcionObj) return 0;
+        const precioOpcion = Number(opcionObj.precioExtra || 0);
+        
+        if (!productoEnEspera._esPromo) return precioOpcion;
+
+        const isVariacionPrincipal = opcionObj.tipo === 'variacion' || opcionObj.categoria === 'Tamaño' || opcionObj.categoria === 'Sabor';
+        if (!isVariacionPrincipal) return precioOpcion; 
+
+        const varEfectiva = obtenerVariacionBaseEfectiva(productoEnEspera);
+        if (varEfectiva) {
+            const opcionesMismoTipo = (productoEnEspera.opciones || []).filter(o => o.categoria === opcionObj.categoria);
+            const vb = opcionesMismoTipo.find(o => String(o.nombre).trim().toLowerCase() === varEfectiva);
+            
+            if (vb) {
+                const precioVariacionBase = Number(vb.precioExtra || 0);
+                const delta = precioOpcion - precioVariacionBase;
+                return delta > 0 ? delta : 0;
+            }
+        }
+
+        return precioOpcion;
+    };
+    // =========================================================================
 
     const handleTerminarPersonalizacion = () => {
         const extrasFinales = [];
 
-        // Inyectamos el delta calculado en lugar del precio bruto para variaciones
-        if (opcionSeleccionada) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: getPrecioDelta(opcionSeleccionada), tipo: 'variacion' });
-        if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: getPrecioDelta(saborSeleccionado), tipo: 'variacion' });
+        if (opcionSeleccionada) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: getPrecioDeltaVisual(opcionSeleccionada), tipo: 'variacion' });
+        if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: getPrecioDeltaVisual(saborSeleccionado), tipo: 'variacion' });
         
         Object.values(gruposSeleccionados).forEach(g => extrasFinales.push({ nombre: `🔸 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_obligatorio' }));
         Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' }));
@@ -78,16 +165,19 @@ const AsistentePersonalizacion = ({
             extrasFinales.push({ nombre: `⭐ Promo: ${productoEnEspera._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
         }
 
-        const precioIndividualCalculado = Number(productoEnEspera.precio_base) +
-            getPrecioDelta(opcionSeleccionada) +
-            getPrecioDelta(saborSeleccionado) +
+        // 👇 CÁLCULO FINAL CON LA BASE RECONSTRUIDA
+        const baseCalculada = productoEnEspera._esPromo ? calcularPrecioBaseConPromo() : Number(productoEnEspera.precio_base);
+
+        const precioIndividualCalculado = baseCalculada +
+            getPrecioDeltaVisual(opcionSeleccionada) +
+            getPrecioDeltaVisual(saborSeleccionado) +
             Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
             extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
 
         let nombreCompleto = `[${productoEnEspera.categoria || 'General'}] ${productoEnEspera.nombre}`;
-        if (opcionSeleccionada && getPrecioDelta(opcionSeleccionada) === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
+        if (opcionSeleccionada && getPrecioDeltaVisual(opcionSeleccionada) === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
 
         const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
         const destinoReal = clasifObj?.destino || 'Cocina';
@@ -112,16 +202,21 @@ const AsistentePersonalizacion = ({
             extras: extrasFinales,
             usa_stock: isUsaStock,
             stock_preparado: stockActual,
-            configuracionOriginal 
+            configuracionOriginal,
+            _esPromo: productoEnEspera._esPromo,
+            _nombrePromo: productoEnEspera._nombrePromo,
+            _variacionBasePromo: productoEnEspera._variacionBasePromo
         };
 
         onTerminarPersonalizacion(nuevoItem);
     };
 
     const calcularPrecioActualVisual = () => {
-        return ((Number(productoEnEspera.precio_base) +
-            getPrecioDelta(opcionSeleccionada) +
-            getPrecioDelta(saborSeleccionado) +
+        const baseCalculada = productoEnEspera._esPromo ? calcularPrecioBaseConPromo() : Number(productoEnEspera.precio_base);
+
+        return ((baseCalculada +
+            getPrecioDeltaVisual(opcionSeleccionada) +
+            getPrecioDeltaVisual(saborSeleccionado) +
             Object.values(gruposSeleccionados).reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
             Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
@@ -187,8 +282,7 @@ const AsistentePersonalizacion = ({
                                     const yaLlegoAlLimite = pasoActualObj.tipo === 'grupo_opcional' && seleccionadosActuales.length >= pasoActualObj.limite;
                                     const disabled = yaLlegoAlLimite && !estaSeleccionado;
                                     
-                                    // Calculamos el precio real a mostrar en el botón (Bruto o Diferencia)
-                                    const precioAMostrar = getPrecioDelta(o);
+                                    const precioAMostrar = getPrecioDeltaVisual(o);
 
                                     return (
                                         <button key={idx} disabled={disabled} onClick={() => {
@@ -353,8 +447,8 @@ const AsistentePersonalizacion = ({
                                 <span className="px-3 md:px-4 font-black text-lg md:text-xl">{cantidadProducto}</span>
                                 <button onClick={() => {
                                     if (isUsaStock && cantidadProducto >= stockActual) {
-                                        // Usamos tu propio motor de alertas UI interno del sistema, pero aquí simulado (no usar nativos)
-                                        // En este contexto, el modal se frenará visualmente en el frontend superior si se implementó un UI handler
+                                        setErrorStock(`Solo quedan ${stockActual} disponibles.`);
+                                        setTimeout(() => setErrorStock(''), 4000);
                                     } else {
                                         setCantidadProducto(cantidadProducto + 1);
                                     }
@@ -365,9 +459,10 @@ const AsistentePersonalizacion = ({
                             </div>
                         )}
                         
-                        <div className="text-right">
+                        <div className="text-right flex flex-col items-end">
                             <p className="text-[9px] md:text-[10px] font-black text-slate-400 uppercase tracking-widest">Total a agregar</p>
                             <p className="text-2xl md:text-4xl font-black text-blue-600">${calcularPrecioActualVisual()}</p>
+                            {errorStock && <p className="text-[10px] font-black text-red-500 uppercase tracking-wide animate-in slide-in-from-top-1 mt-1">{errorStock}</p>}
                         </div>
                     </div>
 

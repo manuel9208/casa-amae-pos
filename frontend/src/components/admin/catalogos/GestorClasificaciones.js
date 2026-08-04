@@ -65,9 +65,19 @@ const GestorClasificaciones = ({
     setModalClonar(true);
   };
 
-  const ejecutarClonacion = async () => {
+    const ejecutarClonacion = async () => {
     if (!clonForm.nombre.trim()) return showAlert("Error", "El nombre de la nueva categoría es obligatorio.", "warning");
     
+    // 👇 NUEVA VALIDACIÓN ANTI-DUPLICADOS
+    const nombreDuplicado = clasificaciones.some(
+      c => c.nombre.trim().toLowerCase() === clonForm.nombre.trim().toLowerCase()
+    );
+    
+    if (nombreDuplicado) {
+      return showAlert("Conflicto Detectado", "Ya existe una clasificación con este nombre. Por favor, elige uno diferente.", "error");
+    }
+    // 👆 FIN DE LA VALIDACIÓN
+
     setClonando(true);
     try {
       const payload = {

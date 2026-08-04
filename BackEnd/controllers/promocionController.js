@@ -1,6 +1,17 @@
 const db = require('../config/db');
 
+// 👇 MOTOR DE AUTO-MIGRACIÓN: Destruye el candado rígido de la base de datos
+// Esto nos permite guardar 'descuento_fijo' o cualquier nuevo tipo en el futuro.
+const asegurarMigracionPromociones = async () => {
+  try {
+    await db.query('ALTER TABLE promociones DROP CONSTRAINT IF EXISTS promociones_tipo_descuento_check;');
+  } catch (e) {
+    console.error("Aviso: Migración de promociones omitida o ya aplicada.");
+  }
+};
+
 exports.obtenerPromociones = async (req, res) => {
+  await asegurarMigracionPromociones();
   try {
     const result = await db.query(`
       SELECT p.*, 
@@ -18,10 +29,11 @@ exports.obtenerPromociones = async (req, res) => {
 };
 
 exports.crearPromocion = async (req, res) => {
+  await asegurarMigracionPromociones();
   const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
   
   try {
-    // Sanitizamos el JSON para evitar errores si viene vacío o mal formado
+    // Sanitizamos el JSON para soportar el nuevo Motor Avanzado de Opciones
     const configOfertaParsed = typeof config_oferta === 'string' ? config_oferta : JSON.stringify(config_oferta || {});
 
     const result = await db.query(
@@ -58,6 +70,7 @@ exports.eliminarPromocion = async (req, res) => {
 };
 
 exports.actualizarPromocion = async (req, res) => {
+  await asegurarMigracionPromociones();
   const { id } = req.params;
   const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
   try {

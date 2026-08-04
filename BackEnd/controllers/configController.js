@@ -1,26 +1,44 @@
 const db = require('../config/db');
 const cloudinary = require('cloudinary').v2;
 
-// 👇 ESTA ES LA FUNCIÓN ROBUSTA QUE YA TENÍAS Y QUE AHORA USAREMOS PARA EL BORRADO MASIVO
+// 👇 FIX 1: Extractor Robusto (Limpia parámetros basura '?v=...' y procesa extensiones)
 const extraerPublicId = (url) => {
   if (!url || !url.includes('cloudinary.com')) return null;
   try {
-    const parts = url.split('/upload/');
+    const urlLimpia = url.split('?')[0]; // Eliminar queries (ej. ?v=12345)
+    const parts = urlLimpia.split('/upload/');
     if (parts.length < 2) return null;
-    const pathSinVersion = parts[1].replace(/^v\d+\//, '');
-    const publicId = pathSinVersion.substring(0, pathSinVersion.lastIndexOf('.'));
-    return publicId || pathSinVersion;
+    
+    let pathSinVersion = parts[1].replace(/^v\d+\//, '');
+    const lastDotIndex = pathSinVersion.lastIndexOf('.');
+    
+    if (lastDotIndex !== -1) {
+        pathSinVersion = pathSinVersion.substring(0, lastDotIndex);
+    }
+    return pathSinVersion;
   } catch (e) {
+    console.error("Error extrayendo ID:", e);
     return null;
   }
 };
 
-const borrarDeCloudinary = (urlVieja) => {
+// 👇 FIX 2: Borrado Inteligente (Distingue Video/Imagen y purga la caché)
+const borrarDeCloudinary = async (urlVieja) => {
   const publicId = extraerPublicId(urlVieja);
   if (publicId) {
-    cloudinary.uploader.destroy(publicId).catch(err => {
-      console.error("Error al borrar en Cloudinary:", err);
-    });
+      try {
+          // Si es un video, Cloudinary EXIGE el resource_type='video' para borrarlo
+          const esVideo = urlVieja.includes('/video/upload/');
+          const options = { 
+              resource_type: esVideo ? 'video' : 'image', 
+              invalidate: true // 👈 Purgar de la CDN (Internet) de inmediato
+          };
+          
+          await cloudinary.uploader.destroy(publicId, options);
+          console.log(`✅ Archivo basura eliminado de Cloudinary (${options.resource_type}): ${publicId}`);
+      } catch (err) {
+          console.error(`🚨 Error al borrar basura en Cloudinary (${publicId}):`, err);
+      }
   }
 };
 
@@ -441,7 +459,6 @@ exports.webhookVercelDeploy = (req, res) => {
   }
 };
 
-// 👇 FIX: CIRUGÍA APLICADA - Ahora usamos extraerPublicId para procesar cualquier URL y garantizar el borrado
 exports.eliminarArchivosCloudinary = async (req, res) => {
   const { urls } = req.body;
   if (!urls || !Array.isArray(urls)) {
@@ -449,13 +466,8 @@ exports.eliminarArchivosCloudinary = async (req, res) => {
   }
 
   try {
-    const promises = urls.map(url => {
-      const public_id = extraerPublicId(url);
-      if (public_id) {
-        return cloudinary.uploader.destroy(public_id);
-      }
-      return Promise.resolve(); // Ignoramos URLs no válidas silenciosamente
-    });
+    // Usamos el borrado inteligente que ahora detecta videos y limpia la caché
+    const promises = urls.map(url => borrarDeCloudinary(url));
 
     await Promise.all(promises);
     res.json({ success: true, message: 'Archivos eliminados permanentemente de Cloudinary.' });
