@@ -11,6 +11,7 @@ import AdminClientes from './admin/AdminClientes';
 import AdminReportes from './admin/AdminReportes';
 import AdminPromociones from './admin/AdminPromociones';
 import AdminMesas from './admin/AdminMesas';  
+import AdminProveedores from './admin/AdminProveedores';
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -45,6 +46,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewReportes = isGlobalAdmin || user?.permisos?.finanzas === true;
   const canViewPromociones = isGlobalAdmin || user?.permisos?.promociones === true;
   const canViewMesas = isGlobalAdmin || user?.permisos?.mesas === true;  
+  const canViewProveedores = isGlobalAdmin || user?.permisos?.proveedores === true;
 
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
@@ -103,8 +105,13 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     socket.on('pedido_eliminado', actualizarPantalla);
     socket.on('catalogo_actualizado', actualizarPantalla);
 
+    // 👇 SOLUCIÓN: Escuchamos el evento exclusivo para administradores
+    socket.on('alerta_admin', (data) => {
+        showAlert(data.titulo, data.mensaje, 'info');
+    });
+
     return () => socket.disconnect();
-  }, [baseUrl, cargarDatos]);
+  }, [baseUrl, cargarDatos, showAlert]);
 
   useEffect(() => {
     let intervalo;
@@ -119,7 +126,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     return () => clearInterval(intervalo);
   }, [seccion, apiUrl, canViewInventario]);  
 
-  // 👇 NUEVO: FUNCIÓN PARA FORZAR ACTUALIZACIÓN
   const lanzarActualizacionGlobal = () => {
     showConfirm(
       '¿Actualizar Dispositivos?',
@@ -158,6 +164,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         canViewReportes={canViewReportes}
         canViewPromociones={canViewPromociones}
         canViewMesas={canViewMesas}
+        canViewProveedores={canViewProveedores}
       />  
       <main className="flex-1 p-4 md:p-8 overflow-y-auto">
         {seccion === 'menu' && canViewMenu && (
@@ -186,6 +193,16 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             productos={productos}
           />
         )}  
+
+        {seccion === 'proveedores' && canViewProveedores && (
+          <AdminProveedores
+            {...commonProps}
+            insumosDB={insumosDB}
+            productos={productos}
+            configGlobal={configGlobal}
+          />
+        )}
+
         {seccion === 'configuracion' && canViewConfig && (
           <AdminConfiguracion
             {...commonProps}
@@ -227,7 +244,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         )}
       </main>  
 
-      {/* 👇 NUEVO: BOTÓN FLOTANTE PARA ADMINISTRADORES */}
       {isGlobalAdmin && (
         <button
           onClick={lanzarActualizacionGlobal}
@@ -242,7 +258,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       )}
 
       {modalUI.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center">
             {modalUI.tipo === 'error' && <AlertTriangle className="text-red-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 w-16 h-16 mb-4" />}

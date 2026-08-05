@@ -741,21 +741,44 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const registrarCompraRapida = async (payload) => {
     if (isSubmitting) return; setIsSubmitting(true);
-    try {
+    
+    try {  
+      // 👇 NUEVO: Enrutador Inteligente (Proveedor Múltiple vs Caja Individual)
+      if (payload.tipo_compra === 'proveedor_multi') {
+        
+        // Enviamos la factura a la nueva tabla de gastos (Quedará Pendiente para el Admin)
+        await fetch(`${apiUrl}/gastos-proveedores`, {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({
+                proveedor_id: payload.proveedor_id,
+                cantidad_recibida: payload.cantidad_recibida,
+                total_pago: payload.total_pago,
+                origen: 'Caja',
+                estado: 'Pendiente',
+                usuario_id: operadorActual?.id,
+                articulos_comprados: payload.articulos_comprados
+            })
+        });
+        mostrarAlertaCaja("Recepción Exitosa", "La factura ha sido enviada a Administración para su aprobación y pago.", "success");
+        if (setModalCompraRapida) setModalCompraRapida(false);
 
-      const payloadConUsuario = {
-        ...payload,
-        usuario_id: operadorActual?.id
-      };
+      } else {
+        // Flujo Original: Compra rápida individual descontada directamente de Caja
+        const payloadConUsuario = { ...payload, usuario_id: operadorActual?.id };  
+        await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadConUsuario)
+        });
+        mostrarAlertaCaja("Compra Registrada", "El gasto se ha descontado de la caja", "success");
+      }
 
-      await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadConUsuario)
-      });
       setInsumoComprar(null);
       setPaquetesComprados('');
-      mostrarAlertaCaja("Compra Registrada", "El gasto se ha descontado de la caja", "success");
       await cargarDataDinamica();
-    } catch(e) {}
+
+    } catch(e) {
+      mostrarAlertaCaja("Error", "Fallo de conexión al registrar la operación.", "error");
+    }
     setIsSubmitting(false);
   };
 

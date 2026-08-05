@@ -1,13 +1,14 @@
 import React from 'react';
 import { 
   ShoppingCart, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
-  Users, TrendingUp, Gift, Map, MonitorSmartphone 
+  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck 
 } from 'lucide-react';
 
 const TopNavAdmin = ({
   user, onLogout, onGoToKiosco, seccion, setSeccion,
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
-  canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas
+  canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
+  canViewProveedores // 👈 NUEVO: Recibimos el permiso de proveedores
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -70,6 +71,13 @@ const TopNavAdmin = ({
             {canViewCatalogos && (
               <button onClick={() => setSeccion('catalogos')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'catalogos' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                  <LayoutGrid size={18}/> Catálogos
+              </button>
+            )}
+
+            {/* 👇 NUEVO: Pestaña de Proveedores (Justo después de inventario/catálogos) */}
+            {canViewProveedores && (
+              <button onClick={() => setSeccion('proveedores')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'proveedores' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                 <Truck size={18}/> Proveedores
               </button>
             )}
             

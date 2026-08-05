@@ -147,7 +147,7 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const isEnCocina = ['Preparando', 'Listo', 'En Camino'].includes(estado);
   const isEnCola = ['Pendiente', 'Por Confirmar', 'Pagado'].includes(estado);  
 
-  const canEditCart = isEnCola && !isCancelado && !isTerminado;
+  const canEditCart = ['Pendiente', 'Pagado', 'Preparando'].includes(modalEditarPedido?.estado_preparacion);
   const canEditConsumo = (isEnCola || isEnCocina || isTerminado) && !isTerminado && !isCancelado;
   
   const isPagado = !['Pendiente', 'Por Cobrar', 'Cancelado'].includes(modalEditarPedido?.metodo_pago) && estado !== 'Pendiente';  

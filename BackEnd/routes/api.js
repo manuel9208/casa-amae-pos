@@ -26,6 +26,7 @@ const mensajeCtrl = require('../controllers/mensajeController');
 const biometricoCtrl = require('../controllers/biometricoController');
 const mermaCtrl = require('../controllers/mermaController');
 const impresionCtrl = require('../controllers/impresionController'); 
+const proveedorCtrl = require('../controllers/proveedorController'); // 👈 NUEVO: Controlador de proveedores
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -138,10 +139,7 @@ router.delete('/mensajes/:id', mensajeCtrl.eliminarMensaje);
 // ==========================================
 router.get('/clasificaciones', clasificacionCtrl.obtenerClasificaciones);
 router.post('/clasificaciones', upload.single('imagen'), clasificacionCtrl.crearClasificacion);
-
-// 👇 NUEVA RUTA: Endpoint para clonar clasificaciones
 router.post('/clasificaciones/clonar', clasificacionCtrl.clonarClasificacion);
-
 router.put('/clasificaciones/:id', upload.single('imagen'), clasificacionCtrl.actualizarClasificacion);
 router.delete('/clasificaciones/:id', clasificacionCtrl.eliminarClasificacion);
 router.get('/ingredientes', ingredienteCtrl.obtenerIngredientes);
@@ -198,6 +196,20 @@ router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
 
 // ==========================================
+// 🚚 PROVEEDORES Y CONTROL DE GASTOS (NUEVO MÓDULO)
+// ==========================================
+router.get('/proveedores/configuracion', proveedorCtrl.obtenerConfiguracion); 
+router.put('/proveedores/configuracion', proveedorCtrl.actualizarConfiguracion); 
+router.get('/proveedores', proveedorCtrl.obtenerProveedores);
+router.post('/proveedores', proveedorCtrl.crearProveedor);
+router.put('/proveedores/:id', proveedorCtrl.actualizarProveedor);
+router.delete('/proveedores/:id', proveedorCtrl.eliminarProveedor);
+router.delete('/gastos-proveedores/:id', proveedorCtrl.eliminarGasto);
+router.get('/gastos-proveedores', proveedorCtrl.obtenerGastos);
+router.post('/gastos-proveedores', proveedorCtrl.registrarGasto);
+router.put('/gastos-proveedores/:id/estado', proveedorCtrl.actualizarEstadoGasto);
+
+// ==========================================
 // MERMAS Y DESPERDICIOS
 // ==========================================
 router.post('/mermas', mermaCtrl.registrarMerma);
@@ -251,7 +263,7 @@ router.use((req, res, next) => {
 });
 
 // ==========================================
-// 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS)
+// 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)
 // Se ejecuta cada 60 segundos
 // ==========================================
 setInterval(async () => {
@@ -316,6 +328,11 @@ setInterval(async () => {
     // AVISAR A LAS PANTALLAS KIOSCO SI HUBO UN CAMBIO
     if (huboCambios && globalIo) {
       globalIo.emit('catalogo_actualizado');
+    }
+
+    // 👇 3. NUEVO: VIGILANTE DE STOCK DE PROVEEDORES
+    if (proveedorCtrl.verificarAlertasStock) {
+        await proveedorCtrl.verificarAlertasStock(globalIo);
     }
 
   } catch (error) {

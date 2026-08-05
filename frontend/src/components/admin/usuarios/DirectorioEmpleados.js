@@ -7,7 +7,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     const [filtroTexto, setFiltroTexto] = useState('');
     const [filtroRol, setFiltroRol] = useState('');
     
-    // 👇 NUEVO: Estados para la visibilidad de las contraseñas
+    // Estados para la visibilidad de las contraseñas
     const [mostrarPassForm, setMostrarPassForm] = useState(false);
     const [passwordsVisibles, setPasswordsVisibles] = useState({});
     
@@ -22,7 +22,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
         menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
         corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false,
-        reportar_mermas: false
+        reportar_mermas: false, proveedores: false // 👈 NUEVO PERMISO AGREGADO
     });
 
     const plantillaVisible = usuariosDB.filter(u => {
@@ -46,7 +46,8 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         setUPermisos({
             pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
             menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
-            corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false
+            corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false, 
+            proveedores: false // 👈 NUEVO PERMISO AGREGADO
         });
     };
 
@@ -57,7 +58,8 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         let perms = {
             pantalla_admin: false, pantalla_caja: false, pantalla_cocina: false, pantalla_repartidor: false,
             menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
-            corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false
+            corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false, 
+            proveedores: false // 👈 NUEVO PERMISO AGREGADO
         };
 
         if (nuevoRol === 'tv') {
@@ -79,7 +81,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         if (nuevoRol === 'admin') {
             perms.pantalla_admin = true; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = true;
             perms.menu = true; perms.inventario = true; perms.catalogos = true; perms.promociones = true; perms.mesas = true;
-            perms.reportar_mermas = true;
+            perms.reportar_mermas = true; perms.proveedores = true; // 👈 NUEVO PERMISO AGREGADO
         } else if (nuevoRol === 'gerente') {
             perms.pantalla_admin = false; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
             perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true;
@@ -209,7 +211,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                         <input type="text" required value={uUser} onChange={e => setUUser(e.target.value.replace(/\s+/g, '').toLowerCase())} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700" placeholder="juan_perez" />
                     </div>
 
-                    {/* 👇 CAMBIO: Agregado ojito para la contraseña en el formulario */}
                     <div>
                         <label className="text-xs font-bold text-slate-400 block mb-1">Contraseña de Acceso {editandoUsuarioId ? '(Dejar en blanco para no cambiar)' : '*'}</label>
                         <div className="relative">
@@ -338,6 +339,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                                 <input type="checkbox" checked={uPermisos.mesas === true} onChange={e => setUPermisos({...uPermisos, mesas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Gestión de Mesas y QR
                             </label>
                             
+                            {/* 👇 NUEVO CHECKBOX: MÓDULO DE PROVEEDORES */}
+                            <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer bg-orange-100 p-2 rounded-lg -mx-2">
+                                <input type="checkbox" checked={uPermisos.proveedores === true} onChange={e => setUPermisos({...uPermisos, proveedores: e.target.checked})} className="accent-orange-600 w-5 h-5" /> Control de Proveedores y Compras
+                            </label>
+
                             <div className="border-t border-orange-200 my-2"></div>
                             
                             <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
@@ -420,7 +426,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                                     <div className="mt-1 space-y-1 flex items-center gap-x-4 gap-y-1 flex-wrap">
                                         <p className="text-sm text-slate-600 font-bold">Usuario: <span className="text-slate-800">{u.usuario}</span></p>
                                         
-                                        {/* 👇 CAMBIO: Agregado ojito y campo de contraseña en la lista de empleados */}
                                         <div className="flex items-center gap-1.5 text-sm text-slate-600 font-bold">
                                             Pass: 
                                             <span className="text-slate-800 font-black tracking-widest bg-slate-200/50 px-2 py-0.5 rounded flex items-center justify-center min-w-[40px]">
@@ -442,7 +447,6 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                                 </div>
                                 
                                 <div className="flex gap-2 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                                    {/* Botón: Forzar Cierre de Sesión */}
                                     {u.dispositivo_id && u.rol !== 'tv' && (
                                         <button onClick={() => forzarLogoutRemoto(u.id)} className="p-3 text-red-500 bg-red-50 hover:bg-red-500 hover:text-white rounded-xl transition border border-red-100 shadow-sm" title="Cerrar sesión activa remota">
                                             <span className="text-xl leading-none">🚪</span>
