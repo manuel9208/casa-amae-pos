@@ -50,6 +50,13 @@ const inicializarTablas = async () => {
                 articulos_comprados JSON DEFAULT '[]'
             );
         `);
+
+        // 👇 FIX: INYECCIÓN DE COLUMNAS NUEVAS PARA PRODUCCIÓN
+        await db.query(`ALTER TABLE proveedores ADD COLUMN IF NOT EXISTS articulos_suministrados JSON DEFAULT '[]';`).catch(()=>null);
+        await db.query(`ALTER TABLE gastos_proveedores ADD COLUMN IF NOT EXISTS cantidad_recibida DECIMAL(10,2) DEFAULT 0;`).catch(()=>null);
+        await db.query(`ALTER TABLE gastos_proveedores ADD COLUMN IF NOT EXISTS usuario_id INTEGER NULL;`).catch(()=>null);
+        await db.query(`ALTER TABLE gastos_proveedores ADD COLUMN IF NOT EXISTS articulos_comprados JSON DEFAULT '[]';`).catch(()=>null);
+
         console.log("✅ Tablas de Proveedores y su Configuración Exclusiva verificadas/creadas.");
     } catch (error) {
         console.error("🚨 Error al inicializar tablas de proveedores:", error);
