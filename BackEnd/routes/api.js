@@ -26,7 +26,7 @@ const mensajeCtrl = require('../controllers/mensajeController');
 const biometricoCtrl = require('../controllers/biometricoController');
 const mermaCtrl = require('../controllers/mermaController');
 const impresionCtrl = require('../controllers/impresionController'); 
-const proveedorCtrl = require('../controllers/proveedorController'); // 👈 NUEVO: Controlador de proveedores
+const proveedorCtrl = require('../controllers/proveedorController'); // Controlador de proveedores
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -54,8 +54,7 @@ const storage = new CloudinaryStorage({
       folder: 'pos_uploads',
       resource_type: 'image',
       allowedFormats: ['jpeg', 'png', 'jpg', 'webp'],
-      format: 'webp', // 👈 OBLIGAMOS a que se guarde en WebP (pesa 80% menos)
-      // 👇 FIX: Cambiamos "limit" por "scale" (es seguro y no crashea). Quitamos parámetros no permitidos en subida.
+      format: 'webp',
       transformation: [{ width: 800, crop: "scale" }] 
     };
   }
@@ -196,7 +195,7 @@ router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
 
 // ==========================================
-// 🚚 PROVEEDORES Y CONTROL DE GASTOS (NUEVO MÓDULO)
+// 🚚 PROVEEDORES Y CONTROL DE GASTOS
 // ==========================================
 router.get('/proveedores/configuracion', proveedorCtrl.obtenerConfiguracion); 
 router.put('/proveedores/configuracion', proveedorCtrl.actualizarConfiguracion); 
@@ -204,6 +203,10 @@ router.get('/proveedores', proveedorCtrl.obtenerProveedores);
 router.post('/proveedores', proveedorCtrl.crearProveedor);
 router.put('/proveedores/:id', proveedorCtrl.actualizarProveedor);
 router.delete('/proveedores/:id', proveedorCtrl.eliminarProveedor);
+
+// 👇 NUEVA RUTA: Procesamiento de Múltiples Facturas (BULK). Debe ir antes del /:id
+router.put('/gastos-proveedores/bulk/estado', proveedorCtrl.actualizarEstadoGastoBulk);
+
 router.delete('/gastos-proveedores/:id', proveedorCtrl.eliminarGasto);
 router.get('/gastos-proveedores', proveedorCtrl.obtenerGastos);
 router.post('/gastos-proveedores', proveedorCtrl.registrarGasto);
@@ -330,13 +333,13 @@ setInterval(async () => {
       globalIo.emit('catalogo_actualizado');
     }
 
-    // 👇 3. NUEVO: VIGILANTE DE STOCK DE PROVEEDORES
+    // 3. VIGILANTE DE STOCK DE PROVEEDORES
     if (proveedorCtrl.verificarAlertasStock) {
         await proveedorCtrl.verificarAlertasStock(globalIo);
     }
 
   } catch (error) {
-    console.error("Error en el Vigilante de Horarios (Cron):", error);
+    console.error("Error en el Vigilante de Horarios/Stock (Cron):", error);
   }
 }, 60000); 
 
