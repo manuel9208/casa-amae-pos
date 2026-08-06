@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import {
     Search, ShoppingBag, Eye, CalendarDays, Printer,
-    Store, Calculator, Smartphone, User, CreditCard, Banknote, Bike, MapPin
+    Store, Calculator, Smartphone, User, CreditCard, Banknote, Bike, MapPin, Info, Users,
+    X, CheckSquare, Square
 } from 'lucide-react';
 
 const formaterMoneda = (monto) => {
@@ -62,6 +63,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
     const [corteSeleccionadoId, setCorteSeleccionadoId] = useState('global');
     const [pedidoSeleccionado, setPedidoSeleccionado] = useState(null);
+
+    // ESTADOS PARA EL MODAL DE FONDOS
+    const [fondosSeleccionados, setFondosSeleccionados] = useState([]);
+    const [modalFondosAbierto, setModalFondosAbierto] = useState(false);
 
     const cargarAuditoriaCompleta = useCallback(async () => {
         setCargando(true);
@@ -127,6 +132,15 @@ const VistaCortesHistorico = ({ apiUrl }) => {
             return () => socket.disconnect();
         }
     }, [periodo, fechaFiltro, hoyStr, baseUrl, cargarAuditoriaCompleta]);
+
+    // ASIGNAR FONDO POR DEFECTO (Solo el Turno 1)
+    useEffect(() => {
+        if (cortesDelDia && cortesDelDia.length > 0) {
+            setFondosSeleccionados([cortesDelDia[0].id]);
+        } else {
+            setFondosSeleccionados([]);
+        }
+    }, [cortesDelDia]);
 
     const pedidosDelTurno = useMemo(() => {
         if (periodo !== 'dia') return pedidos;
@@ -218,15 +232,30 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         }
     });
 
+    // VARIABLES DE AUDITORÍA ESTRICTA
     let fondoCaja = 0, fondoRepartidor = 0, gastosCompras = 0, efectivoDeclaradoCaja = 0;
+    let efectivoEntregadoTotal = 0, efectivoEnCajaTotal = 0, fondosAdicionales = 0;
 
     if (corteSeleccionadoId === 'global' || periodo !== 'dia') {
         gastosCompras = compras.reduce((s, c) => s + Number(c.costo_total || 0), 0);
-        const fondoCerrado = cortesDelDia.reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
-        const fondoActivo = usuarios.reduce((s, u) => s + Number(u.fondo_actual || 0), 0);
-        fondoCaja = fondoCerrado + fondoActivo;
+        
+        // LÓGICA DE FONDO INTELIGENTE + MODAL (Suma los seleccionados por el administrador)
+        if (cortesDelDia.length > 0) {
+            fondoCaja = cortesDelDia
+                .filter(c => fondosSeleccionados.includes(c.id))
+                .reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
+
+            fondosAdicionales = cortesDelDia
+                .filter(c => !fondosSeleccionados.includes(c.id))
+                .reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
+        } else {
+            fondoCaja = usuarios.reduce((s, u) => s + Number(u.fondo_actual || 0), 0);
+        }
+
         fondoRepartidor = cortesDelDia.reduce((s, c) => s + Number(c.fondo_repartidor || 0), 0);
         efectivoDeclaradoCaja = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_cajon || 0), 0);
+        efectivoEntregadoTotal = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_entregado || 0), 0);
+        efectivoEnCajaTotal = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_en_caja || 0), 0);
     } else {
         const cAct = cortesDelDia.find(c => String(c.id) === String(corteSeleccionadoId));
         if (cAct) {
@@ -234,6 +263,8 @@ const VistaCortesHistorico = ({ apiUrl }) => {
             fondoRepartidor = Number(cAct.fondo_repartidor || 0);
             gastosCompras = Number(cAct.total_gastos || 0);
             efectivoDeclaradoCaja = Number(cAct.efectivo_cajon || 0);
+            efectivoEntregadoTotal = Number(cAct.efectivo_entregado || 0);
+            efectivoEnCajaTotal = Number(cAct.efectivo_en_caja || 0);
         }
     }
 
@@ -242,15 +273,14 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     const totalVentasBrutas = tPlatillos + tExtras + tEnvio;
     const totalIngresoNetoReal = totalVentasBrutas - tDescuentos - gastosCompras;
     
-    let efectivoEsperadoCaja = totalFondoGlobal + totalEfectivoDia - gastosCompras;
+    // MATEMÁTICA CONTABLE
+    const efectivoEsperadoCaja = fondoCaja + totalEfectivoDia - gastosCompras;
     const efectivoEsperadoMotos = fondoRepartidor + dEfectivo;
 
-    if (corteSeleccionadoId === 'global') {
-        efectivoEsperadoCaja = totalEfectivoDia - gastosCompras;
-    }
-
-    const diferenciaCaja = efectivoDeclaradoCaja - efectivoEsperadoCaja;
-    const diferenciaFeria = totalEfectivoDia - gastosCompras - efectivoDeclaradoCaja;
+    const diferenciaAuditoria = efectivoEsperadoCaja - efectivoDeclaradoCaja;
+    const isFaltante = diferenciaAuditoria > 0;
+    const isSobrante = diferenciaAuditoria < 0;
+    const isPerfecto = diferenciaAuditoria === 0;
 
     const totalTarjetas = lTarjeta + dTarjeta;
     const totalTransferencias = lTransf + dTransf;
@@ -346,9 +376,23 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                             </p>
                         )}
                     </div>
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:border-black">
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 print:border-black relative group">
                         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 print:text-black">Fondo Inicial</p>
                         <p className="text-2xl font-black text-slate-700 print:text-black">{formaterMoneda(totalFondoGlobal)}</p>
+                        
+                        {/* BOTÓN INTELIGENTE PARA ABRIR MODAL DE FONDOS */}
+                        {cortesDelDia.length > 1 && corteSeleccionadoId === 'global' && (
+                            <button
+                                onClick={() => setModalFondosAbierto(true)}
+                                className="absolute top-3 right-3 text-blue-600 bg-blue-100 hover:bg-blue-200 p-1.5 rounded-lg transition-colors flex items-center gap-1 shadow-sm border border-blue-200 cursor-pointer active:scale-95 print:hidden"
+                                title="Gestionar Fondos Múltiples"
+                            >
+                                <Info size={14} /> 
+                                <span className="text-[9px] font-black uppercase tracking-widest">
+                                    Fondos {fondosAdicionales > 0 ? '*' : ''}
+                                </span>
+                            </button>
+                        )}
                     </div>
                     <div className="bg-emerald-50 p-5 rounded-2xl border border-emerald-100 print:border-black">
                         <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1 print:text-black">Ingresos Efectivo</p>
@@ -362,31 +406,28 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-slate-800 p-6 rounded-3xl shadow-md flex flex-col justify-center text-white print:bg-white print:text-black print:border print:border-black">
-                        <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px] print:text-black">Efectivo Esperado</p>
+                        <p className="text-slate-300 font-black uppercase tracking-widest mb-1 text-[10px] print:text-black">Efectivo Esperado Físico</p>
                         <p className="text-3xl font-black">{formaterMoneda(efectivoEsperadoCaja)}</p>
                         <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-black">
-                            {corteSeleccionadoId === 'global' ? '(Ingresos Efectivo) - Gastos' : '(Fondo + Ingresos Efectivo) - Gastos'}
+                            (Fondo + Ingresos Efectivo) - Gastos
                         </p>
                     </div>
 
-                    {periodo === 'dia' && corteSeleccionadoId !== 'global' && (
-                        <>
-                            <div className="bg-orange-50 p-6 rounded-3xl border border-orange-200 shadow-sm flex flex-col justify-center print:border-black print:bg-transparent">
-                                <p className="text-orange-600 font-black uppercase tracking-widest mb-1 text-[10px] print:text-black">Efectivo Declarado</p>
-                                <p className="text-3xl font-black text-blue-800 print:text-black">{formaterMoneda(efectivoDeclaradoCaja)}</p>
-                                <p className="text-[9px] font-bold text-orange-500 uppercase mt-2 print:text-black">Por cajero al cerrar turno</p>
-                            </div>
-                            <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center print:bg-transparent print:border-black ${diferenciaCaja >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-                                <p className={`font-black uppercase tracking-widest mb-1 text-[10px] print:text-black ${diferenciaCaja >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                    {diferenciaCaja >= 0 ? 'Sobrante a Favor' : 'Faltante en Caja'}
-                                </p>
-                                <p className={`text-3xl font-black print:text-black ${diferenciaCaja >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                    {diferenciaCaja >= 0 ? '+' : ''}{formaterMoneda(diferenciaCaja)}
-                                </p>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-black">Diferencia neta</p>
-                            </div>
-                        </>
-                    )}
+                    <div className="bg-orange-50 p-6 rounded-3xl border border-orange-200 shadow-sm flex flex-col justify-center print:border-black print:bg-transparent">
+                        <p className="text-orange-600 font-black uppercase tracking-widest mb-1 text-[10px] print:text-black">Efectivo Declarado</p>
+                        <p className="text-3xl font-black text-blue-800 print:text-black">{formaterMoneda(efectivoDeclaradoCaja)}</p>
+                        <p className="text-[9px] font-bold text-orange-500 uppercase mt-2 print:text-black">Retiro + Fondo Dejado</p>
+                    </div>
+                    
+                    <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-center print:bg-transparent print:border-black ${isPerfecto ? 'bg-blue-50 border-blue-200' : isFaltante ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                        <p className={`font-black uppercase tracking-widest mb-1 text-[10px] print:text-black ${isPerfecto ? 'text-blue-600' : isFaltante ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {isPerfecto ? 'Cuadre Perfecto' : isFaltante ? 'Faltante en Caja' : 'Sobrante a Favor'}
+                        </p>
+                        <p className={`text-3xl font-black print:text-black ${isPerfecto ? 'text-blue-700' : isFaltante ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {isSobrante ? '+' : isFaltante ? '-' : ''}{formaterMoneda(Math.abs(diferenciaAuditoria))}
+                        </p>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mt-2 print:text-black">Diferencia neta matemática</p>
+                    </div>
                 </div>
             </div>
 
@@ -470,18 +511,31 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                         <div className="bg-emerald-600 text-white p-2 md:p-3 rounded-xl"><Calculator size={24} /></div>
                         <div>
                             <h3 className="text-xl font-black text-emerald-900 uppercase tracking-widest leading-tight">Cuadre Global</h3>
-                            <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mt-0.5">Auditoría y Rendimiento</p>
+                            <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mt-0.5">Auditoría Estricta</p>
                         </div>
                     </div>
 
-                    {/* SECCIÓN A: AUDITORÍA DE EFECTIVO FÍSICO */}
+                    {/* SECCIÓN A: AUDITORÍA DE EFECTIVO FÍSICO ESTRICTA */}
                     <div className="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm mb-4">
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">A. Auditoría de Efectivo Físico</p>
                         
                         <div className="space-y-2 mb-4">
-                            <div className="flex justify-between text-sm font-bold text-slate-400">
-                                <span>Fondo Inicial (Solo Referencia):</span>
-                                <span>{formaterMoneda(totalFondoGlobal)}</span>
+                            {/* 👇 BOTÓN INTELIGENTE EN EL CUADRE GLOBAL */}
+                            <div className="flex justify-between text-sm font-bold text-slate-400 items-center">
+                                <div className="flex items-center gap-2">
+                                    <span>Fondo Inicial Registrado:</span>
+                                    {cortesDelDia.length > 1 && corteSeleccionadoId === 'global' && (
+                                        <button
+                                            onClick={() => setModalFondosAbierto(true)}
+                                            className="text-blue-500 hover:text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors print:hidden cursor-pointer active:scale-95"
+                                            title="Gestionar Fondos Múltiples"
+                                        >
+                                            <Info size={12} />
+                                            {fondosAdicionales > 0 && <span className="text-[9px] uppercase tracking-wider">+{formaterMoneda(fondosAdicionales)}</span>}
+                                        </button>
+                                    )}
+                                </div>
+                                <span>{formaterMoneda(fondoCaja)}</span>
                             </div>
                             <div className="flex justify-between text-sm font-bold text-emerald-600">
                                 <span>+ Ingresos Efectivo (Ventas):</span>
@@ -491,34 +545,28 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                                 <span>- Gastos Pagados de Caja:</span>
                                 <span>-{formaterMoneda(gastosCompras)}</span>
                             </div>
+                            <div className="flex justify-between text-sm font-bold text-blue-600 border-t border-slate-100 pt-2 mt-2">
+                                <span>- Retiro (Gerencia):</span>
+                                <span>-{formaterMoneda(efectivoEntregadoTotal)}</span>
+                            </div>
                             <div className="flex justify-between text-sm font-bold text-blue-600">
-                                <span>- Ingresos Declarados:</span>
-                                <span>-{formaterMoneda(efectivoDeclaradoCaja)}</span>
+                                <span>- Fondo dejado en Caja:</span>
+                                <span>-{formaterMoneda(efectivoEnCajaTotal)}</span>
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-center bg-emerald-50 p-3 rounded-xl border border-emerald-100">
-                            {corteSeleccionadoId === 'global' ? (
-                                <>
-                                    <div>
-                                        <span className="text-sm font-black text-emerald-800 uppercase tracking-widest block">Sobrante (Para Feria):</span>
-                                        <span className="text-[9px] text-emerald-600 font-bold">Ingresos - Gastos - Declarado</span>
-                                    </div>
-                                    <span className={`text-2xl font-black ${diferenciaFeria < 0 ? 'text-red-500' : 'text-emerald-700'}`}>
-                                        {diferenciaFeria < 0 ? '-' : ''}{formaterMoneda(Math.abs(diferenciaFeria))}
-                                    </span>
-                                </>
-                            ) : (
-                                <>
-                                    <div>
-                                        <span className="text-sm font-black text-emerald-800 uppercase tracking-widest block">Feria sig. turno:</span>
-                                        <span className="text-[9px] text-emerald-600 font-bold">Ingresos - Gastos - Declarado</span>
-                                    </div>
-                                    <span className={`text-2xl font-black ${diferenciaFeria < 0 ? 'text-red-500' : 'text-emerald-700'}`}>
-                                        {diferenciaFeria < 0 ? '-' : ''}{formaterMoneda(Math.abs(diferenciaFeria))}
-                                    </span>
-                                </>
-                            )}
+                        <div className={`flex justify-between items-center p-3 rounded-xl border ${isPerfecto ? 'bg-blue-50 border-blue-200' : isFaltante ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                            <div>
+                                <span className={`text-sm font-black uppercase tracking-widest block ${isPerfecto ? 'text-blue-800' : isFaltante ? 'text-red-800' : 'text-emerald-800'}`}>
+                                    {isPerfecto ? 'Cuadre Perfecto' : isFaltante ? 'Faltante en Caja' : 'Sobrante en Caja'}
+                                </span>
+                                <span className={`text-[9px] font-bold uppercase tracking-widest ${isPerfecto ? 'text-blue-500' : isFaltante ? 'text-red-500' : 'text-emerald-500'}`}>
+                                    (Fondo+Ventas) - Gastos - Declarado
+                                </span>
+                            </div>
+                            <span className={`text-2xl font-black ${isPerfecto ? 'text-blue-600' : isFaltante ? 'text-red-600' : 'text-emerald-600'}`}>
+                                {isSobrante ? '+' : isFaltante ? '-' : ''}{formaterMoneda(Math.abs(diferenciaAuditoria))}
+                            </span>
                         </div>
                     </div>
 
@@ -552,6 +600,53 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     </div>
                 </div>
             </div>
+
+            {/* BLOQUE NUEVO: DIFERENCIAS INDIVIDUALES POR CAJERO */}
+            {corteSeleccionadoId === 'global' && cortesDelDia.length > 0 && (
+                <div className="bg-slate-50 p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200 mt-8 print:hidden">
+                    <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest mb-6 flex items-center gap-3">
+                        <Users size={24} className="text-blue-500" /> Auditoría Individual por Turno
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {cortesDelDia.map((c, i) => {
+                            const fIni = Number(c.fondo_inicial || 0);
+                            const iEfe = Number(c.total_efectivo || 0);
+                            const gas = Number(c.total_gastos || 0);
+                            const decl = Number(c.efectivo_cajon || 0);
+                            const eEnt = Number(c.efectivo_entregado || 0);
+                            const eCaj = Number(c.efectivo_en_caja || 0);
+
+                            const dif = (fIni + iEfe) - gas - decl;
+                            const isF = dif > 0;
+                            const isS = dif < 0;
+                            const isP = dif === 0;
+
+                            return (
+                                <div key={c.id} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 hover:shadow-md transition-all">
+                                    <p className="font-black text-slate-800 uppercase tracking-widest text-sm mb-3 border-b border-slate-100 pb-3 flex items-center gap-2">
+                                        <User size={16} className="text-slate-400" /> Turno {i + 1}: {c.usuario_nombre || 'Cajero'}
+                                    </p>
+                                    <div className="space-y-2 text-xs font-bold text-slate-500 mb-4">
+                                        <div className="flex justify-between"><span>Fondo Inicial:</span> <span>{formaterMoneda(fIni)}</span></div>
+                                        <div className="flex justify-between text-emerald-600"><span>+ Ventas Efectivo:</span> <span>{formaterMoneda(iEfe)}</span></div>
+                                        <div className="flex justify-between text-red-500"><span>- Gastos (Caja):</span> <span>-{formaterMoneda(gas)}</span></div>
+                                        <div className="flex justify-between text-blue-600 border-t border-slate-100 pt-2 mt-1"><span>- Retiro Gerencia:</span> <span>-{formaterMoneda(eEnt)}</span></div>
+                                        <div className="flex justify-between text-blue-600"><span>- Fondo Dejado:</span> <span>-{formaterMoneda(eCaj)}</span></div>
+                                    </div>
+                                    <div className={`p-3 rounded-2xl flex justify-between items-center ${isP ? 'bg-blue-50 text-blue-700' : isF ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                        <span className="font-black uppercase tracking-widest text-[10px]">
+                                            {isP ? 'Cuadre Perfecto' : isF ? 'Faltante' : 'Sobrante'}
+                                        </span>
+                                        <span className="font-black text-lg">
+                                            {isS ? '+' : isF ? '-' : ''}{formaterMoneda(Math.abs(dif))}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:w-full">
                 <div className="lg:col-span-2 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col h-[600px] print:h-auto print:border-none print:shadow-none print:p-0 print:block print:w-full">
@@ -626,7 +721,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                                             if (hasUpsell) promosText.push(`🔥 Oferta`);
                                         } catch(e) {}
 
-                                        // 👇 FIX APLICADO: Máscara visual para órdenes en Cuenta Abierta (Por Cobrar)
                                         let estadoVisual = p.estado_preparacion;
                                         if (estadoVisual === 'Pagado' && ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago)) {
                                             estadoVisual = 'EN COLA';
@@ -659,7 +753,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                                                     </span>
                                                 </td>
                                                 <td className="py-3 px-2 text-center align-top">
-                                                    {/* 👇 FIX APLICADO: Renderizado con la máscara visual del estado */}
                                                     <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${
                                                         isCancelado ? 'bg-red-100 text-red-700' :
                                                         ['Entregado', 'Finalizado', 'Liquidado'].includes(p.estado_preparacion) ? 'bg-emerald-100 text-emerald-700' :
@@ -752,6 +845,58 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     </div>
                 </div>
             </div>
+
+            {/* MODAL DE GESTIÓN DE FONDOS INICIALES */}
+            {modalFondosAbierto && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-[32px] p-6 md:p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                        <div className="flex justify-between items-center mb-6">
+                            <div>
+                                <h3 className="text-xl font-black text-slate-800 tracking-tight">Fondos de Caja</h3>
+                                <p className="text-xs font-bold text-slate-500">Selecciona qué fondos sumar a la cuenta global</p>
+                            </div>
+                            <button onClick={() => setModalFondosAbierto(false)} className="bg-slate-100 p-2 rounded-full text-slate-500 hover:bg-slate-200 transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 mb-6 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+                            {cortesDelDia.map((c, i) => {
+                                const isSelected = fondosSeleccionados.includes(c.id);
+                                return (
+                                    <div
+                                        key={c.id}
+                                        onClick={() => {
+                                            setFondosSeleccionados(prev =>
+                                                prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                                            );
+                                        }}
+                                        className={`flex justify-between items-center p-4 rounded-2xl border-2 cursor-pointer transition-all active:scale-95 ${isSelected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 hover:border-blue-300'}`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            {isSelected ? <CheckSquare className="text-blue-600" size={22}/> : <Square className="text-slate-300" size={22}/>}
+                                            <div>
+                                                <p className={`font-black text-sm ${isSelected ? 'text-blue-900' : 'text-slate-700'}`}>Turno {i + 1}: {c.usuario_nombre}</p>
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Fondo Declarado</p>
+                                            </div>
+                                        </div>
+                                        <span className={`text-lg font-black ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>
+                                            {formaterMoneda(c.fondo_inicial || 0)}
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+
+                        <button
+                            onClick={() => setModalFondosAbierto(false)}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-2xl font-black text-lg transition-all shadow-lg shadow-blue-500/30 active:scale-95 flex justify-center items-center gap-2"
+                        >
+                            <CheckSquare size={20} /> Aplicar al Cuadre Global
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
