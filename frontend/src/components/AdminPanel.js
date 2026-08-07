@@ -105,7 +105,6 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     socket.on('pedido_eliminado', actualizarPantalla);
     socket.on('catalogo_actualizado', actualizarPantalla);
 
-    // 👇 SOLUCIÓN: Escuchamos el evento exclusivo para administradores
     socket.on('alerta_admin', (data) => {
         showAlert(data.titulo, data.mensaje, 'info');
     });
@@ -148,25 +147,32 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const commonProps = { apiUrl, baseUrl, refrescarDatos: cargarDatos, showAlert, showConfirm };  
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden relative">
-      <TopNavAdmin
-        user={user}
-        onLogout={onLogout}
-        onGoToKiosco={onGoToKiosco}
-        seccion={seccion}
-        setSeccion={setSeccion}
-        canViewMenu={canViewMenu}
-        canViewInventario={canViewInventario}
-        canViewCatalogos={canViewCatalogos}
-        canViewUsuarios={canViewUsuarios}
-        canViewConfig={canViewConfig}
-        canViewClientes={canViewClientes}
-        canViewReportes={canViewReportes}
-        canViewPromociones={canViewPromociones}
-        canViewMesas={canViewMesas}
-        canViewProveedores={canViewProveedores}
-      />  
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+    // 👇 FIX: print:block print:h-auto print:overflow-visible para permitir paginación en PDF
+    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans overflow-hidden relative print:block print:h-auto print:overflow-visible">
+      
+      {/* 👇 FIX: Envolvemos el TopNav en print:hidden para ocultarlo en el PDF */}
+      <div className="print:hidden">
+        <TopNavAdmin
+          user={user}
+          onLogout={onLogout}
+          onGoToKiosco={onGoToKiosco}
+          seccion={seccion}
+          setSeccion={setSeccion}
+          canViewMenu={canViewMenu}
+          canViewInventario={canViewInventario}
+          canViewCatalogos={canViewCatalogos}
+          canViewUsuarios={canViewUsuarios}
+          canViewConfig={canViewConfig}
+          canViewClientes={canViewClientes}
+          canViewReportes={canViewReportes}
+          canViewPromociones={canViewPromociones}
+          canViewMesas={canViewMesas}
+          canViewProveedores={canViewProveedores}
+        />  
+      </div>
+
+      {/* 👇 FIX: print:p-0 print:overflow-visible print:block para liberar el scroll de la etiqueta main */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto print:p-0 print:overflow-visible print:block">
         {seccion === 'menu' && canViewMenu && (
           <AdminMenu
             {...commonProps}
@@ -247,7 +253,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       {isGlobalAdmin && (
         <button
           onClick={lanzarActualizacionGlobal}
-          className="fixed bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 flex items-center gap-2 group"
+          // 👇 FIX: Añadido print:hidden
+          className="fixed bottom-6 right-6 bg-slate-900 text-white p-4 rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all z-40 flex items-center gap-2 group print:hidden"
           title="Forzar actualización en todos los dispositivos"
         >
           <span className="text-xl">🚀</span>
@@ -258,7 +265,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       )}
 
       {modalUI.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
+        // 👇 FIX: Añadido print:hidden al overlay del modal de alertas
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 print:hidden">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center">
             {modalUI.tipo === 'error' && <AlertTriangle className="text-red-500 w-16 h-16 mb-4" />}
             {modalUI.tipo === 'success' && <CheckCircle2 className="text-emerald-500 w-16 h-16 mb-4" />}
