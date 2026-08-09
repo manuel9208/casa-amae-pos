@@ -27,6 +27,11 @@ const biometricoCtrl = require('../controllers/biometricoController');
 const mermaCtrl = require('../controllers/mermaController');
 const impresionCtrl = require('../controllers/impresionController'); 
 const proveedorCtrl = require('../controllers/proveedorController'); // Controlador de proveedores
+// 👇 NUEVO: Controlador de Combos
+const comboCtrl = require('../controllers/comboController'); 
+
+// 👇 NUEVO: Inicializar la tabla de combos en Neon.tech automáticamente al arrancar
+comboCtrl.inicializarTablaCombos();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -87,6 +92,15 @@ router.post('/promociones', promocionCtrl.crearPromocion);
 router.put('/promociones/:id/estado', promocionCtrl.actualizarEstadoPromocion);
 router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
 router.put('/promociones/:id', promocionCtrl.actualizarPromocion);  
+
+// ==========================================
+// 👇 NUEVO: CONSTRUCTOR DE COMBOS
+// ==========================================
+router.get('/combos', comboCtrl.obtenerCombos);
+router.post('/combos', comboCtrl.crearCombo);
+router.put('/combos/:id', comboCtrl.actualizarCombo);
+router.put('/combos/:id/estado', comboCtrl.cambiarEstadoCombo);
+router.delete('/combos/:id', comboCtrl.eliminarCombo);
 
 // ==========================================
 // NOTIFICACIONES PUSH

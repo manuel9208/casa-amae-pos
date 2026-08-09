@@ -180,6 +180,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           pedidos={c.pedidos}
           modalMermas={c.modalMermas}
           setModalMermas={c.setModalMermas}
+          combosActivos={c.combosActivos} // 👈 NUEVO: Pasamos los combos a los modales
         />
       </div>
       <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />

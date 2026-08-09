@@ -29,7 +29,8 @@ const ModalesCaja = ({
     registrarClienteParaPedido, onGoToKiosco, empleadosPOS, mesas,
     modalAsistencia, setModalAsistencia,
     modalComedor, setModalComedor, pedidos,
-    modalMermas, setModalMermas
+    modalMermas, setModalMermas,
+    combosActivos // 👈 RECIBIMOS LOS COMBOS DESDE CAJA.JS
 }) => {
 
     // 👇 ESCÁNER DE OPCIÓN A: Detectar si el carrito tiene productos restringidos para pago con puntos
@@ -109,7 +110,26 @@ const ModalesCaja = ({
             )}  
 
             <ModalAperturaCaja fondoCaja={fondoCaja} iniciarTurno={iniciarTurno} inputFondo={inputFondo} setInputFondo={setInputFondo} />  
-            <ModalPuntoVenta modalPuntoVenta={modalPuntoVenta} setModalPuntoVenta={setModalPuntoVenta} ordenEditandoRapida={ordenEditandoRapida} user={user} configGlobal={configGlobal} productos={productos} clasificaciones={clasificaciones} catalogoIngredientes={catalogoIngredientes} apiUrl={apiUrl} lanzarImpresion={lanzarImpresion} setModalPago={setModalPago} refrescarDatosCaja={cargarDataDinamica} onClose={() => setModalPuntoVenta(false)} empleadosPOS={empleadosPOS} mesas={mesas} />  
+            
+            <ModalPuntoVenta 
+                modalPuntoVenta={modalPuntoVenta} 
+                setModalPuntoVenta={setModalPuntoVenta} 
+                ordenEditandoRapida={ordenEditandoRapida} 
+                user={user} 
+                configGlobal={configGlobal} 
+                productos={productos} 
+                clasificaciones={clasificaciones} 
+                catalogoIngredientes={catalogoIngredientes} 
+                apiUrl={apiUrl} 
+                lanzarImpresion={lanzarImpresion} 
+                setModalPago={setModalPago} 
+                refrescarDatosCaja={cargarDataDinamica} 
+                onClose={() => setModalPuntoVenta(false)} 
+                empleadosPOS={empleadosPOS} 
+                mesas={mesas} 
+                combosActivos={combosActivos} // 👈 SE INYECTA PARA EL KIOSCO DEL CAJERO
+            />  
+
             <ModalIdentificar modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} />  
             <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting} />  
             <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />  

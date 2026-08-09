@@ -60,6 +60,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [ordenEditandoRapida, setOrdenEditandoRapida] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalComedor, setModalComedor] = useState(false);
+  const [combosActivos, setCombosActivos] = useState([]);
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const hoyStr = getMazatlanDateStr(); 
@@ -151,6 +152,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           });
           
           setPedidosAuditados(auditados);
+      }
+
+      try {
+        const resCombos = await fetch(`${apiUrl}/combos`);
+        if (resCombos.ok) {
+            const dataCombos = await resCombos.json();
+            setCombosActivos(Array.isArray(dataCombos) ? dataCombos.filter(c => c.activo) : []);
+        }
+      } catch (error) {
+          console.error("Error al cargar combos en Caja:", error);
       }
 
     } catch (error) {
@@ -995,6 +1006,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
     onGoToKiosco: onGoToKioscoLocal,
     forzarLiberacionMesas,
-    pedidosAuditados 
+    pedidosAuditados,combosActivos 
   };
 };

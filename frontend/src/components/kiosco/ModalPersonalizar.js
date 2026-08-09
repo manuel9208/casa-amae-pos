@@ -9,7 +9,10 @@ const ModalPersonalizar = ({
   configGlobal = {},
   setPromocionVigente,
   queueLength = 1,
-  onCancelarPersonalizacion
+  onCancelarPersonalizacion,
+  setComboEnEspera,
+  onSuccessOverride, 
+  isSubItemCombo     
 }) => {
 
   const queue = Array.isArray(productoEnEspera) ? productoEnEspera : (productoEnEspera ? [productoEnEspera] : []);
@@ -85,10 +88,22 @@ const ModalPersonalizar = ({
       setCantidadProducto(itemAEditar.cantidad || 1); 
     } else {
       setExtrasAgregados([]); setIngredientesRemovidos([]); setNotaEspecial(''); setCantidadProducto(1); 
-      setVariacionesSeleccionadas({});
       setGruposOpcionalesSeleccionados({});
       setIngredientesSustituidos({}); 
       setIngredienteDesplegado(null);
+
+      let varsTemp = {};
+      if (currentItem._esComboBuilder) {
+          let configData = currentItem._configuracionCombo.configuracion_grupos;
+          if (typeof configData === 'string') configData = JSON.parse(configData);
+          const basesCombo = configData.variaciones_base || {};
+          
+          Object.entries(basesCombo).forEach(([cat, nombreVar]) => {
+              const objOpcion = (currentItem.opciones || []).find(o => o.categoria === cat && String(o.nombre).toLowerCase() === String(nombreVar).toLowerCase());
+              if (objOpcion) varsTemp[cat] = objOpcion;
+          });
+      }
+      setVariacionesSeleccionadas(varsTemp);
     }
     setPasoPersonalizacion(0);
     setErrorStock('');
@@ -117,7 +132,6 @@ const ModalPersonalizar = ({
     return { tipoDesc, valorDesc };
   };
 
-  // 👇 NUEVA FUNCIÓN: Identifica inteligentemente quién debe absorber el descuento
   const obtenerVariacionBaseEfectiva = (itemInfo) => {
       if (itemInfo._variacionBasePromo) {
           return String(itemInfo._variacionBasePromo).trim().toLowerCase();
@@ -137,7 +151,6 @@ const ModalPersonalizar = ({
       
       const varEfectiva = obtenerVariacionBaseEfectiva(currentItem);
       if (varEfectiva) {
-          // Solo sumamos a la base matemática la variación que detonó la promoción
           const opcionesVariacion = (currentItem.opciones || []).filter(o => o.tipo === 'variacion' || o.categoria === 'Tamaño' || o.categoria === 'Sabor');
           const vb = opcionesVariacion.find(o => String(o.nombre).trim().toLowerCase() === varEfectiva);
           if (vb) {
@@ -164,18 +177,38 @@ const ModalPersonalizar = ({
   const getPrecioDeltaVisual = (opcionObj) => {
       if (!opcionObj) return 0;
       const precioOpcion = Number(opcionObj.precioExtra || 0);  
-      
-      if (!currentItem._esPromo) return precioOpcion;  
+
+      if (isSubItemCombo) return precioOpcion; 
 
       const isVariacionPrincipal = opcionObj.tipo === 'variacion' || opcionObj.categoria === 'Tamaño' || opcionObj.categoria === 'Sabor';
       if (!isVariacionPrincipal) return precioOpcion;  
+
+      if (currentItem._esComboBuilder) {
+          let configData = currentItem._configuracionCombo.configuracion_grupos;
+          if (typeof configData === 'string') configData = JSON.parse(configData);
+          const basesCombo = configData.variaciones_base || {};
+          
+          if (basesCombo[opcionObj.categoria]) {
+              const varEfectiva = String(basesCombo[opcionObj.categoria]).trim().toLowerCase();
+              const opcionesMismoTipo = (currentItem.opciones || []).filter(o => o.categoria === opcionObj.categoria);
+              const vb = opcionesMismoTipo.find(o => String(o.nombre).trim().toLowerCase() === varEfectiva);
+              
+              if (vb) {
+                  const precioVariacionBase = Number(vb.precioExtra || 0);
+                  const delta = precioOpcion - precioVariacionBase;
+                  return delta > 0 ? delta : 0;
+              }
+          }
+          return precioOpcion;
+      }
+
+      if (!currentItem._esPromo) return precioOpcion;  
 
       const varEfectiva = obtenerVariacionBaseEfectiva(currentItem);
       if (varEfectiva) {
           const opcionesMismoTipo = (currentItem.opciones || []).filter(o => o.categoria === opcionObj.categoria);
           const vb = opcionesMismoTipo.find(o => String(o.nombre).trim().toLowerCase() === varEfectiva);
           
-          // Si la variación de la promo pertenece a ESTA categoría (ej. Ambos son Tamaño), aplicamos el delta
           if (vb) {
               const precioVariacionBase = Number(vb.precioExtra || 0);
               const delta = precioOpcion - precioVariacionBase;
@@ -183,7 +216,6 @@ const ModalPersonalizar = ({
           }
       }
       
-      // Si la categoría no fue la afectada por la promo (ej. es un Sabor), devolvemos su costo íntegro
       return precioOpcion;
   };
 
@@ -192,13 +224,14 @@ const ModalPersonalizar = ({
     setTimeout(() => setPasoPersonalizacion(p => p + 1), 150);
   };
 
+  // 👇 FIX APLICADO AQUÍ: Validamos que setItemAEditar exista antes de llamarla
   const avanzarCola = () => {
     if (queue.length > 1) {
         setProductoEnEspera(queue.slice(1));
     } else {
         setProductoEnEspera(null);
     }
-    setItemAEditar(null);
+    if (setItemAEditar) setItemAEditar(null);
   };
 
   const evaluarUpsell = (prodId, catName) => {
@@ -249,7 +282,17 @@ const ModalPersonalizar = ({
   if (!currentItem) return null;
 
   const totalPlatilloCalculado = (() => {
-    const baseCalculada = currentItem._esPromo ? calcularPrecioBaseConPromo() : Number(currentItem.precio_base);
+    let baseCalculada = Number(currentItem.precio_base);
+               
+    if (isSubItemCombo) {
+        baseCalculada = 0; 
+    } else if (currentItem._esComboBuilder) {
+        let configData = currentItem._configuracionCombo.configuracion_grupos;
+        if (typeof configData === 'string') configData = JSON.parse(configData);
+        baseCalculada = Number(configData.precio_combo ?? currentItem.precio_base);
+    } else if (currentItem._esPromo) {
+        baseCalculada = calcularPrecioBaseConPromo();
+    }
 
     return (baseCalculada + 
         extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
@@ -308,7 +351,7 @@ const ModalPersonalizar = ({
   try { if (configGlobal && configGlobal.politicas_sustitucion) politicasSustUI = typeof configGlobal.politicas_sustitucion === 'string' ? JSON.parse(configGlobal.politicas_sustitucion) : configGlobal.politicas_sustitucion; } catch(e){}
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in">
+    <div className={`fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in ${isSubItemCombo ? 'z-[250]' : 'z-[150]'}`}>
       <div className="bg-white p-6 md:p-8 rounded-[40px] w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] border border-slate-100 relative">
         
         {queue.length > 1 && (
@@ -324,8 +367,8 @@ const ModalPersonalizar = ({
             </button>
         )}
 
-        <h2 className="text-2xl md:text-3xl font-black text-center mb-2 text-slate-800 mt-2">{currentItem.nombre}</h2>
-        {currentItem.descripcion && (
+        <h2 className="text-2xl md:text-3xl font-black text-center mb-2 text-slate-800 mt-2">{currentItem._esComboBuilder ? currentItem._configuracionCombo.nombre : currentItem.nombre}</h2>
+        {currentItem.descripcion && !currentItem._esComboBuilder && (
           <div className="bg-slate-50 border border-slate-100 p-3 md:p-4 rounded-2xl mb-4 shadow-sm mx-2">
             <p className="text-slate-600 font-medium text-xs md:text-sm leading-relaxed text-center">
               {currentItem.descripcion}
@@ -559,7 +602,9 @@ const ModalPersonalizar = ({
             )}
 
             <div className="text-right">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Platillo</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                {isSubItemCombo ? 'Costo Adicional' : 'Total Platillo'}
+              </p>
               <p className="text-3xl md:text-4xl font-black text-blue-600">
                 ${totalPlatilloCalculado.toFixed(2)}
               </p>
@@ -596,7 +641,17 @@ const ModalPersonalizar = ({
                     extrasFinales.push({ nombre: `⭐ Promo: ${currentItem._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
                 }
 
-                const baseCalculada = currentItem._esPromo ? calcularPrecioBaseConPromo() : Number(currentItem.precio_base);
+                let baseCalculada = Number(currentItem.precio_base);
+                
+                if (isSubItemCombo) {
+                    baseCalculada = 0; 
+                } else if (currentItem._esComboBuilder) {
+                    let configData = currentItem._configuracionCombo.configuracion_grupos;
+                    if (typeof configData === 'string') configData = JSON.parse(configData);
+                    baseCalculada = Number(configData.precio_combo ?? currentItem.precio_base);
+                } else if (currentItem._esPromo) {
+                    baseCalculada = calcularPrecioBaseConPromo();
+                }
 
                 const precioIndividualCalculado = baseCalculada + 
                   Object.values(variacionesSeleccionadas).reduce((s, v) => s + getPrecioDeltaVisual(v), 0) + 
@@ -626,48 +681,48 @@ const ModalPersonalizar = ({
                   _variacionBasePromo: currentItem._variacionBasePromo
                 };
 
-                if (itemAEditar) {
-                    setCarrito(carrito.map(item => item.idTicket === itemAEditar.idTicket ? nuevoItem : item));
+                if (onSuccessOverride) {
+                    onSuccessOverride(nuevoItem);
+                    return;
+                }
+
+                if (currentItem._esComboBuilder) {
+                    nuevoItem.nombre = currentItem._configuracionCombo.nombre;
+                    nuevoItem._esCombo = true;
+                    nuevoItem._comboId = currentItem._configuracionCombo.id;
+                }
+
+                if (queue.length > 1) {
+                    if (itemAEditar) setCarrito(carrito.map(i => i.idTicket === itemAEditar.idTicket ? nuevoItem : i));
+                    else setCarrito([...carrito, nuevoItem]);
                     avanzarCola();
                 } else {
-                    const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
-                    const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
-                    
-                    setCarrito(prev => {
-                        let indexExistente = -1;
-
-                        if (!nuevoItem._esPromo) {
-                            indexExistente = prev.findIndex(item => {
-                                const idExistente = item.producto_id || item.id;
-                                const idNuevo = nuevoItem.producto_id || nuevoItem.id;
-
-                                return !item._esPromo && 
-                                      idExistente === idNuevo && 
-                                      getExtrasStr(item.extras) === extrasStrNuevo &&
-                                      item.precioFinal === nuevoItem.precioFinal;
-                            });
-                        }
-
-                        if (indexExistente >= 0) {
-                            const nuevoCarrito = [...prev];
-                            nuevoCarrito[indexExistente].cantidad = (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto;
-                            return nuevoCarrito;
+                    if (currentItem._esComboBuilder) {
+                        setComboEnEspera({ 
+                            productoPersonalizado: nuevoItem, 
+                            configuracion: currentItem._configuracionCombo,
+                            itemAEditar: itemAEditar 
+                        });
+                        setProductoEnEspera(null);
+                    } else {
+                        if (itemAEditar) {
+                            setCarrito(carrito.map(i => i.idTicket === itemAEditar.idTicket ? nuevoItem : i));
+                            setItemAEditar(null);
                         } else {
-                            return [...prev, nuevoItem];
+                            setCarrito([...carrito, nuevoItem]);
                         }
-                    });
 
-                    if (!currentItem._esPromo && queue.length <= 1) {
-                        const promo = evaluarUpsell(currentItem.id, currentItem.categoria);
-                        if (promo && setPromocionVigente) {
-                            setPromocionVigente(promo);
+                        if (!currentItem._esPromo && queue.length <= 1) {
+                            const promo = evaluarUpsell(currentItem.id, currentItem.categoria);
+                            if (promo && setPromocionVigente) {
+                                setPromocionVigente(promo);
+                            }
                         }
+                        setProductoEnEspera(null);
                     }
-                    
-                    avanzarCola(); 
                 }
               }} className="flex-[2] py-4 md:py-5 bg-emerald-500 text-white font-black text-lg md:text-xl rounded-2xl hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition active:scale-95">
-                {itemAEditar ? 'Actualizar' : (queue.length > 1 ? `Añadir y Siguiente ➡` : `Añadir a la Orden`)}
+                {itemAEditar ? 'Actualizar' : (onSuccessOverride ? 'Confirmar Selección ➡' : (currentItem._esComboBuilder ? 'Siguiente Paso ➡' : (queue.length > 1 ? `Añadir y Siguiente ➡` : `Añadir a la Orden`)))}
               </button>
             ) : (
               <button 

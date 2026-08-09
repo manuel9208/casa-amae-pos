@@ -6,6 +6,7 @@ import ModalPersonalizar from './kiosco/ModalPersonalizar';
 import CheckoutFlujo from './kiosco/CheckoutFlujo';
 import MisPedidos from './kiosco/MisPedidos';
 import OfertaUpselling from './kiosco/OfertaUpselling'; 
+import ModalArmarCombo from './kiosco/ModalArmarCombo';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -64,6 +65,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0); 
   const [promocionVigente, setPromocionVigente] = useState(null);
 
+  const [combosActivos, setCombosActivos] = useState([]);
+  const [comboEnEspera, setComboEnEspera] = useState(null);
+
   const mostrarAlerta = useCallback((mensaje, tipo = 'info') => {
     setAlertaGeneral({ mensaje, tipo });
     setTimeout(() => setAlertaGeneral(null), 4000);
@@ -94,6 +98,20 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isOffline) {
+        fetch(`${apiUrl}/combos`)
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setCombosActivos(data.filter(c => c.activo));
+                }
+            })
+            .catch(e => console.error("Error al cargar combos en Kiosco:", e));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOffline]);
 
   const fetchCatalogoCompleto = useCallback(() => {
     const estaDisponiblePorHorario = (item) => {
@@ -277,7 +295,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0); 
       setPuntosAplicados(0); 
       setCuponActivo(null); setDescuentoCuponDinero(0);
-      
+      setComboEnEspera(null);
+
       if (ordenExterna && onVolverAdmin) onVolverAdmin(); else setPantallaActual('menu'); 
     } else { 
       if (modoKiosco === 'mesa' || mesaQR) {
@@ -461,11 +480,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   };
 
   const agregarUpsellAlCarrito = (itemsQueue) => {
-    // Si la oferta generó una cola de platillos, los mandamos a personalizar
     if (itemsQueue && itemsQueue.length > 0) {
         setProductoEnEspera(itemsQueue);
     }
-    // Ocultamos el anuncio de Oferta
     setPromocionVigente(null); 
   };
 
@@ -639,6 +656,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           isSubmitting={isSubmitting} 
           modoKiosco={modoKiosco}
           bloqueoPuntosActivo={bloqueoPuntosActivo}
+          setComboEnEspera={setComboEnEspera}
+          combosActivos={combosActivos}
         />
       )}
 
@@ -740,10 +759,25 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones}
           configGlobal={configGlobal}
           setPromocionVigente={setPromocionVigente} 
+          setComboEnEspera={setComboEnEspera} 
         />
       )}
 
-      {/* 👇 MODAL PROMOCIÓN / UPSELL GLOBAL (1-a-muchos) */}
+      {comboEnEspera && (
+        <ModalArmarCombo
+          comboEnEspera={comboEnEspera} 
+          setComboEnEspera={setComboEnEspera}
+          carrito={carrito} 
+          setCarrito={setCarrito}
+          productos={productos} 
+          clasificaciones={clasificaciones}
+          baseUrl={baseUrl}
+          setItemAEditar={setItemAEditar}
+          catalogoIngredientes={catalogoIngredientes} // 👈 NUEVO: Requerido para personalizar los hijos
+          configGlobal={configGlobal}                 // 👈 NUEVO: Requerido para personalizar los hijos
+        />
+      )} 
+
       <OfertaUpselling 
         promocionVigente={promocionVigente} 
         setPromocionVigente={setPromocionVigente} 

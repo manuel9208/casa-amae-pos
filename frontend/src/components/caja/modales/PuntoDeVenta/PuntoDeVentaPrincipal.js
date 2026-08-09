@@ -10,17 +10,17 @@ import ModalCuentaAbierta from './ModalCuentaAbierta';
 import OfertaUpselling from './OfertaUpselling';
 import PasoIdentificarCliente from './PasoIdentificarCliente';
 import { useBuscadorClientes } from '../../useBuscadorClientes';
+import ModalArmarCombo from './ModalArmarCombo';
 
 const PuntoDeVentaPrincipal = ({
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
     productos, clasificaciones, catalogoIngredientes, apiUrl, lanzarImpresion,
-    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas
+    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas, combosActivos = [] 
 }) => {
     const [paso, setPaso] = useState('identificar');
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1);
     const [alertaUI, setAlertaUI] = useState(null);
-    const [confirmacionFinanciera, setConfirmacionFinanciera] = useState(null); 
-
+    const [confirmacionFinanciera, setConfirmacionFinanciera] = useState(null);
     const [clienteAsignado, setClienteAsignado] = useState(null);
     const [telefonoCliente, setTelefonoCliente] = useState('');
     const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
@@ -39,11 +39,9 @@ const PuntoDeVentaPrincipal = ({
     const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
     const [errorMsg, setErrorMsg] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-
     const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
     const terminoBusqueda = clienteAsignado ? '' : nombreOrden;
     const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(terminoBusqueda, apiUrl);
-
     const [modalCuentaAbierta, setModalCuentaAbierta] = useState(false);
     const [promocionVigente, setPromocionVigente] = useState(null);
     const [modalNip, setModalNip] = useState(false);
@@ -52,9 +50,10 @@ const PuntoDeVentaPrincipal = ({
     const [descuentoPuntosPuntosFisicos, setDescuentoPuntosPuntosFisicos] = useState(0);
     const [descuentoPuntosDinero, setDescuentoPuntosDinero] = useState(0);
     const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0);
-
     const [productoEnEspera, setProductoEnEspera] = useState(null);
     const [itemEditandoId, setItemEditandoId] = useState(null);
+
+    const [comboEnEspera, setComboEnEspera] = useState(null);
     const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
     const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
     const [saborSeleccionado, setSaborSeleccionado] = useState(null);
@@ -73,10 +72,8 @@ const PuntoDeVentaPrincipal = ({
     const tarifasEnvio = typeof configGlobal?.tarifas_envio === 'string'
         ? JSON.parse(configGlobal.tarifas_envio || '[]')
         : (configGlobal?.tarifas_envio || []);
-
     const puntosCanjeActivo = configGlobal?.puntos_canje_activo === undefined ? true : (String(configGlobal?.puntos_canje_activo) === 'true');
 
-    // 👇 MOTOR DE COLA SECUENCIAL (Para el Upselling Cascada)
     const queue = Array.isArray(productoEnEspera) ? productoEnEspera : (productoEnEspera ? [productoEnEspera] : []);
     const currentItem = queue.length > 0 ? queue[0] : null;
 
@@ -88,7 +85,7 @@ const PuntoDeVentaPrincipal = ({
                 setClienteAsignado({
                     id: ordenEditandoRapida.cliente_id,
                     nombre: ordenEditandoRapida.cliente_nombre,
-                    puntos: ordenEditandoRapida.puntos || 0 
+                    puntos: ordenEditandoRapida.puntos || 0
                 });
             } else {
                 setClienteAsignado(null);
@@ -96,13 +93,11 @@ const PuntoDeVentaPrincipal = ({
             setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
             setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
             setMesaSeleccionada(ordenEditandoRapida.mesa || '');
-            
             if (ordenEditandoRapida.tipo_consumo === 'Domicilio') {
                 setZonaEnvioCosto(ordenEditandoRapida.costo_envio || '');
             } else {
                 setZonaEnvioCosto(0);
             }
-
             let dirPura = ordenEditandoRapida.direccion_entrega || '';
             if (dirPura.includes('|')) dirPura = dirPura.split('|')[0].trim();
             setNotaOpcional(dirPura !== 'Pendiente de dirección' ? dirPura : '');
@@ -185,10 +180,10 @@ const PuntoDeVentaPrincipal = ({
         }
         return acc;
     }, 0);
-    
+
     const bloqueoPuntosActivo = subtotalCanjeable === 0 && carrito.length > 0;
     const canjeParcialActivo = subtotalCanjeable > 0 && subtotalCanjeable < subtotal && carrito.length > 0;
-    
+
     useEffect(() => {
         let dCup = 0;
         if (cuponActivo) {
@@ -208,21 +203,17 @@ const PuntoDeVentaPrincipal = ({
         }
         setDescuentoPuntosDinero(dPts > 0 ? dPts : 0);
     }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal, bloqueoPuntosActivo, subtotalCanjeable, puntosCanjeActivo]);
-    
+
     const descuentoTotal = descuentoCuponDinero + descuentoPuntosDinero;
     const totalConEnvio = (subtotal - descuentoTotal) + (tipoConsumo === 'Domicilio' && zonaEnvioCosto ? Number(zonaEnvioCosto) : 0);
-
     const esEdicion = !!ordenEditandoRapida;
     const isPagado = esEdicion && !['Pendiente', 'Por Cobrar', 'Cancelado'].includes(ordenEditandoRapida.metodo_pago) && ordenEditandoRapida.estado_preparacion !== 'Pendiente';
     const yaPagado = isPagado;
-
     const nombresClasificacionesActivas = clasificaciones.map(c => c.nombre);
-    
     const productosDisponibles = productos.filter(p => {
         const catName = p.categoria || 'General';
         return catName === 'General' || nombresClasificacionesActivas.includes(catName);
     });
-
     const categoriasUnicas = [...new Set(productosDisponibles.map(p => p.categoria || 'General'))];
     const productosFiltrados = productosDisponibles.filter(p => (p.categoria || 'General') === categoriaActiva);
     
@@ -230,7 +221,7 @@ const PuntoDeVentaPrincipal = ({
         const clasifDB = clasificaciones.find(c => c.nombre === catName);
         return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
     };
-    
+
     const cambiarCantidadCart = (idTicket, delta) => {
         setCarrito(prev => prev.map(item => {
             if (item.idTicket === idTicket) {
@@ -246,18 +237,28 @@ const PuntoDeVentaPrincipal = ({
             return item;
         }));
     };
-    
+
     const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
     
     const iniciarEdicion = (item) => {
         const idOriginal = item.producto_id || item.id;
         const productoOriginal = productos.find(p => String(p.id) === String(idOriginal));
-        if (productoOriginal) {
-            setItemEditandoId(item.idTicket);
-            setProductoEnEspera([productoOriginal]);
-        } else {
-            setAlertaUI({ titulo: 'No se puede editar', mensaje: 'El producto original ya no existe en el catálogo actual.', tipo: 'error' });
+        if (!productoOriginal) return setAlertaUI({ titulo: 'Error', mensaje: 'El producto original ya no existe en el menú.', tipo: 'error' });
+
+        if (item._esCombo) {
+            const comboMatch = combosActivos.find(c => c.id === item._comboId);
+            if (comboMatch) {
+                setItemEditandoId(item.idTicket);
+                setProductoEnEspera([{
+                    ...productoOriginal,
+                    _esComboBuilder: true,
+                    _configuracionCombo: comboMatch
+                }]);
+                return;
+            }
         }
+        setItemEditandoId(item.idTicket);
+        setProductoEnEspera([productoOriginal]);
     };
 
     const resetWizard = () => {
@@ -266,7 +267,6 @@ const PuntoDeVentaPrincipal = ({
         setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
     };
 
-    // 👇 AVANCE EN COLA SECUENCIAL
     const avanzarCola = () => {
         if (queue.length > 1) {
             setProductoEnEspera(queue.slice(1));
@@ -277,7 +277,7 @@ const PuntoDeVentaPrincipal = ({
             resetWizard();
         }
     };
-    
+
     const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
         if (!politicasSustUI.activa) return 0;
         if (politicasSustUI.modalidad === 'fija') return Number(politicasSustUI.tarifa_fija || 0);
@@ -286,26 +286,34 @@ const PuntoDeVentaPrincipal = ({
         const diff = Number(ingNuevo?.precio_extra || 0) - Number(ingBase?.precio_extra || 0);
         return diff > 0 ? diff : 0;
     };
-    
+
     const evaluarUpsell = (prodId, catName) => {
         const promociones = configGlobal?.promociones || [];
         if (!Array.isArray(promociones)) return null;
         return promociones.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
-    
-    // 👇 HANDLE CASCADA: Añade a carrito y avanza en la fila
+
+    // 👇 LA FUNCIÓN AHORA SE USA CORRECTAMENTE E INCLUYE LA INTERCEPCIÓN DEL COMBO
     const handleTerminarPersonalizacion = (nuevoItem) => {
         if (itemEditandoId) {
             setCarrito(prev => prev.map(i => i.idTicket === itemEditandoId ? { ...nuevoItem, idTicket: i.idTicket } : i));
             avanzarCola();
         } else {
+            if (currentItem._esComboBuilder) {
+                setComboEnEspera({
+                    productoPersonalizado: nuevoItem,
+                    configuracion: currentItem._configuracionCombo,
+                    itemAEditar: null
+                });
+                setProductoEnEspera(null);
+                return;
+            }
             const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
             const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
-            
             setCarrito(prev => {
-                const indexExistente = prev.findIndex(item => 
-                    (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) && 
-                    getExtrasStr(item.extras) === extrasStrNuevo && 
+                const indexExistente = prev.findIndex(item =>
+                    (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) &&
+                    getExtrasStr(item.extras) === extrasStrNuevo &&
                     item.precioFinal === nuevoItem.precioFinal
                 );
                 if (indexExistente >= 0) {
@@ -316,7 +324,6 @@ const PuntoDeVentaPrincipal = ({
                     return [...prev, nuevoItem];
                 }
             });
-
             if (queue.length > 1) {
                 avanzarCola();
             } else {
@@ -328,8 +335,7 @@ const PuntoDeVentaPrincipal = ({
             }
         }
     };
-    
-    // 👇 FIX APLICADO: Interceptor de la lista
+
     const agregarUpsellAlCarrito = (itemsQueue) => {
         if (itemsQueue && itemsQueue.length > 0) {
             setProductoEnEspera(itemsQueue);
@@ -353,7 +359,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de conexión.'); }
         setIsSubmitting(false);
     };
-    
+
     const registrarClienteRapido = async (e) => {
         e.preventDefault(); setErrorMsg('');
         if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
@@ -371,7 +377,7 @@ const PuntoDeVentaPrincipal = ({
         } catch(err) { setErrorMsg('Error de red al registrar.'); }
         setIsSubmitting(false);
     };
-    
+
     const verificarNip = async (e) => {
         e.preventDefault();
         if (nipInput.length !== 4) return setErrorNip('Ingresa 4 dígitos.');
@@ -390,7 +396,7 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setErrorNip('Error de red.'); }
         setIsSubmitting(false);
     };
-    
+
     const aplicarCupon = async (e) => {
         e.preventDefault();
         if(!cuponInput.trim()) return;
@@ -413,12 +419,10 @@ const PuntoDeVentaPrincipal = ({
     const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, skipConfirmacion = false) => {
         if (carrito.length === 0 || isSubmitting) return;
         if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
-        
         if (esEdicion && !skipConfirmacion) {
             const totalOriginalPagado = Number(ordenEditandoRapida.total || 0);
             const diferencia = totalConEnvio - totalOriginalPagado;
-            
-            if (Math.abs(diferencia) > 0.01) { 
+            if (Math.abs(diferencia) > 0.01) {
                 setConfirmacionFinanciera({
                     tipo: diferencia > 0 ? 'cobro' : 'devolucion',
                     monto: Math.abs(diferencia),
@@ -426,38 +430,30 @@ const PuntoDeVentaPrincipal = ({
                     detallesCuentaAbierta,
                     isPagado: isPagado
                 });
-                return; 
+                return;
             }
         }
-        
         setIsSubmitting(true);  
         const carritoExpandido = [];
         carrito.forEach(item => {
           const qty = item.cantidad || 1;
           for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
         });  
-        
         let stringDireccion = notaOpcional;
         let pagoFinal = ordenEditandoRapida ? ordenEditandoRapida.metodo_pago : 'Por Cobrar';
-        
         const costoEnvioFinal = (tipoConsumo === 'Domicilio' && zonaEnvioCosto) ? Number(zonaEnvioCosto) : 0;  
-        
         if (tipoConsumo === 'Domicilio' && stringDireccion === '') stringDireccion = 'Pendiente de dirección';  
-        
         if (!clienteAsignado && nombreOrden.trim() && nombreOrden.trim() !== 'Invitado') {
           stringDireccion = `A NOMBRE DE: ${nombreOrden.trim()} | ${stringDireccion}`;
         }  
-        
         const telParaAnexar = telefonoCliente || telefonoOrdenRapida || clienteAsignado?.telefono;
         if (telParaAnexar) {
-            stringDireccion += ` | TEL: ${telParaAnexar}`;
+            stringDireccion += `| TEL: ${telParaAnexar}`;
         }
-        
         if (detallesCuentaAbierta) {
           if (detallesCuentaAbierta.metodo === 'Efectivo' && detallesCuentaAbierta.monto) stringDireccion = `[LLEVAR CAMBIO DE: $${detallesCuentaAbierta.monto}] ${stringDireccion}`;
           else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
         }  
-        
         let estadoInicial = 'Pendiente';
         if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
           estadoInicial = 'Pagado';
@@ -466,10 +462,8 @@ const PuntoDeVentaPrincipal = ({
         } else if (ordenEditandoRapida) {
           estadoInicial = ordenEditandoRapida.estado_preparacion;
         }
-        
         const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
         const puntosEfectivosAUsar = descuentoPuntosDinero > 0 ? Math.ceil(descuentoPuntosDinero / valorPeso) : 0;
-        
         const paquete = {
           cliente_id: clienteAsignado?.id || null,
           cliente_nombre: nombreOrden.trim(),
@@ -486,10 +480,8 @@ const PuntoDeVentaPrincipal = ({
           cupon_codigo: cuponActivo ? cuponActivo.codigo : null,
           descuento_puntos: puntosEfectivosAUsar
         };  
-        
         const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
         const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
-        
         try {
           const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
           if (res.ok) {
@@ -518,7 +510,6 @@ const PuntoDeVentaPrincipal = ({
         setIsSubmitting(false);
     };
 
-    // 👇 USO DE CURRENT ITEM PARA DIBUJAR LOS PASOS
     let pasosWiz = [];
     if (currentItem) {
         const tamanosList = (currentItem.opciones || []).filter(o => o.categoria === 'Tamaño');
@@ -561,19 +552,18 @@ const PuntoDeVentaPrincipal = ({
         pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
     }  
     const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
-    
+
     const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10))) ||
     (tipoConsumo === 'Recoger' && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && ((telefonoCliente.length > 0 && telefonoCliente.length < 10) || (telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10)));
-
+    
     if (!modalPuntoVenta) return null;
 
     return (
         <>
             <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
                 <div className="bg-slate-50 w-full max-w-4xl h-[90vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
-
                     {alertaUI && (
                         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
                             <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -588,7 +578,6 @@ const PuntoDeVentaPrincipal = ({
                             </div>
                         </div>
                     )}
-
                     <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 md:p-3 rounded-2xl ${esEdicion ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -611,7 +600,6 @@ const PuntoDeVentaPrincipal = ({
                             <XCircle size={28} />
                         </button>
                     </div>
-
                     {paso === 'identificar' || paso === 'registro' ? (
                         <PasoIdentificarCliente
                             paso={paso} setPaso={setPaso} telefonoCliente={telefonoCliente} setTelefonoCliente={setTelefonoCliente}
@@ -627,10 +615,26 @@ const PuntoDeVentaPrincipal = ({
                                     <MenuCategoriasYProductos
                                         categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva}
                                         categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
-                                        getPortadaCategoria={getPortadaCategoria} abrirModalProducto={(p) => setProductoEnEspera([p])}
+                                        getPortadaCategoria={getPortadaCategoria}
+                                        abrirModalProducto={(p) => {
+                                            setItemEditandoId(null);
+                                            if (p._esPromo) {
+                                                setProductoEnEspera([p]);
+                                                return;
+                                            }
+                                            const comboMatch = combosActivos.find(c => String(c.producto_base_id) === String(p.id));
+                                            if (comboMatch) {
+                                                setProductoEnEspera([{
+                                                    ...p,
+                                                    _esComboBuilder: true,
+                                                    _configuracionCombo: comboMatch
+                                                }]);
+                                                return;
+                                            }
+                                            setProductoEnEspera([p]);
+                                        }}
                                     />
                                 )}
-
                                 {pasoFlujoCaja === 2 && (
                                     <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
                                         {carrito.length === 0 ? (
@@ -659,18 +663,14 @@ const PuntoDeVentaPrincipal = ({
                                                                 ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
                                                             </p>
                                                         </div>
-
                                                         <div className="flex items-center gap-2 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
                                                             <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
                                                             <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
                                                             <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-blue-600 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Plus size={20}/></button>
-
                                                             <div className="w-px h-8 bg-slate-200 mx-1"></div>
-
                                                             <button disabled={isSubmitting} onClick={() => iniciarEdicion(item)} className="w-10 h-10 bg-blue-50 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Editar Platillo">
                                                                 <Edit size={20}/>
                                                             </button>
-
                                                             <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Quitar Platillo">
                                                                 <Trash2 size={20}/>
                                                             </button>
@@ -681,7 +681,6 @@ const PuntoDeVentaPrincipal = ({
                                         )}
                                     </div>
                                 )}
-
                                 {pasoFlujoCaja === 3 && (
                                     <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
@@ -771,7 +770,6 @@ const PuntoDeVentaPrincipal = ({
                                             {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} />}
                                             {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} />}
                                         </div>
-
                                         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                             <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
                                             {puntosCanjeActivo && (bloqueoPuntosActivo || canjeParcialActivo) && clienteAsignado && carrito.length > 0 && (
@@ -827,7 +825,6 @@ const PuntoDeVentaPrincipal = ({
                                     </div>
                                 )}
                             </div>
-
                             <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
                                 {pasoFlujoCaja > 1 && (
                                     <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
@@ -940,8 +937,6 @@ const PuntoDeVentaPrincipal = ({
                             </div>
                         </>
                     )}
-
-                    {/* 👇 INYECTAMOS CURRENT ITEM EN LUGAR DEL PRODUCTO ESTÁTICO */}
                     <AsistentePersonalizacion
                         productoEnEspera={currentItem}
                         itemEditando={itemEditandoId ? carrito.find(i => i.idTicket === itemEditandoId) : null}
@@ -978,7 +973,20 @@ const PuntoDeVentaPrincipal = ({
                         queueLength={queue.length}
                         onCancelarPersonalizacion={avanzarCola}
                     />
-
+                    {comboEnEspera && (
+                        <ModalArmarCombo
+                            comboEnEspera={comboEnEspera}
+                            setComboEnEspera={setComboEnEspera}
+                            carrito={carrito}
+                            setCarrito={setCarrito}
+                            productos={productos}
+                            clasificaciones={clasificaciones}
+                            baseUrl={apiUrl.replace('/api', '')}
+                            setItemAEditar={setItemEditandoId}
+                            catalogoIngredientes={catalogoIngredientes}
+                            configGlobal={configGlobal}                 
+                        />
+                    )}
                     <ModalCuentaAbierta
                         isOpen={modalCuentaAbierta}
                         onClose={() => setModalCuentaAbierta(false)}
@@ -990,7 +998,6 @@ const PuntoDeVentaPrincipal = ({
                         configGlobal={configGlobal}
                         telefonoCliente={telefonoCliente || telefonoOrdenRapida}
                     />
-                    
                     <OfertaUpselling
                         promocionVigente={promocionVigente}
                         setPromocionVigente={setPromocionVigente}
@@ -999,7 +1006,6 @@ const PuntoDeVentaPrincipal = ({
                         productos={productos}
                         clasificaciones={clasificaciones}
                     />
-
                     {modalNip && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
                             <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95 border border-slate-200">
@@ -1023,44 +1029,43 @@ const PuntoDeVentaPrincipal = ({
                             </form>
                         </div>
                     )}
-
                     {confirmacionFinanciera && (
                         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in duration-200">
                             <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
                                 <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ${confirmacionFinanciera.tipo === 'cobro' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
                                     <AlertTriangle size={40} />
                                 </div>
-                                
+
                                 <h3 className="text-2xl font-black text-slate-800 mb-2">
                                     {confirmacionFinanciera.tipo === 'cobro' ? 'Ajuste de Cuenta' : 'Ajuste a Favor'}
                                 </h3>
-                                
+
                                 <p className="text-slate-500 font-medium mb-8 leading-relaxed">
                                     {confirmacionFinanciera.isPagado
                                         ? (confirmacionFinanciera.tipo === 'cobro'
-                                            ? `El nuevo total supera lo que el cliente había pagado originalmente. Debes cobrar al cliente una diferencia de `
-                                            : `El nuevo total es menor a lo que el cliente había pagado. Debes devolver al cliente la cantidad de `)
+                                            ? `El nuevo total supera lo que el cliente había pagado originalmente. Debes cobrar al cliente una diferencia de`
+                                            : `El nuevo total es menor a lo que el cliente había pagado. Debes devolver al cliente la cantidad de` )
                                         : (confirmacionFinanciera.tipo === 'cobro'
-                                            ? `El total de esta cuenta pendiente de cobro aumentará en `
-                                            : `El total de esta cuenta pendiente de cobro disminuirá en `)
+                                            ? `El total de esta cuenta pendiente de cobro aumentará en`
+                                            : `El total de esta cuenta pendiente de cobro disminuirá en` )
                                     }
                                     <strong className="text-slate-800 text-xl block mt-2">${confirmacionFinanciera.monto.toFixed(2)} MXN</strong>
                                 </p>
-                                
+
                                 <div className="flex flex-col gap-3">
-                                    <button 
-                                        type="button" 
+                                    <button
+                                        type="button"
                                         onClick={() => {
                                             generarPedidoBD(confirmacionFinanciera.metodoAcelerado, confirmacionFinanciera.detallesCuentaAbierta, true);
                                             setConfirmacionFinanciera(null);
-                                        }} 
+                                        }}
                                         className={`w-full py-4 text-white font-black rounded-2xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2 ${confirmacionFinanciera.tipo === 'cobro' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/30'}`}
                                     >
                                         <CheckCircle2 size={20} /> Entendido, proceder
                                     </button>
-                                    <button 
-                                        type="button" 
-                                        onClick={() => setConfirmacionFinanciera(null)} 
+                                    <button
+                                        type="button"
+                                        onClick={() => setConfirmacionFinanciera(null)}
                                         className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95"
                                     >
                                         Cancelar Edición
@@ -1074,5 +1079,4 @@ const PuntoDeVentaPrincipal = ({
         </>
     );
 };
-
 export default PuntoDeVentaPrincipal;
