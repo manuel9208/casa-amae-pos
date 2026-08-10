@@ -23,6 +23,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
   const [clasificaciones, setClasificaciones] = useState([]); 
+  const [promocionesActivas, setPromocionesActivas] = useState([]); // 👈 FIX: Memoria global de Promos
   const [configGlobal, setConfigGlobal] = useState({ 
     nombre_negocio: '', whatsapp: '', banco: '', cuenta: '', titular: '', kiosco_mensaje: '¿Qué se te antoja hoy?',
     negocio_abierto: true, mensaje_cierre: '',
@@ -109,6 +110,14 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
                 }
             })
             .catch(e => console.error("Error al cargar combos en Kiosco:", e));
+            
+        // 👇 FIX: Descargamos las promociones para que el modal personalizador no se atore
+        fetch(`${apiUrl}/promociones`)
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) setPromocionesActivas(data);
+            })
+            .catch(e => console.error("Error al cargar promos:", e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOffline]);
@@ -479,9 +488,11 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setEstaSincronizando(false);
   };
 
+  // 👇 FIX 1: DEEP CLONE AL ACEPTAR EL UPSELLING (Evita contaminar el catálogo)
   const agregarUpsellAlCarrito = (itemsQueue) => {
     if (itemsQueue && itemsQueue.length > 0) {
-        setProductoEnEspera(itemsQueue);
+        const cleanQueue = itemsQueue.map(item => JSON.parse(JSON.stringify(item)));
+        setProductoEnEspera(cleanQueue);
     }
     setPromocionVigente(null); 
   };
@@ -751,15 +762,18 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
       
-      {productoEnEspera && ( 
-        <ModalPersonalizar 
+      {/* 👇 FIX DEFINITIVO: KEY ESTABLE PARA EVITAR REINICIOS DEL MODAL EN KIOSCO */}
+      {productoEnEspera && (
+        <ModalPersonalizar
+          key={`modal-personalizar-${productoEnEspera[0]?.idTicket || productoEnEspera[0]?.id || 'item-activo'}`}
           productoEnEspera={productoEnEspera} setProductoEnEspera={setProductoEnEspera}
           itemAEditar={itemAEditar} setItemAEditar={setItemAEditar}
-          carrito={carrito} setCarrito={setCarrito} 
+          carrito={carrito} setCarrito={setCarrito}
           catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones}
           configGlobal={configGlobal}
-          setPromocionVigente={setPromocionVigente} 
-          setComboEnEspera={setComboEnEspera} 
+          promocionesActivas={promocionesActivas}
+          setPromocionVigente={setPromocionVigente}
+          setComboEnEspera={setComboEnEspera}
         />
       )}
 
@@ -773,8 +787,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           clasificaciones={clasificaciones}
           baseUrl={baseUrl}
           setItemAEditar={setItemAEditar}
-          catalogoIngredientes={catalogoIngredientes} // 👈 NUEVO: Requerido para personalizar los hijos
-          configGlobal={configGlobal}                 // 👈 NUEVO: Requerido para personalizar los hijos
+          catalogoIngredientes={catalogoIngredientes}
+          configGlobal={configGlobal}                 
         />
       )} 
 

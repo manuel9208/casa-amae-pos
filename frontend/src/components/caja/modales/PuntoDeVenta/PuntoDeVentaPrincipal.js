@@ -74,6 +74,23 @@ const PuntoDeVentaPrincipal = ({
         : (configGlobal?.tarifas_envio || []);
     const puntosCanjeActivo = configGlobal?.puntos_canje_activo === undefined ? true : (String(configGlobal?.puntos_canje_activo) === 'true');
 
+    // 👇 ESTADO Y EFECTO PARA CARGAR PROMOCIONES DESDE LA BD (Asegura precios de promos)
+    const [promocionesActivas, setPromocionesActivas] = useState([]);
+    useEffect(() => {
+        const cargarPromociones = async () => {
+            try {
+                const res = await fetch(`${apiUrl}/promociones`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setPromocionesActivas(Array.isArray(data) ? data : []);
+                }
+            } catch (e) {
+                console.error("Error al cargar promociones:", e);
+            }
+        };
+        cargarPromociones();
+    }, [apiUrl]);
+
     const queue = Array.isArray(productoEnEspera) ? productoEnEspera : (productoEnEspera ? [productoEnEspera] : []);
     const currentItem = queue.length > 0 ? queue[0] : null;
 
@@ -116,6 +133,12 @@ const PuntoDeVentaPrincipal = ({
             setNotaOpcional(prev => prev.trim() === '' ? clienteAsignado.direccion : prev);
         }
     }, [clienteAsignado, tipoConsumo, ordenEditandoRapida]);
+
+    const resetWizard = () => {
+        setProductoEnEspera(null); setItemEditandoId(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
+        setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({}); setIngredientesBase([]); setIngredientesSustituidos({});
+        setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
+    };
 
     const cerrarModalVenta = () => {
         setCategoriaActiva(null);
@@ -240,31 +263,52 @@ const PuntoDeVentaPrincipal = ({
 
     const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
     
+    // 👇 BLINDAJE DE EDICIÓN: Limpia estados fantasmas y reinyecta el contexto del carrito (Promo/Combo)
     const iniciarEdicion = (item) => {
+        resetWizard(); // 1. Limpieza absoluta
+        
         const idOriginal = item.producto_id || item.id;
         const productoOriginal = productos.find(p => String(p.id) === String(idOriginal));
         if (!productoOriginal) return setAlertaUI({ titulo: 'Error', mensaje: 'El producto original ya no existe en el menú.', tipo: 'error' });
 
+        // 2. Deep Clone para evitar mutaciones al catálogo en memoria
+        const productoClonado = JSON.parse(JSON.stringify(productoOriginal));
+        
+        // 3. Purgar banderas basura que puedan existir
+        delete productoClonado._esPromo;
+        delete productoClonado._nombrePromo;
+        delete productoClonado._variacionBasePromo;
+        delete productoClonado._isCustomizedChild;
+        delete productoClonado._variacionesBaseComboHijo;
+        delete productoClonado._comboGroupId;
+        delete productoClonado._esComboBuilder;
+        delete productoClonado._configuracionCombo;
+        delete productoClonado._esCombo;
+        delete productoClonado._comboId;
+
+        // 4. Inyectar banderas reales del carrito
         if (item._esCombo) {
             const comboMatch = combosActivos.find(c => c.id === item._comboId);
             if (comboMatch) {
                 setItemEditandoId(item.idTicket);
-                setProductoEnEspera([{
-                    ...productoOriginal,
-                    _esComboBuilder: true,
-                    _configuracionCombo: comboMatch
-                }]);
+                productoClonado._esComboBuilder = true;
+                productoClonado._configuracionCombo = comboMatch;
+                productoClonado._esCombo = true;
+                productoClonado._comboId = item._comboId;
+                setProductoEnEspera([productoClonado]);
                 return;
             }
         }
+        
         setItemEditandoId(item.idTicket);
-        setProductoEnEspera([productoOriginal]);
-    };
+        productoClonado._esPromo = item._esPromo;
+        productoClonado._nombrePromo = item._nombrePromo;
+        productoClonado._variacionBasePromo = item._variacionBasePromo;
+        productoClonado._isCustomizedChild = item._isCustomizedChild;
+        productoClonado._variacionesBaseComboHijo = item._variacionesBaseComboHijo;
+        productoClonado._comboGroupId = item._comboGroupId;
 
-    const resetWizard = () => {
-        setProductoEnEspera(null); setItemEditandoId(null); setPasoPersonalizacion(0); setOpcionSeleccionada(null); setSaborSeleccionado(null);
-        setGruposSeleccionados({}); setGruposOpcionalesSeleccionados({}); setIngredientesBase([]); setIngredientesSustituidos({});
-        setIngredienteDesplegado(null); setExtrasSeleccionados([]); setNotaProducto(''); setCantidadProducto(1);
+        setProductoEnEspera([productoClonado]);
     };
 
     const avanzarCola = () => {
@@ -287,15 +331,22 @@ const PuntoDeVentaPrincipal = ({
         return diff > 0 ? diff : 0;
     };
 
+    // Evaluador conectado a la BD en vivo
     const evaluarUpsell = (prodId, catName) => {
-        const promociones = configGlobal?.promociones || [];
-        if (!Array.isArray(promociones)) return null;
-        return promociones.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
+        return promocionesActivas.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
 
-    // 👇 LA FUNCIÓN AHORA SE USA CORRECTAMENTE E INCLUYE LA INTERCEPCIÓN DEL COMBO
     const handleTerminarPersonalizacion = (nuevoItem) => {
         if (itemEditandoId) {
+            if (currentItem._esComboBuilder) {
+                setComboEnEspera({
+                    productoPersonalizado: nuevoItem,
+                    configuracion: currentItem._configuracionCombo,
+                    itemAEditar: carrito.find(i => i.idTicket === itemEditandoId)
+                });
+                resetWizard(); 
+                return;
+            }
             setCarrito(prev => prev.map(i => i.idTicket === itemEditandoId ? { ...nuevoItem, idTicket: i.idTicket } : i));
             avanzarCola();
         } else {
@@ -305,29 +356,40 @@ const PuntoDeVentaPrincipal = ({
                     configuracion: currentItem._configuracionCombo,
                     itemAEditar: null
                 });
-                setProductoEnEspera(null);
+                resetWizard();
                 return;
             }
+
             const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
             const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
+
             setCarrito(prev => {
                 const indexExistente = prev.findIndex(item =>
                     (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) &&
                     getExtrasStr(item.extras) === extrasStrNuevo &&
-                    item.precioFinal === nuevoItem.precioFinal
+                    item.precioFinal === nuevoItem.precioFinal &&
+                    item._isCustomizedChild === nuevoItem._isCustomizedChild &&
+                    item._comboGroupId === nuevoItem._comboGroupId 
                 );
-                if (indexExistente >= 0) {
+                
+                if (indexExistente >= 0 && !nuevoItem._isCustomizedChild) {
                     const nuevoCarrito = [...prev];
-                    nuevoCarrito[indexExistente].cantidad = (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto;
+                    // 👇 BLINDAJE CONTRA REACT STRICT MODE (Cura el bug 1+1=3)
+                    // Hacemos una actualización inmutable del objeto para que React no sume dos veces.
+                    nuevoCarrito[indexExistente] = {
+                        ...nuevoCarrito[indexExistente],
+                        cantidad: (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto
+                    };
                     return nuevoCarrito;
                 } else {
                     return [...prev, nuevoItem];
                 }
             });
+
             if (queue.length > 1) {
                 avanzarCola();
             } else {
-                if (!currentItem._esPromo) {
+                if (!currentItem._esPromo && !currentItem._isCustomizedChild) {
                     const promo = evaluarUpsell(currentItem.id, currentItem.categoria);
                     if (promo) setPromocionVigente(promo);
                 }
@@ -338,7 +400,10 @@ const PuntoDeVentaPrincipal = ({
 
     const agregarUpsellAlCarrito = (itemsQueue) => {
         if (itemsQueue && itemsQueue.length > 0) {
-            setProductoEnEspera(itemsQueue);
+            resetWizard(); 
+            // 🛑 DEEP CLONE en Upselling para evitar ensuciar el catálogo
+            const cleanQueue = itemsQueue.map(item => JSON.parse(JSON.stringify(item)));
+            setProductoEnEspera(cleanQueue);
         }
         setPromocionVigente(null);
     };
@@ -617,21 +682,31 @@ const PuntoDeVentaPrincipal = ({
                                         categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
                                         getPortadaCategoria={getPortadaCategoria}
                                         abrirModalProducto={(p) => {
+                                            resetWizard(); // 👈 LIMPIEZA DE ESTADOS FANTASMAS
                                             setItemEditandoId(null);
-                                            if (p._esPromo) {
-                                                setProductoEnEspera([p]);
-                                                return;
-                                            }
-                                            const comboMatch = combosActivos.find(c => String(c.producto_base_id) === String(p.id));
+                                            
+                                            // 🛑 DEEP CLONE para evitar que banderas muten el catálogo
+                                            const productoLimpio = JSON.parse(JSON.stringify(p));
+                                            
+                                            delete productoLimpio._esPromo;
+                                            delete productoLimpio._nombrePromo;
+                                            delete productoLimpio._variacionBasePromo;
+                                            delete productoLimpio._isCustomizedChild;
+                                            delete productoLimpio._variacionesBaseComboHijo;
+                                            delete productoLimpio._comboGroupId;
+                                            delete productoLimpio._esComboBuilder;
+                                            delete productoLimpio._configuracionCombo;
+                                            delete productoLimpio._esCombo;
+                                            delete productoLimpio._comboId;
+
+                                            const comboMatch = combosActivos.find(c => String(c.producto_base_id) === String(productoLimpio.id));
                                             if (comboMatch) {
-                                                setProductoEnEspera([{
-                                                    ...p,
-                                                    _esComboBuilder: true,
-                                                    _configuracionCombo: comboMatch
-                                                }]);
+                                                productoLimpio._esComboBuilder = true;
+                                                productoLimpio._configuracionCombo = comboMatch;
+                                                setProductoEnEspera([productoLimpio]);
                                                 return;
                                             }
-                                            setProductoEnEspera([p]);
+                                            setProductoEnEspera([productoLimpio]);
                                         }}
                                     />
                                 )}
@@ -972,6 +1047,8 @@ const PuntoDeVentaPrincipal = ({
                         onTerminarPersonalizacion={handleTerminarPersonalizacion}
                         queueLength={queue.length}
                         onCancelarPersonalizacion={avanzarCola}
+                        configGlobal={configGlobal}
+                        promociones={promocionesActivas}
                     />
                     {comboEnEspera && (
                         <ModalArmarCombo

@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { X, CheckCircle2, ArrowRight, ArrowLeft, Package, CheckSquare, Square } from 'lucide-react';
-import ImagenCachada from '../../../ImagenCachada'; 
+import ImagenCachada from '../../../ImagenCachada';
 import AsistentePersonalizacion from './AsistentePersonalizacion';
 
-// 👇 MINI-CONTENEDOR PARA GESTIONAR LOS ESTADOS DEL ASISTENTE EN CAJA
 const ContenedorAsistente = ({ producto, onTerminar, onCancelar, catalogoIngredientes, clasificaciones, configGlobal }) => {
     const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
     const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
@@ -35,17 +34,20 @@ const ContenedorAsistente = ({ producto, onTerminar, onCancelar, catalogoIngredi
         const tamanosList = (producto.opciones || []).filter(o => o.categoria === 'Tamaño');
         const saboresList = (producto.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
         const gruposObligatoriosList = [...new Set((producto.opciones || []).filter(o => o.tipo === 'grupo_obligatorio').map(o => o.categoria))];
-        const objGruposOpcionales = {};  
+        const objGruposOpcionales = {};
+        
         (producto.opciones || []).filter(o => o.tipo === 'grupo_opcional').forEach(o => {
             if (!objGruposOpcionales[o.categoria]) objGruposOpcionales[o.categoria] = { limite: o.limite || 1, opciones: [] };
             objGruposOpcionales[o.categoria].opciones.push(o);
-        });  
+        });
+
         if (tamanosList.length > 0) {
             pasosWiz.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
         }
         if (saboresList.length > 0) {
             pasosWiz.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
-        }  
+        }
+
         gruposObligatoriosList.forEach(g => {
             pasosWiz.push({
                 id: `grupo_obl_${g}`,
@@ -54,7 +56,8 @@ const ContenedorAsistente = ({ producto, onTerminar, onCancelar, catalogoIngredi
                 categoria: g,
                 opciones: (producto.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' && o.categoria === g).sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
-        });  
+        });
+
         Object.keys(objGruposOpcionales).forEach(g => {
             pasosWiz.push({
                 id: `grupo_opc_${g}`,
@@ -64,20 +67,21 @@ const ContenedorAsistente = ({ producto, onTerminar, onCancelar, catalogoIngredi
                 limite: objGruposOpcionales[g].limite,
                 opciones: objGruposOpcionales[g].opciones.sort((a, b) => a.nombre.localeCompare(b.nombre))
             });
-        });  
+        });
+
         const bases = (producto.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
         if (bases.length > 0) {
             pasosWiz.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
-        }  
+        }
         pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
-    }  
+    }
     const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
 
     return (
         <AsistentePersonalizacion
-            productoEnEspera={[producto]}
-            pasosWiz={pasosWiz}             
-            pasoActualObj={pasoActualObj}   
+            productoEnEspera={producto}
+            pasosWiz={pasosWiz}
+            pasoActualObj={pasoActualObj}
             setProductoEnEspera={(val) => { if (!val) onCancelar(); }}
             itemEditando={null}
             setItemAEditar={() => {}}
@@ -160,7 +164,6 @@ const ModalArmarCombo = ({
     const seleccionesGrupoActual = selecciones[grupoActual?.id] || [];
     const limiteAlcanzado = seleccionesGrupoActual.length >= grupoActual?.limite;
 
-    // 👇 MAGIA MEJORADA: Filtro de ingredientes a prueba de errores para CAJA
     const toggleSeleccion = (producto) => {
         const actuales = selecciones[grupoActual.id] || [];
         const yaEstaSeleccionado = actuales.find(p => (p.idRaw || p.id) === producto.id);
@@ -173,14 +176,12 @@ const ModalArmarCombo = ({
         } else {
             if (limiteAlcanzado) return;
 
-            // 1. Parsing seguro de opciones manuales
             let opcionesParseadas = [];
             try {
                 opcionesParseadas = typeof producto.opciones === 'string' ? JSON.parse(producto.opciones) : (producto.opciones || []);
             } catch(e) {}
             const tieneOpciones = opcionesParseadas.length > 0;
 
-            // 2. Búsqueda de extras globales a prueba de mayúsculas y espacios
             const categoriaItem = String(producto.categoria || '').trim().toLowerCase();
             const clasifObj = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === categoriaItem);
             const clasifId = clasifObj ? clasifObj.id : null;
@@ -194,8 +195,12 @@ const ModalArmarCombo = ({
             const requierePersonalizacion = tieneOpciones || extrasDelSistema.length > 0;
             
             if (requierePersonalizacion) {
-                // Aseguramos pasarle al hijo sus opciones ya convertidas en Arreglo funcional
-                setSubProductoEnEspera({ ...producto, opciones: opcionesParseadas });
+                const varsBaseHijo = grupoActual.variaciones_base_productos?.[producto.id] || {};
+                setSubProductoEnEspera({ 
+                    ...producto, 
+                    opciones: opcionesParseadas,
+                    _variacionesBaseComboHijo: varsBaseHijo 
+                });
             } else {
                 setSelecciones({
                     ...selecciones,
@@ -213,49 +218,70 @@ const ModalArmarCombo = ({
         if (pasoActual > 0) setPasoActual(pasoActual - 1);
     };
 
+    // 👇 FIX MÁSTER: Inyectamos la variable secreta para que al Editar no se olvide que es hijo de combo
     const agregarAlCarrito = () => {
-        const extrasCombo = [];
-        let totalExtrasHijos = 0;
+        const comboGroupId = itemAEditar?._comboGroupId || (Date.now().toString() + Math.random().toString(36).substr(2, 5));
+        let itemsParaCarrito = [];
+
+        const itemPadre = {
+            ...productoPersonalizado,
+            _comboGroupId: comboGroupId,
+            extras: [...(productoPersonalizado.extras || [])] 
+        };
+        itemsParaCarrito.push(itemPadre);
 
         grupos.forEach(g => {
             const seleccionadosDelGrupo = selecciones[g.id] || [];
-            seleccionadosDelGrupo.forEach(p => {
+            
+            seleccionadosDelGrupo.forEach((p, idx) => {
+                const varsBaseHijo = g.variaciones_base_productos?.[p.idRaw || p.id] || {};
+
                 if (p._isCustomizedChild) {
-                    totalExtrasHijos += p.precioFinal; 
-
-                    extrasCombo.push({
-                        nombre: `📦 [Combo] - ${p.nombre}`,
-                        precioExtra: p.precioFinal,
-                        tipo: 'grupo_opcional'
-                    });
-
-                    (p.extras || []).forEach(hijoExtra => {
-                        extrasCombo.push({
-                            nombre: `   ↳ ${hijoExtra.nombre}`,
-                            precioExtra: 0,
-                            tipo: 'nota'
-                        });
-                    });
+                    const hijoPersonalizado = {
+                        ...p,
+                        _comboGroupId: comboGroupId,
+                        _isCustomizedChild: true,
+                        _variacionesBaseComboHijo: varsBaseHijo,
+                        extras: [
+                            { nombre: `📦 Combo: ${configuracion.nombre}`, precioExtra: 0, tipo: 'nota' },
+                            ...(p.extras || [])
+                        ]
+                    };
+                    itemsParaCarrito.push(hijoPersonalizado);
                 } else {
-                    extrasCombo.push({
-                        nombre: `📦 [Combo] - ${p.nombre}`,
-                        precioExtra: 0,
-                        tipo: 'grupo_opcional'
-                    });
+                    const clasifObj = (clasificaciones || []).find(c => c.nombre === p.categoria);
+                    const destinoReal = clasifObj?.destino || 'Cocina';
+
+                    const hijoDirecto = {
+                        idTicket: Date.now().toString() + Math.random().toString(36).substr(2, 4) + idx,
+                        id: p.id,
+                        producto_id: p.id,
+                        nombre: `[${p.categoria || 'General'}] ${p.nombre}`,
+                        categoria: p.categoria,
+                        destino: destinoReal,
+                        tiempo_preparacion: p.tiempo_preparacion,
+                        precio_base: 0, 
+                        precioFinal: 0,
+                        cantidad: 1,
+                        opciones: p.opciones || [],
+                        extras: [{ nombre: `📦 Combo: ${configuracion.nombre}`, precioExtra: 0, tipo: 'nota' }],
+                        usa_stock: p.usa_stock === true || String(p.usa_stock) === 'true',
+                        stock_preparado: Number(p.stock_preparado) || 0,
+                        configuracionOriginal: {},
+                        _isCustomizedChild: true, // 👈 FIX APLICADO
+                        _variacionesBaseComboHijo: varsBaseHijo, // 👈 FIX APLICADO
+                        _comboGroupId: comboGroupId
+                    };
+                    itemsParaCarrito.push(hijoDirecto);
                 }
             });
         });
 
-        const itemFinal = {
-            ...productoPersonalizado,
-            precioFinal: productoPersonalizado.precioFinal + totalExtrasHijos,
-            extras: [...(productoPersonalizado.extras || []), ...extrasCombo]
-        };
-
         if (itemAEditar) {
-            setCarrito(carrito.map(i => i.idTicket === itemAEditar.idTicket ? itemFinal : i));
+            const nuevoCarrito = carrito.filter(i => i._comboGroupId !== comboGroupId);
+            setCarrito([...nuevoCarrito, ...itemsParaCarrito]);
         } else {
-            setCarrito([...carrito, itemFinal]);
+            setCarrito([...carrito, ...itemsParaCarrito]);
         }
         
         if (setItemAEditar) setItemAEditar(null);
@@ -354,7 +380,6 @@ const ModalArmarCombo = ({
                     )}
                 </div>
 
-                {/* 👇 RENDERIZA EL SUB-PERSONALIZADOR ENCIMA DEL BUILDER */}
                 {subProductoEnEspera && (
                     <ContenedorAsistente
                         producto={subProductoEnEspera}

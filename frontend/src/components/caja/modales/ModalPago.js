@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DollarSign, CreditCard, Smartphone, Wallet, X, Copy, MessageCircle, CheckCircle2, ChefHat, XCircle, ArrowLeft, AlertTriangle, Star } from 'lucide-react';
 
-const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido, bloqueoPuntosActivo }) => {
+const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, configGlobal, setModalEditarPedido, bloqueoPuntosActivo, apiUrl }) => {
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modoMixto, setModoMixto] = useState(false);
   const [montoEfectivoMixto, setMontoEfectivoMixto] = useState('');
@@ -9,9 +9,28 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
   const [montoTransferenciaMixto, setMontoTransferenciaMixto] = useState('');
   const [toastCopiado, setToastCopiado] = useState(false);
   
-  // Estado para proteger la anulación
+  const [puntosAUsar, setPuntosAUsar] = useState('');
   const [confirmarAnular, setConfirmarAnular] = useState(false);
 
+  // NUEVOS ESTADOS PARA SINCRONIZAR AL CLIENTE REAL DESDE LA BASE DE DATOS
+  const [saldoPuntos, setSaldoPuntos] = useState(0);
+  const [nombreClienteReal, setNombreClienteReal] = useState('');
+
+  // 1. Extraemos dinámicamente el teléfono (es el ID universal)
+  const cleanPhone = useMemo(() => {
+    let phone = '';
+    if (modalPago?.cliente_telefono) {
+      phone = String(modalPago.cliente_telefono).replace(/\D/g, '');
+    } else if (modalPago?.direccion_entrega) {
+      if (modalPago.direccion_entrega.includes('TEL:')) phone = modalPago.direccion_entrega.split('TEL:')[1].split('|')[0].replace(/\D/g, '');
+      else if (modalPago.direccion_entrega.includes('CONTACTO:')) phone = modalPago.direccion_entrega.split('CONTACTO:')[1].split('|')[0].replace(/\D/g, '');
+    }
+    return phone;
+  }, [modalPago]);
+
+  const hasValidPhone = cleanPhone.length >= 10;
+
+  // 2. Efecto que se dispara al abrir el modal y busca por celular
   useEffect(() => {
     if (modalPago) {
       setMontoRecibido('');
@@ -19,21 +38,45 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
       setMontoEfectivoMixto('');
       setMontoTarjetaMixto('');
       setMontoTransferenciaMixto('');
-      setConfirmarAnular(false); // Reset al abrir
+      setConfirmarAnular(false); 
+      setPuntosAUsar(''); 
+
+      // Valores por defecto basados en lo que trae la orden inicialmente
+      setSaldoPuntos(modalPago.cliente?.puntos || modalPago.puntos_cliente || 0);
+      setNombreClienteReal(modalPago.cliente_nombre || 'Invitado');
+
+      // CONSULTA AL BACKEND: Si hay celular, traemos nombre completo y puntos reales
+      if (cleanPhone && cleanPhone.length >= 10 && apiUrl) {
+        const fetchClienteReal = async () => {
+          try {
+            const res = await fetch(`${apiUrl}/clientes`);
+            if (res.ok) {
+              const clientes = await res.json();
+              const clienteBD = clientes.find(c => String(c.telefono).replace(/\D/g, '') === cleanPhone);
+              
+              if (clienteBD) {
+                setSaldoPuntos(Number(clienteBD.puntos) || 0);
+                setNombreClienteReal(`${clienteBD.nombre || ''} ${clienteBD.apellido || ''}`.trim());
+                // Inyectamos el ID real sigilosamente en la orden para que el procesador lo valide
+                modalPago.cliente_id = clienteBD.id; 
+              }
+            }
+          } catch(e) {
+            console.error("Error obteniendo cliente real desde caja:", e);
+          }
+        };
+        fetchClienteReal();
+      }
     }
-  }, [modalPago]);
+  }, [modalPago, apiUrl, cleanPhone]);
 
   if (!modalPago) return null;
 
   const noSePuedeAnular = modalPago.estado_preparacion === 'Entregado' || modalPago.estado_preparacion === 'En Camino' || modalPago.estado_preparacion === 'Liquidado' || modalPago.estado_preparacion === 'Finalizado';
 
-  // 🛡️ Lógica Anti-Limbo Actualizada con Confirmación:
+  // FIX: El botón de salir ya SOLO CIERRA la ventana, no levanta la anulación
   const cerrarModalPago = () => {
-    if (!noSePuedeAnular) {
-      setConfirmarAnular(true); // Ya no anula directo, levanta la alerta
-    } else {
-      setModalPago(null);
-    }
+    setModalPago(null);
   };
 
   const handleVolverEditar = () => {
@@ -52,20 +95,6 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
     return <Wallet size={20} />;
   };
 
-  const getCleanPhone = () => {
-    let cleanPhone = '';
-    if (modalPago.cliente_telefono) {
-      cleanPhone = String(modalPago.cliente_telefono).replace(/\D/g, '');
-    } else if (modalPago.direccion_entrega) {
-      if (modalPago.direccion_entrega.includes('TEL:')) cleanPhone = modalPago.direccion_entrega.split('TEL:')[1].split('|')[0].replace(/\D/g, '');
-      else if (modalPago.direccion_entrega.includes('CONTACTO:')) cleanPhone = modalPago.direccion_entrega.split('CONTACTO:')[1].split('|')[0].replace(/\D/g, '');
-    }
-    return cleanPhone;
-  };
-
-  const cleanPhone = getCleanPhone();
-  const hasValidPhone = cleanPhone.length >= 10;
-
   const handleCopiarDatos = () => {
     const texto = `Banco: ${configGlobal?.banco || ''}\nCuenta/CLABE: ${configGlobal?.cuenta || ''}\nTitular: ${configGlobal?.titular || ''}\nTotal a transferir: $${modalPago.total}`;
     navigator.clipboard.writeText(texto).then(() => {
@@ -76,7 +105,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
 
   const handleWhatsApp = () => {
     if (hasValidPhone) {
-      const texto = `Hola ${modalPago.cliente_nombre || ''}, te comparto los datos para el pago por transferencia de tu orden #${modalPago.numero_pedido} por un total de *$${modalPago.total}*:\n\n🏦 *Banco:* ${configGlobal?.banco || ''}\n💳 *Cuenta/CLABE:* ${configGlobal?.cuenta || ''}\n👤 *Titular:* ${configGlobal?.titular || ''}\n\nPor favor, compárteme tu comprobante de pago por este medio. ¡Gracias!`;
+      const texto = `Hola ${nombreClienteReal || ''}, te comparto los datos para el pago por transferencia de tu orden #${modalPago.numero_pedido} por un total de *$${modalPago.total}*:\n\n🏦 *Banco:* ${configGlobal?.banco || ''}\n💳 *Cuenta/CLABE:* ${configGlobal?.cuenta || ''}\n👤 *Titular:* ${configGlobal?.titular || ''}\n\nPor favor, compárteme tu comprobante de pago por este medio. ¡Gracias!`;
       const url = `https://wa.me/52${cleanPhone}?text=${encodeURIComponent(texto)}`;
       window.open(url, '_blank');
     }
@@ -104,10 +133,6 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
   const procesarSeleccionPago = (metodo) => {
     setModalPago({ ...modalPago, metodo_pago: metodo });
   };
-
-  // 🚀 CÁLCULO UI Reactivo (Mejora visual de transparencia para el cajero)
-  const valorPesoGlobal = Number(configGlobal?.puntos_valor_peso) || 1;
-  const puntosEstimados = Math.ceil((Number(modalPago.total) || 0) / valorPesoGlobal);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">
@@ -147,12 +172,12 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
           </div>
         )}
 
-        {/* Botón de Salida Superior */}
+        {/* Botón de Salida Superior - SOLO CIERRA */}
         <button
           onClick={cerrarModalPago}
           disabled={isSubmitting}
           className="absolute top-6 right-6 text-slate-400 hover:text-red-500 bg-slate-100 p-2.5 rounded-full transition-all active:scale-95 disabled:opacity-50 z-50"
-          title="Cerrar y anular pedido"
+          title="Cerrar"
         >
           <X size={20} strokeWidth={3} />
         </button>
@@ -177,6 +202,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
           </span>
         </div>
 
+        {/* Info del Cliente con API Real */}
         <div className="bg-slate-50 p-4 md:p-6 rounded-3xl mb-6 md:mb-8 flex justify-between items-center border border-slate-100 shadow-inner">
           <div>
             <p className="text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Total a Cobrar</p>
@@ -184,8 +210,9 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
           </div>
           <div className="text-right">
             <p className="text-xs md:text-sm font-black text-slate-400 uppercase tracking-widest mb-1">Cliente</p>
-            <p className="text-lg md:text-xl font-bold text-slate-700">{modalPago.cliente_nombre || 'Invitado'}</p>
-            <p className="text-xs md:text-sm font-bold text-slate-500">{modalPago.tipo_consumo}</p>
+            <p className="text-lg md:text-xl font-bold text-slate-700">{nombreClienteReal}</p>
+            {hasValidPhone && <p className="text-xs font-bold text-slate-500 mt-0.5">{cleanPhone}</p>}
+            <p className="text-xs md:text-sm font-bold text-slate-500 mt-1">{modalPago.tipo_consumo}</p>
           </div>
         </div>
 
@@ -242,8 +269,8 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
               <button disabled={isSubmitting} onClick={() => setModoMixto(true)} className="bg-indigo-50 border-2 border-indigo-100 hover:border-indigo-500 hover:bg-indigo-100 text-indigo-700 p-4 rounded-2xl font-black flex flex-col items-center gap-2 transition active:scale-95 disabled:opacity-50"><Wallet size={28} className="text-indigo-500"/> <span className="text-sm md:text-base text-center leading-tight">Dividir Pago</span></button>
             </div>
             
-            {/* BOTÓN ESPECIAL PARA PAGO CON PUNTOS (Solo visible si está activo en DB) */}
-            {(configGlobal?.puntos_activos && configGlobal?.puntos_canje_activo) && (
+            {/* BOTÓN PUNTOS: Valida id o saldo real */}
+            {(configGlobal?.puntos_activos && configGlobal?.puntos_canje_activo && (modalPago.cliente_id || saldoPuntos > 0)) && (
               <button 
                 disabled={isSubmitting || bloqueoPuntosActivo} 
                 onClick={() => procesarSeleccionPago('Puntos')} 
@@ -265,6 +292,7 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
                 </button>
               )}
 
+              {/* Botón Maestro de Cancelación inferior */}
               {!noSePuedeAnular && (
                 <button disabled={isSubmitting} onClick={() => setConfirmarAnular(true)} className="flex-1 py-4 md:py-5 bg-red-100 text-red-600 font-black rounded-2xl hover:bg-red-200 transition disabled:opacity-50 flex items-center justify-center gap-2">
                   Anular Pedido
@@ -274,17 +302,46 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
           </div>
         ) : modalPago.metodo_pago === 'Puntos' ? (
           <div className="text-center space-y-5 animate-in fade-in">
-            <div className="bg-amber-50 border border-amber-200 p-8 rounded-3xl text-amber-800 shadow-inner">
-              <Star size={64} className="mx-auto mb-4 opacity-80 text-amber-500 fill-amber-500" />
-              <h3 className="text-2xl font-black mb-2 tracking-tight">Cobro con Puntos</h3>
+            <div className="bg-amber-50 border border-amber-200 p-6 md:p-8 rounded-3xl text-amber-800 shadow-inner">
+              <Star size={56} className="mx-auto mb-4 opacity-80 text-amber-500 fill-amber-500" />
+              <h3 className="text-2xl font-black mb-4 tracking-tight">Canje de Puntos</h3>
               
-              {/* 🚀 MEJORA VISUAL UX: Mostramos el monto Y los puntos estimados a usar */}
-              <p className="font-bold text-lg text-amber-700">
-                Se descontarán <b>{puntosEstimados} pts</b> del monedero del cliente para cubrir el total de <b>${Number(modalPago.total).toFixed(2)}</b>.
+              <div className="bg-white p-4 rounded-2xl shadow-sm inline-block mb-6 border border-amber-100 w-full max-w-sm">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Saldo Disponible del Cliente</p>
+                <p className="text-3xl font-black text-amber-600">{saldoPuntos} pts</p>
+              </div>
+
+              <p className="font-bold text-lg text-slate-700 mb-6">
+                Total de la orden: <b className="text-slate-900">${Number(modalPago.total).toFixed(2)}</b>
               </p>
-              
-              <p className="text-xs font-bold text-amber-600/70 mt-4 uppercase tracking-widest">El sistema validará si el cliente tiene saldo suficiente.</p>
+
+              <div className="max-w-xs mx-auto">
+                <label className="block text-xs font-black text-amber-600/70 uppercase tracking-widest mb-2">
+                  ¿Cuántos puntos desea usar?
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max={saldoPuntos}
+                  value={puntosAUsar}
+                  onChange={(e) => setPuntosAUsar(e.target.value)}
+                  placeholder="Ej. 50"
+                  className="w-full bg-white border-2 border-amber-200 rounded-2xl p-4 text-center text-3xl font-black outline-none focus:border-amber-500 text-slate-800 transition-all shadow-sm"
+                />
+              </div>
+
+              {Number(puntosAUsar) > 0 && (
+                <div className="mt-6 p-4 bg-amber-100/50 rounded-xl border border-amber-200 animate-in zoom-in-95">
+                  <p className="text-sm font-bold text-amber-800 uppercase tracking-widest mb-1">
+                    Restante a Pagar
+                  </p>
+                  <p className="text-2xl font-black text-amber-700">
+                    ${Math.max(0, Number(modalPago.total) - Number(puntosAUsar)).toFixed(2)}
+                  </p>
+                </div>
+              )}
             </div>
+
             <div className="flex flex-col md:flex-row gap-3 pt-4 border-t border-slate-100">
               <button disabled={isSubmitting} onClick={() => setModalPago({...modalPago, metodo_pago: 'Pendiente'})} className="py-4 md:py-5 px-6 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50 text-center w-full md:w-auto flex items-center justify-center gap-2">
                 <ArrowLeft size={20}/> Atrás
@@ -295,15 +352,13 @@ const ModalPago = ({ modalPago, setModalPago, procesarPago, isSubmitting, config
                     <XCircle size={24}/>
                   </button>
                 )}
-                
-                {/* 👇 FIX: INYECTAMOS EL CÁLCULO DE PUNTOS AQUÍ PARA MANDARLO AL BACKEND */}
-                <button 
-                  disabled={isSubmitting} 
-                  onClick={() => procesarPago(null, false, null, puntosEstimados)} 
+                <button
+                  disabled={isSubmitting || !puntosAUsar || Number(puntosAUsar) <= 0 || Number(puntosAUsar) > saldoPuntos}
+                  onClick={() => procesarPago(null, false, null, Number(puntosAUsar))}
                   className="flex-1 py-4 md:py-5 bg-amber-500 text-white font-black text-lg md:text-xl rounded-2xl disabled:opacity-50 hover:bg-amber-600 shadow-lg transition flex items-center justify-center gap-2 relative overflow-hidden"
                 >
                   <span className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none rounded-2xl"></span>
-                  <CheckCircle2 size={24} className="relative z-10"/> 
+                  <CheckCircle2 size={24} className="relative z-10"/>
                   <span className="relative z-10">{isSubmitting ? 'Procesando...' : 'Confirmar Canje'}</span>
                 </button>
               </div>
