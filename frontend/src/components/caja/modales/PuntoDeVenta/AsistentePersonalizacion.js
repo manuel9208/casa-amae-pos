@@ -196,7 +196,6 @@ const AsistentePersonalizacion = ({
   const isUsaStock = productoEnEspera.usa_stock === true || String(productoEnEspera.usa_stock) === 'true';
   const stockActual = Number(productoEnEspera.stock_preparado) || 0;
 
-  // 👇 LÓGICA PURA Y NATIVA: Calcula el precio basándose en la BD
   const getPromoInfo = () => {
     if (!productoEnEspera._esPromo) return null;
     const promo = promociones.find(p => p.nombre === productoEnEspera._nombrePromo);
@@ -313,7 +312,19 @@ const AsistentePersonalizacion = ({
     Object.values(gruposSeleccionados).forEach(g => extrasFinales.push({ nombre: `🔸 ${g.categoria || g.category || 'Opción'}: ${g.nombre}`, precioExtra: getPrecioDeltaVisual(g), tipo: 'grupo_obligatorio' }));
     Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria || 'Extra'}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' }));
     Object.entries(ingredientesSustituidos).forEach(([base, data]) => extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado || 0, tipo: 'sustitucion' }));
-    ingredientesBase.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));
+    
+    // 👇 FIX MÁSTER: Identificamos qué ingredientes QUEDARON AFUERA respecto a la receta original
+    const recetaOriginal = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
+    recetaOriginal.forEach(ingredienteOriginal => {
+        const loDejoElCliente = ingredientesBase.includes(ingredienteOriginal);
+        const loSustituyoElCliente = ingredientesSustituidos[ingredienteOriginal] !== undefined;
+        
+        // Si no lo dejó y tampoco lo sustituyó... significa que explícitamente lo quiere "SIN"
+        if (!loDejoElCliente && !loSustituyoElCliente) {
+            extrasFinales.push({ nombre: `Sin ${ingredienteOriginal}`, precioExtra: 0, tipo: 'base' });
+        }
+    });
+
     extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra || 0, tipo: 'extra' }));
     if (notaProducto.trim()) extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
 
