@@ -414,17 +414,3 @@ INSERT INTO clasificaciones (nombre, destino, emoji) VALUES
 ('Sushis', 'Cocina', '🍣'),
 ('Postres', 'Barra', '🍰')
 ON CONFLICT (nombre) DO NOTHING;
-
--- DATOS INICIALES DE CLIENTES
-INSERT INTO clientes (nombre, apellido, telefono, direccion, puntos) VALUES
-('ADRIANA', 'VIZCARRA', 6721395459, 'ORTOPEDIA VISA  FTE COLEGIO DOLORES', 39),
-('ABRIL', 'GONZALES', 6721177260, 'Col. Los angeles, calle Fortino Cuellar #584 casa color beige', 0),
-('Maria', 'Barrón', 6721214565, 'Forja', 29),
-('gema lucia', 'hernandez gutierrez', 6444307478, 'imss quirofano entrada urgencias', 3),
-('Aida', 'Marquez', 6721463088, 'joyeria romage a lado de farmacia viveya. Roque espinosso', 30),
-('Jose', 'Maria', 6721236515, 'Rivers pizza', 2),
-('Daniel', 'Simos', 6721177395, 'col. primavera calle. tulipanes #137 casa azul con muros negros', 24),
-('damaris', 'eliana', 6727251303, 'col. nueva esperansa issstesin calle jupiter 1007, casa blanca con portones blancos', 3),
-('Miguel', 'Tec', 6727515347, 'Tec', 46),
-('yeseli', 'cortez', 6673285687, NULL, 31)
-ON CONFLICT (telefono) DO NOTHING;
