@@ -1,5 +1,5 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.4)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.5)
 -- =========================================================================  
 
 -- CONFIGURACIÓN DE ENTORNO
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS configuracion (
     hora_apertura INTEGER DEFAULT 17,
     hora_cierre INTEGER DEFAULT 23,
     matriz_limpieza JSONB DEFAULT '{}'::jsonb,
+    matriz_observaciones JSONB DEFAULT '{}'::jsonb, -- AÑADIDO PARA MÓDULO RRHH
     horarios_semana JSONB DEFAULT '{}'::jsonb,  
     
     -- Seguridad en Caja
@@ -90,19 +91,6 @@ CREATE TABLE IF NOT EXISTS configuracion (
     wa_phone_id TEXT
 );  
 
--- 🛡️ BLINDAJE CONFIGURACIÓN
-ALTER TABLE configuracion
-ADD COLUMN IF NOT EXISTS hora_apertura INTEGER DEFAULT 17,
-ADD COLUMN IF NOT EXISTS hora_cierre INTEGER DEFAULT 23,
-ADD COLUMN IF NOT EXISTS matriz_limpieza JSONB DEFAULT '{}'::jsonb,
-ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
-ADD COLUMN IF NOT EXISTS bloqueo_caja_activo BOOLEAN DEFAULT false,
-ADD COLUMN IF NOT EXISTS bloqueo_caja_segundos INTEGER DEFAULT 30,
-ADD COLUMN IF NOT EXISTS comedor_limite VARCHAR(20) DEFAULT 'ambos',
-ADD COLUMN IF NOT EXISTS comedor_clasif_bebidas JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS comedor_clasif_platillos JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS cocina_en_caja_activa BOOLEAN DEFAULT false;  
-
 
 -- -------------------------------------------------------------------------
 -- 2. TABLAS DE USUARIOS, NÓMINAS, COMUNICACIÓN, CLIENTES Y NOTIFICACIONES
@@ -115,22 +103,28 @@ CREATE TABLE IF NOT EXISTS usuarios (
     rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor')),
     permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
     telefono BIGINT UNIQUE CHECK (telefono >= 1000000000 AND telefono <= 9999999999),
+    
+    -- Módulo de Seguridad y Accesos
     pin VARCHAR(4) DEFAULT NULL,
-    horario_semanal JSONB DEFAULT '{}'::jsonb,
-    prestaciones JSONB DEFAULT '{"sueldo": 0, "tipo_sueldo": "Mensual", "vacaciones_dias": 0, "bebidas_dia": 0, "platillos_dia": 0, "otros_beneficios": []}'::jsonb,
+    pin_seguridad VARCHAR(10) DEFAULT '0000',
     dispositivo_id VARCHAR(100),
     ultimo_acceso TIMESTAMP,
+    
+    -- Módulo de Recursos Humanos y Rendimiento (AÑADIDOS V3.5)
+    sueldo_diario DECIMAL(10,2) DEFAULT 0,
+    tipo_empleado VARCHAR(50) DEFAULT 'Base',
+    fecha_ingreso DATE DEFAULT CURRENT_DATE,
+    estado_empleado VARCHAR(20) DEFAULT 'Activo' CHECK (estado_empleado IN ('Activo', 'Inactivo', 'Vacaciones', 'Incapacidad')),
+    horario_asignado JSONB DEFAULT '{}'::jsonb,
+    horario_semanal JSONB DEFAULT '{}'::jsonb,
+    prestaciones JSONB DEFAULT '{"sueldo": 0, "tipo_sueldo": "Mensual", "vacaciones_dias": 0, "bebidas_dia": 0, "platillos_dia": 0, "otros_beneficios": []}'::jsonb,
+    es_repartidor_moto BOOLEAN DEFAULT false,
+    puntos_rendimiento INTEGER DEFAULT 0,
+    rango_rendimiento VARCHAR(50) DEFAULT 'Novato',
+    notas_desempeno TEXT DEFAULT '',
+    
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
-
--- 🛡️ BLINDAJE USUARIOS
-ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS pin VARCHAR(4) DEFAULT NULL;
-ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS horario_semanal JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS prestaciones JSONB DEFAULT '{"sueldo": 0, "tipo_sueldo": "Mensual", "vacaciones_dias": 0, "bebidas_dia": 0, "platillos_dia": 0, "otros_beneficios": []}'::jsonb;
-ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
-ALTER TABLE usuarios
-ADD CONSTRAINT usuarios_rol_check
-CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor'));  
 
 -- Tabla Reloj Checador: Registro de Entradas y Salidas
 CREATE TABLE IF NOT EXISTS registro_asistencias (
@@ -150,7 +144,7 @@ CREATE TABLE IF NOT EXISTS historico_nominas (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
 
--- Nueva Tabla: Mensajes y Encargos (Comunicación Interna)
+-- Tabla: Mensajes y Encargos (Comunicación Interna)
 CREATE TABLE IF NOT EXISTS mensajes_empleados (
     id SERIAL PRIMARY KEY,
     admin_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -172,11 +166,9 @@ CREATE TABLE IF NOT EXISTS clientes (
     direccion TEXT,
     puntos INTEGER DEFAULT 0,
     nip VARCHAR(4) DEFAULT '0000',
+    codigo_verificacion VARCHAR(10), -- AÑADIDO PARA RECUPERACIÓN DE NIP
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
-
--- 🛡️ BLINDAJE CLIENTES
-ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion TEXT;
 
 -- Notificaciones Push (Integrada con relación a usuarios y clientes)
 CREATE TABLE IF NOT EXISTS suscripciones_push (
@@ -197,7 +189,13 @@ CREATE TABLE IF NOT EXISTS clasificaciones (
     destino VARCHAR(20) DEFAULT 'Cocina',
     emoji VARCHAR(20),
     imagen_url TEXT,
-    genera_puntos BOOLEAN DEFAULT true
+    genera_puntos BOOLEAN DEFAULT true,
+    
+    -- Control Automático por Horario (AÑADIDOS V3.5 PARA CRON JOB)
+    usa_horario BOOLEAN DEFAULT false,
+    dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]',
+    hora_inicio TIME DEFAULT '00:00:00',
+    hora_fin TIME DEFAULT '23:59:00'
 );  
 
 CREATE TABLE IF NOT EXISTS productos (
@@ -215,6 +213,13 @@ CREATE TABLE IF NOT EXISTS productos (
     estado VARCHAR(20) DEFAULT 'Activo',
     disponible BOOLEAN DEFAULT TRUE,
     genera_puntos BOOLEAN DEFAULT true,
+    
+    -- Control Automático por Horario (AÑADIDOS V3.5 PARA CRON JOB)
+    usa_horario BOOLEAN DEFAULT false,
+    dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]',
+    hora_inicio TIME DEFAULT '00:00:00',
+    hora_fin TIME DEFAULT '23:59:00',
+    
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
 
@@ -255,9 +260,6 @@ CREATE TABLE IF NOT EXISTS compras_insumos (
     origen VARCHAR(20) DEFAULT 'Caja',
     fecha_compra TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
-
--- 🛡️ BLINDAJE INSUMOS
-ALTER TABLE compras_insumos ADD COLUMN IF NOT EXISTS origen VARCHAR(20) DEFAULT 'Caja';
 
 CREATE TABLE IF NOT EXISTS recetas (
     id SERIAL PRIMARY KEY,
@@ -333,13 +335,6 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     detalles_envio JSONB DEFAULT '{}'::jsonb,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );  
-
--- 🛡️ BLINDAJE CORTES
-ALTER TABLE historico_cortes
-ADD COLUMN IF NOT EXISTS fondo_repartidor DECIMAL(10,2) DEFAULT 0.00,
-ADD COLUMN IF NOT EXISTS cargos_envio DECIMAL(10,2) DEFAULT 0.00,
-ADD COLUMN IF NOT EXISTS desglose_gastos JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS detalles_envio JSONB DEFAULT '{}'::jsonb;
 
 -- Índice relacional para acelerar reportes por Día, Mes o Año
 CREATE INDEX IF NOT EXISTS idx_cortes_fecha ON historico_cortes(fecha_corte);  

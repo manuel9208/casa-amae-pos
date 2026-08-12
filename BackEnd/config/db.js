@@ -18,8 +18,8 @@ try {
 const pool = new Pool({
   connectionString: dbUrl,
   // Aplicamos el SSL de forma limpia para silenciar la advertencia de seguridad
-  ssl: dbUrl ? { rejectUnauthorized: false } : false,
-  
+  //ssl: dbUrl ? { rejectUnauthorized: false } : false,
+  ssl: false,
   // 2. SOLUCIÓN AL DEPRECATION WARNING (Letras Amarillas):
   // Antes usábamos pool.on('connect') para la zona horaria, lo que causaba un "choque"
   // de consultas concurrentes. Pasarlo por 'options' lo configura desde el milisegundo 0.
