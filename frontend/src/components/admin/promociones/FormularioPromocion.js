@@ -150,6 +150,8 @@ const FormularioPromocion = ({
             // Limpiamos la propiedad filtro_categoria antes de enviarla
             const seleccionesLimpias = seleccionesPermitidas.map(({ filtro_categoria, ...resto }) => ({
                 ...resto,
+                // 👇 CORRECCIÓN APLICADA AQUÍ: Aseguramos que el tipo de descuento baje si es global
+                tipo_descuento: modoDescuento === 'global' ? formulario.tipo_descuento : resto.tipo_descuento,
                 valor_descuento: modoDescuento === 'individual' ? Number(resto.valor_descuento) : null
             }));
 
