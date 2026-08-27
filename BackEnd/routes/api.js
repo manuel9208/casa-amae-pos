@@ -30,6 +30,9 @@ const proveedorCtrl = require('../controllers/proveedorController'); // Controla
 // 👇 NUEVO: Controlador de Combos
 const comboCtrl = require('../controllers/comboController'); 
 
+// 👇 NUEVO: Controlador Central de Nóminas aislando el motor de RH
+const nominaCtrl = require('../controllers/nominaController');
+
 // 👇 NUEVO: Inicializar la tabla de combos en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
 
@@ -134,9 +137,18 @@ router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
 router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario);
 router.put('/usuarios/:id/prestaciones', usuarioCtrl.actualizarPrestaciones);
 router.put('/usuarios/:id/horario', usuarioCtrl.actualizarHorario);
-router.post('/usuarios/corte-nomina', usuarioCtrl.guardarCorteNomina);
+// 👇 Nota: Mantenemos temporalmente el viejo endpoint redirigido al nuevo controlador 
+// para no romper la versión de la app en producción mientras subimos el Front-end.
+router.post('/usuarios/corte-nomina', nominaCtrl.guardarNomina);
 router.post('/usuarios/asistencia', usuarioCtrl.registrarAsistencia);
 router.post('/usuarios/:id/forzar-logout', authCtrl.forzarLogout);  
+
+// ==========================================
+// 💰 NUEVO: MOTOR AISLADO DE NÓMINAS Y PLANTILLAS
+// ==========================================
+router.post('/nominas', nominaCtrl.guardarNomina);
+router.delete('/nominas/:id', nominaCtrl.revertirNomina);
+router.put('/nominas/plantilla/:id', nominaCtrl.actualizarPlantillaBase);
 
 // ==========================================
 // MENSAJES INTERNOS (ENCARGOS)

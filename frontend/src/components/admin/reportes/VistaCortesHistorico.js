@@ -121,68 +121,79 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         return [];
     }, [pedidos, corteSeleccionadoId, cortesDelDia, periodo]);
 
-    const pedidosOrdenadosCrono = [...pedidosDelTurno].sort((a, b) => new Date(a.fecha_creacion) - new Date(b.fecha_creacion));
-
+    const pedidosOrdenadosCrono = [...pedidosDelTurno].sort((a, b) => new Date(a.fecha_creacion) - new Date(b.fecha_creacion));  
+  
     let lEfectivo = 0, lTarjeta = 0, lTransf = 0, dEfectivo = 0, dTarjeta = 0, dTransf = 0, tEnvio = 0, dEnvio = 0;
-    let tPlatillos = 0, tExtras = 0, dPlatillos = 0, dExtras = 0, tDescuentos = 0, tDescuentosEfectivo = 0;
+    let tPlatillos = 0, tExtras = 0, dPlatillos = 0, dExtras = 0, tDescuentos = 0, tDescuentosEfectivo = 0;  
 
     pedidosDelTurno.forEach(p => {
         if (['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
+        
         let metodoPagoReal = p.metodo_pago;
-        if (['Pendiente', 'Por Cobrar'].includes(metodoPagoReal)) metodoPagoReal = 'Efectivo';
+        
+        // 🚀 APLICACIÓN DE LA REGLA ESTRICTA (HISTÓRICA):
+        // Garantiza que la auditoría retrospectiva tenga matemática perfecta ignorando lo que flotaba en este turno.
+        if (['Pendiente', 'Por Cobrar'].includes(metodoPagoReal)) return;
 
         const isComedor = p.metodo_pago === 'Comida Personal';
-        const isDomicilio = p.tipo_consumo === 'Domicilio';
+        const isDomicilio = p.tipo_consumo === 'Domicilio';  
 
         let efe = 0, tar = 0, tra = 0;
         if (metodoPagoReal === 'Efectivo') efe += parseMoney(p.total);
         if (metodoPagoReal === 'Tarjeta') tar += parseMoney(p.total);
         if (metodoPagoReal === 'Transferencia') tra += parseMoney(p.total);
+        
         if (metodoPagoReal === 'Mixto' && p.pagos_mixtos) {
-            let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch (e) { }
-            pm.forEach(x => {
-                if (x.metodo === 'Efectivo') efe += parseMoney(x.monto);
-                if (x.metodo === 'Tarjeta') tar += parseMoney(x.monto);
-                if (x.metodo === 'Transferencia') tra += parseMoney(x.monto);
-            });
-        }
+        let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch (e) { }
+        pm.forEach(x => {
+            if (x.metodo === 'Efectivo') efe += parseMoney(x.monto);
+            if (x.metodo === 'Tarjeta') tar += parseMoney(x.monto);
+            if (x.metodo === 'Transferencia') tra += parseMoney(x.monto);
+        });
+        }  
 
-        if (isDomicilio) { dEfectivo += efe; dTarjeta += tar; dTransf += tra; dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); } 
-        else { lEfectivo += efe; lTarjeta += tar; lTransf += tra; tEnvio += parseMoney(p.costo_envio); }
+        if (isDomicilio) { 
+        dEfectivo += efe; dTarjeta += tar; dTransf += tra; 
+        dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); 
+        }
+        else { 
+        lEfectivo += efe; lTarjeta += tar; lTransf += tra; 
+        tEnvio += parseMoney(p.costo_envio); 
+        }  
 
         let car = [];
         if (Array.isArray(p.carrito)) car = p.carrito; else if (typeof p.carrito === 'string') { try { car = JSON.parse(p.carrito); } catch (e) { } }
-        let order_gross = parseMoney(p.costo_envio);
+        let order_gross = parseMoney(p.costo_envio);  
 
         car.forEach(i => {
-            const qty = parseMoney(i.cantidad) || 1; let exP = 0;
-            if (Array.isArray(i.extras)) {
-                i.extras.forEach(e => {
-                    const eNameLower = (e.nombre || '').trim().toLowerCase();
-                    let isRealExtra = true;
-                    if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) isRealExtra = false;
-                    else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') isRealExtra = false;
-                    if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
-                });
-            }
-            const calcExtra = (exP * qty); let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
-            if (calcBase < 0) calcBase = 0; const calcPlat = (calcBase * qty);
-
-            if (!isComedor) {
-                tExtras += calcExtra; tPlatillos += calcPlat;
-                if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; }
-            }
-            order_gross += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
-        });
-
-        if (!isComedor) { 
-            const discount = order_gross - parseMoney(p.total); 
-            if (discount > 0) {
-                tDescuentos += discount; 
-                if (metodoPagoReal === 'Efectivo') tDescuentosEfectivo += discount;
-            }
+        const qty = parseMoney(i.cantidad) || 1; let exP = 0;
+        if (Array.isArray(i.extras)) {
+            i.extras.forEach(e => {
+            const eNameLower = (e.nombre || '').trim().toLowerCase();
+            let isRealExtra = true;
+            if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) isRealExtra = false;
+            else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') isRealExtra = false;
+            if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
+            });
         }
-    });
+        const calcExtra = (exP * qty); let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
+        if (calcBase < 0) calcBase = 0; const calcPlat = (calcBase * qty);  
+        
+        if (!isComedor) {
+            tExtras += calcExtra; tPlatillos += calcPlat;
+            if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; }
+        }
+        order_gross += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
+        });  
+
+        if (!isComedor) {
+        const discount = order_gross - parseMoney(p.total);
+        if (discount > 0) {
+            tDescuentos += discount;
+            if (metodoPagoReal === 'Efectivo') tDescuentosEfectivo += discount;
+        }
+        }
+    });  
 
     let fondoCaja = 0, fondoRepartidor = 0, gastosCompras = 0, efectivoDeclaradoCaja = 0;
     let efectivoEntregadoTotal = 0, efectivoEnCajaTotal = 0, fondosAdicionales = 0;

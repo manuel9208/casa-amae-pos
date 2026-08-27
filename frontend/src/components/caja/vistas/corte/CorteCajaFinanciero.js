@@ -4,6 +4,7 @@ import CorteDesglosePrincipal from './CorteDesglosePrincipal';
 import CorteDesgloseReparto from './CorteDesgloseReparto';
 import CorteDesgloseDigital from './CorteDesgloseDigital';
 import CorteResumenCuadre from './CorteResumenCuadre';  
+import { io } from 'socket.io-client';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
 
@@ -100,12 +101,20 @@ const CorteCajaFinanciero = (props) => {
       if (!esSilencioso) setCargando(false);
     };
     cargarDatos(false);
-    let int;
-    if(esHoy) int = setInterval(() => cargarDatos(true), 3000);
-    return () => clearInterval(int);
+
+    if (esHoy) {
+     const baseUrl = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace('/api', '') : 'http://localhost:4000';
+     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+     
+     socket.on('nuevo_pedido', () => cargarDatos(true));
+     socket.on('pedido_actualizado', () => cargarDatos(true));
+     socket.on('corte_actualizado', () => cargarDatos(true)); // Si tienes este evento
+
+     return () => socket.disconnect();
+  }
   }, [fechaFiltro, esHoy]);  
 
-  useEffect(() => {
+    useEffect(() => {
     const cortesCerrados = datosHistoricos.filter(c => c.turno_cerrado);
     const idsCobrados = cortesCerrados.flatMap(c => {
       try { return typeof c.pedidos_incluidos === 'string' ? JSON.parse(c.pedidos_incluidos) : (c.pedidos_incluidos || []); }
@@ -114,32 +123,34 @@ const CorteCajaFinanciero = (props) => {
 
     const pedidosDelTurnoActivo = pedidosGlobales.filter(p => !idsCobrados.includes(p.id));  
 
-    let lEfe=0, lTar=0, lTra=0, lPla=0, lExt=0, lEnv=0;
-    let dEfe=0, dTar=0, dTra=0, dPla=0, dExt=0, dEnv=0;
-    let tEnv=0, tPla=0, tExt=0, totalDescuentos=0;  
+    let lEfe = 0, lTar = 0, lTra = 0, lPla = 0, lExt = 0, lEnv = 0;
+    let dEfe = 0, dTar = 0, dTra = 0, dPla = 0, dExt = 0, dEnv = 0;
+    let tEnv = 0, tPla = 0, tExt = 0, totalDescuentos = 0;  
 
     pedidosDelTurnoActivo.forEach(p => {
       if(['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;  
-      
+
       let metodoPagoReal = p.metodo_pago;
-      if (['Pendiente', 'Por Cobrar'].includes(metodoPagoReal)) {
-        metodoPagoReal = 'Efectivo';
-      }  
+      
+      // 🚀 APLICACIÓN DE LA REGLA ESTRICTA (CORE BUSINESS LOGIC):
+      // Si el repartidor sigue en ruta o el pedido no ha sido liquidado, 
+      // se ignora por completo. No entra a este corte y queda libre para el siguiente turno.
+      if (['Pendiente', 'Por Cobrar'].includes(metodoPagoReal)) return;
 
       const isComedor = metodoPagoReal === 'Comida Personal';
       const isDomicilio = p.tipo_consumo === 'Domicilio';  
 
-      let efe=0, tar=0, tra=0;
+      let efe = 0, tar = 0, tra = 0;
       if (metodoPagoReal === 'Efectivo') efe += parseMoney(p.total);
       if (metodoPagoReal === 'Tarjeta') tar += parseMoney(p.total);
       if (metodoPagoReal === 'Transferencia') tra += parseMoney(p.total);  
 
       if (metodoPagoReal === 'Mixto' && p.pagos_mixtos) {
-        let pm = []; try{ pm=typeof p.pagos_mixtos==='string'?JSON.parse(p.pagos_mixtos):p.pagos_mixtos; }catch(e){}
+        let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch (e) { }
         pm.forEach(x => {
-          if(x.metodo==='Efectivo') efe += parseMoney(x.monto);
-          if(x.metodo==='Tarjeta') tar += parseMoney(x.monto);
-          if(x.metodo==='Transferencia') tra += parseMoney(x.monto);
+          if (x.metodo === 'Efectivo') efe += parseMoney(x.monto);
+          if (x.metodo === 'Tarjeta') tar += parseMoney(x.monto);
+          if (x.metodo === 'Transferencia') tra += parseMoney(x.monto);
         });
       }  
 
@@ -153,27 +164,27 @@ const CorteCajaFinanciero = (props) => {
 
       let car = [];
       if (Array.isArray(p.carrito)) car = p.carrito;
-      else if (typeof p.carrito === 'string') { try { car = JSON.parse(p.carrito); } catch(e) {} }  
-      
+      else if (typeof p.carrito === 'string') { try { car = JSON.parse(p.carrito); } catch (e) { } }  
+
       car.forEach(i => {
         const qty = parseMoney(i.cantidad) || 1;
         const pBase = parseMoney(i.precioBase || i.precio);
-        let subPlatillo = pBase * qty;
-        
+        let subPlatillo = pBase * qty;  
+
         let subExtras = 0;
         if (Array.isArray(i.extras)) {
           i.extras.forEach(ex => {
             subExtras += parseMoney(ex.precio || ex.monto || 0);
           });
-        }
-        
+        }  
+
         const totOriginal = subPlatillo + subExtras;
-        const totFinal = parseMoney(i.precioFinal) * qty;
-        
+        const totFinal = parseMoney(i.precioFinal) * qty;  
+
         let descItem = 0;
-        if(totOriginal > totFinal) descItem = totOriginal - totFinal;
-        else if (i.descuentoOriginal && !isComedor) descItem = parseMoney(i.descuentoOriginal) * qty;
-        
+        if (totOriginal > totFinal) descItem = totOriginal - totFinal;
+        else if (i.descuentoOriginal && !isComedor) descItem = parseMoney(i.descuentoOriginal) * qty;  
+
         if (!isComedor) totalDescuentos += descItem;  
 
         if (isDomicilio) { dPla += subPlatillo; dExt += subExtras; }
@@ -186,9 +197,9 @@ const CorteCajaFinanciero = (props) => {
       lPlatillos: lPla, lExtras: lExt, lEfectivo: lEfe, lTarjeta: lTar, lTransf: lTra, lEnvio: lEnv,
       dPlatillos: dPla, dExtras: dExt, dEfectivo: dEfe, dTarjeta: dTar, dTransf: dTra, dEnvio: dEnv,
       tEnvio: tEnv, tPlatillos: tPla, tExtras: tExt, tDescuentos: totalDescuentos,
-      pedidos_incluidos: pedidosDelTurnoActivo.map(p => p.id)
+      pedidos_incluidos: pedidosDelTurnoActivo.map(p => p.id) // Los "Por Cobrar" no se incluyen aquí.
     });
-  }, [pedidosGlobales, datosHistoricos]);  
+  }, [pedidosGlobales, datosHistoricos]);
 
   const guardarFondoManualBD = async (montoVal) => {
     if (!esHoy || !esAdminOGerente) return;

@@ -409,3 +409,10 @@ INSERT INTO clasificaciones (nombre, destino, emoji) VALUES
 ('Sushis', 'Cocina', '🍣'),
 ('Postres', 'Barra', '🍰')
 ON CONFLICT (nombre) DO NOTHING;
+
+-- 1. Modificar la columna en la tabla de recetas para permitir hasta 6 decimales
+ALTER TABLE recetas ALTER COLUMN cantidad_usada TYPE NUMERIC(14,6);
+
+-- 2. (Recomendado) Hacer lo mismo en la tabla de insumos por si manejas mermas microscópicas
+ALTER TABLE insumos ALTER COLUMN cantidad_presentacion TYPE NUMERIC(14,6);
+ALTER TABLE insumos ALTER COLUMN costo_presentacion TYPE NUMERIC(14,6);

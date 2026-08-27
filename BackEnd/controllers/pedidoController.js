@@ -135,69 +135,113 @@ exports.crearPedido = async (req, res) => {
             await client.query("UPDATE mesas SET estado = 'Ocupada', pedido_actual_id = $1 WHERE numero_mesa = $2", [pedidoInsertado.id, mesa]);
         }
 
-        if (carrito && carrito.length > 0) {
-            const cantDescontar = {};
+        // 👇 NUEVO MOTOR DE EXPLOSIÓN: Base + Sabores + Extras
+            if (carrito && carrito.length > 0) {
             for (const item of carrito) {
                 const pId = item.producto_id || item.id;
-                if (pId && !isNaN(parseInt(pId))) {
-                    const cleanId = parseInt(pId);
-                    cantDescontar[cleanId] = (cantDescontar[cleanId] || 0) + (parseInt(item.cantidad) || 1);
+                const cantidadVendida = parseInt(item.cantidad) || 1;
+
+                if (!pId || isNaN(parseInt(pId))) continue;
+
+                // 1. Extraer los nombres de las variaciones (Sabores/Tamaños) que eligió el cliente
+                const nombresVariaciones = (item.extras || [])
+                .filter(e => e.tipo === 'variacion')
+                .map(e => String(e.nombre).trim().toLowerCase());
+
+                // 2. Procesar y Descontar el Platillo Base (y sus variaciones)
+                const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);
+
+                if (prodRes.rows.length > 0) {
+                const row = prodRes.rows[0];
+                const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
+                let stock_preparado = parseInt(row.stock_preparado) || 0;
+
+                if (isUsaStock) {
+                    stock_preparado -= cantidadVendida;
+                    let seAcabo = false;
+                    if (stock_preparado <= 0) {
+                    stock_preparado = 0;
+                    seAcabo = true;
+                    }
+                    if (seAcabo) {
+                    await client.query('UPDATE productos SET stock_preparado = $1, disponible = false WHERE id = $2', [stock_preparado, pId]);
+                    if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef'], '⚠️ Producto Agotado', `El platillo "${row.nombre}" se quedó sin stock y se ocultó del menú automáticamente.`);
+                    } else {
+                    await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
+                    if (stock_preparado <= 3 && typeof notificarStaff !== 'undefined') {
+                        notificarStaff(['admin', 'gerente', 'cajero'], '⚠️ Stock Bajo', `Quedan solo ${stock_preparado} unidades de "${row.nombre}".`);
+                    }
+                    }
+                } else {
+                    const rendimiento = parseFloat(row.rendimiento) || 1;
+                    let lotesADescontar = 0;
+
+                    if (rendimiento <= 1) {
+                    lotesADescontar = cantidadVendida;
+                    } else {
+                    if (cantidadVendida <= stock_preparado) {
+                        stock_preparado -= cantidadVendida;
+                    } else {
+                        let falta = cantidadVendida - stock_preparado;
+                        lotesADescontar = Math.ceil(falta / rendimiento);
+                        stock_preparado = (lotesADescontar * rendimiento) - falta;
+                    }
+                    await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
+                    }
+
+                    if (lotesADescontar > 0) {
+                    // 👇 MODIFICACIÓN 1: El query ahora busca la Base + el Sabor exacto seleccionado
+                    const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+                    const recursiveQueryPlatillo = `
+                        WITH RECURSIVE Explosion AS (
+                        SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                        FROM recetas r 
+                        WHERE r.producto_id = $2 
+                        AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                        UNION ALL
+                        SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                        FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                        WHERE e.sub_producto_id IS NOT NULL
+                        )
+                        UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
+                        SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                        ) calc WHERE insumos.id = calc.insumo_id;
+                    `;
+                    await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones]);
+                    }
                 }
             }
-            for (const [pId, cantidadVendida] of Object.entries(cantDescontar)) {
-                const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);
-                if (prodRes.rows.length > 0) {
-                    const row = prodRes.rows[0];
-                    const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
-                    let stock_preparado = parseInt(row.stock_preparado) || 0;
-                    if (isUsaStock) {
-                        stock_preparado -= cantidadVendida;
-                        let seAcabo = false;
-                        if (stock_preparado <= 0) {
-                            stock_preparado = 0;
-                            seAcabo = true;
-                        }
-                        if (seAcabo) {
-                            await client.query('UPDATE productos SET stock_preparado = $1, disponible = false WHERE id = $2', [stock_preparado, pId]);
-                            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef'], '⚠️ Producto Agotado', `El platillo "${row.nombre}" se quedó sin stock y se ocultó del menú automáticamente.`);
-                        } else {
-                            await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
-                            if (stock_preparado <= 3) {
-                                if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero'], '⚠️ Stock Bajo', `Quedan solo ${stock_preparado} unidades de "${row.nombre}".`);
-                            }
-                        }
-                    } else {
-                        const rendimiento = parseFloat(row.rendimiento) || 1;
-                        let lotesADescontar = 0;
-                        if (rendimiento <= 1) {
-                            lotesADescontar = cantidadVendida;
-                        } else {
-                            if (cantidadVendida <= stock_preparado) {
-                                stock_preparado -= cantidadVendida;
-                            } else {
-                                let falta = cantidadVendida - stock_preparado;
-                                lotesADescontar = Math.ceil(falta / rendimiento);
-                                stock_preparado = (lotesADescontar * rendimiento) - falta;
-                            }
-                            await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
-                        }
-                        if (lotesADescontar > 0) {
-                            const recursiveQuery = `
-                            WITH RECURSIVE Explosion AS (
-                                SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
-                                FROM recetas r WHERE r.producto_id = $2
-                                UNION ALL
-                                SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
-                                FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
-                                WHERE e.sub_producto_id IS NOT NULL
-                            )
-                            UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
-                                SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
-                            ) calc WHERE insumos.id = calc.insumo_id;
-                            `;
-                            await client.query(recursiveQuery, [lotesADescontar, pId]);
-                        }
+
+                // 👇 MODIFICACIÓN 2: Motor Independiente que lee los Extras/Ingredientes Adicionales
+                if (item.extras && item.extras.length > 0) {
+                for (const extra of item.extras) {
+                    if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
+                    // El frontend manda un string formateado. Extraemos el nombre real:
+                    const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
+                    
+                    // Buscamos el ID del ingrediente en el catálogo
+                    const ingRes = await client.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
+                    
+                    if (ingRes.rows.length > 0) {
+                        const ingredienteId = ingRes.rows[0].id;
+                        
+                        const recursiveQueryExtra = `
+                        WITH RECURSIVE Explosion AS (
+                            SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                            FROM recetas r WHERE r.ingrediente_id = $2
+                            UNION ALL
+                            SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                            FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                            WHERE e.sub_producto_id IS NOT NULL
+                        )
+                        UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
+                            SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                        ) calc WHERE insumos.id = calc.insumo_id;
+                        `;
+                        await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId]);
                     }
+                    }
+                }
                 }
             }
         }
@@ -402,27 +446,84 @@ exports.actualizarEstado = async (req, res) => {
             }
         }
 
-        if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
+            if (estadoReal === 'Cancelado' && pedidoPrevio.estado_preparacion !== 'Cancelado') {
+            // 1. Devolver Puntos al Cliente
             if (pedidoPrevio.descuento_puntos && Number(pedidoPrevio.descuento_puntos) > 0 && pedidoPrevio.cliente_id) {
                 await db.query('UPDATE clientes SET puntos = puntos + $1 WHERE id = $2', [pedidoPrevio.descuento_puntos, pedidoPrevio.cliente_id]);
             }
+
             const carritoRestaurar = typeof pedidoPrevio.carrito === 'string' ? JSON.parse(pedidoPrevio.carrito) : (pedidoPrevio.carrito || []);
+            
+            // 👇 NUEVO MOTOR DE EXPLOSIÓN INVERSO (Devolución de Mermas, Sabores y Extras)
             if (carritoRestaurar.length > 0) {
-                const cantRestaurar = {};
                 for (const item of carritoRestaurar) {
                     const pId = item.producto_id || item.id;
-                    if (pId && !isNaN(parseInt(pId))) {
-                        const cleanId = parseInt(pId);
-                        cantRestaurar[cleanId] = (cantRestaurar[cleanId] || 0) + (parseInt(item.cantidad) || 1);
-                    }
-                }
-                for (const [pId, cant] of Object.entries(cantRestaurar)) {
-                    const prodRes = await db.query('SELECT usa_stock FROM productos WHERE id = $1', [pId]);
+                    const cantidadDevuelta = parseInt(item.cantidad) || 1;
+
+                    if (!pId || isNaN(parseInt(pId))) continue;
+
+                    // Extraemos las variaciones que el cliente había elegido
+                    const nombresVariaciones = (item.extras || [])
+                        .filter(e => e.tipo === 'variacion')
+                        .map(e => String(e.nombre).trim().toLowerCase());
+                    const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+
+                    // Procesamos la devolución del Platillo Base y Sabores
+                    const prodRes = await db.query('SELECT usa_stock, rendimiento FROM productos WHERE id = $1', [pId]);
                     if (prodRes.rows.length > 0) {
-                        if (prodRes.rows[0].usa_stock === true || String(prodRes.rows[0].usa_stock) === 'true') {
-                            await db.query('UPDATE productos SET stock_preparado = stock_preparado + $1, disponible = true WHERE id = $2', [cant, pId]);
+                        const row = prodRes.rows[0];
+                        if (row.usa_stock === true || String(row.usa_stock) === 'true') {
+                            // Si es refresco o postre, devuelve la pieza entera
+                            await db.query('UPDATE productos SET stock_preparado = stock_preparado + $1, disponible = true WHERE id = $2', [cantidadDevuelta, pId]);
                         } else {
-                            await db.query('UPDATE productos SET stock_preparado = stock_preparado + $1 WHERE id = $2', [cant, pId]);
+                            // Si es platillo preparado, devuelve los gramos/mililitros exactos
+                            const rendimiento = parseFloat(row.rendimiento) || 1;
+                            const factorDevolucion = cantidadDevuelta / rendimiento;
+
+                            const recursiveQueryPlatillo = `
+                                WITH RECURSIVE Explosion AS (
+                                    SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                    FROM recetas r 
+                                    WHERE r.producto_id = $2 
+                                    AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                                    UNION ALL
+                                    SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                    FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                    WHERE e.sub_producto_id IS NOT NULL
+                                )
+                                UPDATE insumos SET stock_actual = stock_actual + calc.total_devolver FROM (
+                                    SELECT insumo_id, SUM(qty_factor) as total_devolver FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                ) calc WHERE insumos.id = calc.insumo_id;
+                            `;
+                            await db.query(recursiveQueryPlatillo, [factorDevolucion, pId, arrayVariaciones]);
+                        }
+                    }
+
+                    // Procesamos la devolución de los Extras
+                    if (item.extras && item.extras.length > 0) {
+                        for (const extra of item.extras) {
+                            if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
+                                const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
+                                const ingRes = await db.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
+                                
+                                if (ingRes.rows.length > 0) {
+                                    const ingredienteId = ingRes.rows[0].id;
+                                    const recursiveQueryExtra = `
+                                        WITH RECURSIVE Explosion AS (
+                                            SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                            FROM recetas r WHERE r.ingrediente_id = $2
+                                            UNION ALL
+                                            SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                            FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                            WHERE e.sub_producto_id IS NOT NULL
+                                        )
+                                        UPDATE insumos SET stock_actual = stock_actual + calc.total_devolver FROM (
+                                            SELECT insumo_id, SUM(qty_factor) as total_devolver FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                        ) calc WHERE insumos.id = calc.insumo_id;
+                                    `;
+                                    await db.query(recursiveQueryExtra, [cantidadDevuelta, ingredienteId]);
+                                }
+                            }
                         }
                     }
                 }

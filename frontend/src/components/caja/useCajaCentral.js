@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { io } from 'socket.io-client';
 
 const getMazatlanDateStr = () => {
     const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -256,14 +257,25 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         }
       } catch (error) {}
     };
+
+    // 1. Primera carga inicial al abrir el sistema
     cargarConfig();
     cargarDataDinamica();
 
-    const intervaloData = setInterval(cargarDataDinamica, 3000);
-    const intervaloConfig = setInterval(cargarConfig, 3000);
+    // 2. 🚀 CONEXIÓN POR SOCKETS (Reemplazo del setInterval que quemaba Render)
+    const baseUrl = apiUrl ? apiUrl.replace('/api', '') : 'http://localhost:4000';
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+
+    // 3. Escuchadores de eventos reactivos
+    socket.on('nuevo_pedido', () => cargarDataDinamica());
+    socket.on('pedido_actualizado', () => cargarDataDinamica());
+    socket.on('corte_actualizado', () => cargarDataDinamica());
+    socket.on('configuracion_actualizada', () => cargarConfig());
+    socket.on('cambio_catalogo', () => cargarDataDinamica()); // Si usas un evento para cambios de insumos/menú
+
+    // 4. Limpieza al desmontar
     return () => {
-      clearInterval(intervaloData);
-      clearInterval(intervaloConfig);
+      socket.disconnect();
     };
   }, [apiUrl, cargarDataDinamica]);
 
@@ -661,6 +673,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
+      const pedidoConfirmado = pedidosPorConfirmar.find(p => p.id === id);
+
       const pedidoRecoger = pedidos.find(p => p.id === id);
       let metodoPagoAjustado = pedidoRecoger?.metodo_pago;
 
@@ -676,6 +690,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             cajero_id: operadorActual?.id 
         }) 
       });
+
+      if (pedidoConfirmado) {
+        lanzarImpresion(pedidoConfirmado);
+      }
+
       await cargarDataDinamica();
     } catch (error) {}
     setIsSubmitting(false);
@@ -704,6 +723,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             cajero_id: operadorActual?.id 
         }) 
       });
+
+      if (modalZonaEnvio) {
+         lanzarImpresion(modalZonaEnvio); 
+      }
+
       setModalZonaEnvio(null);
       await cargarDataDinamica();
     } catch (error) {}

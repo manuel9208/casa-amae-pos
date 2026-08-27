@@ -1,6 +1,6 @@
 {
-  "short_name": "KAORE",
-  "name": "KAORE - Punto de Venta",
+  "short_name": "Casa Amae",
+  "name": "Casa Amae - Punto de Venta",
   "icons": [
     {
       "src": "favicon.ico",
@@ -23,6 +23,6 @@
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#1e293b",
-  "background_color": "#f8fafc"
+  "theme_color": "#2563eb",
+  "background_color": "#f1f5f9"
 }

@@ -1,1027 +1,226 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Trash2, Users, Plus, Lock, Camera, Calendar, RotateCcw, Save, ChevronLeft, ChevronRight, Filter, Copy, CheckSquare, Square, CheckCircle2, AlertTriangle } from 'lucide-react';
-// 👇 APLICACIÓN: Importación del motor de caché para las fotos de evidencia
-import ImagenCachada from '../../ImagenCachada';
+import { Sparkles, CalendarDays, Save, Plus, Trash2, ShieldCheck, CheckSquare, Square, Users, Info } from 'lucide-react';
 
-const diasSemanaNombresFull = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+// Importamos la lógica aislada (Capa 1) y el componente visual de fotos (Capa 2)
+import { useAuditoriaLimpieza } from './hooks/useAuditoriaLimpieza';
+import GaleriaLimpieza from './components/GaleriaLimpieza';
 
-const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert, showConfirm, configGlobal }) => {
-  const [fechaReferencia, setFechaReferencia] = useState(new Date());
+const diasSemanaMap = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-  const [areasBase, setAreasBase] = useState([]);
-  const [asignaciones, setAsignaciones] = useState({});
-  const [evidencias, setEvidencias] = useState({});
-  const [evaluaciones, setEvaluaciones] = useState({});
-  const [diasCerrados, setDiasCerrados] = useState([]);
-  const [nuevaArea, setNuevaArea] = useState('');
-  const [hayCambiosSinGuardar, setHayCambiosSinGuardar] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [horarioNegocio, setHorarioNegocio] = useState({});
+const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert }) => {
+    // 1. Extraemos roles válidos del directorio (Ignorando admin global y pantallas TV)
+    const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global');
+    const rolesDisponibles = [...new Set(empleadosVisibles.map(u => u.rol))].filter(r => r !== 'tv' && r !== 'admin');
 
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
+    // 2. Conectamos el Motor Lógico (Custom Hook)
+    const {
+        areasBase,
+        plantillaRoles,
+        evaluaciones,
+        evidencias,
+        isSubmitting,
+        hayCambios,
+        cargarDatosLimpieza,
+        guardarCambiosNube,
+        agregarArea,
+        eliminarArea,
+        toggleTareaRol,
+        evaluarEvidencia
+    } = useAuditoriaLimpieza(apiUrl, showAlert);
 
-  const [asigArea, setAsigArea] = useState('');
-  const [asigTurno, setAsigTurno] = useState('');
-  const [asigFechas, setAsigFechas] = useState([]); 
+    // 3. Estados de Interfaz
+    const [vistaActiva, setVistaActiva] = useState('auditoria'); // 'auditoria' o 'plantillas'
+    const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toISOString().split('T')[0]);
+    const [rolSeleccionado, setRolSeleccionado] = useState(rolesDisponibles[0] || '');
+    const [nuevaAreaStr, setNuevaAreaStr] = useState('');
 
-  const [modalCelda, setModalCelda] = useState(null);
-  const [modalMasivo, setModalMasivo] = useState(null);
-  
-  const [filtroRolMasivo, setFiltroRolMasivo] = useState('');
-  const [empleadosSeleccionados, setEmpleadosSeleccionados] = useState([]);
+    // Cargar datos al montar el componente
+    useEffect(() => {
+        cargarDatosLimpieza();
+    }, [cargarDatosLimpieza]);
 
-  // 👇 FILTRADO INTELIGENTE: Ocultar empleados si descansan en los días seleccionados
-  const empleadosVisibles = usuariosDB.filter(u => u.nombre !== 'Administrador Global' && u.rol !== 'tv').sort((a, b) => a.nombre.localeCompare(b.nombre));
-  
-  const empleadosDisponiblesMain = empleadosVisibles.filter(emp => {
-      if (asigFechas.length === 0) return true;
-      
-      const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-      
-      return asigFechas.some(dateStr => {
-          const currentDate = new Date(dateStr + 'T12:00:00');
-          const nombreDiaCompleto = diasSemanaNombresFull[currentDate.getDay()];
-          const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
-          const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
-          const esNoLaboral = pres.dias_no_laborales?.includes(dateStr) || false;
-          
-          return !(restauranteCerrado || esDescanso || esNoLaboral);
-      });
-  });
-
-  const empleadosOcultosCount = empleadosVisibles.length - empleadosDisponiblesMain.length;
-  const rolesDisponibles = [...new Set(empleadosDisponiblesMain.map(e => e.rol))];
-  const empleadosFiltrados = filtroRolMasivo ? empleadosDisponiblesMain.filter(u => u.rol === filtroRolMasivo) : empleadosDisponiblesMain;
-  const todosFiltradosSeleccionados = empleadosFiltrados.length > 0 && empleadosFiltrados.every(e => empleadosSeleccionados.includes(String(e.id)));
-
-  const year = fechaReferencia.getFullYear();
-  const month = fechaReferencia.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  const diasMes = Array.from({ length: daysInMonth }, (_, i) => {
-    const date = new Date(year, month, i + 1);
-    const fechaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-    const nombreBreve = date.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
-    const nombreCompleto = diasSemanaNombresFull[date.getDay()];
-    return { num: i + 1, nombreBreve, nombreCompleto, fechaStr, dayIndex: date.getDay() }; 
-  });
-
-  useEffect(() => {
-    setAsigFechas([]);
-  }, [year, month]);
-
-  useEffect(() => {
-    if (empleadosVisibles.length > 0 && empleadosSeleccionados.length === 0) {
-      setEmpleadosSeleccionados(empleadosVisibles.map(e => String(e.id)));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuariosDB]);
-
-  const toggleSeleccionMasiva = () => {
-    if (todosFiltradosSeleccionados) {
-      setEmpleadosSeleccionados(prev => prev.filter(id => !empleadosFiltrados.find(e => String(e.id) === id)));
-    } else {
-      const nuevos = empleadosFiltrados.map(e => String(e.id)).filter(id => !empleadosSeleccionados.includes(id));
-      setEmpleadosSeleccionados(prev => [...prev, ...nuevos]);
-    }
-  };
-
-  const mesNombre = fechaReferencia.toLocaleDateString('es-ES', { month: 'long' }).toUpperCase();
-
-  const cambiarMes = (direccion) => {
-    setFechaReferencia(new Date(year, month + direccion, 1));
-  };
-
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hayCambiosSinGuardar) {
+    // Handlers UI
+    const handleAgregarArea = (e) => {
         e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hayCambiosSinGuardar]);
-
-  useEffect(() => {
-    if (configGlobal && configGlobal.horarios_semana) {
-      try { setHorarioNegocio(typeof configGlobal.horarios_semana === 'string' ? JSON.parse(configGlobal.horarios_semana) : configGlobal.horarios_semana || {}); } catch (e) {}
-    }
-  }, [configGlobal]);
-
-  useEffect(() => {
-    fetch(`${apiUrl}/configuracion`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.horarios_semana) {
-          try { setHorarioNegocio(typeof data.horarios_semana === 'string' ? JSON.parse(data.horarios_semana) : data.horarios_semana); } catch(e){}
-        }
-
-        if (data && !data.error && data.matriz_limpieza) {
-          const matriz = typeof data.matriz_limpieza === 'string' ? JSON.parse(data.matriz_limpieza) : data.matriz_limpieza;
-          
-          if (matriz.areasBase) {
-            setAreasBase(matriz.areasBase);
-            setAsignaciones(matriz.asignaciones || {});
-          } else if (matriz.areas) {
-            const nuevasAreasBase = [];
-            const nuevasAsignaciones = {};
-            matriz.areas.forEach(oldStr => {
-              const parts = oldStr.split(' - ');
-              const nombre = parts[0];
-              const turno = parts[1] || 'General';
-              let area = nuevasAreasBase.find(a => a.id === nombre);
-              if (!area) { area = { id: nombre, nombre: nombre, turnos: [] }; nuevasAreasBase.push(area); }
-              if (!area.turnos.includes(turno)) area.turnos.push(turno);
-              if (matriz.asignaciones && matriz.asignaciones[oldStr]) {
-                const newKey = `${nombre}_${turno}`;
-                nuevasAsignaciones[newKey] = {};
-                Object.keys(matriz.asignaciones[oldStr]).forEach(fecha => {
-                  nuevasAsignaciones[newKey][fecha] = [String(matriz.asignaciones[oldStr][fecha])];
-                });
-              }
-            });
-            setAreasBase(nuevasAreasBase);
-            setAsignaciones(nuevasAsignaciones);
-          }
-
-          if (matriz.evaluaciones) {
-            let nuevasEval = {};
-            Object.keys(matriz.evaluaciones).forEach(clave => {
-              nuevasEval[clave] = {};
-              Object.keys(matriz.evaluaciones[clave]).forEach(fecha => {
-                const val = matriz.evaluaciones[clave][fecha];
-                if (typeof val === 'string') {
-                  const asignados = matriz.asignaciones?.[clave]?.[fecha] || [];
-                  nuevasEval[clave][fecha] = {};
-                  asignados.forEach(empId => nuevasEval[clave][fecha][empId] = val);
-                } else {
-                  nuevasEval[clave][fecha] = val;
-                }
-              });
-            });
-            setEvaluaciones(nuevasEval);
-          } else { setEvaluaciones({}); }
-
-          if (matriz.evidencias) {
-            let nuevasEvi = {};
-            Object.keys(matriz.evidencias).forEach(clave => {
-              nuevasEvi[clave] = {};
-              Object.keys(matriz.evidencias[clave]).forEach(fecha => {
-                const val = matriz.evidencias[clave][fecha];
-                if (typeof val === 'string') {
-                  const asignados = matriz.asignaciones?.[clave]?.[fecha] || [];
-                  nuevasEvi[clave][fecha] = {};
-                  if (asignados.length > 0) nuevasEvi[clave][fecha][asignados[0]] = val;
-                } else {
-                  nuevasEvi[clave][fecha] = val;
-                }
-              });
-            });
-            setEvidencias(nuevasEvi);
-          } else { setEvidencias({}); }
-
-          setDiasCerrados(matriz.dias_cerrados || []);
-        }
-      })
-      .catch(() => {});
-  }, [apiUrl]);
-
-  const guardarMatrizDB = async (asignacionesActualizadas) => {
-    setIsSubmitting(true);
-    try {
-        const resConfig = await fetch(`${apiUrl}/configuracion`);
-        let matrizActual = {};
-        if (resConfig.ok) {
-            const dataConfig = await resConfig.json();
-            matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
-        }
-        
-        const payload = { 
-            ...matrizActual, 
-            areasBase, 
-            asignaciones: asignacionesActualizadas, 
-            evidencias, 
-            evaluaciones, 
-            dias_cerrados: diasCerrados 
-        };
-        
-        const formData = new FormData();
-        formData.append('matriz_limpieza', JSON.stringify(payload));
-
-        const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-        if (res.ok) {
-            setHayCambiosSinGuardar(false);
-            setIsSubmitting(false);
-            return true;
-        }
-    } catch (error) {
-        console.error("Error al guardar en DB:", error);
-    }
-    setIsSubmitting(false);
-    return false;
-  };
-
-  const guardarMatriz = async () => {
-      const exito = await guardarMatrizDB(asignaciones);
-      if (exito) showAlert('¡Guardado!', 'Todos los turnos y asignaciones fueron salvados en la base de datos.', 'success');
-      else showAlert('Error', 'Error de red al guardar la matriz general.', 'error');
-  };
-
-  const agregarArea = (e) => {
-    e.preventDefault();
-    const areaNombre = nuevaArea.trim();
-    if (!areaNombre) return;
-    if (!areasBase.find(a => a.id.toLowerCase() === areaNombre.toLowerCase())) {
-      setHayCambiosSinGuardar(true);
-      setAreasBase([...areasBase, { id: areaNombre, nombre: areaNombre, turnos: ['General'] }]);
-      setNuevaArea('');
-    } else {
-      showAlert('Aviso', 'Esta área ya existe en la lista.', 'warning');
-    }
-  };
-
-  const eliminarArea = (areaId) => {
-    showConfirm("Eliminar Área", `¿Seguro que deseas eliminar "${areaId}"? Se perderá todo su historial.`, () => {
-      setHayCambiosSinGuardar(true);
-      setAreasBase(prev => prev.filter(a => a.id !== areaId));
-    });
-  };
-
-  const toggleTurno = (areaId, turno) => {
-    setHayCambiosSinGuardar(true);
-    setAreasBase(prev => prev.map(a => {
-      if (a.id === areaId) {
-        const turnos = a.turnos.includes(turno) ? a.turnos.filter(t => t !== turno) : [...a.turnos, turno];
-        return { ...a, turnos };
-      }
-      return a;
-    }));
-  };
-
-  const evaluarLimpieza = (areaId, turno, fechaStr, empId, status) => {
-    if (diasCerrados.includes(fechaStr)) return;
-    setHayCambiosSinGuardar(true);
-    const clave = `${areaId}_${turno}`;
-    setEvaluaciones(prev => {
-      const prevArea = prev[clave] || {};
-      const prevFecha = prevArea[fechaStr] || {};
-      
-      if (status === null) {
-        const newFecha = { ...prevFecha };
-        delete newFecha[empId];
-        return { ...prev, [clave]: { ...prevArea, [fechaStr]: newFecha } };
-      }
-
-      return { ...prev, [clave]: { ...prevArea, [fechaStr]: { ...prevFecha, [empId]: status } } };
-    });
-  };
-
-  const toggleDiaSemanaPanel = (dayIndex) => {
-    const fechasDelDia = diasMes.filter(d => d.dayIndex === dayIndex).map(d => d.fechaStr);
-    const todasSeleccionadas = fechasDelDia.length > 0 && fechasDelDia.every(f => asigFechas.includes(f));
-    
-    if (todasSeleccionadas) {
-        setAsigFechas(prev => prev.filter(f => !fechasDelDia.includes(f)));
-    } else {
-        const nuevas = new Set(asigFechas);
-        fechasDelDia.forEach(f => nuevas.add(f));
-        setAsigFechas(Array.from(nuevas));
-    }
-  };
-
-  const toggleDiaEspecificoPanel = (fechaStr) => {
-    setAsigFechas(prev => prev.includes(fechaStr) ? prev.filter(f => f !== fechaStr) : [...prev, fechaStr]);
-  };
-
-  const seleccionarTodoElMes = () => {
-    if (asigFechas.length === diasMes.length) {
-        setAsigFechas([]);
-    } else {
-        setAsigFechas(diasMes.map(d => d.fechaStr));
-    }
-  };
-
-  const aplicarAsignacionRango = async () => {
-    if (!asigArea || !asigTurno || asigFechas.length === 0 || empleadosSeleccionados.length === 0) {
-        return showAlert('Aviso', 'Completa la Tarea, Turno, Días y Empleados.', 'warning');
-    }
-    
-    const claveArea = `${asigArea}_${asigTurno}`;
-    const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
-    if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
-    
-    let diasAfectados = 0;
-    
-    asigFechas.forEach(dateStr => {
-        if (!diasCerrados.includes(dateStr)) {
-            const currentDate = new Date(dateStr + 'T12:00:00');
-            const nombreDiaCompleto = diasSemanaNombresFull[currentDate.getDay()];
-            
-            const asignables = empleadosSeleccionados.filter(empId => {
-                const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-                if (!emp) return false;
-                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-                const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
-                const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
-                const esNoLaboral = pres.dias_no_laborales?.includes(dateStr) || false;
-                return !(restauranteCerrado || esDescanso || esNoLaboral);
-            });
-
-            const actuales = nuevasAsignaciones[claveArea][dateStr] || [];
-            const fusionados = Array.from(new Set([...actuales, ...asignables]));
-
-            nuevasAsignaciones[claveArea][dateStr] = fusionados;
-            diasAfectados++;
-        }
-    });
-    
-    setAsignaciones(nuevasAsignaciones);
-    setAsigArea(''); setAsigTurno(''); setAsigFechas([]); 
-    
-    const exito = await guardarMatrizDB(nuevasAsignaciones);
-    if(exito) showAlert('¡Asignación Exitosa!', `Tarea fusionada y sincronizada en vivo en ${diasAfectados} días laborables.`, 'success');
-    else showAlert('¡Asignación Exitosa!', `Tarea fusionada en ${diasAfectados} días laborables. Faltó conexión para sincronizar.`, 'warning');
-  };
-
-  const obtenerRangoFechas = (inicioStr, finStr) => {
-    const fechas = [];
-    let actual = new Date(inicioStr + 'T00:00:00');
-    const fin = new Date(finStr + 'T00:00:00');
-    while (actual <= fin) {
-      fechas.push(`${actual.getFullYear()}-${String(actual.getMonth() + 1).padStart(2, '0')}-${String(actual.getDate()).padStart(2, '0')}`);
-      actual.setDate(actual.getDate() + 1);
-    }
-    return fechas;
-  };
-
-  const realizarCorteLimpieza = () => {
-    if (!fechaDesde || !fechaHasta) return showAlert("Aviso", "Selecciona el rango para auditoría.", "info");
-    if (fechaDesde > fechaHasta) return showAlert("Aviso", "'Desde' no puede ser mayor que 'Hasta'.", "warning");
-    const fechasRango = obtenerRangoFechas(fechaDesde, fechaHasta);
-
-    showConfirm(
-      "🔒 Corte de Limpieza", 
-      `Bloquearás las áreas desde el ${fechaDesde} hasta el ${fechaHasta}. Las fotos de este periodo se borrarán de la nube para liberar espacio.`, 
-      async () => {
-        setIsSubmitting(true);
-        try {
-          let urlsToDelete = [];
-          let nuevasEvidencias = JSON.parse(JSON.stringify(evidencias));
-
-          Object.keys(nuevasEvidencias).forEach(clave => {
-            fechasRango.forEach(fecha => {
-              if (nuevasEvidencias[clave][fecha]) {
-                Object.values(nuevasEvidencias[clave][fecha]).forEach(url => {
-                  if (url) urlsToDelete.push(url);
-                });
-                delete nuevasEvidencias[clave][fecha]; 
-              }
-            });
-          });
-
-          if (urlsToDelete.length > 0) {
-            fetch(`${apiUrl}/configuracion/eliminar-archivos`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ urls: urlsToDelete })
-            }).catch(() => console.warn("Petición de borrado a Cloudinary fallida."));
-          }
-
-          const resConfig = await fetch(`${apiUrl}/configuracion`);
-          let matrizActual = {};
-          if (resConfig.ok) {
-            const dataConfig = await resConfig.json();
-            matrizActual = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
-          }
-
-          const nuevosDiasCerrados = [...new Set([...diasCerrados, ...fechasRango])];
-          const payload = { ...matrizActual, areasBase, asignaciones, evidencias: nuevasEvidencias, evaluaciones, dias_cerrados: nuevosDiasCerrados };
-
-          const formData = new FormData();
-          formData.append('matriz_limpieza', JSON.stringify(payload));
-
-          const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
-          if (res.ok) {
-            setDiasCerrados(nuevosDiasCerrados);
-            setEvidencias(nuevasEvidencias);
-            setHayCambiosSinGuardar(false);
-            showAlert("Éxito", "Auditoría bloqueada, fotos purgadas y matriz guardada.", "success");
-          }
-        } catch (error) { showAlert("Error", "Fallo de conexión.", "error"); }
-        setIsSubmitting(false);
-      }
-    );
-  };
-
-  const duplicarSiguienteMes = () => {
-    if (empleadosSeleccionados.length === 0) return showAlert('Aviso', 'Selecciona al menos un empleado en el filtro visual.', 'info');
-
-    showConfirm(
-      "Copiar al Siguiente Mes",
-      "Esto copiará el patrón de limpieza actual al mes próximo (respetando los días de cierre y reglas de nómina). ¿Proceder?",
-      () => {
-        setHayCambiosSinGuardar(true);
-        const mesActivoLocal = fechaReferencia.getMonth();
-        const yearActivoLocal = fechaReferencia.getFullYear();
-
-        const nextM = mesActivoLocal === 11 ? 0 : mesActivoLocal + 1;
-        const nextY = mesActivoLocal === 11 ? yearActivoLocal + 1 : yearActivoLocal;
-        const diasNextMonth = new Date(nextY, nextM + 1, 0).getDate();
-        
-        const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
-
-        Object.keys(nuevasAsignaciones).forEach(claveArea => {
-          for (let i = 1; i <= diasNextMonth; i++) {
-            const dNext = new Date(nextY, nextM, i);
-            const targetDateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            const nombreDiaCompleto = diasSemanaNombresFull[dNext.getDay()];
-            
-            const currentMonthDay = diasMes.find(d => {
-              const dCurr = new Date(yearActivoLocal, mesActivoLocal, d.num);
-              return dCurr.getDay() === dNext.getDay();
-            });
-            
-            if (currentMonthDay && nuevasAsignaciones[claveArea][currentMonthDay.fechaStr]) {
-              const asignados = nuevasAsignaciones[claveArea][currentMonthDay.fechaStr];
-              
-              const asignables = asignados.filter(empId => {
-                  if (!empleadosSeleccionados.includes(String(empId))) return false;
-
-                  const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-                  if (!emp) return false;
-                  
-                  const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-                  const restauranteCerrado = horarioNegocio && horarioNegocio[nombreDiaCompleto] && horarioNegocio[nombreDiaCompleto].activo === false;
-                  const esDescanso = pres.dias_descanso?.includes(nombreDiaCompleto) || false;
-                  const esNoLaboral = pres.dias_no_laborales?.includes(targetDateStr) || false;
-                  
-                  if (restauranteCerrado || esDescanso || esNoLaboral) return false;
-                  return true;
-              });
-
-              const actuales = nuevasAsignaciones[claveArea][targetDateStr] || [];
-              nuevasAsignaciones[claveArea][targetDateStr] = Array.from(new Set([...actuales, ...asignables]));
-            }
-          }
-        });
-        
-        setAsignaciones(nuevasAsignaciones);
-        showAlert('¡Patrón Duplicado!', 'Limpieza copiada al mes siguiente respetando los cierres operativos. Cambia de mes y presiona Guardar.', 'success');
-      }
-    );
-  };
-
-  const renderModalAsignacion = () => {
-    if (!modalCelda && !modalMasivo) return null;
-    const isMasivo = !!modalMasivo;
-    const data = modalCelda || modalMasivo;
-    const claveArea = `${data.areaId}_${data.turno}`;
-
-    const dModal = !isMasivo ? diasMes.find(dia => dia.fechaStr === data.fechaStr) : null;
-
-    let empleadosParaMostrar = filtroRolMasivo 
-      ? empleadosVisibles.filter(e => e.rol === filtroRolMasivo) 
-      : empleadosVisibles;
-
-    empleadosParaMostrar = empleadosParaMostrar.filter(emp => {
-        if (isMasivo) return true; 
-        const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-        const restauranteCerrado = horarioNegocio && horarioNegocio[dModal.nombreCompleto] && horarioNegocio[dModal.nombreCompleto].activo === false;
-        const esDescanso = pres.dias_descanso?.includes(dModal.nombreCompleto) || false;
-        const esNoLaboral = pres.dias_no_laborales?.includes(dModal.fechaStr) || false;
-
-        return !(restauranteCerrado || esDescanso || esNoLaboral);
-    });
-
-    const toggleEmpleado = (empId) => {
-      const stringId = String(empId);
-      const nuevos = data.seleccionados.includes(stringId) 
-        ? data.seleccionados.filter(id => id !== stringId) 
-        : [...data.seleccionados, stringId];
-
-      if (isMasivo) setModalMasivo({ ...modalMasivo, seleccionados: nuevos });
-      else setModalCelda({ ...modalCelda, seleccionados: nuevos });
-    };
-
-    const toggleDiaSemana = (dayIndex) => {
-      if (!isMasivo) return;
-      const nuevosDias = data.diasSemana.includes(dayIndex)
-        ? data.diasSemana.filter(d => d !== dayIndex)
-        : [...data.diasSemana, dayIndex];
-      setModalMasivo({ ...modalMasivo, diasSemana: nuevosDias });
-    };
-
-    const diasSemanaModal = [
-      { idx: 1, label: 'LUN' },
-      { idx: 2, label: 'MAR' },
-      { idx: 3, label: 'MIÉ' },
-      { idx: 4, label: 'JUE' },
-      { idx: 5, label: 'VIE' },
-      { idx: 6, label: 'SÁB' },
-      { idx: 0, label: 'DOM' }
-    ];
-
-    const guardarAsignacion = async () => {
-      const nuevasAsignaciones = JSON.parse(JSON.stringify(asignaciones));
-      if (!nuevasAsignaciones[claveArea]) nuevasAsignaciones[claveArea] = {};
-
-      if (isMasivo) {
-        diasMes.forEach(d => {
-          if (!diasCerrados.includes(d.fechaStr)) {
-            if (data.diasSemana.includes(d.dayIndex)) {
-              const asignables = data.seleccionados.filter(empId => {
-                const emp = empleadosVisibles.find(u => String(u.id) === String(empId));
-                if (!emp) return false;
-                const pres = typeof emp.prestaciones === 'string' ? JSON.parse(emp.prestaciones || '{}') : (emp.prestaciones || {});
-                const restauranteCerrado = horarioNegocio && horarioNegocio[d.nombreCompleto] && horarioNegocio[d.nombreCompleto].activo === false;
-                const esDescanso = pres.dias_descanso?.includes(d.nombreCompleto) || false;
-                const esNoLaboral = pres.dias_no_laborales?.includes(d.fechaStr) || false;
-                if (restauranteCerrado || esDescanso || esNoLaboral) return false;
-                return true;
-              });
-
-              nuevasAsignaciones[claveArea][d.fechaStr] = asignables;
-            } else {
-              if (nuevasAsignaciones[claveArea][d.fechaStr]) {
-                nuevasAsignaciones[claveArea][d.fechaStr] = nuevasAsignaciones[claveArea][d.fechaStr].filter(
-                  empId => !data.seleccionados.includes(empId)
-                );
-              }
-            }
-          }
-        });
-      } else {
-        nuevasAsignaciones[claveArea][data.fechaStr] = data.seleccionados; 
-      }
-
-      setAsignaciones(nuevasAsignaciones);
-      
-      const exito = await guardarMatrizDB(nuevasAsignaciones);
-      
-      if (isMasivo) setModalMasivo(null); else setModalCelda(null);
-      
-      if (exito) {
-          showAlert('Éxito', `Empleados guardados y cambios sincronizados en vivo.`, 'success');
-      } else {
-          showAlert('Atención', `Cambio local realizado, pero ocurrió un problema al sincronizar con el servidor.`, 'warning');
-      }
+        agregarArea(nuevaAreaStr);
+        setNuevaAreaStr('');
     };
 
     return (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
-        <div className="bg-white rounded-[32px] p-6 md:p-8 w-full max-w-md shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
-          <h3 className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">
-            {isMasivo ? 'Asignación Masiva Mensual' : `Asignar y Auditar: ${data.fechaStr}`}
-          </h3>
-          <p className="text-sm font-bold text-teal-600 mb-4 bg-teal-50 px-4 py-2 rounded-xl w-fit mt-2 border border-teal-100">
-            {data.areaId} - Turno {data.turno}
-          </p>
-
-          {isMasivo && (
-            <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-              <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">
-                Repetir cada semana los días:
-              </label>
-              <div className="flex justify-between gap-1 sm:gap-2">
-                {diasSemanaModal.map(ds => {
-                  const isSelected = data.diasSemana.includes(ds.idx);
-                  return (
+        <div className="space-y-6 animate-in slide-in-from-bottom-4 pb-12">
+            
+            {/* HEADER Y BOTÓN DE GUARDADO PRINCIPAL */}
+            <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+                <div>
+                    <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                        <Sparkles className="text-teal-500" size={32} /> 
+                        Auditoría de Limpieza
+                    </h2>
+                    <p className="text-sm font-bold text-slate-400 mt-1">
+                        Revisa la evidencia fotográfica o configura las plantillas perpetuas por puesto.
+                    </p>
+                </div>
+                <div className="flex w-full xl:w-auto items-center gap-4">
                     <button
-                      key={ds.idx}
-                      type="button"
-                      onClick={() => toggleDiaSemana(ds.idx)}
-                      className={`flex-1 py-2 rounded-lg font-black text-[10px] sm:text-xs transition-all ${
-                        isSelected
-                          ? 'bg-teal-600 text-white shadow-md transform scale-105'
-                          : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-100'
-                      }`}
+                        disabled={!hayCambios || isSubmitting}
+                        onClick={guardarCambiosNube}
+                        className={`w-full xl:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-2 active:scale-95 ${
+                            hayCambios 
+                            ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-xl shadow-teal-500/30 animate-pulse' 
+                            : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                        }`}
                     >
-                      {ds.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          
-          <div className="flex-1 overflow-y-auto bg-slate-50 border border-slate-200 rounded-2xl p-3 mb-6 space-y-2 custom-scrollbar">
-            {empleadosParaMostrar.map(emp => {
-                const isChecked = data.seleccionados.includes(String(emp.id));
-                const status = !isMasivo ? (evaluaciones[claveArea]?.[data.fechaStr]?.[emp.id] || null) : null;
-                const photoUrl = !isMasivo ? (evidencias[claveArea]?.[data.fechaStr]?.[emp.id] || null) : null;
-
-                return (
-                    <div key={emp.id} className={`p-3 rounded-xl border transition-all shadow-sm ${isChecked ? 'bg-white border-teal-500' : 'bg-slate-50 border-slate-200 opacity-70 hover:opacity-100'}`}>
-                        
-                        <div className="flex items-center justify-between">
-                            <label className="flex items-center cursor-pointer flex-1">
-                                <input 
-                                    type="checkbox" 
-                                    checked={isChecked} 
-                                    onChange={() => toggleEmpleado(emp.id)} 
-                                    className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500" 
-                                />
-                                <div className="ml-3">
-                                    <p className="font-black text-slate-800 text-sm leading-tight">{emp.nombre}</p>
-                                    <p className="font-bold text-slate-400 text-[10px] uppercase tracking-wider">{emp.rol}</p>
-                                </div>
-                            </label>
-                        </div>
-                        
-                        {isChecked && !isMasivo && (
-                            <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-3 animate-in fade-in zoom-in-95">
-                                {photoUrl ? (
-                                    <a href={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} target="_blank" rel="noreferrer" className="w-12 h-12 rounded-lg overflow-hidden border border-slate-300 shrink-0 relative group/foto">
-                                        {/* 👇 APLICACIÓN DEL CACHÉ EN EVIDENCIA LIMPIEZA */}
-                                        <ImagenCachada src={photoUrl.startsWith('http') ? photoUrl : `${baseUrlClean}${photoUrl}`} alt="Evidencia" className="w-full h-full object-cover"/>
-                                        <div className="absolute inset-0 bg-black/50 hidden group-hover/foto:flex items-center justify-center transition-all backdrop-blur-sm">
-                                            <Camera size={12} className="text-white"/>
-                                        </div>
-                                    </a>
-                                ) : (
-                                    <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center border border-dashed border-slate-300 shrink-0" title="Sin foto">
-                                        <Camera size={12} className="text-slate-300"/>
-                                    </div>
-                                )}
-                                
-                                <div className="flex-1 flex gap-1">
-                                    {!status ? (
-                                        <>
-                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), 'cumplio')} className="flex-1 bg-white text-emerald-600 border border-emerald-200 hover:bg-emerald-50 text-[10px] py-1.5 rounded-lg font-black transition-all">SÍ</button>
-                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), 'no_cumplio')} className="flex-1 bg-white text-red-600 border border-red-200 hover:bg-red-50 text-[10px] py-1.5 rounded-lg font-black transition-all">NO</button>
-                                        </>
-                                    ) : (
-                                        <div className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg font-black text-[10px] uppercase shadow-inner ${status === 'cumplio' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                            <span>{status === 'cumplio' ? '✅ Cumplió' : '❌ Falló'}</span>
-                                            <button onClick={() => evaluarLimpieza(data.areaId, data.turno, data.fechaStr, String(emp.id), null)} className="hover:opacity-70 bg-white/50 p-1 rounded"><RotateCcw size={10}/></button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )
-            })}
-            
-            {empleadosParaMostrar.length === 0 && (
-              <p className="text-center text-slate-400 text-xs font-bold py-4">No hay empleados disponibles/laborando este día.</p>
-            )}
-          </div>
-
-          <div className="flex gap-3 shrink-0">
-            <button onClick={() => isMasivo ? setModalMasivo(null) : setModalCelda(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95">
-              {!isMasivo ? 'Cerrar' : 'Cancelar'}
-            </button>
-            <button onClick={guardarAsignacion} disabled={isSubmitting} className="flex-[2] py-4 bg-teal-600 hover:bg-teal-700 text-white font-black rounded-2xl shadow-lg shadow-teal-500/30 transition active:scale-95 disabled:opacity-50">
-              {isSubmitting ? 'Guardando...' : 'Guardar Empleados'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const baseUrlClean = apiUrl.replace('/api', '');
-
-  return (
-    <>
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-      `}</style>
-
-      <div className="bg-white p-4 md:p-8 rounded-[32px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
-        
-        {/* HEADER Y BOTONES GLOBALES */}
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-4 border-b border-slate-100 pb-6">
-          <div>
-            <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-              <Sparkles className="text-teal-500"/> Calendario de Limpieza
-            </h3>
-            <p className="text-sm font-bold text-slate-400 mt-1">Configura las tareas, asigna por días y audita la limpieza mensual.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button 
-              disabled={!hayCambiosSinGuardar || isSubmitting} 
-              onClick={guardarMatriz} 
-              className={`px-6 py-4 rounded-2xl font-black transition flex items-center justify-center gap-2 text-sm shadow-md active:scale-95 ${hayCambiosSinGuardar ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-teal-500/30 animate-pulse' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
-            >
-              <Save size={18}/> {hayCambiosSinGuardar ? 'Guardar Cambios' : 'Guardado'}
-            </button>
-          </div>
-        </div>
-
-        {/* CONTROLES DEL MES Y NUEVAS ÁREAS */}
-        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-slate-50 p-4 rounded-2xl border border-slate-200 mb-6 gap-4">
-          
-          <div className="flex items-center gap-4 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-            <button onClick={() => cambiarMes(-1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition"><ChevronLeft size={20}/></button>
-            <div className="text-center min-w-[140px]">
-              <span className="block font-black text-slate-800 text-sm">{mesNombre}</span>
-              <span className="block text-[10px] font-bold text-slate-400 uppercase">{year}</span>
-            </div>
-            <button onClick={() => cambiarMes(1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition"><ChevronRight size={20}/></button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            <form onSubmit={agregarArea} className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-              <input 
-                type="text" 
-                value={nuevaArea} 
-                onChange={(e) => setNuevaArea(e.target.value)} 
-                placeholder="Nueva Tarea (Ej. Baño)..." 
-                className="w-full sm:w-48 bg-white border border-teal-200 rounded-xl px-4 py-2 outline-none focus:border-teal-500 font-bold text-teal-900 shadow-sm text-sm" 
-              />
-              <button 
-                type="submit" 
-                disabled={!nuevaArea.trim()} 
-                className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-xl font-black transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
-              >
-                <Plus size={18}/>
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* PANEL DE ÁREAS Y TURNOS */}
-        {areasBase.length > 0 && (
-          <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm mb-6 print:hidden">
-            <h4 className="font-black text-slate-700 mb-4 flex items-center gap-2"><Sparkles size={18}/> Áreas y Turnos Configurados</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {areasBase.map(area => (
-                <div key={area.id} className="bg-slate-50 border border-slate-200 p-4 rounded-2xl shadow-sm">
-                  <div className="flex justify-between items-center mb-3 border-b border-slate-200 pb-2">
-                    <span className="font-black text-slate-800 uppercase tracking-wider text-sm">{area.nombre}</span>
-                    <button onClick={() => eliminarArea(area.id)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-600">
-                    {['General', 'Mañana', 'Tarde', 'Noche'].map(t => {
-                      const isActive = area.turnos.includes(t);
-                      return (
-                        <label key={t} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border ${isActive ? 'bg-teal-100 border-teal-300 text-teal-800' : 'bg-white border-slate-200 hover:border-teal-400'}`}>
-                          <input type="checkbox" checked={isActive} onChange={() => toggleTurno(area.id, t)} className="hidden"/>
-                          {isActive && <CheckCircle2 size={12} className="text-teal-600"/>}
-                          {t}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 👇 NUEVO PANEL MAESTRO DE ASIGNACIONES POR CALENDARIO MINI 👇 */}
-        <div className="bg-teal-50 border border-teal-200 p-6 md:p-8 rounded-[32px] shadow-sm flex flex-col xl:flex-row gap-8 items-start w-full print:hidden mb-8">
-            
-            {/* Columna Izquierda: Mini Calendario y Selector de Tareas */}
-            <div className="flex-[1.5] w-full border-b xl:border-b-0 xl:border-r border-teal-200 pb-6 xl:pb-0 xl:pr-8">
-                
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-black text-teal-900 flex items-center gap-2"><Calendar size={20}/> 1. Elige los Días</h3>
-                    <button onClick={seleccionarTodoElMes} className="text-[10px] font-black bg-white border border-teal-200 text-teal-700 px-2 py-1 rounded shadow-sm hover:bg-teal-50 transition active:scale-95">
-                        {asigFechas.length === diasMes.length ? 'Limpiar Días' : 'Seleccionar Todo'}
-                    </button>
-                </div>
-                
-                {/* Selector rápido por día de la semana */}
-                <div className="flex justify-between gap-1 mb-3">
-                    {[{i:1, l:'LUN'}, {i:2, l:'MAR'}, {i:3, l:'MIÉ'}, {i:4, l:'JUE'}, {i:5, l:'VIE'}, {i:6, l:'SÁB'}, {i:0, l:'DOM'}].map(ds => {
-                        const fechasDelDia = diasMes.filter(d => d.dayIndex === ds.i).map(d => d.fechaStr);
-                        const isSelected = fechasDelDia.length > 0 && fechasDelDia.every(f => asigFechas.includes(f));
-                        return (
-                            <button key={ds.i} onClick={() => toggleDiaSemanaPanel(ds.i)} className={`flex-1 py-1.5 rounded-lg text-[9px] font-black transition-all ${isSelected ? 'bg-teal-600 text-white shadow-md' : 'bg-white text-teal-700 border border-teal-200 hover:bg-teal-50'}`}>
-                                {ds.l}
-                            </button>
-                        )
-                    })}
-                </div>
-
-                {/* Cuadrícula de números aleatorios */}
-                <div className="grid grid-cols-7 gap-1 mb-6">
-                    {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
-                        <div key={`blank-${i}`}></div>
-                    ))}
-                    {diasMes.map(d => {
-                        const isSelected = asigFechas.includes(d.fechaStr);
-                        const isClosed = diasCerrados.includes(d.fechaStr);
-                        return (
-                            <button key={d.fechaStr} disabled={isClosed} onClick={() => toggleDiaEspecificoPanel(d.fechaStr)} className={`h-8 rounded-lg text-[10px] sm:text-xs font-black transition-all ${isClosed ? 'bg-slate-100 text-slate-300 cursor-not-allowed' : isSelected ? 'bg-teal-500 text-white shadow-md scale-[1.05]' : 'bg-white text-slate-600 border border-slate-200 hover:border-teal-400 hover:bg-teal-50'}`} title={isClosed ? 'Auditoría Cerrada' : d.fechaStr}>
-                                {d.num}
-                            </button>
-                        )
-                    })}
-                </div>
-
-                <h3 className="font-black text-teal-900 flex items-center gap-2 mb-4"><Sparkles size={20}/> 2. Tarea a Asignar</h3>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <select value={asigArea} onChange={e => { setAsigArea(e.target.value); setAsigTurno(''); }} className="w-full bg-white border border-teal-200 rounded-xl p-3 font-bold text-sm outline-none focus:border-teal-500 shadow-sm cursor-pointer text-slate-700">
-                            <option value="">-- Selecciona Tarea --</option>
-                            {areasBase.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                        <select value={asigTurno} onChange={e => setAsigTurno(e.target.value)} disabled={!asigArea} className="w-full bg-white border border-teal-200 rounded-xl p-3 font-bold text-sm outline-none focus:border-teal-500 shadow-sm cursor-pointer disabled:opacity-50 text-slate-700">
-                            <option value="">-- Turno --</option>
-                            {asigArea && areasBase.find(a => String(a.id) === String(asigArea))?.turnos.map(t => <option key={t} value={t}>{t}</option>)}
-                            {asigArea && areasBase.find(a => String(a.id) === String(asigArea))?.turnos.length === 0 && <option value="" disabled>⚠️ Agrega turnos en el panel de áreas</option>}
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            {/* Columna Derecha: Empleados y Acción */}
-            <div className="flex-1 w-full flex flex-col h-full">
-                <div className="flex justify-between items-center mb-4 gap-2">
-                    <h3 className="font-black text-teal-900 flex items-center gap-2"><Users size={20}/> 3. Selecciona Empleados</h3>
-                    <button onClick={toggleSeleccionMasiva} className="text-[10px] font-black text-teal-600 bg-white px-3 py-2 rounded-lg border border-teal-200 shadow-sm uppercase tracking-wider hover:bg-teal-100 transition active:scale-95">
-                        {todosFiltradosSeleccionados ? 'Desmarcar Todos' : 'Marcar Todos'}
-                    </button>
-                </div>
-                
-                {/* 👇 Alerta visual para indicar que se han ocultado empleados por reglas de nómina */}
-                {empleadosOcultosCount > 0 && asigFechas.length > 0 && (
-                    <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center gap-2 text-amber-700">
-                        <AlertTriangle size={14} className="shrink-0" />
-                        <p className="text-[10px] font-black uppercase tracking-widest leading-tight">
-                            {empleadosOcultosCount} empleado(s) oculto(s) en tu selección (Día de descanso).
-                        </p>
-                    </div>
-                )}
-
-                <div className="flex gap-2 mb-4 overflow-x-auto custom-scrollbar pb-2 items-center">
-                    <Filter size={14} className="text-teal-400 shrink-0 mr-1"/>
-                    <button onClick={() => setFiltroRolMasivo('')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${!filtroRolMasivo ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>Todos</button>
-                    {rolesDisponibles.map(rol => (
-                        <button key={rol} onClick={() => setFiltroRolMasivo(rol)} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-all whitespace-nowrap shadow-sm ${filtroRolMasivo === rol ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>{rol}</button>
-                    ))}
-                </div>
-
-                <div className="flex flex-wrap gap-2 overflow-y-auto custom-scrollbar pr-2 mb-6 flex-1 min-h-[90px] content-start">
-                    {empleadosFiltrados.map(emp => {
-                        const seleccionado = empleadosSeleccionados.includes(String(emp.id));
-                        return (
-                            <button key={emp.id} onClick={() => setEmpleadosSeleccionados(prev => prev.includes(String(emp.id)) ? prev.filter(id => id !== String(emp.id)) : [...prev, String(emp.id)])} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black transition-all border ${seleccionado ? 'bg-teal-600 text-white border-teal-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-teal-300 hover:bg-teal-50'}`}>
-                                {seleccionado ? <CheckSquare size={14}/> : <Square size={14}/>} 
-                                <span>
-                                    {emp.nombre.split(' ')[0]} 
-                                    <span className="opacity-70 text-[9px] font-bold uppercase tracking-widest ml-1.5">
-                                        ({emp.rol})
-                                    </span>
-                                </span>
-                            </button>
-                        )
-                    })}
-                </div>
-
-                <div className="mt-auto pt-4 border-t border-teal-200/50 flex flex-col sm:flex-row gap-3">
-                    <button onClick={duplicarSiguienteMes} className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-indigo-500/30 active:scale-95 flex items-center justify-center gap-2">
-                        <Copy size={16}/> Copiar a Sig. Mes
-                    </button>
-                    <button disabled={isSubmitting} onClick={aplicarAsignacionRango} className="flex-[1.5] bg-teal-600 hover:bg-teal-700 text-white px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-wider transition-all shadow-md shadow-teal-500/30 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
-                        <CheckCircle2 size={18}/> {isSubmitting ? 'Guardando...' : 'Asignar a los Días'}
+                        <Save size={20}/> {hayCambios ? 'Guardar Cambios' : 'Todo Guardado'}
                     </button>
                 </div>
             </div>
-        </div>
 
-        {/* CALENDARIO MENSUAL DE CUADRÍCULA COMPLETA */}
-        <div className="w-full bg-slate-50 border border-slate-200 rounded-[32px] overflow-hidden shadow-sm mb-8 print:hidden animate-in zoom-in-95">
-            
-            <div className="grid grid-cols-7 bg-white border-b border-slate-200">
-                {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
-                    <div key={d} className={`p-4 text-center text-xs font-black uppercase tracking-widest ${d === 'Dom' || d === 'Sáb' ? 'text-red-400' : 'text-slate-500'}`}>
-                        {d}
-                    </div>
-                ))}
-            </div>
-            
-            <div className="grid grid-cols-7 gap-px bg-slate-200">
-                {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => (
-                    <div key={`empty-${i}`} className="bg-slate-50/40 min-h-[140px]"></div>
-                ))}
-
-                {diasMes.map((d) => {
-                    const isCerrado = diasCerrados.includes(d.fechaStr);
-                    const esFinSemana = d.nombreBreve.startsWith('S') || d.nombreBreve.startsWith('D');
-                    
-                    const asignacionesHoy = [];
-                    let totalAsignados = 0;
-                    
-                    // 👇 FIX: Ahora mapeamos SIEMPRE TODAS las zonas configuradas para detectar las vacías
-                    areasBase.forEach(area => {
-                        area.turnos.forEach(turno => {
-                            const clave = `${area.id}_${turno}`;
-                            const empIds = asignaciones[clave]?.[d.fechaStr] || [];
-                            asignacionesHoy.push({ area, turno, empIds, clave });
-                            totalAsignados += empIds.length;
-                        });
-                    });
-
-                    // 👇 Alerta de celda completa en amarillo si no hay nadie asignado en todo el día
-                    const diaCompletamenteVacio = !isCerrado && areasBase.length > 0 && totalAsignados === 0;
-
-                    return (
-                        <div key={d.fechaStr} className={`min-h-[150px] flex flex-col transition-colors group relative ${isCerrado ? 'opacity-60 bg-slate-100' : diaCompletamenteVacio ? 'bg-amber-50 hover:bg-amber-100/50' : 'bg-white hover:bg-teal-50/20'}`}>
-                            
-                            <div className={`flex justify-between items-center p-2.5 border-b border-slate-50 ${diaCompletamenteVacio ? 'bg-amber-100/50' : 'bg-slate-50/50'}`}>
-                                <span className={`text-base font-black ${esFinSemana ? 'text-red-500' : 'text-slate-700'}`}>{d.num}</span>
-                                {isCerrado && <Lock size={12} className="text-slate-400" title="Auditoría Cerrada" />}
-                            </div>
-                            
-                            <div className="flex-1 p-1.5 flex flex-col gap-1.5 overflow-y-auto custom-scrollbar max-h-[160px] pb-8">
-                                {asignacionesHoy.map((asig, i) => {
-                                    
-                                    // 👇 FIX: Color especial para zonas sin nadie asignado (Amarillo)
-                                    const sinAsignar = asig.empIds.length === 0;
-                                    const evaluacionesGrupo = asig.empIds.map(empId => evaluaciones[asig.clave]?.[d.fechaStr]?.[empId]);
-                                    const todoCumplido = !sinAsignar && evaluacionesGrupo.length > 0 && evaluacionesGrupo.every(e => e === 'cumplio');
-                                    const algunFallo = !sinAsignar && evaluacionesGrupo.some(e => e === 'no_cumplio');
-
-                                    let colorPildora = 'bg-teal-50 text-teal-800 border-teal-200';
-                                    if (sinAsignar) colorPildora = 'bg-amber-100 text-amber-900 border-amber-300 ring-1 ring-amber-400 shadow-sm';
-                                    else if (todoCumplido) colorPildora = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                                    else if (algunFallo) colorPildora = 'bg-red-50 text-red-700 border-red-200';
-
-                                    return (
-                                        <div key={i} 
-                                            onClick={() => !isCerrado && setModalCelda({ areaId: asig.area.id, turno: asig.turno, fechaStr: d.fechaStr, nombreDiaCompleto: d.nombreCompleto, seleccionados: asig.empIds })}
-                                            className={`text-[9px] border rounded-lg p-1.5 font-bold leading-tight cursor-pointer hover:shadow-md transition-all relative group/tag ${colorPildora}`}
-                                            title={sinAsignar ? "Sin asignar. Clic para asignar empleados." : "Clic para Editar Empleados o Calificar (SÍ/NO)"}>
-                                            <div className="flex justify-between items-center gap-1">
-                                                <span className="font-black uppercase tracking-wider truncate">{asig.area.nombre.split(' ')[0]} <span className="opacity-70">({asig.turno[0]})</span></span>
-                                                <span className={`bg-white/60 px-1 py-0.5 rounded text-[8px] shrink-0 ${sinAsignar ? 'text-amber-700' : ''}`}>
-                                                    {asig.empIds.length} <Users size={8} className="inline"/>
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )
-                                })}
-                                
-                                {!isCerrado && areasBase.length === 0 && (
-                                    <div className="h-full flex items-center justify-center opacity-30 pt-4">
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sin Tareas</span>
-                                    </div>
-                                )}
-                            </div>
-
-                            {!isCerrado && (
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-white via-white to-transparent">
-                                    <button onClick={() => {
-                                        setAsigFechas([d.fechaStr]); 
-                                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                                        showAlert('Día Seleccionado', `Se fijó el día ${d.num} en el panel superior. Configura la tarea y aplica.`, 'info');
-                                    }} 
-                                    className="w-full bg-slate-800 text-white text-[9px] font-black py-2 rounded-lg shadow-sm flex items-center justify-center gap-1 hover:bg-slate-700 uppercase tracking-widest transition-transform active:scale-95">
-                                        <Plus size={12}/> Tarea aquí
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-
-        {/* ZONA INFERIOR DE CERRAR AUDITORÍA */}
-        <div className="flex flex-col lg:flex-row items-center justify-between gap-4 border-t border-slate-100 pt-6 mt-8">
-          <div className="flex flex-col lg:flex-row items-center gap-4 w-full md:w-auto">
-            {areasBase.length > 0 && (
-              <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
-                <div className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200 w-full sm:w-auto">
-                  <div className="flex flex-col px-2">
-                    <label className="text-[9px] text-slate-400 font-black uppercase mb-0.5">Desde</label>
-                    <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} className="bg-transparent text-slate-700 font-bold text-xs outline-none cursor-pointer" />
-                  </div>
-                  <span className="text-slate-300 font-black">-</span>
-                  <div className="flex flex-col px-2">
-                    <label className="text-[9px] text-slate-400 font-black uppercase mb-0.5">Hasta</label>
-                    <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} className="bg-transparent text-slate-700 font-bold text-xs outline-none cursor-pointer" />
-                  </div>
-                </div>
-                <button 
-                  onClick={realizarCorteLimpieza} 
-                  disabled={isSubmitting || !fechaDesde || !fechaHasta} 
-                  className="w-full sm:w-auto text-sm font-bold flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl transition shadow-sm bg-white border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer active:scale-95 disabled:opacity-50"
+            {/* PESTAÑAS DE NAVEGACIÓN */}
+            <div className="flex bg-slate-200/50 p-1.5 rounded-2xl w-fit overflow-x-auto custom-scrollbar">
+                <button
+                    onClick={() => setVistaActiva('auditoria')}
+                    className={`px-6 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${vistaActiva === 'auditoria' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  <Lock size={18}/> Cerrar Auditoría
+                    <ShieldCheck size={18} /> Panel de Auditoría (Fotos)
                 </button>
-              </div>
+                <button
+                    onClick={() => setVistaActiva('plantillas')}
+                    className={`px-6 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${vistaActiva === 'plantillas' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    <CalendarDays size={18} /> Plantillas Fijas por Puesto
+                </button>
+            </div>
+
+            {/* =====================================================================
+                VISTA 1: DASHBOARD DE AUDITORÍA DIARIA (FOTOS)
+            ====================================================================== */}
+            {vistaActiva === 'auditoria' && (
+                <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4 border-b border-slate-100 pb-6">
+                        <div>
+                            <h3 className="text-xl font-black text-slate-800">Revisión Diaria</h3>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Selecciona un día para ver evidencias</p>
+                        </div>
+                        <div className="w-full sm:w-auto">
+                            <input 
+                                type="date" 
+                                value={fechaSeleccionada} 
+                                onChange={(e) => setFechaSeleccionada(e.target.value)} 
+                                className="w-full bg-slate-50 border border-slate-200 text-teal-800 font-black px-4 py-3 rounded-xl outline-none focus:border-teal-500 transition-colors shadow-sm cursor-pointer"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Inyectamos el Componente de Galería (Capa 2) */}
+                    <GaleriaLimpieza 
+                        fechaSeleccionada={fechaSeleccionada}
+                        evidencias={evidencias}
+                        evaluaciones={evaluaciones}
+                        areasBase={areasBase}
+                        empleadosVisibles={empleadosVisibles}
+                        evaluarEvidencia={evaluarEvidencia}
+                    />
+                </div>
             )}
-          </div>
+
+            {/* =====================================================================
+                VISTA 2: CONFIGURACIÓN DE PLANTILLAS PERPETUAS
+            ====================================================================== */}
+            {vistaActiva === 'plantillas' && (
+                <div className="space-y-6 animate-in fade-in">
+                    
+                    {/* GESTIÓN DE TAREAS BÁSICAS */}
+                    <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-slate-100 pb-6">
+                            <div>
+                                <h3 className="text-xl font-black text-slate-800">Catálogo de Tareas</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Crea las zonas que se deben limpiar en el local</p>
+                            </div>
+                            <form onSubmit={handleAgregarArea} className="flex gap-2 w-full md:w-auto">
+                                <input 
+                                    type="text" 
+                                    value={nuevaAreaStr} 
+                                    onChange={(e) => setNuevaAreaStr(e.target.value)} 
+                                    placeholder="Ej. Planchas, Baños, Pisos..." 
+                                    className="w-full sm:w-64 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500 font-bold text-slate-700 shadow-sm text-sm" 
+                                />
+                                <button type="submit" disabled={!nuevaAreaStr.trim()} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-3 rounded-xl font-black transition disabled:opacity-50 shadow-sm active:scale-95">
+                                    <Plus size={20}/>
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-3">
+                            {areasBase.length === 0 && <p className="text-sm font-bold text-slate-400 italic">No hay tareas creadas.</p>}
+                            {areasBase.map(area => (
+                                <div key={area.id} className="flex items-center gap-3 bg-teal-50 border border-teal-200 text-teal-800 px-4 py-2.5 rounded-xl shadow-sm">
+                                    <span className="font-black text-sm">{area.nombre}</span>
+                                    <button onClick={() => eliminarArea(area.id)} className="text-teal-400 hover:text-red-500 transition-colors bg-white rounded-md p-1 shadow-sm"><Trash2 size={14}/></button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* MATRIZ DE ASIGNACIÓN (PLANTILLA PERPETUA) */}
+                    {areasBase.length > 0 && (
+                        <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200">
+                            <h3 className="text-xl font-black text-slate-800 mb-2">Matriz de Puestos</h3>
+                            <p className="text-xs font-bold text-slate-500 mb-6 bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-2">
+                                <Info size={16} className="text-blue-500 shrink-0"/>
+                                Configura la semana ideal por puesto. El sistema la repetirá infinitamente, cruzándola con la asistencia real del empleado en el Motor de Nómina.
+                            </p>
+
+                            <div className="flex flex-col lg:flex-row gap-6">
+                                {/* Lista de Puestos (Tabs verticales) */}
+                                <div className="w-full lg:w-64 flex flex-col gap-2 shrink-0">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-2 mb-1"><Users size={12} className="inline mr-1"/> Puestos Operativos</p>
+                                    {rolesDisponibles.map(rol => (
+                                        <button 
+                                            key={rol} 
+                                            onClick={() => setRolSeleccionado(rol)}
+                                            className={`w-full text-left px-4 py-3 rounded-xl font-black text-sm transition-all border ${rolSeleccionado === rol ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-400 hover:bg-slate-100'}`}
+                                        >
+                                            {rol.replace('_', ' ').toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Cuadrícula Semanal Dinámica */}
+                                <div className="flex-1 overflow-x-auto custom-scrollbar">
+                                    <div className="min-w-[700px] grid grid-cols-7 gap-2">
+                                        {diasSemanaMap.map(dia => (
+                                            <div key={dia} className="flex flex-col">
+                                                <div className="bg-slate-100 text-center py-2 rounded-t-xl border-b-2 border-slate-200">
+                                                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{dia}</span>
+                                                </div>
+                                                <div className="bg-slate-50 border border-slate-200 rounded-b-xl p-2 flex flex-col gap-2 min-h-[200px]">
+                                                    {areasBase.map(area => {
+                                                        const asignadasRol = plantillaRoles[rolSeleccionado]?.[dia] || [];
+                                                        const isChecked = asignadasRol.includes(area.id);
+
+                                                        return (
+                                                            <button 
+                                                                key={area.id}
+                                                                onClick={() => toggleTareaRol(rolSeleccionado, dia, area.id)}
+                                                                className={`w-full flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${isChecked ? 'bg-teal-600 text-white border-teal-600 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300'}`}
+                                                            >
+                                                                {isChecked ? <CheckSquare size={14} className="shrink-0"/> : <Square size={14} className="shrink-0"/>}
+                                                                <span className="text-[10px] font-bold leading-tight line-clamp-2">{area.nombre}</span>
+                                                            </button>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
-
-      </div>
-
-      {renderModalAsignacion()}
-    </>
-  );
+    );
 };
 
 export default ZonasLimpieza;
