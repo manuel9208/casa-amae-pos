@@ -3,17 +3,16 @@ import { useState, useCallback } from 'react';
 export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
     // 1. Catálogo de reglas (Ej. "Llevar uniforme completo", "Apagar luces")
     const [observacionesBase, setObservacionesBase] = useState([]);
-    
+
     // 2. LA NUEVA MAGIA: Plantillas por Puesto y Día
-    // Estructura: { "cajero": { "Lunes": ["Contar fondo", "Limpiar barra"] } }
     const [plantillaRoles, setPlantillaRoles] = useState({});
-    
+
     // 3. Auditorías (El checklist de SÍ o NO)
     const [evaluaciones, setEvaluaciones] = useState({});
-    
+
     // 4. Protección estricta de las reglas de nómina
     const [reglasNominaRestantes, setReglasNominaRestantes] = useState({});
-    
+
     // Estados de UI
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [hayCambios, setHayCambios] = useState(false);
@@ -31,9 +30,9 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
                     : (data.matriz_observaciones || {});
 
                 setObservacionesBase(matriz.observacionesBase || []);
-                setPlantillaRoles(matriz.plantillaRoles || {}); 
+                setPlantillaRoles(matriz.plantillaRoles || {});
                 setEvaluaciones(matriz.evaluaciones || {});
-                
+
                 // CRÍTICO: Proteger las reglas financieras globales
                 setReglasNominaRestantes(matriz.reglas_nomina || {});
             }
@@ -101,7 +100,7 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
     };
 
     // =========================================================================
-    // LA NUEVA ASIGNACIÓN: POR PUESTO Y DÍA DE LA SEMANA
+    // ASIGNACIÓN INDIVIDUAL Y MASIVA (POR PUESTO Y DÍA)
     // =========================================================================
     const toggleObservacionRol = (rol, dia, obsNombre) => {
         setPlantillaRoles(prev => {
@@ -121,6 +120,38 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
         setHayCambios(true);
     };
 
+    // 👇 NUEVA MAGIA: Marcar o desmarcar toda la semana con un clic
+    const toggleTodasObservacionesRol = (rol, dias, todasLasReglas) => {
+        if (!todasLasReglas || todasLasReglas.length === 0) return;
+
+        setPlantillaRoles(prev => {
+            const nuevo = JSON.parse(JSON.stringify(prev));
+            if (!nuevo[rol]) nuevo[rol] = {};
+
+            // Analizamos si TODAS las reglas ya están marcadas en TODOS los días
+            let todasSeleccionadas = true;
+            for (const dia of dias) {
+                const asignadas = nuevo[rol][dia] || [];
+                if (asignadas.length !== todasLasReglas.length) {
+                    todasSeleccionadas = false;
+                    break;
+                }
+            }
+
+            // Alternamos el estado
+            dias.forEach(dia => {
+                if (todasSeleccionadas) {
+                    nuevo[rol][dia] = []; // Desmarcar todo
+                } else {
+                    nuevo[rol][dia] = [...todasLasReglas]; // Marcar todo
+                }
+            });
+
+            return nuevo;
+        });
+        setHayCambios(true);
+    };
+
     // =========================================================================
     // AUDITORÍA VISUAL (APROBAR O RECHAZAR CONDUCTA)
     // =========================================================================
@@ -135,7 +166,7 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
                 delete nuevo[obsNombre][fechaStr][empleadoId];
             } else {
                 // 'cumplio' o 'no_cumplio'
-                nuevo[obsNombre][fechaStr][empleadoId] = status; 
+                nuevo[obsNombre][fechaStr][empleadoId] = status;
             }
             return nuevo;
         });
@@ -143,16 +174,17 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
     };
 
     return {
-        observacionesBase, 
-        plantillaRoles, 
-        evaluaciones, 
-        isSubmitting, 
+        observacionesBase,
+        plantillaRoles,
+        evaluaciones,
+        isSubmitting,
         hayCambios,
-        cargarDatos, 
+        cargarDatos,
         guardarCambiosNube,
-        agregarObservacion, 
-        eliminarObservacion, 
-        toggleObservacionRol, 
+        agregarObservacion,
+        eliminarObservacion,
+        toggleObservacionRol,
+        toggleTodasObservacionesRol, // Exportamos la nueva función
         evaluarObservacion
     };
 };

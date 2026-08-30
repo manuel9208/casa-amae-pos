@@ -49,30 +49,15 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert }) => {
     return (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 pb-12">
             
-            {/* HEADER Y BOTÓN DE GUARDADO PRINCIPAL */}
-            <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
-                <div>
-                    <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-                        <Sparkles className="text-teal-500" size={32} /> 
-                        Auditoría de Limpieza
-                    </h2>
-                    <p className="text-sm font-bold text-slate-400 mt-1">
-                        Revisa la evidencia fotográfica o configura las plantillas perpetuas por puesto.
-                    </p>
-                </div>
-                <div className="flex w-full xl:w-auto items-center gap-4">
-                    <button
-                        disabled={!hayCambios || isSubmitting}
-                        onClick={guardarCambiosNube}
-                        className={`w-full xl:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-2 active:scale-95 ${
-                            hayCambios 
-                            ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-xl shadow-teal-500/30 animate-pulse' 
-                            : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                        }`}
-                    >
-                        <Save size={20}/> {hayCambios ? 'Guardar Cambios' : 'Todo Guardado'}
-                    </button>
-                </div>
+            {/* HEADER (Botón de guardado reubicado abajo) */}
+            <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200">
+                <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                    <Sparkles className="text-teal-500" size={32} /> 
+                    Auditoría de Limpieza
+                </h2>
+                <p className="text-sm font-bold text-slate-400 mt-1">
+                    Revisa la evidencia fotográfica o configura las plantillas perpetuas por puesto.
+                </p>
             </div>
 
             {/* PESTAÑAS DE NAVEGACIÓN */}
@@ -164,11 +149,30 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert }) => {
                     {/* MATRIZ DE ASIGNACIÓN (PLANTILLA PERPETUA) */}
                     {areasBase.length > 0 && (
                         <div className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-slate-200">
-                            <h3 className="text-xl font-black text-slate-800 mb-2">Matriz de Puestos</h3>
-                            <p className="text-xs font-bold text-slate-500 mb-6 bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-2">
-                                <Info size={16} className="text-blue-500 shrink-0"/>
-                                Configura la semana ideal por puesto. El sistema la repetirá infinitamente, cruzándola con la asistencia real del empleado en el Motor de Nómina.
-                            </p>
+                            
+                            {/* NUEVA CABECERA DE LA MATRIZ CON EL BOTÓN AQUÍ */}
+                            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 gap-4">
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-800 mb-2">Matriz de Puestos</h3>
+                                    <p className="text-xs font-bold text-slate-500 bg-blue-50 p-3 rounded-xl border border-blue-100 flex items-center gap-2">
+                                        <Info size={16} className="text-blue-500 shrink-0"/>
+                                        Configura la semana ideal por puesto. El sistema la repetirá infinitamente, cruzándola con la asistencia.
+                                    </p>
+                                </div>
+                                <div className="flex w-full xl:w-auto items-center gap-4">
+                                    <button
+                                        disabled={!hayCambios || isSubmitting}
+                                        onClick={guardarCambiosNube}
+                                        className={`w-full xl:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-2 active:scale-95 ${
+                                            hayCambios 
+                                            ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-xl shadow-teal-500/30 animate-pulse' 
+                                            : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                                        }`}
+                                    >
+                                        <Save size={20}/> {hayCambios ? 'Guardar Cambios' : 'Todo Guardado'}
+                                    </button>
+                                </div>
+                            </div>
 
                             <div className="flex flex-col lg:flex-row gap-6">
                                 {/* Lista de Puestos (Tabs verticales) */}
@@ -186,14 +190,23 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert }) => {
                                 </div>
 
                                 {/* Cuadrícula Semanal Dinámica */}
-                                <div className="flex-1 overflow-x-auto custom-scrollbar">
+                                <div className="flex-1 overflow-x-auto custom-scrollbar bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    
+                                    {/* TÍTULO UX DINÁMICO (Nuevo) */}
+                                    <div className="mb-4 flex items-center justify-center gap-2 bg-indigo-50 text-indigo-700 p-3 rounded-xl border border-indigo-100 shadow-sm">
+                                        <Info size={18} className="shrink-0"/>
+                                        <p className="text-sm font-bold">
+                                            Estás configurando las tareas para el puesto de: <strong className="uppercase font-black ml-1 text-indigo-900">{rolSeleccionado.replace('_', ' ')}</strong>
+                                        </p>
+                                    </div>
+
                                     <div className="min-w-[700px] grid grid-cols-7 gap-2">
                                         {diasSemanaMap.map(dia => (
                                             <div key={dia} className="flex flex-col">
-                                                <div className="bg-slate-100 text-center py-2 rounded-t-xl border-b-2 border-slate-200">
+                                                <div className="bg-slate-200 text-center py-2 rounded-t-xl border-b-2 border-slate-300">
                                                     <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{dia}</span>
                                                 </div>
-                                                <div className="bg-slate-50 border border-slate-200 rounded-b-xl p-2 flex flex-col gap-2 min-h-[200px]">
+                                                <div className="bg-white border border-slate-200 rounded-b-xl p-2 flex flex-col gap-2 min-h-[200px] shadow-sm">
                                                     {areasBase.map(area => {
                                                         const asignadasRol = plantillaRoles[rolSeleccionado]?.[dia] || [];
                                                         const isChecked = asignadasRol.includes(area.id);
@@ -202,7 +215,7 @@ const ZonasLimpieza = ({ usuariosDB, apiUrl, showAlert }) => {
                                                             <button 
                                                                 key={area.id}
                                                                 onClick={() => toggleTareaRol(rolSeleccionado, dia, area.id)}
-                                                                className={`w-full flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${isChecked ? 'bg-teal-600 text-white border-teal-600 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-teal-300'}`}
+                                                                className={`w-full flex items-center gap-2 p-2 rounded-lg border text-left transition-all ${isChecked ? 'bg-teal-600 text-white border-teal-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-teal-300 hover:bg-teal-50'}`}
                                                             >
                                                                 {isChecked ? <CheckSquare size={14} className="shrink-0"/> : <Square size={14} className="shrink-0"/>}
                                                                 <span className="text-[10px] font-bold leading-tight line-clamp-2">{area.nombre}</span>

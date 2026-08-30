@@ -189,7 +189,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* ======================= COLUMNA IZQUIERDA: FORMULARIO ======================= */}
-            <div className="lg:col-span-1 bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 self-start sticky top-6">
+            <div className="lg:col-span-1 order-2 lg:order-1 bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 self-start sticky top-6">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
                         {editandoUsuarioId ? <Edit className="text-orange-500"/> : <span className="text-blue-500 text-2xl">+</span>}
@@ -203,7 +203,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                 <form onSubmit={guardarUsuario} className="space-y-4">
                     <div>
                         <label className="text-xs font-bold text-slate-400 block mb-1">Nombre Completo *</label>
-                        <input type="text" required value={uNombre} onChange={e => setUNombre(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700" placeholder="Ej. Juan Pérez" />
+                        <input type="text" required value={uNombre} onChange={e => setUNombre(e.target.value.toUpperCase())} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold text-slate-700 uppercase" placeholder="EJ. JUAN PÉREZ" />
                     </div>
 
                     <div>
@@ -367,7 +367,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             </div>
 
             {/* ======================= COLUMNA DERECHA: PLANTILLA ======================= */}
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-2 order-1 lg:order-2 mb-6 lg:mb-0">
                 <div className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                         <h3 className="text-xl font-bold text-slate-700">Plantilla Registrada</h3>
@@ -405,11 +405,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                         </div>
                     </div>
 
-                    <div className="grid gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="grid gap-3 max-h-[50vh] lg:max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                         {plantillaVisible.map(u => (
                             <div key={u.id} className={`flex flex-col sm:flex-row justify-between items-start sm:items-center p-4 rounded-2xl border transition gap-4 ${editandoUsuarioId === u.id ? 'bg-orange-50 border-orange-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
                                 <div>
-                                    <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2">
+                                    <p className="font-bold text-lg text-slate-800 flex flex-wrap items-center gap-2 uppercase">
                                         {u.nombre}
                                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-widest ${
                                             u.rol==='admin' ? 'bg-purple-100 text-purple-700' :

@@ -99,17 +99,34 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const diasSolicitados = vacacionesSeleccionadas.length;
   const excedido = diasSolicitados > diasRestantes;
 
-  const matriz = typeof configGlobal?.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal?.matriz_limpieza || {});
-  const asignaciones = matriz.asignaciones || {};
-  const evidencias = matriz.evidencias || {};  
-  const misLimpiezasHoy = [];
-  
-  Object.keys(asignaciones).forEach(area => {
-    const asignadosHoy = asignaciones[area][strHoy] || [];
-    if (asignadosHoy.includes(String(userData.id)) || asignadosHoy.includes(Number(userData.id))) {
-      misLimpiezasHoy.push({ area, fecha: strHoy, foto: evidencias[area]?.[strHoy] || null });
-    }
-  });  
+  // INYECTA ESTA NUEVA LÓGICA:
+const matriz = typeof configGlobal?.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal?.matriz_limpieza || {});
+const plantillaRoles = matriz.plantillaRoles || {};
+const areasBase = matriz.areasBase || [];
+const evidencias = matriz.evidencias || {};
+const misLimpiezasHoy = [];
+
+// 1. Obtener el nombre del día actual (Ej. 'Lunes')
+const diaHoyNombre = diasSemanaMap[hoy.getDay()]; 
+
+// 2. Buscar las tareas asignadas al ROL del empleado en este DÍA específico
+const miRol = userData.rol;
+const tareasMiRolHoy = plantillaRoles[miRol]?.[diaHoyNombre] || [];
+
+// 3. Construir el objeto visual cruzando con el catálogo de áreas
+tareasMiRolHoy.forEach(idArea => {
+  const areaInfo = areasBase.find(a => String(a.id) === String(idArea));
+  if (areaInfo) {
+    // La foto se sigue guardando por área -> fecha -> empleado_id
+    const miFoto = evidencias[idArea]?.[strHoy]?.[userData.id] || null;
+    misLimpiezasHoy.push({ 
+      area: idArea, // ID interno para el backend
+      nombreArea: areaInfo.nombre, // Nombre legible para la UI
+      fecha: strHoy, 
+      foto: miFoto 
+    });
+  }
+}); 
 
   const subirEvidencia = async (area, e) => {
     const file = e.target.files[0];

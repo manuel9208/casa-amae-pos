@@ -292,21 +292,42 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
 
   const manejarIrAKiosco = async () => {
     try {
-        let clienteReal = null;
-        if (editClienteId) {
-            const res = await fetch(`${apiUrl}/clientes`);
-            const clientes = await res.json();
-            clienteReal = clientes.find(c => Number(c.id) === Number(editClienteId));
-        }
-        if (!clienteReal && editNombre) {
-            clienteReal = { id: null, nombre: editNombre, puntos: 0 };
-        }
-        setModalEditarPedido(null);
-        const ordenCorregida = { ...modalEditarPedido, cliente_nombre: editNombre || 'Invitado' };
-        onGoToKiosco(clienteReal, ordenCorregida);
+      let clienteReal = null;
+      if (editClienteId) {
+        const res = await fetch(`${apiUrl}/clientes`);
+        const clientes = await res.json();
+        clienteReal = clientes.find(c => Number(c.id) === Number(editClienteId));
+      }
+      if (!clienteReal && editNombre) {
+        clienteReal = { id: null, nombre: editNombre, puntos: 0 };
+      }
+      setModalEditarPedido(null);
+      
+      // 👇 FIX MÁSTER: Inyectamos TODOS los datos de logística antes de mandarlo al Menú
+      const ordenCorregida = { 
+        ...modalEditarPedido, 
+        cliente_nombre: editNombre || 'Invitado',
+        cliente_telefono: editTelefono,
+        direccion_entrega: editDireccion,
+        tipo_consumo: editConsumo,
+        costo_envio: editCostoEnvio
+      };
+      
+      onGoToKiosco(clienteReal, ordenCorregida);
     } catch(e) {
-        setModalEditarPedido(null);
-        onGoToKiosco({ id: editClienteId, nombre: editNombre, puntos: 0 }, modalEditarPedido);
+      setModalEditarPedido(null);
+      
+      // 👇 FIX: Lo aseguramos también en caso de que el internet falle
+      const ordenCorregidaFallback = { 
+        ...modalEditarPedido, 
+        cliente_nombre: editNombre || 'Invitado',
+        cliente_telefono: editTelefono,
+        direccion_entrega: editDireccion,
+        tipo_consumo: editConsumo,
+        costo_envio: editCostoEnvio
+      };
+      
+      onGoToKiosco({ id: editClienteId, nombre: editNombre, puntos: 0 }, ordenCorregidaFallback);
     }
   };
 
