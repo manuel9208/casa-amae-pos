@@ -13,6 +13,9 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
     const [evaluacionesLimpiezaLocal, setEvaluacionesLimpiezaLocal] = useState({});
     const [evaluacionesObservacionesLocal, setEvaluacionesObservacionesLocal] = useState({});
     const [datosCrudos, setDatosCrudos] = useState(null); 
+    
+    // 👇 NUEVO ESTADO: Guarda los bonos automáticos que el admin decide borrar
+    const [bonosEliminados, setBonosEliminados] = useState([]);
 
     const obtenerRangoFechas = (inicioStr, finStr) => {
         const fechas = [];
@@ -44,10 +47,17 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
             const matrizLimpieza = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});
             const matrizObservaciones = typeof dataConfig.matriz_observaciones === 'string' ? JSON.parse(dataConfig.matriz_observaciones || '{}') : (dataConfig.matriz_observaciones || {});
             
+            const calendarioAnual = typeof dataConfig.calendario_anual === 'string' ? JSON.parse(dataConfig.calendario_anual || '{}') : (dataConfig.calendario_anual || {});
+            
             setEvaluacionesLimpiezaLocal(matrizLimpieza.evaluaciones || {});
             setEvaluacionesObservacionesLocal(matrizObservaciones.evaluaciones || {});
             
-            setDatosCrudos({ historialCompleto, matrizLimpieza, matrizObservaciones, reglasGlobales: matrizLimpieza.reglas_nomina || {} });
+            setDatosCrudos({ 
+                historialCompleto, 
+                matrizLimpieza, 
+                matrizObservaciones, 
+                reglasGlobales: { ...(matrizLimpieza.reglas_nomina || {}), calendario_anual: calendarioAnual } 
+            });
 
         } catch (error) {
             showAlert("Error", "Fallo al consultar la base de datos.", "error");
@@ -103,11 +113,12 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
 
             const calculoLFT = procesarMotorNomina(emp, asistenciasAjustadas, fechasRango, reglasGlobales, justificaciones);
             
-            // 👇 SOLUCIÓN: Agregamos emp.rol como segundo parámetro
+            const plantilla = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+
             const auditoriaOp = auditarCumplimientoOperativo(
-                emp.id, emp.rol, fechasRango, matrizLimpieza, matrizObservaciones, 
+                emp.id, emp.rol, plantilla, fechasRango, matrizLimpieza, matrizObservaciones,
                 evaluacionesLimpiezaLocal, evaluacionesObservacionesLocal
-            );
+            );  
 
             fechasRango.forEach(f => {
                 const asigLimp = matrizLimpieza.asignaciones || {};
@@ -120,19 +131,28 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
                 });
             });
 
-            // Agregamos la lógica para revisar si la nueva plantilla tiene evaluaciones pendientes
             if (auditoriaOp.pendientesLimpieza > 0 || auditoriaOp.detallesAuditoria.some(d => d.estado.includes('Pendiente'))) {
                 faltanEvaluaciones = true;
             }
 
-            let resultadoBonos = procesarBonosPorCumplimiento(auditoriaOp, calculoLFT.metricas.retardosMinutosGlobal, calculoLFT.metricas.retardosEventos, reglasGlobales);
+            let resultadoBonos = procesarBonosPorCumplimiento(
+                auditoriaOp, 
+                calculoLFT.metricas.retardosMinutosGlobal, 
+                calculoLFT.metricas.retardosEventos, 
+                reglasGlobales,
+                calculoLFT.metricas.diasSinChecarPagados,
+                calculoLFT.metricas.diasAsistidos
+            );
 
             if (calculoLFT.metricas.faltasInjustificadas > 0) {
                 resultadoBonos.ingresosBonos = [];
                 resultadoBonos.bonosPerdidos = ["Descalificado automáticamente de los bonos por faltas injustificadas."];
             }
 
-            const ingresos = [...calculoLFT.ingresos, ...resultadoBonos.ingresosBonos];
+            // 👇 NUEVA LÓGICA: Filtramos los bonos automáticos que el admin haya decidido borrar
+            const ingresosBrutos = [...calculoLFT.ingresos, ...resultadoBonos.ingresosBonos];
+            const ingresos = ingresosBrutos.filter(ing => !bonosEliminados.includes(`${emp.id}-${ing.concepto}`));
+            
             const egresos = [...calculoLFT.egresos];
 
             resultadosPreNomina.push({
@@ -148,7 +168,7 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
         setPreNomina(resultadosPreNomina);
         setIsCalculating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [datosCrudos, justificaciones, evaluacionesLimpiezaLocal, evaluacionesObservacionesLocal]);
+    }, [datosCrudos, justificaciones, bonosEliminados, evaluacionesLimpiezaLocal, evaluacionesObservacionesLocal]);
 
     const justificarAnomalia = (empId, fecha, tipo, horasAprobadas = 0) => {
         setJustificaciones(prev => ({ ...prev, [`${empId}-${fecha}`]: { tipo, horas: horasAprobadas } }));
@@ -156,6 +176,11 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
 
     const cambiarHorasDia = (empId, fecha, nuevasHoras) => {
         setJustificaciones(prev => ({ ...prev, [`${empId}-${fecha}-horas`]: nuevasHoras }));
+    };
+
+    // 👇 NUEVA FUNCIÓN: Permite borrar un bono del sistema
+    const eliminarBonoSistema = (empleadoId, concepto) => {
+        setBonosEliminados(prev => [...prev, `${empleadoId}-${concepto}`]);
     };
 
     const evaluarLimpiezaEnVivo = (fechaStr, empId, areaId, status) => {
@@ -210,7 +235,7 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
         empleadosSeleccionados, setEmpleadosSeleccionados,
         preNomina, setPreNomina, isCalculating,
         calcularNominaExacta, agregarDinamico, removerDinamico,
-        justificarAnomalia, cambiarHorasDia,
+        justificarAnomalia, cambiarHorasDia, eliminarBonoSistema, // Exportamos la nueva función
         evaluarLimpiezaEnVivo, evaluarObservacionEnVivo,
         evaluacionesLimpiezaLocal, evaluacionesObservacionesLocal
     };

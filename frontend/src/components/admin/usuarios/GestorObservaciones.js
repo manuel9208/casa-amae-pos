@@ -120,6 +120,11 @@ const GestorObservaciones = ({ usuariosDB, apiUrl, showAlert }) => {
                                 const reglasDelPuestoHoy = plantillaRoles[emp.rol]?.[diaSemanaSeleccionado] || [];
                                 if (reglasDelPuestoHoy.length === 0) return null;
 
+                                // 👇 NUEVO FILTRO: Si el empleado descansa hoy o no está activo, NO lo mostramos para evaluar.
+                                const horarioEmp = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
+                                const configDiaEmp = horarioEmp[diaSemanaSeleccionado] || {};
+                                if (configDiaEmp.activo === false || configDiaEmp.es_descanso === true) return null;
+
                                 return (
                                     <div key={emp.id} className="bg-slate-50 p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col">
                                         <div className="flex justify-between items-start mb-4 border-b border-slate-200 pb-3">

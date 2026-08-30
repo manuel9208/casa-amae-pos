@@ -4,7 +4,6 @@ import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, CheckCircle2, XCircle,
 
 import VistaMensajesEmpleado from './VistaMensajesEmpleado';
 import VistaNominasEmpleado from './VistaNominasEmpleado';
-// 👇 FIX: Subimos un nivel en la ruta para encontrar el motor de caché correctamente
 import ImagenCachada from '../ImagenCachada'; 
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -99,34 +98,33 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const diasSolicitados = vacacionesSeleccionadas.length;
   const excedido = diasSolicitados > diasRestantes;
 
-  // INYECTA ESTA NUEVA LÓGICA:
-const matriz = typeof configGlobal?.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal?.matriz_limpieza || {});
-const plantillaRoles = matriz.plantillaRoles || {};
-const areasBase = matriz.areasBase || [];
-const evidencias = matriz.evidencias || {};
-const misLimpiezasHoy = [];
+  const matriz = typeof configGlobal?.matriz_limpieza === 'string' ? JSON.parse(configGlobal.matriz_limpieza || '{}') : (configGlobal?.matriz_limpieza || {});
+  const plantillaRoles = matriz.plantillaRoles || {};
+  const areasBase = matriz.areasBase || [];
+  const evidencias = matriz.evidencias || {};
+  const misLimpiezasHoy = [];
 
-// 1. Obtener el nombre del día actual (Ej. 'Lunes')
-const diaHoyNombre = diasSemanaMap[hoy.getDay()]; 
+  const diaHoyNombre = diasSemanaMap[hoy.getDay()]; 
+  const miRol = userData.rol;
+  const tareasMiRolHoy = plantillaRoles[miRol]?.[diaHoyNombre] || [];
 
-// 2. Buscar las tareas asignadas al ROL del empleado en este DÍA específico
-const miRol = userData.rol;
-const tareasMiRolHoy = plantillaRoles[miRol]?.[diaHoyNombre] || [];
+  const miHorarioHoy = horarioSemanal[diaHoyNombre] || {};
+  const meTocaTrabajar = miHorarioHoy.activo !== false && miHorarioHoy.es_descanso !== true;
 
-// 3. Construir el objeto visual cruzando con el catálogo de áreas
-tareasMiRolHoy.forEach(idArea => {
-  const areaInfo = areasBase.find(a => String(a.id) === String(idArea));
-  if (areaInfo) {
-    // La foto se sigue guardando por área -> fecha -> empleado_id
-    const miFoto = evidencias[idArea]?.[strHoy]?.[userData.id] || null;
-    misLimpiezasHoy.push({ 
-      area: idArea, // ID interno para el backend
-      nombreArea: areaInfo.nombre, // Nombre legible para la UI
-      fecha: strHoy, 
-      foto: miFoto 
-    });
+  if (meTocaTrabajar) {
+      tareasMiRolHoy.forEach(idArea => {
+        const areaInfo = areasBase.find(a => String(a.id) === String(idArea));
+        if (areaInfo) {
+          const miFoto = evidencias[idArea]?.[strHoy]?.[userData.id] || null;
+          misLimpiezasHoy.push({ 
+            area: idArea,
+            nombreArea: areaInfo.nombre,
+            fecha: strHoy, 
+            foto: miFoto 
+          });
+        }
+      }); 
   }
-}); 
 
   const subirEvidencia = async (area, e) => {
     const file = e.target.files[0];
@@ -263,6 +261,7 @@ tareasMiRolHoy.forEach(idArea => {
           </div>
         </div>
         
+        {/* 👇 PESTAÑAS RESTAURADAS */}
         <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-200 mb-8 overflow-x-auto custom-scrollbar print:hidden">
           <button onClick={() => setVistaActiva('horarios')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'horarios' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
             <Calendar size={18}/> Mi Horario
@@ -281,6 +280,46 @@ tareasMiRolHoy.forEach(idArea => {
           </button>
         </div>
 
+        {/* 👇 VISTA HORARIOS RESTAURADA */}
+        {vistaActiva === 'horarios' && (
+          <div className="animate-in slide-in-from-bottom-4 bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Calendar className="text-blue-500"/> Mis Turnos</h3>
+                <div className="flex items-center gap-3 bg-slate-100 p-2 rounded-2xl border border-slate-200">
+                    <select value={mesFiltro} onChange={e => setMesFiltro(Number(e.target.value))} className="bg-white border border-slate-300 font-black text-slate-700 px-4 py-2 rounded-xl outline-none focus:border-blue-500 shadow-sm cursor-pointer text-sm">
+                        {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
+                    </select>
+                    <input type="number" min="2020" max="2100" value={yearFiltro} onChange={e => setYearFiltro(Number(e.target.value))} className="w-24 bg-white border border-slate-300 font-black text-slate-700 px-4 py-2 rounded-xl outline-none focus:border-blue-500 shadow-sm text-center text-sm" />
+                </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <table className="w-full text-left border-collapse min-w-max">
+                <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><th className="p-4">Día</th><th className="p-4 text-center">Horario</th><th className="p-4 text-center">Estado</th></tr></thead>
+                <tbody className="divide-y divide-slate-50">
+                  {diasMes.map(d => {
+                    const turno = horarioSemanal[d.nombreCompleto];
+                    if (!turno) return null;
+                    return (
+                      <tr key={d.fechaStr} className={`transition ${d.esHoy ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                        <td className="p-4 font-bold text-slate-700">{d.num} {d.nombreBreve} {d.esHoy && <span className="ml-2 bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0.5 rounded font-black">HOY</span>}</td>
+                        <td className="p-4 text-center font-black text-slate-600">
+                          {turno.activo ? `${turno.entrada} - ${turno.salida}` : turno.es_descanso ? '🛋️ DESCANSO PAGADO' : '🚫 DÍA LIBRE'}
+                        </td>
+                        <td className="p-4 text-center">
+                          {turno.nomina_pagada ? <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[10px] font-black uppercase">Cobrado</span>
+                          : turno.pagado ? <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-black uppercase">Auditado</span>
+                          : <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded text-[10px] font-black uppercase">Pendiente</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {vistaActiva === 'limpieza' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Sparkles className="text-teal-500"/> Zonas Asignadas a Mí (Hoy)</h3>
@@ -296,9 +335,8 @@ tareasMiRolHoy.forEach(idArea => {
                   <div key={i} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
                     <div className="mb-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-teal-600 mb-1">Área a limpiar</p>
-                      <p className="text-2xl font-black text-slate-800">{limp.area}</p>
+                      <p className="text-2xl font-black text-slate-800">{limp.nombreArea || limp.area}</p>
                     </div>
-                    {/* 👇 APLICACIÓN DEL CACHÉ EN EVIDENCIA DEL EMPLEADO */}
                     {limp.foto ? (
                       <div className="relative w-full bg-emerald-50 border border-emerald-200 rounded-2xl overflow-hidden group">
                         <div className="h-24 md:h-32 w-full relative">
@@ -326,43 +364,7 @@ tareasMiRolHoy.forEach(idArea => {
           </div>
         )}
 
-        {vistaActiva === 'horarios' && (
-          <div className="animate-in slide-in-from-bottom-4 bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-                <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Calendar className="text-blue-500"/> Mis Turnos</h3>
-                <div className="flex items-center gap-3 bg-slate-100 p-2 rounded-2xl border border-slate-200">
-                    <select value={mesFiltro} onChange={e => setMesFiltro(Number(e.target.value))} className="bg-white border border-slate-300 font-black text-slate-700 px-4 py-2 rounded-xl outline-none focus:border-blue-500 shadow-sm cursor-pointer text-sm">
-                        {['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'].map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
-                    </select>
-                    <input type="number" min="2020" max="2100" value={yearFiltro} onChange={e => setYearFiltro(Number(e.target.value))} className="w-24 bg-white border border-slate-300 font-black text-slate-700 px-4 py-2 rounded-xl outline-none focus:border-blue-500 shadow-sm text-center text-sm" />
-                </div>
-            </div>
-
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full text-left border-collapse min-w-max">
-                <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100"><th className="p-4">Día</th><th className="p-4 text-center">Horario</th><th className="p-4 text-center">Estado</th></tr></thead>
-                <tbody className="divide-y divide-slate-50">
-                  {diasMes.map(d => {
-                    const turno = horarioSemanal[d.fechaStr];
-                    if (!turno || !turno.activo) return null;
-                    return (
-                      <tr key={d.fechaStr} className={`transition ${d.esHoy ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
-                        <td className="p-4 font-bold text-slate-700">{d.num} {d.nombreBreve} {d.esHoy && <span className="ml-2 bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0.5 rounded font-black">HOY</span>}</td>
-                        <td className="p-4 text-center font-black text-slate-600">{turno.vacaciones ? '⛱️ VACACIONES' : `${turno.entrada} - ${turno.salida}`}</td>
-                        <td className="p-4 text-center">
-                          {turno.nomina_pagada ? <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[10px] font-black uppercase">Cobrado</span>
-                          : turno.pagado ? <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-[10px] font-black uppercase">Auditado</span>
-                          : <span className="bg-slate-100 text-slate-500 px-2 py-1 rounded text-[10px] font-black uppercase">Pendiente</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
+        {/* 👇 VISTA VACACIONES RESTAURADA Y BLINDADA */}
         {vistaActiva === 'vacaciones' && (
           <div className="space-y-6 animate-in slide-in-from-bottom-4">
             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2"><Palmtree className="text-amber-500"/> Solicitud de Vacaciones</h3>
@@ -431,14 +433,20 @@ tareasMiRolHoy.forEach(idArea => {
                     const isBloqueadoAdmin = calInfo?.tipo === 'bloqueado';
                     const isFestivo = calInfo?.tipo === 'festivo';
 
+                    // 👇 FILTRO: Bloquear días en el calendario si es su día de descanso oficial
+                    const turnoEmp = horarioSemanal[d.nombreCompleto] || {};
+                    const isDescansoEmpleado = turnoEmp.activo === false || turnoEmp.es_descanso === true;
+                    
+                    const isDisabled = isClosed || isPast || isBloqueadoAdmin || isDescansoEmpleado;
+
                     return (
                       <button
                         key={d.fechaStr}
                         type="button"
-                        disabled={isClosed || isPast || isBloqueadoAdmin}
+                        disabled={isDisabled}
                         onClick={() => toggleDiaVacacion(d.fechaStr)}
                         className={`relative p-2 md:p-4 rounded-xl flex flex-col items-center justify-center transition-all border-2 aspect-square
-                        ${isClosed || isPast || isBloqueadoAdmin ? 'bg-slate-50 border-transparent opacity-50 cursor-not-allowed' :
+                        ${isDisabled ? 'bg-slate-50 border-transparent opacity-50 cursor-not-allowed' :
                         isSelected ? 'bg-amber-500 border-amber-600 text-white shadow-md transform scale-105' :
                         isFestivo ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100' :
                         'bg-white border-slate-200 text-slate-700 hover:border-amber-400 hover:bg-amber-50'}`}
@@ -446,10 +454,15 @@ tareasMiRolHoy.forEach(idArea => {
                         {isBloqueadoAdmin && <div className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full p-1 shadow-sm"><XCircle size={10}/></div>}
                         {isFestivo && !isBloqueadoAdmin && <div className="absolute -top-2 -right-2 bg-amber-400 text-white rounded-full p-1 shadow-sm text-[8px]">🎉</div>}
                         
-                        <span className={`font-black text-sm md:text-xl ${isClosed && !isPast && !isBloqueadoAdmin ? 'text-slate-400' : ''}`}>{d.num}</span>
+                        <span className={`font-black text-sm md:text-xl ${isDisabled && !isDescansoEmpleado ? 'text-slate-400' : ''}`}>{d.num}</span>
                         {isClosed && !isPast && !isBloqueadoAdmin && <span className="text-[7px] md:text-[9px] font-black uppercase text-slate-400 mt-0.5">Cerrado</span>}
                         {isBloqueadoAdmin && <span className="text-[7px] md:text-[9px] font-black uppercase text-rose-500 mt-0.5 tracking-tighter leading-none">{calInfo.motivo || 'Bloqueado'}</span>}
                         {isFestivo && !isBloqueadoAdmin && <span className="text-[7px] md:text-[9px] font-black uppercase text-amber-600 mt-0.5 tracking-tighter leading-none">{calInfo.motivo}</span>}
+                        
+                        {/* Etiqueta visual para sus días de descanso */}
+                        {isDescansoEmpleado && !isPast && !isClosed && !isBloqueadoAdmin && (
+                            <span className="text-[7px] md:text-[9px] font-black uppercase text-slate-400 mt-0.5 tracking-tighter leading-none">Descanso</span>
+                        )}
                       </button>
                     )
                   })}

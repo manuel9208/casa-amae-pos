@@ -13,9 +13,13 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
     const [filtroEmpleado, setFiltroEmpleado] = useState('');
     const [filtroPeriodo, setFiltroPeriodo] = useState('');
 
-    const empleadosVisibles = usuariosDB
-        .filter(u => u.nombre !== 'Administrador Global')
-        .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    // Extraemos los empleados directamente de los recibos históricos para que no falte ninguno
+    const empleadosEnHistorial = [...new Map(
+        historicoNominas.flatMap(nomina => {
+            const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
+            return datos.recibos || [];
+        }).map(r => [r.empleado_id, { id: r.empleado_id, nombre: r.nombre_completo || r.nombre, rol: r.rol }])
+    ).values()];
 
     const periodosUnicos = [...new Set(historicoNominas.map(nomina => {
         const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
@@ -78,8 +82,8 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
             "Al eliminarla, los días pagados volverán a estar 'Pendientes', se regresará el saldo a los préstamos descontados y podrás volver a generar esta nómina. ¿Continuar?",
             async () => {
                 try {
-                    // 1. Eliminar de la base de datos de cortes
-                    const res = await fetch(`${apiUrl}/usuarios/corte-nomina/${id}`, { method: 'DELETE' });
+                    // 👇 FIX: SE CORRIGIÓ LA RUTA A /nominas/:id
+                    const res = await fetch(`${apiUrl}/nominas/${id}`, { method: 'DELETE' });
 
                     if (res.ok) {
                         // 2. Obtener usuarios frescos para revertir los estados exactos
@@ -213,7 +217,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                         className="w-full bg-white border border-slate-200 text-slate-700 font-bold rounded-xl p-3 md:p-4 outline-none focus:border-blue-500 transition-all cursor-pointer shadow-sm text-sm md:text-base"
                     >
                         <option value="">-- Todos los Empleados --</option>
-                        {empleadosVisibles.map(emp => (
+                        {empleadosEnHistorial.map(emp => (
                             <option key={emp.id} value={emp.id}>{emp.nombre} ({emp.rol})</option>
                         ))}
                     </select>

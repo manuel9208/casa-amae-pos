@@ -32,6 +32,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         removerDinamico,
         justificarAnomalia,
         cambiarHorasDia,
+        eliminarBonoSistema, // IMPORTAMOS LA FUNCIÓN
         evaluarLimpiezaEnVivo,
         evaluarObservacionEnVivo
     } = useGenerarNomina(apiUrl, empleadosVisibles, showAlert);
@@ -219,7 +220,9 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                 <span className="text-lg font-black text-slate-700">{p.metricas.horasProgramadasTotales}h</span>
                                             </div>
                                             <div className="text-right hidden sm:block">
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Sueldo Base (Día)</p>
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                                                    {p.esPorHora ? 'Sueldo Base (Hora)' : 'Sueldo Base (Día)'}
+                                                </p>
                                                 <span className="text-lg font-black text-slate-700">{formaterMoneda(p.sueldoDiario)}</span>
                                             </div>
                                             <div className="text-right bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -262,10 +265,12 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                         {p.diasDetalle.map((dia, i) => (
                                                             <tr key={i} className={`hover:bg-slate-50 transition ${dia.esFalta && dia.justificacionActiva !== 'falta' ? 'bg-red-50' : dia.requiereAprobacionApoyo ? 'bg-amber-50' : ''}`}>
                                                                 <td className="p-3">
-                                                                    <span className="font-bold text-slate-700 text-xs block">{dia.diaSemana}</span>
+                                                                    <span className="font-bold text-slate-700 text-xs block">
+                                                                        {dia.diaSemana}
+                                                                        {dia.esFestivo && <span className="ml-1 text-[8px] bg-amber-100 text-amber-700 px-1 rounded uppercase">🎉 {dia.motivoFestivo}</span>}
+                                                                    </span>
                                                                     <span className="text-[9px] font-medium text-slate-400 block">{dia.fecha.split('-').slice(1).reverse().join('/')}</span>
                                                                     
-                                                                    {/* ETIQUETAS "DÍA LIBRE" Y "DESCANSO" */}
                                                                     {dia.config.activo ? (
                                                                         <span className="text-[8px] uppercase font-bold text-blue-500">Turno: {dia.config.entrada} a {dia.config.salida}</span>
                                                                     ) : dia.config.es_descanso ? (
@@ -284,7 +289,6 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                                     {dia.asistencia?.hora_salida ? <span className="text-blue-600">{new Date(dia.asistencia.hora_salida).toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit', timeZone: 'America/Mazatlan'})}</span> : (dia.asistencia ? <span className="text-orange-500 text-[10px]">Sin Salida</span> : <span className="text-slate-300">--:--</span>)}
                                                                 </td>
                                                                 
-                                                                {/* INPUT EDITABLE Y HORAS PROGRAMADAS ABAJO */}
                                                                 <td className="p-2 text-center bg-blue-50/30">
                                                                     <div className="flex flex-col items-center justify-center gap-1">
                                                                         <div className="flex items-center justify-center gap-1">
@@ -313,22 +317,18 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                                 </td>
                                                                 
                                                                 <td className="p-3 text-center w-24">
-                                                                    {/* Botón Falta */}
                                                                     {dia.esFalta && dia.justificacionActiva !== 'falta' && (
                                                                         <button onClick={() => justificarAnomalia(p.empleado_id, dia.fecha, 'falta', 8)} className="bg-white text-slate-700 border border-slate-300 px-2 py-1.5 rounded text-[9px] font-black w-full shadow-sm hover:bg-slate-100 transition mb-1">Justificar Falta</button>
                                                                     )}
 
-                                                                    {/* 👇 REGLA ACTUALIZADA: Siempre mostrar opción de pagar turno completo si es día activo y las horas no cuadran */}
                                                                     {dia.config.activo && Number(dia.hrsProgramadasDia) > 0 && Number(dia.horasReales) !== Number(dia.hrsProgramadasDia) && (
                                                                         <button onClick={() => cambiarHorasDia(p.empleado_id, dia.fecha, dia.hrsProgramadasDia)} className="bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1.5 rounded text-[9px] font-black w-full mb-1 shadow-sm hover:bg-blue-100 transition">Pagar {dia.hrsProgramadasDia}h</button>
                                                                     )}
 
-                                                                    {/* Botón Retardo */}
                                                                     {dia.minTarde > 0 && dia.justificacionActiva !== 'retardo' && (
                                                                         <button onClick={() => justificarAnomalia(p.empleado_id, dia.fecha, 'retardo', 0)} className="bg-white text-slate-700 border border-slate-300 px-2 py-1.5 rounded text-[9px] font-black w-full mt-1 shadow-sm hover:bg-slate-100 transition">Perdonar Retardo</button>
                                                                     )}
                                                                     
-                                                                    {/* Botones Apoyo Pendiente */}
                                                                     {dia.requiereAprobacionApoyo && (
                                                                         <div className="flex flex-col gap-1">
                                                                             <button onClick={() => justificarAnomalia(p.empleado_id, dia.fecha, 'aprobar_apoyo', 0)} className="bg-amber-400 hover:bg-amber-500 text-white px-2 py-1.5 rounded text-[9px] font-black shadow-sm transition">Pagar Día Extra</button>
@@ -442,10 +442,27 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                     <div className="grid grid-cols-2 bg-white min-h-[100px] text-xs font-bold">
                                                         <div className="p-3 space-y-2 border-r border-slate-100">
                                                             {p.ingresos_base.map((ing, i) => (
-                                                                <div key={i} className="flex justify-between text-slate-700"><span className="truncate pr-2" title={ing.concepto}>{ing.concepto}</span><span className="text-emerald-600 font-black shrink-0">{formaterMoneda(ing.monto)}</span></div>
+                                                                <div key={i} className="flex justify-between items-start text-slate-700 group hover:bg-slate-50 p-1 -mx-1 rounded transition">
+                                                                    <span className="truncate pr-2 flex items-start gap-1" title={ing.concepto}>
+                                                                        {/* 👇 BOTÓN DE BASURA: Oculto por defecto, aparece al pasar el mouse SOLO en Días Festivos */}
+                                                                        {ing.concepto.includes('Día Festivo Laborado') && (
+                                                                            <button onClick={() => eliminarBonoSistema(p.empleado_id, ing.concepto)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 shrink-0 transition" title="Quitar Bono de Festivo">
+                                                                                <Trash2 size={12} className="mt-0.5"/>
+                                                                            </button>
+                                                                        )}
+                                                                        {ing.concepto}
+                                                                    </span>
+                                                                    <span className="text-emerald-600 font-black shrink-0">{formaterMoneda(ing.monto)}</span>
+                                                                </div>
                                                             ))}
                                                             {p.adicionales_ingresos?.map((ing) => (
-                                                                <div key={ing.id} className="flex justify-between text-slate-700 group bg-emerald-50 p-1 rounded"><span className="truncate pr-2" title={ing.concepto}>{ing.concepto}</span><div className="flex items-center gap-2"><span className="text-emerald-600 font-black shrink-0">{formaterMoneda(ing.monto)}</span><button onClick={() => removerDinamico(p.empleado_id, 'ingreso', ing.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition"><Trash2 size={12}/></button></div></div>
+                                                                <div key={ing.id} className="flex justify-between items-start text-slate-700 group bg-emerald-50 p-1 rounded">
+                                                                    <span className="truncate pr-2" title={ing.concepto}>{ing.concepto}</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-emerald-600 font-black shrink-0">{formaterMoneda(ing.monto)}</span>
+                                                                        <button onClick={() => removerDinamico(p.empleado_id, 'ingreso', ing.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 shrink-0 transition"><Trash2 size={12}/></button>
+                                                                    </div>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                         <div className="p-3 space-y-2">
@@ -453,7 +470,13 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                                                                 <div key={i} className="flex justify-between text-slate-700"><span className="truncate pr-2" title={eg.concepto}>{eg.concepto}</span><span className="text-red-600 font-black shrink-0">{formaterMoneda(eg.monto)}</span></div>
                                                             ))}
                                                             {p.adicionales_egresos?.map((eg) => (
-                                                                <div key={eg.id} className="flex justify-between text-slate-700 group bg-red-50 p-1 rounded"><span className="truncate pr-2" title={eg.concepto}>{eg.concepto}</span><div className="flex items-center gap-2"><span className="text-red-600 font-black shrink-0">{formaterMoneda(eg.monto)}</span><button onClick={() => removerDinamico(p.empleado_id, 'egreso', eg.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition"><Trash2 size={12}/></button></div></div>
+                                                                <div key={eg.id} className="flex justify-between items-start text-slate-700 group bg-red-50 p-1 rounded">
+                                                                    <span className="truncate pr-2" title={eg.concepto}>{eg.concepto}</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-red-600 font-black shrink-0">{formaterMoneda(eg.monto)}</span>
+                                                                        <button onClick={() => removerDinamico(p.empleado_id, 'egreso', eg.id)} className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 shrink-0 transition"><Trash2 size={12}/></button>
+                                                                    </div>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                     </div>
