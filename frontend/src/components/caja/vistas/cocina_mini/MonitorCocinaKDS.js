@@ -3,7 +3,7 @@ import { ChefHat } from 'lucide-react';
 
 // Importamos nuestros subcomponentes modulares nuevos
 import SelectorPersonalCocina from './SelectorPersonalCocina';
-import TarjetaComandaCocina from './TarjetaComandaCocina';
+import TarjetaComandaCocina from './TarjetaComandaCocina'; // NOTA: Asegúrate de que apunte al archivo correcto en tu proyecto
 
 const MonitorCocinaKDS = ({ 
   user, 
@@ -44,9 +44,9 @@ const MonitorCocinaKDS = ({
     personalCocina.unshift(user);
   }
 
-  // Regla de filtrado de comandas: Quita mostrador y estados terminados/cancelados
+  // 👇 FIX: Añadimos 'Aceptado' al radar para que las comandas aparezcan inmediatamente tras confirmarse en Caja
   const pedidosCocina = pedidos.filter(p => 
-    ['Pendiente', 'Pagado', 'Preparando'].includes(p.estado_preparacion) && 
+    ['Pendiente', 'Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion) && 
     p.tipo_consumo !== 'Mostrador'
   );
 

@@ -22,7 +22,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
         menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
         corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false,
-        reportar_mermas: false, proveedores: false // 👈 NUEVO PERMISO AGREGADO
+        reportar_mermas: false, proveedores: false, distribucion: false // 👈 NUEVO PERMISO AGREGADO
     });
 
     const plantillaVisible = usuariosDB.filter(u => {
@@ -47,7 +47,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
             menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
             corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false, 
-            proveedores: false // 👈 NUEVO PERMISO AGREGADO
+            proveedores: false, distribucion: false // 👈 NUEVO PERMISO AGREGADO
         });
     };
 
@@ -59,7 +59,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             pantalla_admin: false, pantalla_caja: false, pantalla_cocina: false, pantalla_repartidor: false,
             menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
             corte_caja: false, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false, reportar_mermas: false, 
-            proveedores: false // 👈 NUEVO PERMISO AGREGADO
+            proveedores: false, distribucion: false // 👈 NUEVO PERMISO AGREGADO
         };
 
         if (nuevoRol === 'tv') {
@@ -81,7 +81,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         if (nuevoRol === 'admin') {
             perms.pantalla_admin = true; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = true;
             perms.menu = true; perms.inventario = true; perms.catalogos = true; perms.promociones = true; perms.mesas = true;
-            perms.reportar_mermas = true; perms.proveedores = true; // 👈 NUEVO PERMISO AGREGADO
+            perms.reportar_mermas = true; perms.proveedores = true; perms.distribucion = true; // 👈 NUEVO PERMISO AGREGADO
         } else if (nuevoRol === 'gerente') {
             perms.pantalla_admin = false; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
             perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true;
@@ -342,6 +342,11 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                             {/* 👇 NUEVO CHECKBOX: MÓDULO DE PROVEEDORES */}
                             <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer bg-orange-100 p-2 rounded-lg -mx-2">
                                 <input type="checkbox" checked={uPermisos.proveedores === true} onChange={e => setUPermisos({...uPermisos, proveedores: e.target.checked})} className="accent-orange-600 w-5 h-5" /> Control de Proveedores y Compras
+                            </label>
+
+                            {/* 👇 NUEVO CHECKBOX: MÓDULO DE DISTRIBUCIÓN B2B */}
+                            <label className="flex items-center gap-3 text-sm font-bold text-slate-700 cursor-pointer bg-blue-100 p-2 rounded-lg -mx-2 mt-2">
+                                <input type="checkbox" checked={uPermisos.distribucion === true} onChange={e => setUPermisos({...uPermisos, distribucion: e.target.checked})} className="accent-blue-600 w-5 h-5" /> Módulo de Distribución / Mayoreo B2B
                             </label>
 
                             <div className="border-t border-orange-200 my-2"></div>

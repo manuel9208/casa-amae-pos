@@ -12,6 +12,7 @@ import AdminReportes from './admin/AdminReportes';
 import AdminPromociones from './admin/AdminPromociones';
 import AdminMesas from './admin/AdminMesas';  
 import AdminProveedores from './admin/AdminProveedores';
+import AdminDistribucion from './admin/AdminDistribucion'; // 👈 RUTA CORREGIDA
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -47,6 +48,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewPromociones = isGlobalAdmin || user?.permisos?.promociones === true;
   const canViewMesas = isGlobalAdmin || user?.permisos?.mesas === true;  
   const canViewProveedores = isGlobalAdmin || user?.permisos?.proveedores === true;
+  const canViewDistribucion = isGlobalAdmin || user?.permisos?.distribucion === true; // 👈 NUEVO PERMISO B2B
 
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
@@ -168,6 +170,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           canViewPromociones={canViewPromociones}
           canViewMesas={canViewMesas}
           canViewProveedores={canViewProveedores}
+          canViewDistribucion={canViewDistribucion} // 👈 NUEVO PROP
         />  
       </div>
 
@@ -207,6 +210,11 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             productos={productos}
             configGlobal={configGlobal}
           />
+        )}
+
+        {/* 👇 NUEVO ESPACIO: DISTRIBUCIÓN Y MAYOREO B2B */}
+        {seccion === 'distribucion' && canViewDistribucion && (
+          <AdminDistribucion {...commonProps} configGlobal={configGlobal} user={user} />
         )}
 
         {seccion === 'configuracion' && canViewConfig && (

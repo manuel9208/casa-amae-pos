@@ -1,14 +1,14 @@
 import React from 'react';
 import { 
   ShoppingCart, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
-  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck 
+  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase 
 } from 'lucide-react';
 
 const TopNavAdmin = ({
   user, onLogout, onGoToKiosco, seccion, setSeccion,
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
   canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
-  canViewProveedores // 👈 NUEVO: Recibimos el permiso de proveedores
+  canViewProveedores, canViewDistribucion
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -74,10 +74,16 @@ const TopNavAdmin = ({
               </button>
             )}
 
-            {/* 👇 NUEVO: Pestaña de Proveedores (Justo después de inventario/catálogos) */}
             {canViewProveedores && (
               <button onClick={() => setSeccion('proveedores')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'proveedores' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                  <Truck size={18}/> Proveedores
+              </button>
+            )}
+
+            {/* 👇 FIX APLICADO: Diseño unificado al resto de los botones y cambio de texto a "Mayoreo" */}
+            {canViewDistribucion && (
+              <button onClick={() => setSeccion('distribucion')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'distribucion' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                 <Briefcase size={18}/> Mayoreo
               </button>
             )}
             

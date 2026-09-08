@@ -67,6 +67,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
             if (resUsu.ok) { const usuData = await resUsu.json(); setUsuarios(Array.isArray(usuData) ? usuData : []); }
             if (resCompras.ok) { const compData = await resCompras.json(); setCompras(Array.isArray(compData) ? compData : []); } else setCompras([]);
+            
             if (resPed.ok) {
                 let data = await resPed.json();
                 data = data.filter(p => {
@@ -101,10 +102,9 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         }
     }, [periodo, fechaFiltro, hoyStr, baseUrl, cargarAuditoriaCompleta]);
 
-    // 👇 ASIGNAR FONDO POR DEFECTO (Solo el Turno 1 para evitar inflar el cuadre)
     useEffect(() => {
         if (cortesDelDia && cortesDelDia.length > 0) {
-            setFondosSeleccionados([cortesDelDia[0].id]); // 👈 Mantenemos tu lógica matemáticamente correcta
+            setFondosSeleccionados([cortesDelDia[0].id]); 
         } else {
             setFondosSeleccionados([]);
         }
@@ -130,9 +130,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         if (['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return;
         
         let metodoPagoReal = p.metodo_pago;
-        
-        // 🚀 APLICACIÓN DE LA REGLA ESTRICTA (HISTÓRICA):
-        // Garantiza que la auditoría retrospectiva tenga matemática perfecta ignorando lo que flotaba en este turno.
         if (['Pendiente', 'Por Cobrar'].includes(metodoPagoReal)) return;
 
         const isComedor = p.metodo_pago === 'Comida Personal';
@@ -143,22 +140,29 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         if (metodoPagoReal === 'Tarjeta') tar += parseMoney(p.total);
         if (metodoPagoReal === 'Transferencia') tra += parseMoney(p.total);
         
+        // 👇 FIX MATEMÁTICO: Escudo blindado para pagos mixtos corruptos
         if (metodoPagoReal === 'Mixto' && p.pagos_mixtos) {
-        let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch (e) { }
-        pm.forEach(x => {
-            if (x.metodo === 'Efectivo') efe += parseMoney(x.monto);
-            if (x.metodo === 'Tarjeta') tar += parseMoney(x.monto);
-            if (x.metodo === 'Transferencia') tra += parseMoney(x.monto);
-        });
+            try { 
+                let pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; 
+                if (typeof pm === 'string') pm = JSON.parse(pm);
+
+                if (Array.isArray(pm)) {
+                    pm.forEach(x => {
+                        if (x.metodo === 'Efectivo') efe += parseMoney(x.monto);
+                        if (x.metodo === 'Tarjeta') tar += parseMoney(x.monto);
+                        if (x.metodo === 'Transferencia') tra += parseMoney(x.monto);
+                    });
+                }
+            } catch (e) { console.error("Dato corrupto mixto evadido:", e); }
         }  
 
         if (isDomicilio) { 
-        dEfectivo += efe; dTarjeta += tar; dTransf += tra; 
-        dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); 
+            dEfectivo += efe; dTarjeta += tar; dTransf += tra; 
+            dEnvio += parseMoney(p.costo_envio); tEnvio += parseMoney(p.costo_envio); 
         }
         else { 
-        lEfectivo += efe; lTarjeta += tar; lTransf += tra; 
-        tEnvio += parseMoney(p.costo_envio); 
+            lEfectivo += efe; lTarjeta += tar; lTransf += tra; 
+            tEnvio += parseMoney(p.costo_envio); 
         }  
 
         let car = [];
@@ -166,32 +170,32 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         let order_gross = parseMoney(p.costo_envio);  
 
         car.forEach(i => {
-        const qty = parseMoney(i.cantidad) || 1; let exP = 0;
-        if (Array.isArray(i.extras)) {
-            i.extras.forEach(e => {
-            const eNameLower = (e.nombre || '').trim().toLowerCase();
-            let isRealExtra = true;
-            if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) isRealExtra = false;
-            else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') isRealExtra = false;
-            if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
-            });
-        }
-        const calcExtra = (exP * qty); let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
-        if (calcBase < 0) calcBase = 0; const calcPlat = (calcBase * qty);  
-        
-        if (!isComedor) {
-            tExtras += calcExtra; tPlatillos += calcPlat;
-            if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; }
-        }
-        order_gross += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
+            const qty = parseMoney(i.cantidad) || 1; let exP = 0;
+            if (Array.isArray(i.extras)) {
+                i.extras.forEach(e => {
+                const eNameLower = (e.nombre || '').trim().toLowerCase();
+                let isRealExtra = true;
+                if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) isRealExtra = false;
+                else if (eNameLower.includes('sabor:') || eNameLower.includes('tamaño:') || eNameLower.includes('🔸') || eNameLower.includes('🔹') || e.tipo === 'variacion') isRealExtra = false;
+                if (isRealExtra) exP += parseMoney(e.precioExtra || e.precio_extra || e.precio || 0);
+                });
+            }
+            const calcExtra = (exP * qty); let calcBase = parseMoney(i.precioFinal || i.precio_base || i.precio) - exP;
+            if (calcBase < 0) calcBase = 0; const calcPlat = (calcBase * qty);  
+            
+            if (!isComedor) {
+                tExtras += calcExtra; tPlatillos += calcPlat;
+                if (isDomicilio) { dExtras += calcExtra; dPlatillos += calcPlat; }
+            }
+            order_gross += (parseMoney(i.precioFinal || i.precio_base || i.precio) * qty);
         });  
 
         if (!isComedor) {
-        const discount = order_gross - parseMoney(p.total);
-        if (discount > 0) {
-            tDescuentos += discount;
-            if (metodoPagoReal === 'Efectivo') tDescuentosEfectivo += discount;
-        }
+            const discount = order_gross - parseMoney(p.total);
+            if (discount > 0) {
+                tDescuentos += discount;
+                if (metodoPagoReal === 'Efectivo') tDescuentosEfectivo += discount;
+            }
         }
     });  
 
@@ -202,14 +206,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         gastosCompras = compras.reduce((s, c) => s + Number(c.costo_total || 0), 0);
         
         if (cortesDelDia.length > 0) {
-            // Fondo Inicial: Solo el 1er Turno (salvo que en modal seleccionen otros adicionales)
             fondoCaja = cortesDelDia.filter(c => fondosSeleccionados.includes(c.id)).reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
             fondosAdicionales = cortesDelDia.filter(c => !fondosSeleccionados.includes(c.id)).reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
-            
-            // LÓGICA MAESTRA: Retiros (Suma de todos) + Fondo Dejado (Solo el ÚLTIMO turno)
             efectivoEntregadoTotal = cortesDelDia.reduce((s, c) => s + Number(c.efectivo_entregado || 0), 0);
             efectivoEnCajaTotal = Number(cortesDelDia[cortesDelDia.length - 1].efectivo_en_caja || 0);
-            
             efectivoDeclaradoCaja = efectivoEntregadoTotal + efectivoEnCajaTotal;
         } else {
             fondoCaja = usuarios.reduce((s, u) => s + Number(u.fondo_actual || 0), 0);
@@ -217,7 +217,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
         fondoRepartidor = cortesDelDia.reduce((s, c) => s + Number(c.fondo_repartidor || 0), 0);
     } else {
-        // Vista Individual
         const cAct = cortesDelDia.find(c => String(c.id) === String(corteSeleccionadoId));
         if (cAct) {
             fondoCaja = Number(cAct.fondo_inicial || 0); fondoRepartidor = Number(cAct.fondo_repartidor || 0);
@@ -226,14 +225,20 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         }
     }
 
-    const totalEfectivoDia = lEfectivo + dEfectivo; const totalFondoGlobal = fondoCaja + fondoRepartidor;
-    const totalVentasBrutas = tPlatillos + tExtras + tEnvio; const totalIngresoNetoReal = totalVentasBrutas - tDescuentos - gastosCompras;
-    const efectivoEsperadoCaja = fondoCaja + totalEfectivoDia - gastosCompras; const efectivoEsperadoMotos = fondoRepartidor + dEfectivo;
+    // LA MATEMÁTICA MAESTRA (SIN B2B)
+    const totalEfectivoDia = lEfectivo + dEfectivo; 
+    const totalFondoGlobal = fondoCaja + fondoRepartidor;
+    const totalVentasBrutas = tPlatillos + tExtras + tEnvio; 
+    const totalIngresoNetoReal = totalVentasBrutas - tDescuentos - gastosCompras;
+    const efectivoEsperadoCaja = fondoCaja + totalEfectivoDia - gastosCompras; 
+    const efectivoEsperadoMotos = fondoRepartidor + dEfectivo;
     
     const diferenciaAuditoria = efectivoEsperadoCaja - efectivoDeclaradoCaja;
     const isFaltante = diferenciaAuditoria > 0; const isSobrante = diferenciaAuditoria < 0; const isPerfecto = diferenciaAuditoria === 0;
 
-    const totalTarjetas = lTarjeta + dTarjeta; const totalTransferencias = lTransf + dTransf; const totalDigital = totalTarjetas + totalTransferencias;
+    const totalTarjetas = lTarjeta + dTarjeta; 
+    const totalTransferencias = lTransf + dTransf; 
+    const totalDigital = totalTarjetas + totalTransferencias;
 
     if (cargando && pedidos.length === 0) return <div className="p-10 text-center font-bold text-slate-400 animate-pulse">Sincronizando auditoría en vivo...</div>;
 
@@ -249,37 +254,18 @@ const VistaCortesHistorico = ({ apiUrl }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-300 print:m-0 print:p-0 text-slate-800 print:bg-white print:w-full">
-            
-            {/* 👇 ESTILOS GLOBALES INYECTADOS PARA FORZAR UN PDF PERFECTO Y PAGINADO */}
             <style>{`
                 @media print {
-                    /* Rompe los bloqueos de scroll de los paneles administradores */
                     body, html, #root, main, .overflow-y-auto, .overflow-hidden, .h-screen {
                         height: auto !important;
                         min-height: auto !important;
                         overflow: visible !important;
                         position: static !important;
                     }
-                    /* Oculta barras laterales y menús de navegación */
-                    nav, aside, header {
-                        display: none !important;
-                    }
-                    /* Formato de Hoja Carta (Letter) */
-                    @page {
-                        size: letter portrait;
-                        margin: 1.5cm;
-                    }
-                    /* Fuerza la impresión a color exacta */
-                    * {
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-                    /* Evita que los recuadros se corten a la mitad entre hojas */
-                    .print-break-avoid {
-                        break-inside: avoid;
-                        page-break-inside: avoid;
-                        margin-bottom: 24px !important;
-                    }
+                    nav, aside, header { display: none !important; }
+                    @page { size: letter portrait; margin: 1.5cm; }
+                    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+                    .print-break-avoid { break-inside: avoid; page-break-inside: avoid; margin-bottom: 24px !important; }
                 }
             `}</style>
 
@@ -305,7 +291,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     {periodo === 'mes' && <input type="month" value={fechaFiltro.substring(0, 7)} onChange={(e) => setFechaFiltro(`${e.target.value}-01`)} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors w-full sm:w-auto" />}
                     {periodo === 'anio' && <input type="number" min="2020" max="2099" value={fechaFiltro.substring(0, 4)} onChange={(e) => setFechaFiltro(`${e.target.value}-01-01`)} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 font-bold text-slate-700 outline-none focus:border-blue-500 transition-colors w-24 text-center" />}
                     
-                    {/* 👇 NUEVO BOTÓN FORMAL DE DESCARGA PDF */}
                     <button
                         onClick={() => window.print()}
                         className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-black px-6 py-2.5 rounded-xl shadow-md shadow-blue-500/30 flex justify-center items-center gap-2 transition active:scale-95 whitespace-nowrap"
@@ -342,7 +327,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                 />
             </div>
 
-            {/* EN IMPRESIÓN, LOS PONEMOS UNO DEBAJO DEL OTRO PARA QUE NO SE APLASTEN */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start print:flex print:flex-col print:gap-6 print:w-full">
                 <div className="print-break-avoid print:w-full h-full">
                     <PagosDigitales 
@@ -377,6 +361,7 @@ const VistaCortesHistorico = ({ apiUrl }) => {
                     setPedidoSeleccionado={setPedidoSeleccionado} filtroCliente={filtroCliente} 
                     setFiltroCliente={setFiltroCliente} filtroMetodoPago={filtroMetodoPago} 
                     setFiltroMetodoPago={setFiltroMetodoPago} formaterMoneda={formaterMoneda} 
+                    apiUrl={apiUrl}
                 />
             </div>
 

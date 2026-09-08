@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock, Edit, CheckCircle2, Save } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock, Edit, CheckCircle2, Save, Package } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -8,25 +8,40 @@ import MenuCategoriasYProductos from './MenuCategoriasYProductos';
 import AsistentePersonalizacion from './AsistentePersonalizacion';
 import ModalCuentaAbierta from './ModalCuentaAbierta';
 import OfertaUpselling from './OfertaUpselling';
-import PasoIdentificarCliente from './PasoIdentificarCliente';
 import { useBuscadorClientes } from '../../useBuscadorClientes';
 import ModalArmarCombo from './ModalArmarCombo';
+import PuntoDeVentaMayoreo from './distribucion/PuntoDeVentaMayoreo';
 
 const PuntoDeVentaPrincipal = ({
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
     productos, clasificaciones, catalogoIngredientes, apiUrl, lanzarImpresion,
-    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas, combosActivos = [] 
+    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas, combosActivos = []
 }) => {
-    const [paso, setPaso] = useState('identificar');
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1);
+    const [modoVenta, setModoVenta] = useState('menu'); 
+    const [configDist, setConfigDist] = useState({ activa: false, nombre: 'Distribución' });
+
+    useEffect(() => {
+        if (modalPuntoVenta) {
+            fetch(`${apiUrl}/distribucion/configuracion`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.error) {
+                        setConfigDist({
+                            activa: data.distribucion_activa === true,
+                            nombre: data.distribucion_nombre || 'Distribución'
+                        });
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [modalPuntoVenta, apiUrl]);
+
     const [alertaUI, setAlertaUI] = useState(null);
     const [confirmacionFinanciera, setConfirmacionFinanciera] = useState(null);
     const [clienteAsignado, setClienteAsignado] = useState(null);
     const [telefonoCliente, setTelefonoCliente] = useState('');
     const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
-    const [datosNuevoCliente, setDatosNuevoCliente] = useState({
-        nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: ''
-    });
     const [nombreOrden, setNombreOrden] = useState('');
     const [tipoConsumo, setTipoConsumo] = useState('Local');
     const [notaOpcional, setNotaOpcional] = useState('');
@@ -37,7 +52,6 @@ const PuntoDeVentaPrincipal = ({
     const [cuponInput, setCuponInput] = useState('');
     const [cuponActivo, setCuponActivo] = useState(null);
     const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
-    const [errorMsg, setErrorMsg] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
     const terminoBusqueda = clienteAsignado ? '' : nombreOrden;
@@ -52,7 +66,6 @@ const PuntoDeVentaPrincipal = ({
     const [descuentoCuponDinero, setDescuentoCuponDinero] = useState(0);
     const [productoEnEspera, setProductoEnEspera] = useState(null);
     const [itemEditandoId, setItemEditandoId] = useState(null);
-
     const [comboEnEspera, setComboEnEspera] = useState(null);
     const [pasoPersonalizacion, setPasoPersonalizacion] = useState(0);
     const [opcionSeleccionada, setOpcionSeleccionada] = useState(null);
@@ -65,7 +78,7 @@ const PuntoDeVentaPrincipal = ({
     const [extrasSeleccionados, setExtrasSeleccionados] = useState([]);
     const [notaProducto, setNotaProducto] = useState('');
     const [cantidadProducto, setCantidadProducto] = useState(1);
-
+    
     const politicasSustUI = typeof configGlobal?.politicas_sustitucion === 'string'
         ? JSON.parse(configGlobal.politicas_sustitucion || '{}')
         : (configGlobal?.politicas_sustitucion || {});
@@ -73,9 +86,8 @@ const PuntoDeVentaPrincipal = ({
         ? JSON.parse(configGlobal.tarifas_envio || '[]')
         : (configGlobal?.tarifas_envio || []);
     const puntosCanjeActivo = configGlobal?.puntos_canje_activo === undefined ? true : (String(configGlobal?.puntos_canje_activo) === 'true');
-
-    // 👇 ESTADO Y EFECTO PARA CARGAR PROMOCIONES DESDE LA BD (Asegura precios de promos)
     const [promocionesActivas, setPromocionesActivas] = useState([]);
+    
     useEffect(() => {
         const cargarPromociones = async () => {
             try {
@@ -91,12 +103,27 @@ const PuntoDeVentaPrincipal = ({
         cargarPromociones();
     }, [apiUrl]);
 
+    // 👇 SOLUCIÓN: Bloqueo Dinámico. Escudo activado usando la variable global window.__isGuardandoPedido
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            // Si estamos guardando la orden, la alerta de bloqueo se IGNORA.
+            if (window.__isGuardandoPedido) return; 
+            
+            if (modalPuntoVenta && carrito.length > 0) {
+                e.preventDefault();
+                e.returnValue = ''; 
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [modalPuntoVenta, carrito.length]);
+
     const queue = Array.isArray(productoEnEspera) ? productoEnEspera : (productoEnEspera ? [productoEnEspera] : []);
     const currentItem = queue.length > 0 ? queue[0] : null;
 
     useEffect(() => {
         if (ordenEditandoRapida && modalPuntoVenta) {
-            setPaso('menu');
             setPasoFlujoCaja(2);
             if (ordenEditandoRapida.cliente_id) {
                 setClienteAsignado({
@@ -149,24 +176,25 @@ const PuntoDeVentaPrincipal = ({
         setCuponActivo(null); setCuponInput('');
         setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);
         setClienteAsignado(null); setTelefonoCliente(''); setTelefonoOrdenRapida('');
-        setErrorMsg('');
         setConfirmacionFinanciera(null);
-        setDatosNuevoCliente({ nombre: '', apellido: '', correo: '', fecha_nacimiento: '', nip: '', direccion: '' });
         setPasoFlujoCaja(1);
-        setPaso('identificar');
+        setModoVenta('menu');
         setModalPuntoVenta(false);
         if (onClose) onClose();
     };
 
     const seleccionarSugerencia = (sug) => {
         setNombreOrden(sug.cliente_nombre);
-        if (sug.cliente_telefono) {
+        
+        if (sug.cliente_telefono && !telefonoOrdenRapida.trim()) {
             setTelefonoCliente(sug.cliente_telefono);
             setTelefonoOrdenRapida(sug.cliente_telefono);
         }
-        if (sug.direccion_entrega && sug.direccion_entrega !== 'Pendiente de dirección') {
+        
+        if (sug.direccion_entrega && sug.direccion_entrega !== 'Pendiente de dirección' && !notaOpcional.trim()) {
             setNotaOpcional(sug.direccion_entrega);
         }
+
         if (sug.tipo === 'registrado') {
             setClienteAsignado({
                 id: sug.cliente_id,
@@ -181,7 +209,7 @@ const PuntoDeVentaPrincipal = ({
 
     const calcularSubtotal = () => carrito.reduce((t, i) => t + ((Number(i.precioFinal) || 0) * (Number(i.cantidad) || 1)), 0);
     const subtotal = calcularSubtotal();
-    
+
     const subtotalCanjeable = carrito.reduce((acc, item) => {
         let nombreLimpioCarrito = String(item.nombre || '').replace(/^\[.*?\]\s*/, '').split('(')[0].toLowerCase().trim();
         const prodDB = (productos || []).find(p => {
@@ -215,6 +243,7 @@ const PuntoDeVentaPrincipal = ({
         }
         if (dCup > subtotal) dCup = subtotal;
         setDescuentoCuponDinero(dCup);
+        
         let dPts = 0;
         if ((!puntosCanjeActivo || bloqueoPuntosActivo) && descuentoPuntosPuntosFisicos > 0) {
             setDescuentoPuntosPuntosFisicos(0);
@@ -232,49 +261,111 @@ const PuntoDeVentaPrincipal = ({
     const esEdicion = !!ordenEditandoRapida;
     const isPagado = esEdicion && !['Pendiente', 'Por Cobrar', 'Cancelado'].includes(ordenEditandoRapida.metodo_pago) && ordenEditandoRapida.estado_preparacion !== 'Pendiente';
     const yaPagado = isPagado;
+
     const nombresClasificacionesActivas = clasificaciones.map(c => c.nombre);
     const productosDisponibles = productos.filter(p => {
         const catName = p.categoria || 'General';
         return catName === 'General' || nombresClasificacionesActivas.includes(catName);
     });
+    
     const categoriasUnicas = [...new Set(productosDisponibles.map(p => p.categoria || 'General'))];
     const productosFiltrados = productosDisponibles.filter(p => (p.categoria || 'General') === categoriaActiva);
-    
+
     const getPortadaCategoria = (catName) => {
         const clasifDB = clasificaciones.find(c => c.nombre === catName);
         return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
     };
 
     const cambiarCantidadCart = (idTicket, delta) => {
-        setCarrito(prev => prev.map(item => {
-            if (item.idTicket === idTicket) {
-                const isUsaStock = item.usa_stock === true || String(item.usa_stock) === 'true';
-                const stockActual = Number(item.stock_preparado) || 0;
-                const newQty = (item.cantidad || 1) + delta;
-                if (isUsaStock && delta > 0 && newQty > stockActual) {
-                    setAlertaUI({ titulo: 'Stock Insuficiente', mensaje: `¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`, tipo: 'error' });
-                    return item;
-                }
-                return newQty > 0 ? { ...item, cantidad: newQty } : item;
+        setCarrito(prev => {
+            const itemAfectado = prev.find(item => item.idTicket === idTicket);
+            if (!itemAfectado) return prev;
+            
+            const newQty = (itemAfectado.cantidad || 1) + delta;
+            
+            // REGLA 1: No permitir bajar de 0
+            if (newQty <= 0) return prev;
+            
+            // REGLA 2: Límite de Stock Normal
+            const isUsaStock = itemAfectado.usa_stock === true || String(itemAfectado.usa_stock) === 'true';
+            const stockActual = Number(itemAfectado.stock_preparado) || 0;
+            if (isUsaStock && delta > 0 && newQty > stockActual) {
+                setAlertaUI({
+                    titulo: 'Stock Insuficiente',
+                    mensaje: `¡Límite de stock! Solo quedan ${stockActual} disponibles en el sistema.`,
+                    tipo: 'error'
+                });
+                return prev;
             }
-            return item;
-        }));
+            
+            // REGLA 3 (DEFINITIVA): Límite estricto de Promociones (Upselling 1 a 1)
+            if (itemAfectado._esPromo && delta > 0) {
+                // 1. Buscar la regla original de la promoción en la base de datos cargada
+                const promoDef = promocionesActivas.find(p => p.nombre === itemAfectado._nombrePromo);
+                
+                if (promoDef) {
+                    // 2. Contar cuántos platillos "Padre" (Gatillos) hay en el carrito
+                    let cantidadPadresDisponibles = 0;
+                    prev.forEach(p => {
+                        if (!p._esPromo) {
+                            const esMismoProducto = String(p.id || p.producto_id) === String(promoDef.producto_trigger_id);
+                            const esMismaCategoria = String(p.categoria) === String(promoDef.categoria_trigger);
+                            
+                            // Si el platillo en el carrito es el trigger de la promo, lo contamos
+                            if (esMismoProducto || (promoDef.categoria_trigger && esMismaCategoria)) {
+                                cantidadPadresDisponibles += Number(p.cantidad || 1);
+                            }
+                        }
+                    });
+
+                    // 3. Contar cuántas promociones iguales YA están en el carrito
+                    let cantidadPromosActuales = 0;
+                    prev.forEach(p => {
+                        if (p._esPromo && p._nombrePromo === itemAfectado._nombrePromo) {
+                            cantidadPromosActuales += Number(p.cantidad || 1);
+                        }
+                    });
+
+                    // 4. Bloquear si intenta superar a los padres
+                    const cantidadFuturaPromos = cantidadPromosActuales + delta;
+                    if (cantidadFuturaPromos > cantidadPadresDisponibles) {
+                        setAlertaUI({
+                            titulo: 'Límite de Promoción',
+                            mensaje: `Solo puedes llevar ${cantidadPadresDisponibles} promoción(es) porque equivale a la cantidad de platillos principales que compraste.`,
+                            tipo: 'info'
+                        });
+                        return prev; // Detiene la suma
+                    }
+                } else {
+                    // Fallback de seguridad (por si la promo se borró de la BD mientras se cobraba)
+                    let totalNoPromos = 0;
+                    prev.forEach(p => { if (!p._esPromo) totalNoPromos += Number(p.cantidad || 1); });
+                    let totalPromos = 0;
+                    prev.forEach(p => { if (p._esPromo && p._nombrePromo === itemAfectado._nombrePromo) totalPromos += Number(p.cantidad || 1); });
+                    
+                    if ((totalPromos + delta) > totalNoPromos) {
+                        setAlertaUI({ titulo: 'Límite', mensaje: 'Has alcanzado el máximo de artículos promocionales.', tipo: 'info' });
+                        return prev;
+                    }
+                }
+            }
+            
+            // Si pasa todas las reglas matemáticas, actualizamos el carrito
+            return prev.map(item => item.idTicket === idTicket ? { ...item, cantidad: newQty } : item);
+        });
     };
 
     const quitarDelCarrito = (idTicket) => setCarrito(prev => prev.filter(item => item.idTicket !== idTicket));
-    
-    // 👇 BLINDAJE DE EDICIÓN: Limpia estados fantasmas y reinyecta el contexto del carrito (Promo/Combo)
+
     const iniciarEdicion = (item) => {
-        resetWizard(); // 1. Limpieza absoluta
-        
+        resetWizard(); 
+
         const idOriginal = item.producto_id || item.id;
         const productoOriginal = productos.find(p => String(p.id) === String(idOriginal));
         if (!productoOriginal) return setAlertaUI({ titulo: 'Error', mensaje: 'El producto original ya no existe en el menú.', tipo: 'error' });
-
-        // 2. Deep Clone para evitar mutaciones al catálogo en memoria
-        const productoClonado = JSON.parse(JSON.stringify(productoOriginal));
         
-        // 3. Purgar banderas basura que puedan existir
+        const productoClonado = JSON.parse(JSON.stringify(productoOriginal));
+
         delete productoClonado._esPromo;
         delete productoClonado._nombrePromo;
         delete productoClonado._variacionBasePromo;
@@ -285,8 +376,7 @@ const PuntoDeVentaPrincipal = ({
         delete productoClonado._configuracionCombo;
         delete productoClonado._esCombo;
         delete productoClonado._comboId;
-
-        // 4. Inyectar banderas reales del carrito
+        
         if (item._esCombo) {
             const comboMatch = combosActivos.find(c => c.id === item._comboId);
             if (comboMatch) {
@@ -299,7 +389,7 @@ const PuntoDeVentaPrincipal = ({
                 return;
             }
         }
-        
+
         setItemEditandoId(item.idTicket);
         productoClonado._esPromo = item._esPromo;
         productoClonado._nombrePromo = item._nombrePromo;
@@ -307,7 +397,6 @@ const PuntoDeVentaPrincipal = ({
         productoClonado._isCustomizedChild = item._isCustomizedChild;
         productoClonado._variacionesBaseComboHijo = item._variacionesBaseComboHijo;
         productoClonado._comboGroupId = item._comboGroupId;
-
         setProductoEnEspera([productoClonado]);
     };
 
@@ -331,7 +420,6 @@ const PuntoDeVentaPrincipal = ({
         return diff > 0 ? diff : 0;
     };
 
-    // Evaluador conectado a la BD en vivo
     const evaluarUpsell = (prodId, catName) => {
         return promocionesActivas.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
     };
@@ -344,7 +432,7 @@ const PuntoDeVentaPrincipal = ({
                     configuracion: currentItem._configuracionCombo,
                     itemAEditar: carrito.find(i => i.idTicket === itemEditandoId)
                 });
-                resetWizard(); 
+                resetWizard();
                 return;
             }
             setCarrito(prev => prev.map(i => i.idTicket === itemEditandoId ? { ...nuevoItem, idTicket: i.idTicket } : i));
@@ -359,23 +447,19 @@ const PuntoDeVentaPrincipal = ({
                 resetWizard();
                 return;
             }
-
             const getExtrasStr = (extras) => extras.map(e => e.nombre).sort().join('|');
             const extrasStrNuevo = getExtrasStr(nuevoItem.extras);
-
             setCarrito(prev => {
                 const indexExistente = prev.findIndex(item =>
                     (item.id === nuevoItem.id || item.producto_id === nuevoItem.producto_id) &&
                     getExtrasStr(item.extras) === extrasStrNuevo &&
                     item.precioFinal === nuevoItem.precioFinal &&
                     item._isCustomizedChild === nuevoItem._isCustomizedChild &&
-                    item._comboGroupId === nuevoItem._comboGroupId 
+                    item._comboGroupId === nuevoItem._comboGroupId
                 );
-                
+
                 if (indexExistente >= 0 && !nuevoItem._isCustomizedChild) {
                     const nuevoCarrito = [...prev];
-                    // 👇 BLINDAJE CONTRA REACT STRICT MODE (Cura el bug 1+1=3)
-                    // Hacemos una actualización inmutable del objeto para que React no sume dos veces.
                     nuevoCarrito[indexExistente] = {
                         ...nuevoCarrito[indexExistente],
                         cantidad: (nuevoCarrito[indexExistente].cantidad || 1) + cantidadProducto
@@ -385,7 +469,6 @@ const PuntoDeVentaPrincipal = ({
                     return [...prev, nuevoItem];
                 }
             });
-
             if (queue.length > 1) {
                 avanzarCola();
             } else {
@@ -400,47 +483,11 @@ const PuntoDeVentaPrincipal = ({
 
     const agregarUpsellAlCarrito = (itemsQueue) => {
         if (itemsQueue && itemsQueue.length > 0) {
-            resetWizard(); 
-            // 🛑 DEEP CLONE en Upselling para evitar ensuciar el catálogo
+            resetWizard();
             const cleanQueue = itemsQueue.map(item => JSON.parse(JSON.stringify(item)));
             setProductoEnEspera(cleanQueue);
         }
         setPromocionVigente(null);
-    };
-
-    const buscarClienteRapido = async (e) => {
-        e.preventDefault(); setErrorMsg('');
-        if (telefonoCliente.length !== 10) return setErrorMsg('El celular debe tener 10 dígitos.');
-        setIsSubmitting(true);
-        try {
-            const resCli = await fetch(`${apiUrl}/clientes`);
-            const clientes = await resCli.json();
-            const clienteEncontrado = clientes.find(c => c.telefono === telefonoCliente);
-            if (clienteEncontrado) {
-                setClienteAsignado(clienteEncontrado);
-                setNombreOrden(clienteEncontrado.nombre);
-                setPaso('menu');
-            } else setPaso('registro');
-        } catch(err) { setErrorMsg('Error de conexión.'); }
-        setIsSubmitting(false);
-    };
-
-    const registrarClienteRapido = async (e) => {
-        e.preventDefault(); setErrorMsg('');
-        if(!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) {
-            return setErrorMsg('Nombre, Apellido y NIP son obligatorios.');
-        }
-        setIsSubmitting(true);
-        try {
-            const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telefonoCliente, ...datosNuevoCliente}) });
-            const data = await res.json();
-            if (res.ok) {
-                setClienteAsignado(data.cliente || data);
-                setNombreOrden((data.cliente || data).nombre);
-                setPaso('menu');
-            } else setErrorMsg(data.error || 'Fallo al registrar cliente.');
-        } catch(err) { setErrorMsg('Error de red al registrar.'); }
-        setIsSubmitting(false);
     };
 
     const verificarNip = async (e) => {
@@ -498,7 +545,11 @@ const PuntoDeVentaPrincipal = ({
                 return;
             }
         }
+        
+        // 👇 FIX: Activamos el escudo protector global para ignorar la alerta
+        window.__isGuardandoPedido = true; 
         setIsSubmitting(true);  
+        
         const carritoExpandido = [];
         carrito.forEach(item => {
           const qty = item.cantidad || 1;
@@ -572,7 +623,12 @@ const PuntoDeVentaPrincipal = ({
         } catch (e) {
           setAlertaUI({ titulo: 'Sin Conexión', mensaje: 'No hay conexión con el servidor. Verifica tu red.', tipo: 'error' });
         }
-        setIsSubmitting(false);
+        
+        // Desactivamos el escudo después de 2 segundos para dar tiempo a que el navegador trague el intent/iframe
+        setTimeout(() => {
+            setIsSubmitting(false);
+            window.__isGuardandoPedido = false; 
+        }, 2000); 
     };
 
     let pasosWiz = [];
@@ -616,19 +672,20 @@ const PuntoDeVentaPrincipal = ({
         }  
         pasosWiz.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
     }  
-    const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
 
+    const pasoActualObj = pasosWiz[pasoPersonalizacion] || null;
     const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10))) ||
     (tipoConsumo === 'Recoger' && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
     (tipoConsumo === 'Para llevar' && ((telefonoCliente.length > 0 && telefonoCliente.length < 10) || (telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10)));
-    
+
     if (!modalPuntoVenta) return null;
 
     return (
         <>
-            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200">
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 sm:p-6 animate-in fade-in duration-200 touch-pan-y overscroll-none">
                 <div className="bg-slate-50 w-full max-w-4xl h-[90vh] rounded-[40px] shadow-2xl overflow-hidden flex flex-col relative border border-slate-300">
+                    
                     {alertaUI && (
                         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
                             <div className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">
@@ -643,7 +700,8 @@ const PuntoDeVentaPrincipal = ({
                             </div>
                         </div>
                     )}
-                    <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex justify-between items-center z-10 shadow-sm">
+
+                    <div className="p-4 md:p-6 bg-white border-b border-slate-200 shrink-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 z-10 shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 md:p-3 rounded-2xl ${esEdicion ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
                                 {esEdicion ? <Edit size={24}/> : <ShoppingBag size={24} />}
@@ -654,40 +712,50 @@ const PuntoDeVentaPrincipal = ({
                                     {pasoFlujoCaja === 2 && 'Resumen de Orden'}
                                     {pasoFlujoCaja === 3 && 'Detalles de Entrega'}
                                 </h3>
-                                <p className="text-xs md:text-sm font-bold text-slate-500">
+                                <p className="text-xs md:text-sm font-bold text-slate-500 mt-0.5">
                                     {pasoFlujoCaja === 1 && 'Selecciona los platillos para el cliente.'}
                                     {pasoFlujoCaja === 2 && 'Verifica las cantidades y extras.'}
                                     {pasoFlujoCaja === 3 && 'Configura el envío y finaliza la venta.'}
                                 </p>
                             </div>
                         </div>
-                        <button onClick={cerrarModalVenta} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-3 md:p-4 rounded-full transition shadow-sm">
-                            <XCircle size={28} />
-                        </button>
+
+                        <div className="flex items-center justify-between w-full md:w-auto gap-4">
+                            {pasoFlujoCaja === 1 && configDist.activa && (
+                                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
+                                    <button 
+                                        onClick={() => setModoVenta('menu')} 
+                                        className={`px-3 md:px-5 py-2 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest transition-all ${modoVenta === 'menu' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                    >
+                                        ☕ Menú
+                                    </button>
+                                    <button 
+                                        onClick={() => setModoVenta('mayoreo')} 
+                                        className={`px-3 md:px-5 py-2 rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 ${modoVenta === 'mayoreo' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                    >
+                                        <Package size={14}/> {configDist.nombre}
+                                    </button>
+                                </div>
+                            )}
+
+                            <button onClick={cerrarModalVenta} className="bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-500 p-2 md:p-3 rounded-full transition shadow-sm shrink-0">
+                                <XCircle size={24} className="md:w-6 md:h-6" />
+                            </button>
+                        </div>
                     </div>
-                    {paso === 'identificar' || paso === 'registro' ? (
-                        <PasoIdentificarCliente
-                            paso={paso} setPaso={setPaso} telefonoCliente={telefonoCliente} setTelefonoCliente={setTelefonoCliente}
-                            errorMsg={errorMsg} setErrorMsg={setErrorMsg} isSubmitting={isSubmitting} buscarClienteRapido={buscarClienteRapido}
-                            datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} registrarClienteRapido={registrarClienteRapido}
-                            setNombreOrden={(nombre) => setNombreOrden(nombre === 'Invitado' ? '' : nombre)}
-                            setClienteAsignado={setClienteAsignado}
-                        />
-                    ) : (
-                        <>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50/50">
-                                {pasoFlujoCaja === 1 && (
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50/50 overscroll-none touch-pan-y">
+                        {pasoFlujoCaja === 1 && (
+                            <>
+                                {modoVenta === 'menu' && (
                                     <MenuCategoriasYProductos
                                         categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva}
                                         categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
                                         getPortadaCategoria={getPortadaCategoria}
                                         abrirModalProducto={(p) => {
-                                            resetWizard(); // 👈 LIMPIEZA DE ESTADOS FANTASMAS
+                                            resetWizard(); 
                                             setItemEditandoId(null);
-                                            
-                                            // 🛑 DEEP CLONE para evitar que banderas muten el catálogo
                                             const productoLimpio = JSON.parse(JSON.stringify(p));
-                                            
                                             delete productoLimpio._esPromo;
                                             delete productoLimpio._nombrePromo;
                                             delete productoLimpio._variacionBasePromo;
@@ -698,7 +766,6 @@ const PuntoDeVentaPrincipal = ({
                                             delete productoLimpio._configuracionCombo;
                                             delete productoLimpio._esCombo;
                                             delete productoLimpio._comboId;
-
                                             const comboMatch = combosActivos.find(c => String(c.producto_base_id) === String(productoLimpio.id));
                                             if (comboMatch) {
                                                 productoLimpio._esComboBuilder = true;
@@ -710,308 +777,327 @@ const PuntoDeVentaPrincipal = ({
                                         }}
                                     />
                                 )}
-                                {pasoFlujoCaja === 2 && (
-                                    <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
-                                        {carrito.length === 0 ? (
-                                            <div className="flex flex-col items-center justify-center py-20 opacity-50">
-                                                <ShoppingBag size={80} className="mb-6 text-slate-300" />
-                                                <p className="text-2xl font-black text-slate-400">El carrito está vacío</p>
+
+                                {modoVenta === 'mayoreo' && (
+                                    <PuntoDeVentaMayoreo 
+                                        apiUrl={apiUrl} 
+                                        baseUrl={apiUrl.replace('/api', '')} 
+                                        showAlert={setAlertaUI} 
+                                        user={user}
+                                        onClose={cerrarModalVenta}
+                                    />
+                                )}
+                            </>
+                        )}
+
+                        {pasoFlujoCaja === 2 && modoVenta === 'menu' && (
+                            <div className="p-4 md:p-8 max-w-3xl mx-auto animate-in slide-in-from-right-4 duration-300">
+                                {carrito.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                                        <ShoppingBag size={80} className="mb-6 text-slate-300" />
+                                        <p className="text-2xl font-black text-slate-400">El carrito está vacío</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {carrito.map(item => (
+                                            <div key={item.idTicket} className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:shadow-md hover:border-blue-200">
+                                                <div className="flex-1">
+                                                    <p className="font-black text-lg md:text-xl text-slate-800 leading-tight">
+                                                        {item.nombre}
+                                                    </p>
+                                                    {item.extras && item.extras.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                                            {item.extras.map((e, idx) => (
+                                                                <span key={idx} className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide">
+                                                                    {e.nombre}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    <p className="font-black text-blue-600 text-lg mt-2">
+                                                        ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
+                                                    <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
+                                                    <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
+                                                    <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-blue-600 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Plus size={20}/></button>
+                                                    <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                                                    <button disabled={isSubmitting} onClick={() => iniciarEdicion(item)} className="w-10 h-10 bg-blue-50 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Editar Platillo">
+                                                        <Edit size={20}/>
+                                                    </button>
+                                                    <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Quitar Platillo">
+                                                        <Trash2 size={20}/>
+                                                    </button>
+                                                </div>
                                             </div>
-                                        ) : (
-                                            <div className="space-y-4">
-                                                {carrito.map(item => (
-                                                    <div key={item.idTicket} className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all hover:shadow-md hover:border-blue-200">
-                                                        <div className="flex-1">
-                                                            <p className="font-black text-lg md:text-xl text-slate-800 leading-tight">
-                                                                {item.nombre}
-                                                            </p>
-                                                            {item.extras && item.extras.length > 0 && (
-                                                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                                                    {item.extras.map((e, idx) => (
-                                                                        <span key={idx} className="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide">
-                                                                            {e.nombre}
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        {pasoFlujoCaja === 3 && modoVenta === 'menu' && (
+                            <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
+                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4">1. Tipo de Servicio</label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        {[
+                                            { id: 'Local', icon: <Store size={20}/> },
+                                            { id: 'Para llevar', icon: <ShoppingBag size={20}/> },
+                                            { id: 'Domicilio', icon: <Bike size={20}/> },
+                                            { id: 'Recoger', icon: <Phone size={20}/> }
+                                        ].map(tipo => (
+                                            <button key={tipo.id} onClick={() => {
+                                                setTipoConsumo(tipo.id);
+                                                if (tipo.id !== 'Domicilio') {
+                                                    setZonaEnvioCosto(0);
+                                                }
+                                            }} className={`p-4 rounded-2xl border-2 font-black flex flex-col items-center justify-center gap-2 transition-all ${tipoConsumo === tipo.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg scale-105' : 'bg-slate-50 text-slate-500 border-slate-100 hover:border-blue-300 hover:shadow-sm'}`}>
+                                                {tipo.icon} <span className="text-[10px] md:text-xs uppercase tracking-widest">{tipo.id}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder="Nombre o Teléfono del Cliente *"
+                                            value={nombreOrden}
+                                            onChange={e => {
+                                                setNombreOrden(e.target.value);
+                                                setMostrarSugerencias(true);
+                                                if (clienteAsignado) setClienteAsignado(null);
+                                            }}
+                                            onFocus={() => { if(sugerencias.length > 0) setMostrarSugerencias(true); }}
+                                            onBlur={() => setTimeout(() => setMostrarSugerencias(false), 250)}
+                                            className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`}
+                                        />
+                                        {buscandoSugerencias && (
+                                            <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                               <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                            </div>
+                                        )}
+                                        {mostrarSugerencias && sugerencias.length > 0 && (
+                                            <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                                                <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados de Búsqueda</p>
+                                                </div>
+                                                {sugerencias.map((sug, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onMouseDown={(e) => { e.preventDefault(); seleccionarSugerencia(sug); }}
+                                                        className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
+                                                    >
+                                                        <div className="flex justify-between items-center w-full">
+                                                            <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
+                                                            {sug.tipo === 'registrado' ? (
+                                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md shadow-sm">
+                                                                   <Star size={12} className="fill-indigo-700"/> Registrado
+                                                                </span>
+                                                            ) : (
+                                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md shadow-sm">
+                                                                   <Clock size={12}/> Histórico
+                                                                </span>
                                                             )}
-                                                            <p className="font-black text-blue-600 text-lg mt-2">
-                                                                ${(item.precioFinal * (item.cantidad || 1)).toFixed(2)}
-                                                            </p>
                                                         </div>
-                                                        <div className="flex items-center gap-2 bg-slate-50 p-2 md:p-3 rounded-2xl border border-slate-100 shrink-0 w-fit">
-                                                            <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, -1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-red-500 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Minus size={20}/></button>
-                                                            <span className="w-10 text-center font-black text-2xl text-slate-800">{item.cantidad || 1}</span>
-                                                            <button disabled={isSubmitting} onClick={() => cambiarCantidadCart(item.idTicket, 1)} className="w-10 h-10 bg-white rounded-xl shadow-sm text-slate-500 hover:text-blue-600 font-black text-xl flex items-center justify-center transition active:scale-95 disabled:opacity-50"><Plus size={20}/></button>
-                                                            <div className="w-px h-8 bg-slate-200 mx-1"></div>
-                                                            <button disabled={isSubmitting} onClick={() => iniciarEdicion(item)} className="w-10 h-10 bg-blue-50 rounded-xl text-blue-600 hover:bg-blue-600 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Editar Platillo">
-                                                                <Edit size={20}/>
-                                                            </button>
-                                                            <button disabled={isSubmitting} onClick={() => quitarDelCarrito(item.idTicket)} className="w-10 h-10 bg-red-50 rounded-xl text-red-500 hover:bg-red-500 hover:text-white flex items-center justify-center transition active:scale-95 disabled:opacity-50" title="Quitar Platillo">
-                                                                <Trash2 size={20}/>
-                                                            </button>
+                                                        <div className="flex flex-wrap items-center gap-4 mt-1">
+                                                            {sug.cliente_telefono && (
+                                                                <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                                                                    <Phone size={14} className="text-emerald-500"/> {sug.cliente_telefono}
+                                                                </span>
+                                                            )}
+                                                            {sug.direccion_entrega && (
+                                                                <span className="text-xs font-bold text-slate-500 flex items-center gap-1 line-clamp-1">
+                                                                    <MapPin size={14} className="text-pink-500"/> {sug.direccion_entrega}
+                                                                </span>
+                                                            )}
                                                         </div>
-                                                    </div>
+                                                    </button>
                                                 ))}
                                             </div>
                                         )}
                                     </div>
-                                )}
-                                {pasoFlujoCaja === 3 && (
-                                    <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6 animate-in slide-in-from-right-4 duration-300">
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-4">1. Tipo de Servicio</label>
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                                {[
-                                                    { id: 'Local', icon: <Store size={20}/> },
-                                                    { id: 'Para llevar', icon: <ShoppingBag size={20}/> },
-                                                    { id: 'Domicilio', icon: <Bike size={20}/> },
-                                                    { id: 'Recoger', icon: <Phone size={20}/> }
-                                                ].map(tipo => (
-                                                    <button key={tipo.id} onClick={() => {
-                                                        setTipoConsumo(tipo.id);
-                                                        if (tipo.id !== 'Domicilio') {
-                                                            setZonaEnvioCosto(0);
-                                                        }
-                                                    }} className={`p-4 rounded-2xl border-2 font-black flex flex-col items-center justify-center gap-2 transition-all ${tipoConsumo === tipo.id ? 'bg-blue-600 text-white border-blue-600 shadow-lg scale-105' : 'bg-slate-50 text-slate-500 border-slate-100 hover:border-blue-300 hover:shadow-sm'}`}>
-                                                        {tipo.icon} <span className="text-[10px] md:text-xs uppercase tracking-widest">{tipo.id}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
-                                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
-                                            <div className="relative">
-                                                <input
-                                                    type="text"
-                                                    placeholder="Nombre o Teléfono del Cliente *"
-                                                    value={nombreOrden}
-                                                    onChange={e => {
-                                                        setNombreOrden(e.target.value);
-                                                        setMostrarSugerencias(true);
-                                                        if (clienteAsignado) setClienteAsignado(null);
-                                                    }}
-                                                    onFocus={() => { if(sugerencias.length > 0) setMostrarSugerencias(true); }}
-                                                    onBlur={() => setTimeout(() => setMostrarSugerencias(false), 250)}
-                                                    className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`}
-                                                />
-                                                {buscandoSugerencias && (
-                                                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                                       <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                                    </div>
-                                                )}
-                                                {mostrarSugerencias && sugerencias.length > 0 && (
-                                                    <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                                        <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
-                                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados de Búsqueda</p>
-                                                        </div>
-                                                        {sugerencias.map((sug, idx) => (
-                                                            <button
-                                                                key={idx}
-                                                                type="button"
-                                                                onMouseDown={(e) => { e.preventDefault(); seleccionarSugerencia(sug); }}
-                                                                className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
-                                                            >
-                                                                <div className="flex justify-between items-center w-full">
-                                                                    <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
-                                                                    {sug.tipo === 'registrado' ? (
-                                                                        <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md shadow-sm">
-                                                                           <Star size={12} className="fill-indigo-700"/> Registrado
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md shadow-sm">
-                                                                           <Clock size={12}/> Histórico
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="flex flex-wrap items-center gap-4 mt-1">
-                                                                    {sug.cliente_telefono && (
-                                                                        <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
-                                                                            <Phone size={14} className="text-emerald-500"/> {sug.cliente_telefono}
-                                                                        </span>
-                                                                    )}
-                                                                    {sug.direccion_entrega && (
-                                                                        <span className="text-xs font-bold text-slate-500 flex items-center gap-1 line-clamp-1">
-                                                                            <MapPin size={14} className="text-pink-500"/> {sug.direccion_entrega}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                            {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
-                                            {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} />}
-                                            {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} />}
-                                            {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} />}
-                                        </div>
-                                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
-                                            <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
-                                            {puntosCanjeActivo && (bloqueoPuntosActivo || canjeParcialActivo) && clienteAsignado && carrito.length > 0 && (
-                                                <div className={`border p-3 rounded-2xl mb-2 flex gap-3 text-left animate-in slide-in-from-top-2 ${bloqueoPuntosActivo ? 'bg-red-50 border-red-200 text-red-600' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
-                                                    <AlertTriangle size={20} className="shrink-0 mt-0.5" />
-                                                    <div>
-                                                        <p className="font-black text-xs uppercase tracking-widest">{bloqueoPuntosActivo ? 'Canje Restringido' : 'Canje Parcial (Solo aplica en algunos)'}</p>
-                                                        <p className="text-[10px] font-bold mt-0.5 opacity-90">
-                                                            {bloqueoPuntosActivo
-                                                                ? 'El carrito contiene solo productos que NO participan en el programa de lealtad.'
-                                                                : `Los puntos solo aplicarán sobre $${subtotalCanjeable.toFixed(2)} del total de tu orden.`}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {puntosCanjeActivo && clienteAsignado && (
-                                                <div className={`border p-4 rounded-2xl flex justify-between items-center shadow-sm animate-in fade-in zoom-in-95 ${bloqueoPuntosActivo ? 'bg-slate-50 border-slate-200' : 'bg-indigo-50 border-indigo-200'}`}>
-                                                    <div>
-                                                        <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${bloqueoPuntosActivo ? 'text-slate-400' : 'text-indigo-500'}`}>Puntos Disponibles</p>
-                                                        <p className={`text-xl font-black ${bloqueoPuntosActivo ? 'text-slate-500' : 'text-indigo-800'}`}>{clienteAsignado.puntos || 0} pts</p>
-                                                    </div>
-                                                    {clienteAsignado.puntos > 0 && descuentoPuntosDinero === 0 && (
-                                                        <button
-                                                            disabled={bloqueoPuntosActivo}
-                                                            onClick={() => setModalNip(true)}
-                                                            className={`px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md transition active:scale-95 flex items-center gap-1.5 ${bloqueoPuntosActivo ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                                                        >
-                                                            {bloqueoPuntosActivo ? <><Lock size={14}/> Bloqueado</> : 'Canjear'}
-                                                        </button>
-                                                    )}
-                                                    {descuentoPuntosDinero > 0 && (
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-lg">Usando {Math.ceil(descuentoPuntosDinero / (Number(configGlobal?.puntos_valor_peso) || 1))} pts</span>
-                                                            <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl text-sm font-black uppercase shadow-sm hover:bg-red-200 transition active:scale-95">Quitar</button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                            <div className="flex gap-3 items-center">
-                                                <div className="relative flex-1">
-                                                    <Tag size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                                                    <input type="text" placeholder="Ingresar Cupón" value={cuponInput} onChange={(e) => { setCuponInput(e.target.value.toUpperCase()); setMsgCupon({texto:'', tipo:''}); }} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 font-bold outline-none uppercase focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400" disabled={cuponActivo !== null || isSubmitting} />
-                                                </div>
-                                                {!cuponActivo ? (
-                                                    <button disabled={!cuponInput.trim() || isSubmitting} onClick={aplicarCupon} className="bg-slate-800 text-white px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-700 transition shadow-md disabled:opacity-50">Aplicar</button>
-                                                ) : (
-                                                    <button onClick={() => { setCuponActivo(null); setCuponInput(''); setMsgCupon({texto:'', tipo:''}); setDescuentoCuponDinero(0); }} className="bg-red-100 text-red-600 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-200 transition shadow-sm">Quitar</button>
-                                                )}
-                                            </div>
-                                            {msgCupon.texto && <p className={`text-xs font-bold px-2 ${msgCupon.tipo === 'error' ? 'text-red-500' : msgCupon.tipo === 'success' ? 'text-emerald-600' : 'text-slate-500'}`}>{msgCupon.texto}</p>}
-                                        </div>
-                                        <div className="pb-10"></div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-                                {pasoFlujoCaja > 1 && (
-                                    <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
-                                        <div className="flex gap-6">
+                                    {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
+                                    {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} />}
+                                    {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} />}
+                                    {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} />}
+                                </div>
+                                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+                                    <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">3. Descuentos</label>
+                                    {puntosCanjeActivo && (bloqueoPuntosActivo || canjeParcialActivo) && clienteAsignado && carrito.length > 0 && (
+                                        <div className={`border p-3 rounded-2xl mb-2 flex gap-3 text-left animate-in slide-in-from-top-2 ${bloqueoPuntosActivo ? 'bg-red-50 border-red-200 text-red-600' : 'bg-orange-50 border-orange-200 text-orange-600'}`}>
+                                            <AlertTriangle size={20} className="shrink-0 mt-0.5" />
                                             <div>
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Subtotal</p>
-                                                <p className="text-lg font-black text-slate-600">${subtotal.toFixed(2)}</p>
+                                                <p className="font-black text-xs uppercase tracking-widest">{bloqueoPuntosActivo ? 'Canje Restringido' : 'Canje Parcial (Solo aplica en algunos)'}</p>
+                                                <p className="text-[10px] font-bold mt-0.5 opacity-90">
+                                                    {bloqueoPuntosActivo
+                                                        ? 'El carrito contiene solo productos que NO participan en el programa de lealtad.'
+                                                        : `Los puntos solo aplicarán sobre $${subtotalCanjeable.toFixed(2)} del total de tu orden.`}
+                                                </p>
                                             </div>
-                                            {descuentoCuponDinero > 0 && (
-                                                <div>
-                                                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Cupón</p>
-                                                    <p className="text-lg font-black text-emerald-600">-${descuentoCuponDinero.toFixed(2)}</p>
-                                                </div>
+                                        </div>
+                                    )}
+                                    {puntosCanjeActivo && clienteAsignado && (
+                                        <div className={`border p-4 rounded-2xl flex justify-between items-center shadow-sm animate-in fade-in zoom-in-95 ${bloqueoPuntosActivo ? 'bg-slate-50 border-slate-200' : 'bg-indigo-50 border-indigo-200'}`}>
+                                            <div>
+                                                <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${bloqueoPuntosActivo ? 'text-slate-400' : 'text-indigo-500'}`}>Puntos Disponibles</p>
+                                                <p className={`text-xl font-black ${bloqueoPuntosActivo ? 'text-slate-500' : 'text-indigo-800'}`}>{clienteAsignado.puntos || 0} pts</p>
+                                            </div>
+                                            {clienteAsignado.puntos > 0 && descuentoPuntosDinero === 0 && (
+                                                <button
+                                                    disabled={bloqueoPuntosActivo}
+                                                    onClick={() => setModalNip(true)}
+                                                    className={`px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md transition active:scale-95 flex items-center gap-1.5 ${bloqueoPuntosActivo ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                                >
+                                                    {bloqueoPuntosActivo ? <><Lock size={14}/> Bloqueado</> : 'Canjear'}
+                                                </button>
                                             )}
                                             {descuentoPuntosDinero > 0 && (
-                                                <div>
-                                                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Puntos</p>
-                                                    <p className="text-lg font-black text-indigo-600">-${descuentoPuntosDinero.toFixed(2)}</p>
-                                                </div>
-                                            )}
-                                            {zonaEnvioCosto !== '' && Number(zonaEnvioCosto) > 0 && (
-                                                <div>
-                                                    <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1">Envío</p>
-                                                    <p className="text-lg font-black text-purple-600">+${Number(zonaEnvioCosto).toFixed(2)}</p>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded-lg">Usando {Math.ceil(descuentoPuntosDinero / (Number(configGlobal?.puntos_valor_peso) || 1))} pts</span>
+                                                    <button onClick={() => {setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);}} className="bg-red-100 text-red-600 px-5 py-3 rounded-xl text-sm font-black uppercase shadow-sm hover:bg-red-200 transition active:scale-95">Quitar</button>
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="text-right ml-auto">
-                                            <p className="text-[10px] md:text-xs font-black text-slate-800 uppercase tracking-widest mb-1">{yaPagado ? 'Nuevo Total' : 'Total Final'}</p>
-                                            <p className="text-3xl md:text-5xl font-black text-slate-900 leading-none">${totalConEnvio.toFixed(2)}</p>
+                                    )}
+                                    <div className="flex gap-3 items-center">
+                                        <div className="relative flex-1">
+                                            <Tag size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input type="text" placeholder="Ingresar Cupón" value={cuponInput} onChange={(e) => { setCuponInput(e.target.value.toUpperCase()); setMsgCupon({texto:'', tipo:''}); }} className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl py-4 pl-12 pr-4 font-bold outline-none uppercase focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400" disabled={cuponActivo !== null || isSubmitting} />
                                         </div>
+                                        {!cuponActivo ? (
+                                            <button disabled={!cuponInput.trim() || isSubmitting} onClick={aplicarCupon} className="bg-slate-800 text-white px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-slate-700 transition shadow-md disabled:opacity-50">Aplicar</button>
+                                        ) : (
+                                            <button onClick={() => { setCuponActivo(null); setCuponInput(''); setMsgCupon({texto:'', tipo:''}); setDescuentoCuponDinero(0); }} className="bg-red-100 text-red-600 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-200 transition shadow-sm">Quitar</button>
+                                        )}
                                     </div>
+                                    {msgCupon.texto && <p className={`text-xs font-bold px-2 ${msgCupon.tipo === 'error' ? 'text-red-500' : msgCupon.tipo === 'success' ? 'text-emerald-600' : 'text-slate-500'}`}>{msgCupon.texto}</p>}
+                                </div>
+                                <div className="pb-10"></div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* BARRA INFERIOR DE TOTALES Y BOTONES DE NAVEGACIÓN */}
+                    {modoVenta === 'menu' && (
+                        <div className="bg-white border-t border-slate-200 p-4 md:p-6 shrink-0 z-20 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+                            {pasoFlujoCaja > 1 && (
+                                <div className="max-w-4xl mx-auto mb-4 md:mb-6 px-2 flex flex-wrap gap-x-8 gap-y-2 justify-between items-end">
+                                    <div className="flex gap-6">
+                                        <div>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Subtotal</p>
+                                            <p className="text-lg font-black text-slate-600">${subtotal.toFixed(2)}</p>
+                                        </div>
+                                        {descuentoCuponDinero > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1">Cupón</p>
+                                                <p className="text-lg font-black text-emerald-600">-${descuentoCuponDinero.toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                        {descuentoPuntosDinero > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-1">Puntos</p>
+                                                <p className="text-lg font-black text-indigo-600">-${descuentoPuntosDinero.toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                        {zonaEnvioCosto !== '' && Number(zonaEnvioCosto) > 0 && (
+                                            <div>
+                                                <p className="text-[10px] font-black text-purple-500 uppercase tracking-widest mb-1">Envío</p>
+                                                <p className="text-lg font-black text-purple-600">+${Number(zonaEnvioCosto).toFixed(2)}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-right ml-auto">
+                                        <p className="text-[10px] md:text-xs font-black text-slate-800 uppercase tracking-widest mb-1">{yaPagado ? 'Nuevo Total' : 'Total Final'}</p>
+                                        <p className="text-3xl md:text-5xl font-black text-slate-900 leading-none">${totalConEnvio.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <div className="max-w-4xl mx-auto flex gap-3 md:gap-4">
+                                {pasoFlujoCaja === 1 && (
+                                    <button
+                                        disabled={carrito.length === 0}
+                                        onClick={() => setPasoFlujoCaja(2)}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                                    >
+                                        <ShoppingBag size={24}/> Ver Orden ({carrito.length}) <ArrowRight size={24}/>
+                                    </button>
                                 )}
-                                <div className="max-w-4xl mx-auto flex gap-3 md:gap-4">
-                                    {pasoFlujoCaja === 1 && (
-                                        <button
-                                            disabled={carrito.length === 0}
-                                            onClick={() => setPasoFlujoCaja(2)}
-                                            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-                                        >
-                                            <ShoppingBag size={24}/> Ver Orden ({carrito.length}) <ArrowRight size={24}/>
+                                {pasoFlujoCaja === 2 && (
+                                    <>
+                                        <button onClick={() => setPasoFlujoCaja(1)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
+                                            <ArrowLeft size={20}/> Menú
                                         </button>
-                                    )}
-                                    {pasoFlujoCaja === 2 && (
-                                        <>
-                                            <button onClick={() => setPasoFlujoCaja(1)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
-                                                <ArrowLeft size={20}/> Menú
+                                        <button onClick={() => setPasoFlujoCaja(3)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-3">
+                                            Siguiente Paso <ArrowRight size={24}/>
+                                        </button>
+                                    </>
+                                )}
+                                {pasoFlujoCaja === 3 && (
+                                    <>
+                                        <button onClick={() => setPasoFlujoCaja(2)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
+                                            <ArrowLeft size={20}/> Atrás
+                                        </button>
+                                        {yaPagado ? (
+                                            <button
+                                                disabled={isFormIncompleto || isSubmitting}
+                                                onClick={() => generarPedidoBD('Mandar a Cocina')}
+                                                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-orange-500/30 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                            >
+                                                <Save size={24}/> Guardar Modificación
                                             </button>
-                                            <button onClick={() => setPasoFlujoCaja(3)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-3">
-                                                Siguiente Paso <ArrowRight size={24}/>
-                                            </button>
-                                        </>
-                                    )}
-                                    {pasoFlujoCaja === 3 && (
-                                        <>
-                                            <button onClick={() => setPasoFlujoCaja(2)} className="px-6 md:px-8 py-4 md:py-5 bg-slate-100 text-slate-600 rounded-2xl font-black text-lg hover:bg-slate-200 transition-all active:scale-95 flex items-center gap-2">
-                                                <ArrowLeft size={20}/> Atrás
-                                            </button>
-                                            {yaPagado ? (
+                                        ) : (tipoConsumo === 'Domicilio' || tipoConsumo === 'Recoger') ? (
+                                            <>
                                                 <button
                                                     disabled={isFormIncompleto || isSubmitting}
-                                                    onClick={() => generarPedidoBD('Mandar a Cocina')}
-                                                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-4 md:py-5 rounded-2xl font-black text-lg md:text-xl shadow-xl shadow-orange-500/30 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                                                    onClick={() => generarPedidoBD('Cobrar Ahora')}
+                                                    className="flex-1 bg-amber-100 text-amber-600 hover:bg-amber-200 border-2 border-amber-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
                                                 >
-                                                    <Save size={24}/> Guardar Modificación
+                                                    Cobrar Ahora
                                                 </button>
-                                            ) : (tipoConsumo === 'Domicilio' || tipoConsumo === 'Recoger') ? (
-                                                <>
-                                                    <button
-                                                        disabled={isFormIncompleto || isSubmitting}
-                                                        onClick={() => generarPedidoBD('Cobrar Ahora')}
-                                                        className="flex-1 bg-amber-100 text-amber-600 hover:bg-amber-200 border-2 border-amber-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
-                                                    >
-                                                        Cobrar Ahora
-                                                    </button>
-                                                    <button
-                                                        disabled={isFormIncompleto || isSubmitting}
-                                                        onClick={() => {
-                                                            if (tipoConsumo === 'Domicilio') setModalCuentaAbierta(true);
-                                                            else generarPedidoBD('Mandar a Cocina');
-                                                        }}
-                                                        className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
-                                                    >
-                                                        Cuenta Abierta
-                                                    </button>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <button
-                                                        disabled={isFormIncompleto || isSubmitting}
-                                                        onClick={() => {
-                                                            generarPedidoBD('Mandar a Cocina');
-                                                        }}
-                                                        className="flex-1 bg-orange-100 text-orange-600 hover:bg-orange-200 border-2 border-orange-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
-                                                    >
-                                                        Cuenta Abierta
-                                                    </button>
-                                                    <button
-                                                        disabled={isFormIncompleto || isSubmitting}
-                                                        onClick={() => generarPedidoBD('Cobrar Ahora')}
-                                                        className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
-                                                    >
-                                                        Cobrar Ahora
-                                                    </button>
-                                                </>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => {
+                                                        if (tipoConsumo === 'Domicilio') setModalCuentaAbierta(true);
+                                                        else generarPedidoBD('Mandar a Cocina');
+                                                    }}
+                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cuenta Abierta
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => {
+                                                        generarPedidoBD('Mandar a Cocina');
+                                                    }}
+                                                    className="flex-1 bg-orange-100 text-orange-600 hover:bg-orange-200 border-2 border-orange-200 py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cuenta Abierta
+                                                </button>
+                                                <button
+                                                    disabled={isFormIncompleto || isSubmitting}
+                                                    onClick={() => generarPedidoBD('Cobrar Ahora')}
+                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-4 md:py-5 rounded-2xl font-black text-sm md:text-lg uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-all active:scale-95 disabled:opacity-50"
+                                                >
+                                                    Cobrar Ahora
+                                                </button>
+                                            </>
+                                        )}
+                                    </>
+                                )}
                             </div>
-                        </>
+                        </div>
                     )}
+                    
+                    {/* MODALES SECUNDARIOS */}
                     <AsistentePersonalizacion
                         productoEnEspera={currentItem}
                         itemEditando={itemEditandoId ? carrito.find(i => i.idTicket === itemEditandoId) : null}
@@ -1112,11 +1198,9 @@ const PuntoDeVentaPrincipal = ({
                                 <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ${confirmacionFinanciera.tipo === 'cobro' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
                                     <AlertTriangle size={40} />
                                 </div>
-
                                 <h3 className="text-2xl font-black text-slate-800 mb-2">
                                     {confirmacionFinanciera.tipo === 'cobro' ? 'Ajuste de Cuenta' : 'Ajuste a Favor'}
                                 </h3>
-
                                 <p className="text-slate-500 font-medium mb-8 leading-relaxed">
                                     {confirmacionFinanciera.isPagado
                                         ? (confirmacionFinanciera.tipo === 'cobro'
@@ -1128,7 +1212,6 @@ const PuntoDeVentaPrincipal = ({
                                     }
                                     <strong className="text-slate-800 text-xl block mt-2">${confirmacionFinanciera.monto.toFixed(2)} MXN</strong>
                                 </p>
-
                                 <div className="flex flex-col gap-3">
                                     <button
                                         type="button"
@@ -1156,4 +1239,5 @@ const PuntoDeVentaPrincipal = ({
         </>
     );
 };
+
 export default PuntoDeVentaPrincipal;

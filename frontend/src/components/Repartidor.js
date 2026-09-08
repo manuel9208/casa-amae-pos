@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User } from 'lucide-react';
+import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User, Smartphone, PieChart } from 'lucide-react';
 import io from 'socket.io-client';
 
 const Repartidor = ({ user, configGlobal, onLogout }) => {
@@ -11,6 +11,12 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [alertaUI, setAlertaUI] = useState(null);
     const [detallePedido, setDetallePedido] = useState(null);
+
+    // 👇 ESTADOS PARA EL NUEVO MODAL DE COBRO FLEXIBLE
+    const [modalCobro, setModalCobro] = useState(null);
+    const [tipoCobro, setTipoCobro] = useState('efectivo'); // 'efectivo' | 'transferencia' | 'mixto'
+    const [montoEfectivo, setMontoEfectivo] = useState('');
+    const [montoTransferencia, setMontoTransferencia] = useState('');
 
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
@@ -40,7 +46,6 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         }
     }, [apiUrl, user.id]);
 
-    // 📡 INTEGRACIÓN DE SOCKETS PARA SINCRONIZACIÓN EN VIVO
     useEffect(() => {
         const baseUrl = apiUrl.replace('/api', '');
         const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
@@ -81,7 +86,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         }
     };
 
-    const finalizarEntrega = async (pedidoId) => {
+    const finalizarEntregaDirecta = async (pedidoId) => {
         setIsSubmitting(true);
         try {
             const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
@@ -93,7 +98,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
             if (res.ok) {
                 await cargarDatosLogistica();
                 if (misViajes.length <= 1) setTabActiva('disponibles');
-                mostrarAlerta("¡Entrega finalizada con éxito! El cliente ha sido notificado.", "success");
+                mostrarAlerta("¡Entrega finalizada con éxito!", "success");
             } else {
                 mostrarAlerta("Hubo un problema al procesar la entrega.", "error");
             }
@@ -104,22 +109,90 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         }
     };
 
-    // 👇 FIX APLICADO: Extracción de Instrucción de Cobro con la nueva Regex
+    // 👇 NUEVO: Controlador que decide si pide el modal de cobro o finaliza directo
+    const handleAbrirCobro = (viaje) => {
+        const esDeuda = ['Pendiente', 'Por Cobrar', 'Transferencia', 'Efectivo'].includes(viaje.metodo_pago);
+        if (esDeuda) {
+            setModalCobro(viaje);
+            // Autoseleccionamos según la etiqueta inyectada
+            const esTransf = String(viaje.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || viaje.metodo_pago === 'Transferencia';
+            setTipoCobro(esTransf ? 'transferencia' : 'efectivo');
+            setMontoEfectivo('');
+            setMontoTransferencia('');
+        } else {
+            finalizarEntregaDirecta(viaje.id);
+        }
+    };
+
+    // 👇 FIX MÁSTER: Procesamiento de Pago Flexible en Ruta con formato estandarizado
+    const confirmarCobroFlexible = async () => {
+        setIsSubmitting(true);
+        try {
+        let payloadEstado = { estado_preparacion: 'Entregado' };
+
+        if (tipoCobro === 'mixto') {
+            payloadEstado.metodo_pago = 'Mixto';
+            
+            // 👇 SOLUCIÓN APLICADA: Convertimos el objeto en el Array que espera la Caja y el Corte
+            const arrMixto = [];
+            if (Number(montoEfectivo) > 0) {
+                arrMixto.push({ metodo: 'Efectivo', monto: Number(montoEfectivo) });
+            }
+            if (Number(montoTransferencia) > 0) {
+                arrMixto.push({ metodo: 'Transferencia', monto: Number(montoTransferencia) });
+            }
+            payloadEstado.pagos_mixtos = arrMixto;
+            
+        } else if (tipoCobro === 'transferencia') {
+            payloadEstado.metodo_pago = 'Transferencia';
+        } else {
+            payloadEstado.metodo_pago = 'Efectivo';
+        }
+
+        // 1. Actualizamos el método de pago real con el que se topó el repartidor
+        await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadEstado)
+        });
+
+        // 2. Ejecutamos la entrega oficial en logística
+        await fetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
+        });
+
+        await cargarDatosLogistica();
+        if (misViajes.length <= 1) setTabActiva('disponibles');
+        setModalCobro(null);
+        mostrarAlerta("¡Cobro y entrega registrados con éxito!", "success");
+        } catch (error) {
+        mostrarAlerta("Error de conexión al cerrar la entrega.", "error");
+        } finally {
+        setIsSubmitting(false);
+        }
+    };
+
     const getInstruccionCobro = (dir) => {
         if (!dir) return null;
         const matchCobro = dir.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
         return matchCobro ? matchCobro[1].trim() : null;
     };
 
-    // 👇 FIX APLICADO: Limpieza de Dirección Profunda para Repartidor
+    // 👇 FIX APLICADO: Filtro Avanzado de Limpieza de Dirección (Salva a Google Maps)
     const getDireccionLimpia = (dir) => {
         if (!dir) return 'Dirección no especificada';
         let dirPura = dir
-            .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro
-            .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-            .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono
+            .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina instrucciones de cambio
+            .replace(/A NOMBRE DE:\s*([^|]+)/gi, '') // Elimina nombres inyectados
+            .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina teléfonos
+            .replace(/(?:📱\s*)?PAGO:\s*[a-zA-Z]+/gi, '') // 👈 FIX: Destruye el tag "📱 PAGO: TRANSFERENCIA"
             .split('|').map(p => p.trim()).filter(p => p.length > 0).join(', ')
             .trim();
+        
+        // Quitar comas residuales al principio o final
+        dirPura = dirPura.replace(/^,+|,+$/g, '').trim();
         return dirPura || 'Dirección no especificada';
     };
 
@@ -132,7 +205,6 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         return nombre;
     };
 
-    // 👇 FIX APLICADO: Extracción Robusta del Teléfono
     const getTelefonoExtraido = (pedido) => {
         let tel = pedido.cliente_telefono || pedido.telefono || '';
         if (!tel && pedido.direccion_entrega) {
@@ -142,28 +214,21 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
         return tel;
     };
 
-    // FIX GOOGLE MAPS: Orden y Concatenación perfecta
     const abrirMapaOriginal = (direccionBruta, ciudadContextoViaje) => {
         const dirLimpia = getDireccionLimpia(direccionBruta);
         if (!dirLimpia || dirLimpia === 'Dirección no especificada') return;
         
         let contextoLocal = ciudadContextoViaje;
-        
-        // 1. Extraemos Municipio y Estado de tu Configuración
         if (!contextoLocal && configGlobal) {
             const mun = configGlobal.municipio || configGlobal.ciudad || '';
             const est = configGlobal.estado || '';
-            
             if (mun && est) contextoLocal = `${mun}, ${est}`;
             else if (mun) contextoLocal = mun;
         }
-        
-        // 2. Red de Seguridad
         if (!contextoLocal || contextoLocal.trim() === '') {
             contextoLocal = 'Navolato, Sinaloa'; 
         }
 
-        // 3. El formato DEBE ser: "Calle y número, Ciudad, Estado" para que Google entienda.
         const busquedaGoogle = `${dirLimpia}, ${contextoLocal}`.trim();
         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(busquedaGoogle)}`;
         window.open(url, '_blank');
@@ -279,7 +344,9 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                 ) : tabActiva === 'mi_ruta' ? (
                     <>
                         {misViajes.map(viaje => {
-                            const esDeuda = ['Pendiente', 'Por Cobrar'].includes(viaje.metodo_pago);
+                            const esDeuda = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia'].includes(viaje.metodo_pago);
+                            const tagTransferencia = String(viaje.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA');
+                            
                             return (
                                 <div key={viaje.id} className="bg-slate-900 border-2 border-emerald-600 rounded-[36px] p-6 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200 mb-6">
                                     <div className="flex justify-between items-start md:items-center border-b border-slate-800 pb-4">
@@ -300,6 +367,11 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                             <p className={`text-2xl font-black ${esDeuda ? 'text-white' : 'text-emerald-400'}`}>
                                                 {esDeuda ? `$${viaje.total}` : '✅ PAGADO'}
                                             </p>
+                                            {esDeuda && (
+                                                <p className={`text-[9px] font-bold mt-1 uppercase tracking-widest ${tagTransferencia ? 'text-blue-400' : 'text-orange-400'}`}>
+                                                    Sugerido: {tagTransferencia ? 'Transferencia' : 'Efectivo'}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
 
@@ -345,7 +417,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
 
                                     <button
                                         disabled={isSubmitting}
-                                        onClick={() => finalizarEntrega(viaje.id)}
+                                        onClick={() => handleAbrirCobro(viaje)}
                                         className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/30 font-black text-sm transition active:scale-95 flex items-center justify-center gap-2 uppercase tracking-wider"
                                     >
                                         <CheckCircle2 size={20}/> Finalizar Entrega y Cobro
@@ -391,7 +463,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                         {getDireccionLimpia(viaje.direccion_entrega)}
                                     </p>
                                     <p className="text-xs font-black text-slate-500 uppercase tracking-widest border-t border-slate-800 pt-2 mt-1">
-                                        Monto cobrado: <span className="text-emerald-500">${viaje.total}</span>
+                                        Método: {viaje.metodo_pago} | Total: <span className="text-emerald-500">${viaje.total}</span>
                                     </p>
                                 </div>
                             ))}
@@ -406,11 +478,78 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                 )}
             </div>
 
+            {/* 👇 NUEVO MODAL: FLUJO DE COBRO EN PUERTA */}
+            {modalCobro && (
+                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-slate-900 rounded-[40px] p-6 max-w-sm w-full shadow-2xl border border-slate-800 flex flex-col animate-in zoom-in-95">
+                        
+                        <div className="text-center mb-6">
+                            <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+                                <Banknote size={32} />
+                            </div>
+                            <h3 className="text-2xl font-black text-white leading-tight">Confirmar Pago</h3>
+                            <p className="text-slate-400 text-sm mt-1">Orden #{modalCobro.numero_pedido} — Total a recibir:</p>
+                            <p className="text-4xl font-black text-emerald-400 mt-2">${modalCobro.total}</p>
+                        </div>
+
+                        <div className="flex gap-2 bg-slate-950 p-1 rounded-xl mb-6 border border-slate-800">
+                            <button onClick={() => setTipoCobro('efectivo')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${tipoCobro === 'efectivo' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-white'}`}>
+                                <Banknote size={14}/> Efectivo
+                            </button>
+                            <button onClick={() => setTipoCobro('transferencia')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${tipoCobro === 'transferencia' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white'}`}>
+                                <Smartphone size={14}/> Transfer.
+                            </button>
+                            <button onClick={() => setTipoCobro('mixto')} className={`flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${tipoCobro === 'mixto' ? 'bg-orange-500 text-white' : 'text-slate-500 hover:text-white'}`}>
+                                <PieChart size={14}/> Mixto
+                            </button>
+                        </div>
+
+                        {tipoCobro === 'mixto' && (
+                            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3 mb-6">
+                                <div>
+                                    <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 block">Monto en Efectivo</label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                        <input type="number" min="0" value={montoEfectivo} onChange={(e) => setMontoEfectivo(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-8 pr-4 text-white font-bold outline-none focus:border-emerald-500 transition-colors" placeholder="0.00" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1 block">Monto en Transferencia</label>
+                                    <div className="relative">
+                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                        <input type="number" min="0" value={montoTransferencia} onChange={(e) => setMontoTransferencia(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-8 pr-4 text-white font-bold outline-none focus:border-blue-500 transition-colors" placeholder="0.00" />
+                                    </div>
+                                </div>
+                                
+                                <div className={`text-center pt-2 text-xs font-bold ${
+                                    (Number(montoEfectivo || 0) + Number(montoTransferencia || 0)).toFixed(2) === Number(modalCobro.total).toFixed(2) ? 'text-emerald-500' : 'text-red-400'
+                                }`}>
+                                    Suma actual: ${(Number(montoEfectivo || 0) + Number(montoTransferencia || 0)).toFixed(2)}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex gap-3">
+                            <button disabled={isSubmitting} onClick={() => setModalCobro(null)} className="flex-1 py-3.5 bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 font-black rounded-xl transition-all active:scale-95 border border-slate-700 text-sm">
+                                Cancelar
+                            </button>
+                            <button
+                                disabled={isSubmitting || (tipoCobro === 'mixto' && (Number(montoEfectivo || 0) + Number(montoTransferencia || 0)).toFixed(2) !== Number(modalCobro.total).toFixed(2))}
+                                onClick={confirmarCobroFlexible}
+                                className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex justify-center items-center gap-2 text-sm disabled:opacity-50 disabled:shadow-none"
+                            >
+                                <CheckCircle2 size={18} />
+                                Finalizar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* VISOR DE DETALLES DEL PEDIDO (Ojo del Repartidor) */}
             {detallePedido && (
                 <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-900 rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-800 flex flex-col max-h-[85vh] animate-in zoom-in-95">
-                        {/* Cabecera del Modal */}
                         <div className="flex justify-between items-center border-b border-slate-800 pb-4 mb-4 shrink-0">
                             <div className="flex items-center gap-3">
                                 <div className="bg-blue-500/20 text-blue-400 p-2.5 rounded-xl">
@@ -426,7 +565,6 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                             </button>
                         </div>
 
-                        {/* Lista de Platillos */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
                             {(() => {
                                 let items = [];
@@ -447,7 +585,6 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                                 ${(Number(item.precioFinal || item.precio_base || 0) * Number(item.cantidad || 1)).toFixed(2)}
                                             </p>
                                         </div>
-                                        {/* Render de Extras y Notas */}
                                         {item.extras && item.extras.length > 0 && (
                                             <div className="mt-2 pl-3 border-l-2 border-slate-800 space-y-1">
                                                 {item.extras.map((e, i) => {
@@ -471,7 +608,6 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                             })()}
                         </div>
 
-                        {/* 👇 FIX APLICADO: Total Fijo Abajo con Desglose de Envío y Descuentos */}
                         <div className="border-t border-slate-800 pt-4 mt-4 shrink-0 flex flex-col gap-1.5 bg-slate-900 z-10">
                             <div className="flex justify-between items-center text-xs font-bold text-slate-500">
                                 <span>Subtotal Platillos:</span>

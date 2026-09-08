@@ -24,6 +24,9 @@ const CheckoutFlujo = ({
   const [mesasDisponibles, setMesasDisponibles] = useState([]);
   const [mesaSeleccionadaInterna, setMesaSeleccionadaInterna] = useState(null);  
   
+  const [idCreadoLocal, setIdCreadoLocal] = useState(null);
+  const idRealEdicion = idCreadoLocal || pedidoEditandoId;
+  
   const esPersonalInterno = user && user.rol && (user.rol === 'admin' || user.rol === 'cajero' || user.usuario === 'kiosco');  
   const isTerminalFisica = modoKiosco === 'totem' || modoKiosco === 'drive-thru';
   
@@ -84,9 +87,8 @@ const CheckoutFlujo = ({
       setPantallaActual('aviso_domicilio');
     } else if (tipo === 'Recoger') {
       if (!clienteActivo && !agil) setPantallaActual('pedir_nombre');
-      else seleccionarPago('Pendiente', null, tipo);
+      else seleccionarPago('Por Cobrar', null, tipo); 
     } else if (tipo === 'Local') {
-      // 👇 NUEVO: Si es invitado en Tótem Físico, pedimos su nombre para llamarlo.
       if (isTerminalFisica && !clienteActivo) {
         setPantallaActual('pedir_nombre');
       } else if (agil) {
@@ -95,24 +97,20 @@ const CheckoutFlujo = ({
         } else if (mesasDisponibles.length > 0) {
           setPantallaActual('asignar_mesa');
         } else {
-          if (isTerminalFisica) seleccionarPago('Por Cobrar', null, 'Local');
-          else setPantallaActual('pago');
+          seleccionarPago('Por Cobrar', null, 'Local');
         }
       } else {
-        setPantallaActual('pedir_nombre');
+        if (!clienteActivo) setPantallaActual('pedir_nombre');
+        else seleccionarPago('Por Cobrar', null, 'Local'); 
       }
     } else if (tipo === 'Para llevar') {
-      // 👇 NUEVO: Si es invitado en Tótem/Drive-Thru, pedimos nombre para llamarlo en ventanilla/mostrador.
       if (isTerminalFisica && !clienteActivo) {
         setPantallaActual('pedir_nombre');
       } else if (agil) {
-        if (isTerminalFisica) {
-          seleccionarPago('Por Cobrar', null, 'Para llevar');
-        } else {
-          setPantallaActual('pago');
-        }
+        seleccionarPago('Por Cobrar', null, 'Para llevar');
       } else {
-        setPantallaActual('pedir_nombre');
+        if (!clienteActivo) setPantallaActual('pedir_nombre');
+        else seleccionarPago('Por Cobrar', null, 'Para llevar'); 
       }
     } else {
       seleccionarPago('Pendiente', null, tipo);
@@ -131,15 +129,19 @@ const CheckoutFlujo = ({
         }
       }
       else if (agil && mesaQR) seleccionarPago('Por Cobrar', null, 'Local', mesaQR);
-      else seleccionarPago('Pendiente', null, 'Local');
+      else if (!clienteActivo && !pasoTelefono) setPasoTelefono(true);
+      else seleccionarPago('Por Cobrar', null, 'Local');
     } else if (['Para llevar', 'Recoger', 'Domicilio'].includes(tipoConsumo)) {
       if (isTerminalFisica && tipoConsumo === 'Para llevar') {
-        // 👇 NUEVO: En cuanto da su nombre, se salta el pedir teléfono y lanza la orden directo a caja
         seleccionarPago('Por Cobrar', null, 'Para llevar');
       }
-      else if (!clienteActivo) setPasoTelefono(true);
-      else if (tipoConsumo === 'Domicilio') setPantallaActual('pago');
-      else seleccionarPago('Pendiente', null, tipoConsumo);
+      else if (!clienteActivo && !pasoTelefono) {
+        setPasoTelefono(true);
+      }
+      else {
+        if (tipoConsumo === 'Domicilio') setPantallaActual('pago'); 
+        else seleccionarPago('Por Cobrar', null, tipoConsumo); 
+      }
     }
   };  
   
@@ -174,7 +176,7 @@ const CheckoutFlujo = ({
     else if (modoKiosco === 'drive-thru') origenCalculado = 'Drive-Thru';
     else if (modoKiosco === 'mesa' || mesaQR) origenCalculado = 'QR Mesa';
     
-    let notaDireccion = direccionFinalConAviso;
+    let notaDireccion = direccionFinalConAviso || '';
     const tel = clienteActivo ? clienteActivo.telefono : telefonoRecoger;  
     
     if (tipoReal === 'Recoger') notaDireccion = `A NOMBRE DE: ${nombreOrden || 'SIN NOMBRE'} | TEL: ${tel || ''}`;
@@ -182,8 +184,10 @@ const CheckoutFlujo = ({
     else if (tipoReal === 'Local' || tipoReal === 'Para llevar') {
       if (nombreOrden) notaDireccion = `A NOMBRE DE: ${nombreOrden}`;
       if (tipoReal === 'Para llevar' && tel) notaDireccion += ` | TEL: ${tel}`;
-    } else if (tel) notaDireccion = `TEL: ${tel}`;  
-    
+    } else if (tel) {
+      notaDireccion = notaDireccion ? `${notaDireccion} | TEL: ${tel}` : `TEL: ${tel}`;
+    }
+
     const carritoExpandido = [];
     carrito.forEach(item => {
       const qty = item.cantidad || 1;
@@ -193,12 +197,29 @@ const CheckoutFlujo = ({
     });  
     
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
+    
+    if (metodoSeleccionado === 'Transferencia' && !ordenExterna) {
+        estadoInicial = 'Borrador';
+    }
+
     const mesaFinal = mesaQR || mesaBypass || mesaSeleccionadaInterna || (ordenExterna ? ordenExterna.mesa : null);  
     
     let metodoRealBD = metodoSeleccionado;
     if (metodoSeleccionado === 'Efectivo' && (tipoReal === 'Domicilio' || tipoReal === 'Recoger')) {
         metodoRealBD = 'Por Cobrar';
     }
+
+            // 👇 FIX MÁSTER: Prevenir auto-pagos desde Kiosco/Web/QR
+        // Si la orden NO la está levantando la Caja Central, forzamos el método a "Pendiente"
+        if (origenCalculado !== 'Caja') {
+            if (metodoSeleccionado === 'Transferencia') {
+                metodoRealBD = 'Pendiente'; // Obliga a la Caja a validarlo en Cuentas por Cobrar
+                notaDireccion = `[PAGARÁ CON: TRANSFERENCIA] ${notaDireccion}`; // Aviso visual para el Cajero
+            } else if (metodoSeleccionado === 'Efectivo' && tipoReal === 'Local') {
+                metodoRealBD = 'Pendiente';
+                notaDireccion = `[PAGARÁ CON: EFECTIVO] ${notaDireccion}`;
+            }
+        }
 
     const paquete = {
       cliente_id: idClienteAGuardar,
@@ -233,15 +254,19 @@ const CheckoutFlujo = ({
     }  
     
     try {
-      const url = pedidoEditandoId ? `${apiUrl}/pedidos/${pedidoEditandoId}` : `${apiUrl}/pedidos`;
+      const url = idRealEdicion ? `${apiUrl}/pedidos/${idRealEdicion}` : `${apiUrl}/pedidos`;
       const res = await fetch(url, {
-        method: pedidoEditandoId ? 'PUT' : 'POST',
+        method: idRealEdicion ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paquete)
       });  
       
       if (res.ok) {
         const data = await res.json();
+        
+        const extractedId = data.pedido?.id || data.data?.id || data.id;
+        if (extractedId) setIdCreadoLocal(extractedId);
+
         if (cuponActivo && cuponActivo.id) {
           try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }  
@@ -253,6 +278,21 @@ const CheckoutFlujo = ({
             body: JSON.stringify({ direccion: dirLimpia })
           }).catch(() => {});
         }  
+
+        // 👇 FIX: Rescate del pedido "Fantasma".
+        // Si el cliente modificó una orden que ya existía en BD (Por ejemplo, le dio "Atrás" a la transferencia)
+        // forzamos a que el sistema asiente el nuevo estado y el nuevo método de pago usando la ruta dedicada.
+        if (idRealEdicion) {
+            fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    estado_preparacion: estadoInicial,
+                    metodo_pago: metodoRealBD
+                })
+            }).catch(() => {});
+        }
+
         setNumeroPedidoReal(data.numero_pedido);
         return true;
       } else {
@@ -284,9 +324,64 @@ const CheckoutFlujo = ({
       else { setContador(15); setPantallaActual('finalizado'); }
     }
     setIsSubmitting(false);
+    return ok;
   };  
+
+  const seleccionarPagoRegistro = (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
+    const agil = esPersonalInterno || isTerminalFisica;
+    if (!agil && metodo === 'Pendiente') {
+        if (tipoConsumo === 'Domicilio') {
+            setPasoTelefono(false); 
+            setPantallaActual('pago');
+            return Promise.resolve(true); 
+        } else {
+            return seleccionarPago('Por Cobrar', null, tipoBypass || tipoConsumo, mesaBypass, nuevoClienteIdBypass);
+        }
+    } else {
+        return seleccionarPago(metodo, montoEfectivo, tipoBypass, mesaBypass, nuevoClienteIdBypass);
+    }
+  };
   
-  const procesarTransferencia = () => { setContador(15); setPantallaActual('finalizado'); };  
+  const procesarTransferencia = async () => { 
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    if (isOffline) {
+        try {
+            let pedidosOffline = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
+            const idx = pedidosOffline.findIndex(p => p.numero_pedido_offline === numeroPedidoReal);
+            if (idx !== -1) {
+                pedidosOffline[idx].estado_preparacion = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
+                pedidosOffline[idx].metodo_pago = 'Pendiente';
+                localStorage.setItem('pedidos_offline', JSON.stringify(pedidosOffline));
+            }
+            setContador(15);
+            setPantallaActual('finalizado');
+        } catch (e) {
+            setErrorTransaccion('Error local al procesar transferencia.');
+        }
+        setIsSubmitting(false);
+        return;
+    }
+
+    try {
+        if (idRealEdicion) {
+            await fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    estado_preparacion: ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente',
+                    metodo_pago: 'Pendiente' 
+                })
+            });
+        }
+        setContador(15);
+        setPantallaActual('finalizado');
+    } catch (error) {
+        setErrorTransaccion('Error al confirmar la transferencia.');
+    }
+    setIsSubmitting(false);
+  };  
   
   const getBackRuta = () => {
     const agil = esPersonalInterno || isTerminalFisica;
@@ -311,7 +406,8 @@ const CheckoutFlujo = ({
         pasoTelefono={pasoTelefono} setPasoTelefono={setPasoTelefono}
         tipoConsumo={tipoConsumo} isSubmitting={isSubmitting}
         telefonoRecoger={telefonoRecoger} setTelefonoRecoger={setTelefonoRecoger}
-        setPantallaActual={setPantallaActual} seleccionarPago={seleccionarPago}
+        setPantallaActual={setPantallaActual} 
+        seleccionarPago={seleccionarPagoRegistro} 
         nombreOrden={nombreOrden} setNombreOrden={setNombreOrden}
         continuarDesdeNombre={continuarDesdeNombre}
         direccionEntrega={direccionEntrega}

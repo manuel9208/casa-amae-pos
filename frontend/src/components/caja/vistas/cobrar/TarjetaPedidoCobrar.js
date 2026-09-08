@@ -15,7 +15,6 @@ const TarjetaPedidoCobrar = ({
 }) => {
   const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
-  // Extracción de teléfono súper robusta (Soporta espacios, guiones y diferentes etiquetas)
   let telefono = pedido.cliente_telefono || pedido.telefono || '';
   if (!telefono && typeof getTelefonoExtraido === 'function') {
       telefono = getTelefonoExtraido(pedido) || '';
@@ -37,7 +36,6 @@ const TarjetaPedidoCobrar = ({
   };
   const estiloConsumo = obtenerEstiloConsumo();  
 
-  // 👇 FIX APLICADO: EXTRACCIÓN INTELIGENTE DE INSTRUCCIÓN DE COBRO (Feria)
   let instruccionCobro = null;
   if (pedido.direccion_entrega) {
     const matchCobro = pedido.direccion_entrega.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
@@ -56,11 +54,10 @@ const TarjetaPedidoCobrar = ({
     }
   }  
 
-  // 👇 FIX APLICADO: Limpieza profunda de la dirección incluyendo la nueva Regex
   direccionLimpia = direccionLimpia
-    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro de la dirección
+    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') 
     .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono completo para no mostrarlo duplicado
+    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') 
     .split('|')
     .map(parte => parte.trim())
     .filter(parte => parte.length > 0)
@@ -72,7 +69,6 @@ const TarjetaPedidoCobrar = ({
   return (
     <>
       <div className={`bg-white p-5 md:p-6 rounded-3xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md animate-in slide-in-from-bottom-4 group ${esPedidoFantasma ? 'border-red-300 hover:border-red-400' : 'border-slate-200 hover:border-blue-200'}`}>  
-        {/* 1. ENCABEZADO */}
         <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4">
           <div>
             <span className={`text-xl md:text-2xl font-black tracking-tight transition-colors ${esPedidoFantasma ? 'text-red-600' : 'text-slate-800 group-hover:text-blue-600'}`}>
@@ -91,13 +87,11 @@ const TarjetaPedidoCobrar = ({
           </div>
         </div>  
 
-        {/* 2. DETALLES DEL CLIENTE Y CONTACTO */}
         <div className="space-y-2 mb-6 flex-1">
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
 
-          {/* BOTÓN WHATSAPP ACTIVO SIEMPRE QUE HAYA TELÉFONO */}
           {telefono && (
             <a href={`https://wa.me/52${String(telefono).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
               <Phone size={14} className="text-emerald-500" /> {telefono}
@@ -119,7 +113,6 @@ const TarjetaPedidoCobrar = ({
           )}
         </div>  
 
-        {/* ALERTA ROJA PARA PEDIDOS NO MANDADOS A COCINA */}
         {esPedidoFantasma && (
           <div className="mb-4 bg-red-50 border border-red-200 p-3 rounded-xl flex items-start gap-2 animate-pulse">
             <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5" />
@@ -130,14 +123,12 @@ const TarjetaPedidoCobrar = ({
           </div>
         )}  
 
-        {/* 3. BOTONES SECUNDARIOS */}
         <div className="grid grid-cols-2 gap-2 mb-3">
           {renderBotonVerDetalle(pedido)}
           {renderBotonEditar(pedido)}
           {renderBotonAgregarExtra && renderBotonAgregarExtra(pedido)}
         </div>  
 
-        {/* 4. BOTONERA PRINCIPAL CONDICIONAL */}
         {esPedidoFantasma ? (
           <div className="grid grid-cols-3 gap-2 mt-auto">
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => setConfirmarAnular(true)} className="bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-red-200 group shadow-sm" title="Eliminar Orden">
@@ -158,14 +149,14 @@ const TarjetaPedidoCobrar = ({
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => setConfirmarAnular(true)} className="w-14 shrink-0 bg-red-50 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all flex justify-center items-center active:scale-95 disabled:opacity-50 border border-red-200 shadow-sm" title="Anular Orden">
               <Trash2 size={20} />
             </button>
-            <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago(pedido)} className="flex-1 bg-slate-800 hover:bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-slate-800/20 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
+            {/* 👇 FIX APLICADO AQUÍ: Mandamos la bandera _evitarImpresion al modal */}
+            <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago({ ...pedido, _evitarImpresion: true })} className="flex-1 bg-slate-800 hover:bg-blue-600 text-white font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-lg shadow-slate-800/20 transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
               {getIconoPago(pedido.metodo_pago)} Recibir Pago
             </button>
           </div>
         )}
       </div>  
 
-      {/* MODAL CONFIRMAR ANULAR */}
       {confirmarAnular && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl text-center border border-slate-100 animate-in zoom-in-95">

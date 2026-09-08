@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, CheckCircle2, XCircle, ShoppingBag, Monitor, 
   List, FileText, LogOut, Phone, PlusCircle, ChefHat, Bike, 
-  Utensils, Map, Maximize, Trash2, Lock, Unlock 
+  Utensils, Map, Maximize, Trash2, Lock, Unlock, ClipboardList 
 } from 'lucide-react';  
 
 const TopNavCaja = ({
@@ -28,7 +28,6 @@ const TopNavCaja = ({
     }
   };  
 
-  // 👇 NUEVA REGLA FRONTEND: Computar el horario en vivo para bloquear/desbloquear
   const [isDentroDeHorario, setIsDentroDeHorario] = useState(false);
 
   useEffect(() => {
@@ -62,7 +61,6 @@ const TopNavCaja = ({
           const minutosActuales = parseInt(horaStr, 10) * 60 + parseInt(minStr, 10);
           let dentro = false;
 
-          // 1. Turno de ayer cruzando medianoche
           const indiceHoy = dias.indexOf(diaHoyStr);
           const diaAyerStr = dias[(indiceHoy + 6) % 7];
           const configAyer = horarios[diaAyerStr];
@@ -75,7 +73,6 @@ const TopNavCaja = ({
             }
           }
 
-          // 2. Turno de hoy
           if (!dentro) {
             const configHoy = horarios[diaHoyStr];
             if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
@@ -98,7 +95,6 @@ const TopNavCaja = ({
     };
 
     evaluarHorario();
-    // Re-evaluar cada 1 minuto automáticamente
     const intervalo = setInterval(evaluarHorario, 60000); 
     return () => clearInterval(intervalo);
   }, [configGlobal]);
@@ -110,7 +106,6 @@ const TopNavCaja = ({
       {/* ============================================================== */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 lg:px-6 py-4 gap-4">  
         
-        {/* Identidad y Estado del Negocio */}
         <div className="flex items-center justify-between lg:justify-start gap-4 md:gap-6 w-full lg:w-auto">
           <h1 className="text-xl md:text-2xl font-black flex items-center gap-2 text-slate-800 tracking-tight shrink-0">
             <div className="bg-emerald-100 text-emerald-600 p-1.5 md:p-2 rounded-xl shadow-inner">
@@ -119,7 +114,6 @@ const TopNavCaja = ({
             CAJA
           </h1>
           
-          {/* 👇 FIX APLICADO: Botón bloqueado en horario y libre fuera de horario para CUALQUIER persona */}
           {configGlobal && (
             <button
               onClick={toggleEstadoNegocio}
@@ -136,13 +130,11 @@ const TopNavCaja = ({
               {configGlobal.negocio_abierto ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
               <span className="hidden sm:inline">{configGlobal.negocio_abierto ? 'Recepción Abierta' : 'Pedidos Detenidos'}</span>
               <span className="sm:hidden">{configGlobal.negocio_abierto ? 'Abierto' : 'Cerrado'}</span>
-              {/* Indicador visual de si se puede cliquear o no */}
               {isDentroDeHorario ? <Lock size={14} className="ml-1 opacity-50" /> : <Unlock size={14} className="ml-1 opacity-50" />}
             </button>
           )}
         </div>  
 
-        {/* Acciones Rápidas y Usuario */}
         <div className="flex items-center gap-2 md:gap-3 w-full lg:w-auto overflow-x-auto no-scrollbar pb-1 lg:pb-0">  
           <button
             onClick={() => setModalComedor(true)}
@@ -179,7 +171,6 @@ const TopNavCaja = ({
             </button>
           )}  
 
-          {/* Bloque de Usuario y Asistencia */}
           <div className="flex items-center gap-3 pl-3 border-l border-slate-200 shrink-0">
             <button
               onClick={toggleFullScreen}
@@ -215,51 +206,65 @@ const TopNavCaja = ({
       </div>  
 
       {/* ============================================================== */}
-      {/* 2. BARRA DE NAVEGACIÓN INFERIOR: PESTAÑAS DEL SISTEMA           */}
+      {/* 2. BARRA DE NAVEGACIÓN INFERIOR (REORDENADA A PETICIÓN)         */}
       {/* ============================================================== */}
       <div className="bg-slate-50 border-t border-slate-100 px-2 md:px-4 py-2 overflow-x-auto no-scrollbar scroll-smooth">
         <div className="flex gap-2 w-max pb-1 items-center">
-          <button onClick={() => setVistaActiva('mesas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-            <Map size={16} className="md:w-4 md:h-4"/> Mapa Mesas
+          
+          {/* 1. Comandas (Nuevo) */}
+          <button onClick={() => setVistaActiva('comandas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'comandas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            <ClipboardList size={16} className="md:w-4 md:h-4"/> Comandas
+          </button>
+
+          {/* 2. Ver Todos (Historial) */}
+          <button onClick={() => setVistaActiva('historial')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'historial' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            <List size={16} className="md:w-4 md:h-4"/> Ver Todos
           </button>
           
+          {/* 3. Por Confirmar */}
           <button onClick={() => setVistaActiva('confirmar')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'confirmar' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
             <Phone size={16} className="md:w-4 md:h-4"/> Por Confirmar {pedidosPorConfirmar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pedidosPorConfirmar.length}</span>}
           </button>
           
+          {/* 4. Cuentas por Cobrar */}
           <button onClick={() => setVistaActiva('cobrar')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'cobrar' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
             <ShoppingBag size={16} className="md:w-4 md:h-4"/> Cuentas / Cobrar {pendientesDePago.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pendientesDePago.length}</span>}
           </button>
           
-          <button onClick={() => setVistaActiva('mesas_pagadas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-            <Utensils size={16} className="md:w-4 md:h-4"/> Mesas en Servicio {mesasPagadas.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{mesasPagadas.length}</span>}
-          </button>
-          
+          {/* 5. Entregas */}
           <button onClick={() => setVistaActiva('entregas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'entregas' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
             <Monitor size={16} className="md:w-4 md:h-4"/> Entregas {listosParaEntregar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{listosParaEntregar.length}</span>}
           </button>
           
-          <button onClick={() => setVistaActiva('liquidacion_reparto')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'liquidacion_reparto' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-pink-600 border border-pink-200 hover:bg-pink-50'}`}>
-            <Bike size={16} className="md:w-4 md:h-4"/> Por Liquidar {pedidosEnReparto && pedidosEnReparto.length > 0 && <span className="bg-pink-500 text-white px-1.5 rounded-md shadow-sm text-[10px] md:text-xs">{pedidosEnReparto.length}</span>}
-          </button>
-          
+          {/* 6. Cocina */}
           {canVerCocina && (
             <button onClick={() => setVistaActiva('cocina_mini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 border ${vistaActiva === 'cocina_mini' ? 'bg-orange-100 text-orange-700 border-orange-300 shadow-inner' : 'bg-white text-orange-500 border-orange-200 hover:bg-orange-50'}`}>
               <ChefHat size={16} className="md:w-4 md:h-4"/> KDS Cocina
             </button>
           )}
-          
-          <button onClick={() => setVistaActiva('historial')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'historial' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-            <List size={16} className="md:w-4 md:h-4"/> Ver Todos
+
+          {/* 7. Liquidar Reparto */}
+          <button onClick={() => setVistaActiva('liquidacion_reparto')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'liquidacion_reparto' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-pink-600 border border-pink-200 hover:bg-pink-50'}`}>
+            <Bike size={16} className="md:w-4 md:h-4"/> Por Liquidar {pedidosEnReparto && pedidosEnReparto.length > 0 && <span className="bg-pink-500 text-white px-1.5 rounded-md shadow-sm text-[10px] md:text-xs">{pedidosEnReparto.length}</span>}
           </button>
-          
-          <div className="w-px h-6 bg-slate-300 mx-1 shrink-0"></div>
-          
+
+          {/* 8. Corte Caja */}
           {canCorte && (
             <button onClick={() => setVistaActiva('corte')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'corte' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
               <FileText size={16} className="md:w-4 md:h-4"/> Corte Caja
             </button>
           )}
+          
+          {/* 9. Mesas en Servicio */}
+          <button onClick={() => setVistaActiva('mesas_pagadas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            <Utensils size={16} className="md:w-4 md:h-4"/> Mesas en Servicio {mesasPagadas.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{mesasPagadas.length}</span>}
+          </button>
+
+          {/* 10. Mapa Mesas */}
+          <button onClick={() => setVistaActiva('mesas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            <Map size={16} className="md:w-4 md:h-4"/> Mapa Mesas
+          </button>
+          
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import VistaHistorial from './vistas/historial/HistorialTodosLosPedidos';
 import VistaCorte from './vistas/corte/CorteCajaFinanciero';
 import VistaLiquidacionRep from './vistas/reparto/LiquidacionRepartidoresPrincipal';
 import VistaCocinaMini from './vistas/cocina_mini/MonitorCocinaKDS';
+import GestorComandasPrincipal from './vistas/comandas/GestorComandasPrincipal';
 
 const VistasCaja = (props) => {
   const {
@@ -119,7 +120,6 @@ const VistasCaja = (props) => {
     setLimpiandoMesas(false);
   };
 
-    // 👇 NUEVO: Ahora calculamos los gastos basados estrictamente en el turno aislado del cajero
   const totalGastos = (props.gastosTurnoActivo || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
   
   const pedidosValidos = pedidos.filter(p => 
@@ -132,6 +132,16 @@ const VistasCaja = (props) => {
   let totalPlatillos = 0; let totalExtras = 0; let totalEnvio = 0;
   let dPlatillos = 0; let dExtras = 0; let dEnvio = 0; let dEfectivo = 0; let dTarjeta = 0; let dTransf = 0;
   let tDescuentos = 0;
+
+  // 👇 FUNCIÓN DE PARSEO SEGURO INYECTADA PARA PAGOS MIXTOS
+  const parsearMixto = (pagos_mixtos) => {
+      try {
+          let pm = typeof pagos_mixtos === 'string' ? JSON.parse(pagos_mixtos) : pagos_mixtos;
+          if (typeof pm === 'string') pm = JSON.parse(pm); // Escudo contra doble string
+          if (Array.isArray(pm)) return pm;
+      } catch(e) {}
+      return [];
+  };
 
   pedidosValidos.forEach(p => {
     const isDomicilio = p.tipo_consumo === 'Domicilio';
@@ -175,14 +185,12 @@ const VistasCaja = (props) => {
       if(p.metodo_pago === 'Tarjeta') dTarjeta += Number(p.total);
       if(p.metodo_pago === 'Transferencia') dTransf += Number(p.total);
       if(p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-        try {
-          const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+          const pm = parsearMixto(p.pagos_mixtos);
           pm.forEach(x => {
             if(x.metodo === 'Efectivo') dEfectivo += Number(x.monto);
             if(x.metodo === 'Tarjeta') dTarjeta += Number(x.monto);
             if(x.metodo === 'Transferencia') dTransf += Number(x.monto);
           });
-        } catch(e) {}
       }
     }
   });
@@ -190,7 +198,7 @@ const VistasCaja = (props) => {
   const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
     if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+      const pm = parsearMixto(p.pagos_mixtos);
       const ef = pm.find(x => x.metodo === 'Efectivo');
       if (ef) return sum + Number(ef.monto);
     }
@@ -200,7 +208,7 @@ const VistasCaja = (props) => {
   const totalTarjetaVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Tarjeta') return sum + Number(p.total);
     if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+      const pm = parsearMixto(p.pagos_mixtos);
       const tar = pm.find(x => x.metodo === 'Tarjeta');
       if (tar) return sum + Number(tar.monto);
     }
@@ -210,7 +218,7 @@ const VistasCaja = (props) => {
   const totalTransferenciaVentas = pedidosValidos.reduce((sum, p) => {
     if (p.metodo_pago === 'Transferencia') return sum + Number(p.total);
     if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+      const pm = parsearMixto(p.pagos_mixtos);
       const trans = pm.find(x => x.metodo === 'Transferencia');
       if (trans) return sum + Number(trans.monto);
     }
@@ -280,6 +288,21 @@ const VistasCaja = (props) => {
       )}
 
       <div className="flex-1 p-4 md:p-10">
+        
+        {vistaActiva === 'comandas' && (
+          <GestorComandasPrincipal 
+            pedidos={pedidos}
+            lanzarImpresion={props.lanzarImpresion}
+            setModalPuntoVenta={props.setModalPuntoVenta}
+            setModalEditarPedido={props.setModalEditarPedido}
+            actualizarEstadoPedido={props.actualizarEstadoPedido}
+            configGlobal={props.configGlobal}
+            isSubmitting={isSubmitting}
+            limpiandoMesas={limpiandoMesas}
+            setModalVerDetalle={props.setModalVerDetalle}
+          />
+        )}
+
         {vistaActiva === 'mesas' && (
           <VistaMesas 
             mesas={props.mesas} 

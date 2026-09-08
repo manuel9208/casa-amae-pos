@@ -1,12 +1,12 @@
 import React from 'react';
-import { AlertCircle, ChefHat } from 'lucide-react';
+import { AlertCircle, ChefHat } from 'lucide-react';  
 
 const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
-    if (!detalles) return null;
+    if (!detalles) return null;  
 
     // 👇 SEPARAMOS LAS VENTAS REALES DEL CONSUMO DE EMPLEADOS
     const ventasNormales = detalles.filter(d => d.categoria !== 'Comedor');
-    const ventasComedor = detalles.filter(d => d.categoria === 'Comedor');
+    const ventasComedor = detalles.filter(d => d.categoria === 'Comedor');  
 
     // 👇 MATEMÁTICAS PARA LA BARRA DE TOTALES (Ventas Reales)
     const totalesNormales = ventasNormales.reduce((acc, item) => ({
@@ -14,17 +14,15 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
         costoReceta: acc.costoReceta + Number(item.subtotal_inversion),
         descuentosTotales: acc.descuentosTotales + Number(item.descuentos_aplicados || 0),
         gananciaTotal: acc.gananciaTotal + Number(item.ganancia_neta)
-    }), { vendidos: 0, costoReceta: 0, descuentosTotales: 0, gananciaTotal: 0 });
+    }), { vendidos: 0, costoReceta: 0, descuentosTotales: 0, gananciaTotal: 0 });  
 
     return (
-        <div className="space-y-8 animate-in fade-in">
-
+        <div className="space-y-8 animate-in fade-in">  
             {/* 🟢 TABLA 1: VENTAS REALES */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:shadow-none">
                 <div className="p-6 border-b border-slate-100 print:p-4">
                     <h3 className="text-lg font-bold text-slate-800">Desglose de Productos, Extras y Envíos</h3>
-                </div>
-
+                </div>  
                 {ventasNormales.length === 0 ? (
                     <div className="p-12 text-center flex flex-col items-center bg-slate-50">
                         <AlertCircle size={48} className="text-slate-300 mb-3" />
@@ -38,7 +36,7 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                                     <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider print:p-2">Producto</th>
                                     <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider text-center print:p-2">Vendidos</th>
                                     <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider text-right print:p-2">Precio Pub.</th>
-                                    <th className="p-4 text-xs font-black text-red-500 uppercase tracking-wider text-right print:p-2 print:text-slate-500">Costo Receta</th>
+                                    <th className="p-4 text-xs font-black text-red-500 uppercase tracking-wider text-right print:p-2 print:text-slate-500">Costo Receta / Inv.</th>
                                     <th className="p-4 text-xs font-black text-orange-500 uppercase tracking-wider text-right print:p-2 print:text-slate-500">Desc / Promo</th>
                                     <th className="p-4 text-xs font-black text-emerald-600 uppercase tracking-wider text-right print:p-2 print:text-slate-500">Ganancia X U.</th>
                                     <th className="p-4 text-xs font-black text-slate-800 uppercase tracking-wider text-right print:p-2">Ganancia Total</th>
@@ -47,13 +45,17 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                             <tbody className="divide-y divide-slate-100 print:divide-slate-300">
                                 {ventasNormales.map((p, i) => {
                                     const isExtra = p.categoria === 'Extras';
-                                    const isEnvio = p.categoria === 'Envíos';
-
+                                    const isEnvio = p.categoria === 'Envíos';  
+                                    const isB2B = p.categoria === 'Mayoreo (B2B)'; // 👈 NUEVO: Identificador B2B
+                                    
                                     return (
-                                        <tr key={i} className={`transition print:hover:bg-transparent ${isExtra ? 'bg-emerald-50/30' : isEnvio ? 'bg-purple-50/30' : 'hover:bg-slate-50'}`}>
+                                        <tr key={i} className={`transition print:hover:bg-transparent ${isExtra ? 'bg-emerald-50/30' : isEnvio ? 'bg-purple-50/30' : isB2B ? 'bg-indigo-50/40 border-l-4 border-indigo-500' : 'hover:bg-slate-50'}`}>
                                             <td className="p-4 font-bold text-slate-700 print:p-2 print:text-sm flex items-center gap-2">
                                                 {isExtra && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md uppercase">Extra</span>}
                                                 {isEnvio && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-1 rounded-md uppercase">Envío</span>}
+                                                {/* 👇 NUEVO: Etiqueta visual para B2B */}
+                                                {isB2B && <span className="text-[10px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-1 rounded-md uppercase tracking-widest">Mayoreo</span>}
+                                                
                                                 {p.producto_nombre}
                                             </td>
                                             <td className="p-4 font-black text-slate-800 text-center text-lg print:p-2 print:text-sm">
@@ -93,7 +95,7 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                         </table>
                     </div>
                 )}
-            </div>
+            </div>  
 
             {/* 🟠 TABLA 2: PRESTACIONES DE EMPLEADOS (Solo se muestra si hay consumo) */}
             {ventasComedor.length > 0 && (
@@ -101,8 +103,7 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                     <div className="p-6 border-b border-orange-100 print:p-4 bg-orange-100 flex items-center gap-2">
                         <ChefHat className="text-orange-600"/>
                         <h3 className="text-lg font-bold text-orange-900">Consumo de Empleados (Prestación Comedor)</h3>
-                    </div>
-
+                    </div>  
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
@@ -140,10 +141,9 @@ const TablaDesgloseVentas = ({ detalles, formaterMoneda }) => {
                         </table>
                     </div>
                 </div>
-            )}
-
+            )}  
         </div>
     );
-};
+};  
 
 export default TablaDesgloseVentas;

@@ -33,9 +33,12 @@ const TarjetaComandaCocina = ({
           </p>
         </div>
         <div className="text-right flex flex-col gap-2 items-end">
+          {/* 👇 FIX VISUAL: Le damos estilo personalizado al estado "Aceptado" */}
           <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl shadow-sm ${
             pedido.estado_preparacion === 'Preparando' 
               ? 'bg-orange-100 text-orange-600 border border-orange-200' 
+              : pedido.estado_preparacion === 'Aceptado'
+              ? 'bg-blue-100 text-blue-600 border border-blue-200'
               : 'bg-slate-100 text-slate-500 border border-slate-200'
           }`}>
             {pedido.estado_preparacion}

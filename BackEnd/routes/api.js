@@ -27,14 +27,19 @@ const biometricoCtrl = require('../controllers/biometricoController');
 const mermaCtrl = require('../controllers/mermaController');
 const impresionCtrl = require('../controllers/impresionController'); 
 const proveedorCtrl = require('../controllers/proveedorController'); // Controlador de proveedores
-// 👇 NUEVO: Controlador de Combos
 const comboCtrl = require('../controllers/comboController'); 
-
-// 👇 NUEVO: Controlador Central de Nóminas aislando el motor de RH
 const nominaCtrl = require('../controllers/nominaController');
 
-// 👇 NUEVO: Inicializar la tabla de combos en Neon.tech automáticamente al arrancar
+// 👇 NUEVOS: Controladores del Módulo de Distribución (B2B)
+const distribucionCtrl = require('../controllers/distribucionController');
+const distClientesCtrl = require('../controllers/distClientesController');
+const distVentasCtrl = require('../controllers/distVentasController');
+
+// 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
+distribucionCtrl.inicializarTablas();
+distClientesCtrl.inicializarTablas(); // 👈 Inicializa tablas de CRM B2B y Configuración SMTP
+distVentasCtrl.inicializarTablas(); 
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -48,7 +53,6 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
-    // Si es un video, lo mantenemos simple
     if (file.mimetype.includes('video')) {
       return {
         folder: 'pos_uploads',
@@ -58,12 +62,14 @@ const storage = new CloudinaryStorage({
     }
     
     // Si es imagen, forzamos formato webp para un ahorro MASIVO de ancho de banda
+    // Si es PDF, Cloudinary lo maneja como 'raw' o 'image' si se autoriza.
+    const isPdf = file.mimetype === 'application/pdf';
     return {
       folder: 'pos_uploads',
-      resource_type: 'image',
-      allowedFormats: ['jpeg', 'png', 'jpg', 'webp'],
-      format: 'webp',
-      transformation: [{ width: 800, crop: "scale" }] 
+      resource_type: isPdf ? 'raw' : 'image',
+      allowedFormats: isPdf ? ['pdf'] : ['jpeg', 'png', 'jpg', 'webp'],
+      format: isPdf ? undefined : 'webp',
+      transformation: isPdf ? [] : [{ width: 800, crop: "scale" }] 
     };
   }
 });
@@ -97,7 +103,7 @@ router.delete('/promociones/:id', promocionCtrl.eliminarPromocion);
 router.put('/promociones/:id', promocionCtrl.actualizarPromocion);  
 
 // ==========================================
-// 👇 NUEVO: CONSTRUCTOR DE COMBOS
+// CONSTRUCTOR DE COMBOS
 // ==========================================
 router.get('/combos', comboCtrl.obtenerCombos);
 router.post('/combos', comboCtrl.crearCombo);
@@ -111,7 +117,7 @@ router.delete('/combos/:id', comboCtrl.eliminarCombo);
 router.post('/suscripciones', notificacionCtrl.guardarSuscripcion);  
 
 // ==========================================
-// AUTENTICACIÓN Y CLIENTES
+// AUTENTICACIÓN Y CLIENTES NORMALES
 // ==========================================
 router.post('/identificar', authCtrl.identificar);
 router.post('/login', authCtrl.login);
@@ -137,14 +143,12 @@ router.delete('/usuarios/:id', usuarioCtrl.eliminarUsuario);
 router.put('/usuarios/:id', usuarioCtrl.actualizarUsuario);
 router.put('/usuarios/:id/prestaciones', usuarioCtrl.actualizarPrestaciones);
 router.put('/usuarios/:id/horario', usuarioCtrl.actualizarHorario);
-// 👇 Nota: Mantenemos temporalmente el viejo endpoint redirigido al nuevo controlador 
-// para no romper la versión de la app en producción mientras subimos el Front-end.
 router.post('/usuarios/corte-nomina', nominaCtrl.guardarNomina);
 router.post('/usuarios/asistencia', usuarioCtrl.registrarAsistencia);
 router.post('/usuarios/:id/forzar-logout', authCtrl.forzarLogout);  
 
 // ==========================================
-// 💰 NUEVO: MOTOR AISLADO DE NÓMINAS Y PLANTILLAS
+// MOTOR AISLADO DE NÓMINAS Y PLANTILLAS
 // ==========================================
 router.post('/nominas', nominaCtrl.guardarNomina);
 router.delete('/nominas/:id', nominaCtrl.revertirNomina);
@@ -229,14 +233,45 @@ router.get('/proveedores', proveedorCtrl.obtenerProveedores);
 router.post('/proveedores', proveedorCtrl.crearProveedor);
 router.put('/proveedores/:id', proveedorCtrl.actualizarProveedor);
 router.delete('/proveedores/:id', proveedorCtrl.eliminarProveedor);
-
-// 👇 NUEVA RUTA: Procesamiento de Múltiples Facturas (BULK). Debe ir antes del /:id
 router.put('/gastos-proveedores/bulk/estado', proveedorCtrl.actualizarEstadoGastoBulk);
-
 router.delete('/gastos-proveedores/:id', proveedorCtrl.eliminarGasto);
 router.get('/gastos-proveedores', proveedorCtrl.obtenerGastos);
 router.post('/gastos-proveedores', proveedorCtrl.registrarGasto);
 router.put('/gastos-proveedores/:id/estado', proveedorCtrl.actualizarEstadoGasto);
+
+// ==========================================
+// 📦 DISTRIBUCIÓN Y MAYOREO (ARTÍCULOS Y PRECIOS)
+// ==========================================
+router.get('/distribucion/articulos', distribucionCtrl.obtenerArticulos);
+router.post('/distribucion/articulos', upload.single('imagen'), distribucionCtrl.crearArticulo);
+router.put('/distribucion/articulos/:id', upload.single('imagen'), distribucionCtrl.actualizarArticulo);
+router.delete('/distribucion/articulos/:id', distribucionCtrl.eliminarArticulo);
+
+// ==========================================
+// 🛒 VENTAS DE MAYOREO (DISTRIBUCIÓN)
+// ==========================================
+router.post('/distribucion/ventas', distVentasCtrl.crearVenta);
+router.get('/distribucion/ventas', distVentasCtrl.obtenerVentas);
+
+// ==========================================
+// 👥 DIRECTORIO DE CLIENTES B2B Y CRÉDITO
+// ==========================================
+router.get('/distribucion/configuracion', distClientesCtrl.obtenerConfiguracion);
+router.put('/distribucion/configuracion', distClientesCtrl.actualizarConfiguracion);
+router.post('/distribucion/clientes/enviar-codigo', distClientesCtrl.enviarCodigoVerificacion);
+
+router.get('/distribucion/clientes', distClientesCtrl.obtenerClientes);
+router.post('/distribucion/clientes', upload.fields([
+  { name: 'ine_frente', maxCount: 1 },
+  { name: 'ine_reverso', maxCount: 1 },
+  { name: 'comprobante_domicilio', maxCount: 1 }
+]), distClientesCtrl.crearCliente);
+router.put('/distribucion/clientes/:id', upload.fields([
+  { name: 'ine_frente', maxCount: 1 },
+  { name: 'ine_reverso', maxCount: 1 },
+  { name: 'comprobante_domicilio', maxCount: 1 }
+]), distClientesCtrl.actualizarCliente);
+router.delete('/distribucion/clientes/:id', distClientesCtrl.eliminarCliente);
 
 // ==========================================
 // MERMAS Y DESPERDICIOS
@@ -293,11 +328,9 @@ router.use((req, res, next) => {
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)
-// Se ejecuta cada 60 segundos
 // ==========================================
 setInterval(async () => {
   try {
-    // ZONA HORARIA APLICADA: 'America/Mazatlan'
     const queryTime = "SELECT EXTRACT(ISODOW FROM CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan') as dia, TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan', 'HH24:MI') as hora";
     const res = await db.query(queryTime);
     
@@ -330,7 +363,7 @@ setInterval(async () => {
     `, [diaActual, horaActual]);
     if (apagarClas.rowCount > 0) huboCambios = true;
 
-    // 2. ENCENDER (Se elimina la ventana de 2 minutos. Ahora verifica el rango de forma continua)
+    // 2. ENCENDER
     const prenderProd = await db.query(`
       UPDATE productos SET disponible = true
       WHERE usa_horario = true AND disponible = false
@@ -354,12 +387,10 @@ setInterval(async () => {
     `, [diaActual, horaActual]);
     if (prenderClas.rowCount > 0) huboCambios = true;
 
-    // AVISAR A LAS PANTALLAS KIOSCO SI HUBO UN CAMBIO
     if (huboCambios && globalIo) {
       globalIo.emit('catalogo_actualizado');
     }
 
-    // 3. VIGILANTE DE STOCK DE PROVEEDORES
     if (proveedorCtrl.verificarAlertasStock) {
         await proveedorCtrl.verificarAlertasStock(globalIo);
     }
@@ -369,9 +400,6 @@ setInterval(async () => {
   }
 }, 60000); 
 
-// ==========================================
-// 🛡️ ATRAPADOR DE ERRORES DE CLOUDINARY/MULTER
-// ==========================================
 router.use((err, req, res, next) => {
   console.error("🚨 Error de subida a Cloudinary:", JSON.stringify(err, null, 2));
   res.status(500).json({ error: "Error al procesar la imagen en el servidor." });

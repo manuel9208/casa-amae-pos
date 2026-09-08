@@ -12,7 +12,6 @@ import ModalAperturaCaja from './modales/ModalAperturaCaja';
 import ModalPuntoVenta from './modales/PuntoDeVenta/PuntoDeVentaPrincipal';
 import ModalAsistencia from './modales/ModalAsistencia';
 import ModalComedor from './modales/ModalComedor';  
-// IMPORTACIÓN DEL NUEVO GESTOR DE MERMAS
 import GestorMermasPrincipal from './modales/mermas/GestorMermasPrincipal';  
 
 const ModalesCaja = ({
@@ -29,27 +28,8 @@ const ModalesCaja = ({
   modalAsistencia, setModalAsistencia,
   modalComedor, setModalComedor, pedidos,
   modalMermas, setModalMermas,
-  combosActivos // 👈 RECIBIMOS LOS COMBOS DESDE CAJA.JS
+  combosActivos
 }) => {  
-
-  // 👇 ESCÁNER DE OPCIÓN A: Detectar si el carrito tiene productos restringidos para pago con puntos
-  let carritoEvaluar = [];
-  if (modalPago && typeof modalPago === 'object') {
-    if (modalPago.pedido && modalPago.pedido.carrito) carritoEvaluar = modalPago.pedido.carrito;
-    else if (Array.isArray(modalPago.carrito)) carritoEvaluar = modalPago.carrito;
-    else if (Array.isArray(modalPago)) carritoEvaluar = modalPago;
-  }  
-
-  const bloqueoPuntosActivo = carritoEvaluar.some(item => {
-    // Buscamos el producto en la base de datos
-    const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
-    if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return true;  
-    // También revisamos si la categoría completa está bloqueada
-    const catNombre = prodDB?.categoria || item.categoria;
-    const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
-    if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return true;  
-    return false;
-  });  
 
   return (
     <>
@@ -131,7 +111,7 @@ const ModalesCaja = ({
       <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />
       <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />  
       
-      {/* 👇 FIX: AHORA LE PASAMOS LA PROP apiUrl PARA QUE PUEDA CONSULTAR LA BASE DE DATOS */}
+      {/* 👇 FIX APLICADO: ModalPago ahora recibe los catálogos y se encarga de calcular sus propios subtotales mixtos */}
       <ModalPago
         modalPago={modalPago}
         setModalPago={setModalPago}
@@ -139,8 +119,9 @@ const ModalesCaja = ({
         isSubmitting={isSubmitting}
         configGlobal={configGlobal}
         setModalEditarPedido={setModalEditarPedido}
-        bloqueoPuntosActivo={bloqueoPuntosActivo}
         apiUrl={apiUrl}
+        productos={productos}
+        clasificaciones={clasificaciones}
       />  
 
       <ModalEditarPedido modalEditarPedido={modalEditarPedido} setModalEditarPedido={setModalEditarPedido} guardarEdicionPedido={guardarEdicionPedido} onGoToKiosco={onGoToKiosco} isSubmitting={isSubmitting} apiUrl={apiUrl} configGlobal={configGlobal} />

@@ -64,12 +64,12 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
                 </span>
             </div>
 
-            {/* 6. PLATILLOS VENDIDOS */}
+            {/* 6. ARTÍCULOS VENDIDOS */}
             <div className="bg-slate-800 p-5 rounded-3xl shadow-md border border-slate-700 flex flex-col items-center text-center transition-all hover:bg-slate-900 print:bg-white print:border-slate-300 print:shadow-none">
                 <div className="w-10 h-10 bg-white/10 text-white rounded-full flex items-center justify-center mb-3 print:hidden">
                     <ShoppingBag size={20}/>
                 </div>
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Platillos Vendidos</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Artículos Vendidos</span>
                 <span className="text-3xl md:text-4xl font-black text-white mt-1 print:text-slate-800">
                     {resumen.productos_vendidos}
                 </span>

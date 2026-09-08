@@ -23,7 +23,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [productos, setProductos] = useState([]); 
   const [catalogoIngredientes, setCatalogoIngredientes] = useState([]); 
   const [clasificaciones, setClasificaciones] = useState([]); 
-  const [promocionesActivas, setPromocionesActivas] = useState([]); // 👈 FIX: Memoria global de Promos
+  const [promocionesActivas, setPromocionesActivas] = useState([]); 
   const [configGlobal, setConfigGlobal] = useState({ 
     nombre_negocio: '', whatsapp: '', banco: '', cuenta: '', titular: '', kiosco_mensaje: '¿Qué se te antoja hoy?',
     negocio_abierto: true, mensaje_cierre: '',
@@ -111,7 +111,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
             })
             .catch(e => console.error("Error al cargar combos en Kiosco:", e));
             
-        // 👇 FIX: Descargamos las promociones para que el modal personalizador no se atore
         fetch(`${apiUrl}/promociones`)
             .then(res => res.json())
             .then(data => {
@@ -142,6 +141,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         const [hIni, mIni] = (item.hora_inicio || '00:00').split(':').map(Number);
         const [hFin, mFin] = (item.hora_fin || '23:59').split(':').map(Number);
 
+        // 👇 FIX: Matemáticas reinsertadas correctamente para compilar sin errores
         const minIni = hIni * 60 + mIni;
         const minFin = hFin * 60 + mFin;
 
@@ -171,6 +171,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         setClasificaciones(arr.filter(estaDisponiblePorHorario));
       })
       .catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
   useEffect(() => { 
@@ -195,6 +196,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         clearInterval(intervalConfig);
         clearInterval(intervalCatalog);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCatalogoCompleto]);
 
   const verificarMisPedidos = useCallback(async (isInitial = false) => {
@@ -231,6 +233,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         setEsCargaInicial(false);
       } 
     } catch (error) {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteActivo, ordenExterna, esCargaInicial]); 
 
   useEffect(() => {
@@ -245,6 +248,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     });
     
     return () => socket.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCatalogoCompleto, isOffline, clienteActivo, verificarMisPedidos]);
 
   useEffect(() => {
@@ -329,16 +333,35 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     return carrito.reduce((t, i) => t + ((i.precioFinal || 0) * (i.cantidad || 1)), 0);
   }, [carrito]);
 
+  // 👇 FIX: CÁLCULO ESTRICTO DE CANJE DE PUNTOS (Regla: Prioridad Clasificación -> Producto)
   const calcularSubtotalCanjeable = useCallback(() => {
     return carrito.reduce((t, item) => {
-        const prodDB = (productos || []).find(p => p.nombre === item.nombre || p.id === item.id);
-        if (prodDB && (prodDB.permite_canje === false || prodDB.permite_canje === 'false')) return t;
-        
+        // 1. Encontramos el producto de la DB (Manejando tipos de dato e inyección de prefijos visuales)
+        const prodDB = (productos || []).find(p =>
+            (item.id && String(p.id) === String(item.id)) ||
+            (item.producto_id && String(p.id) === String(item.producto_id)) ||
+            p.nombre === item.nombre ||
+            (item.nombre && item.nombre.includes(p.nombre))
+        );
+
+        // 2. Identificamos su clasificación maestra
         const catNombre = prodDB?.categoria || item.categoria;
         const catDB = (clasificaciones || []).find(c => c.nombre === catNombre);
-        if (catDB && (catDB.permite_canje === false || catDB.permite_canje === 'false')) return t;
 
-        return t + ((item.precioFinal || 0) * (item.cantidad || 1));
+        // 🛡️ REGLA 1: PRIORIDAD ABSOLUTA A LA CLASIFICACIÓN
+        // Si la clasificación prohíbe el canje, NADA dentro de ella podrá canjearse.
+        if (catDB && (catDB.permite_canje === false || String(catDB.permite_canje) === 'false' || catDB.permite_canje === 0)) {
+            return t;
+        }
+
+        // 🛡️ REGLA 2: REVISIÓN INDIVIDUAL DEL PRODUCTO
+        // Si la clasificación lo permitió (o no se encontró), validamos el platillo.
+        if (prodDB && (prodDB.permite_canje === false || String(prodDB.permite_canje) === 'false' || prodDB.permite_canje === 0)) {
+            return t;
+        }
+
+        // 🟢 Si sobrevive a ambas reglas, se permite cobrar con puntos.
+        return t + ((Number(item.precioFinal) || 0) * (Number(item.cantidad) || 1));
     }, 0);
   }, [carrito, productos, clasificaciones]);
   
@@ -488,7 +511,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setEstaSincronizando(false);
   };
 
-  // 👇 FIX 1: DEEP CLONE AL ACEPTAR EL UPSELLING (Evita contaminar el catálogo)
   const agregarUpsellAlCarrito = (itemsQueue) => {
     if (itemsQueue && itemsQueue.length > 0) {
         const cleanQueue = itemsQueue.map(item => JSON.parse(JSON.stringify(item)));
@@ -762,7 +784,6 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         </div>
       )}
       
-      {/* 👇 FIX DEFINITIVO: KEY ESTABLE PARA EVITAR REINICIOS DEL MODAL EN KIOSCO */}
       {productoEnEspera && (
         <ModalPersonalizar
           key={`modal-personalizar-${productoEnEspera[0]?.idTicket || productoEnEspera[0]?.id || 'item-activo'}`}

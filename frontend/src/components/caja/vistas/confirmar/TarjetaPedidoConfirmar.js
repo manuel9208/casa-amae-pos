@@ -15,7 +15,6 @@ const TarjetaPedidoConfirmar = ({
   const telefono = getTelefonoExtraido(pedido);
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';  
 
-  // 👇 FIX APLICADO: EXTRACCIÓN INTELIGENTE DE INSTRUCCIÓN DE COBRO (Feria)
   let instruccionCobro = null;
   if (pedido.direccion_entrega) {
     const matchCobro = pedido.direccion_entrega.match(/[[(](.*?(?:cambio|pagar).*?)[\])]/i);
@@ -34,25 +33,47 @@ const TarjetaPedidoConfirmar = ({
     }
   }  
 
-  // 👇 FIX APLICADO: Limpieza profunda de la dirección usando la nueva Regex
   direccionLimpia = direccionLimpia
-    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') // Elimina la instrucción de cobro
+    .replace(/[[(].*?(?:cambio|pagar).*?[\])]/gi, '') 
     .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') // Elimina el teléfono para no duplicar
+    .replace(/(?:TEL:|TELÉFONO:|CONTACTO:)\s*[0-9\s-]*/gi, '') 
     .split('|')
     .map(parte => parte.trim())
     .filter(parte => parte.length > 0)
     .join(', ')
     .trim();
 
+  // 👇 NUEVA FUNCIÓN: Genera el enlace de WhatsApp con el mensaje preescrito
+  const generarEnlaceWhatsApp = (pedido, telefono) => {
+    if (!telefono) return '#';
+    
+    const numLimpio = String(telefono).replace(/\D/g, '');
+    let mensaje = `¡Hola! 👋 Recibimos tu orden #${pedido.numero_pedido} en nuestro sistema.\n\n*Resumen de tu pedido:*\n`;
+    
+    try {
+        const carrito = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
+        carrito.forEach(item => {
+            mensaje += `- ${item.cantidad || 1}x ${item.nombre}\n`;
+            if (item.extras && item.extras.length > 0) {
+                item.extras.forEach(ext => {
+                    mensaje += `   + ${ext.nombre}\n`;
+                });
+            }
+        });
+    } catch(e) {}
+
+    mensaje += `\n*Total a pagar:* $${Number(pedido.total).toFixed(2)}\n\n`;
+    mensaje += `¿Nos confirmas que todo esté correcto para comenzar a prepararlo? 👨‍🍳🔥`;
+
+    return `https://wa.me/52${numLimpio}?text=${encodeURIComponent(mensaje)}`;
+  };
+
   return (
     <div className="bg-white p-5 md:p-6 rounded-3xl border-2 border-amber-200 shadow-md flex flex-col justify-between transition-all hover:shadow-lg animate-in slide-in-from-bottom-4 relative overflow-hidden">
-      {/* Etiqueta de Nuevo */}
       <div className="absolute top-0 right-0 bg-amber-400 text-amber-900 text-[9px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-widest shadow-sm">
         Nueva Orden
       </div>  
 
-      {/* 1. ENCABEZADO */}
       <div className="flex justify-between items-start mb-4 border-b border-slate-100 pb-4 pt-2">
         <div>
           <span className="text-xl md:text-2xl font-black text-slate-800 tracking-tight">#{pedido.numero_pedido}</span>
@@ -66,7 +87,6 @@ const TarjetaPedidoConfirmar = ({
           <p className="text-xl font-black text-amber-600">
             ${Number(pedido.total || 0).toFixed(2)}
           </p>
-          {/* 👇 FIX VISUAL: Desglose rápido del costo de envío si existe */}
           {Number(pedido.costo_envio) > 0 && (
             <p className="text-[9px] font-bold text-slate-400 uppercase mt-0.5 leading-tight">
               Incluye ${Number(pedido.costo_envio).toFixed(2)} de envío
@@ -75,16 +95,21 @@ const TarjetaPedidoConfirmar = ({
         </div>
       </div>  
 
-      {/* 2. DETALLES Y CARRITO */}
       <div className="space-y-3 mb-6 flex-1">
         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-2">
           <p className="text-sm font-black text-slate-700 flex items-center gap-2">
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
           
-          {/* 👇 FIX: Envolvemos telefono en String() por seguridad */}
+          {/* 👇 FIX APLICADO: Usamos la nueva función generarEnlaceWhatsApp en el href */}
           {telefono && (
-            <a href={`https://wa.me/52${String(telefono).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" title="Abrir chat en WhatsApp">
+            <a 
+              href={generarEnlaceWhatsApp(pedido, telefono)} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs font-bold text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors w-fit cursor-pointer" 
+              title="Abrir chat en WhatsApp"
+            >
               <Phone size={14} className="text-blue-400" /> {telefono}
             </a>
           )}
@@ -112,7 +137,6 @@ const TarjetaPedidoConfirmar = ({
         </div>
       </div>  
 
-      {/* 3. BOTONES DE ACCIÓN */}
       <div className="grid grid-cols-2 gap-2 mb-3">
         {renderBotonVerDetalle(pedido)}
         {renderBotonEditar(pedido)}

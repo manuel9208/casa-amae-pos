@@ -6,7 +6,10 @@ const CuadreGlobal = ({
     efectivoEntregadoTotal, efectivoEnCajaTotal, isPerfecto, isFaltante, isSobrante,
     diferenciaAuditoria, cortesDelDia, corteSeleccionadoId, setModalFondosAbierto,
     fondosAdicionales, totalVentasBrutas, tDescuentos, totalIngresoNetoReal,
-    descuentosEfectivo = 0 
+    descuentosEfectivo = 0,
+    // 👇 NUEVAS PROPS B2B (Por defecto en 0)
+    ventasB2B = 0,
+    efectivoB2B = 0
 }) => {
     return (
         <div className="bg-emerald-50 p-6 md:p-8 rounded-[32px] border border-emerald-200 shadow-sm flex flex-col h-full">
@@ -20,12 +23,12 @@ const CuadreGlobal = ({
 
             <div className="bg-white p-5 rounded-3xl border border-emerald-100 shadow-sm mb-4">
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">A. Auditoría de Efectivo Físico</p>
-                
+
                 <div className="space-y-2 mb-4">
                     <div className="flex justify-between text-sm font-bold text-slate-400 items-center">
                         <div className="flex items-center gap-2">
                             <span>Fondo Inicial Registrado:</span>
-                            {cortesDelDia.length > 1 && corteSeleccionadoId === 'global' && (
+                            {cortesDelDia && cortesDelDia.length > 1 && corteSeleccionadoId === 'global' && (
                                 <button
                                     onClick={() => setModalFondosAbierto(true)}
                                     className="text-blue-500 hover:text-blue-600 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors print:hidden cursor-pointer active:scale-95"
@@ -43,19 +46,29 @@ const CuadreGlobal = ({
                         <span>+ Ingresos Efectivo (Ventas):</span>
                         <span>{formaterMoneda(totalEfectivoDia + descuentosEfectivo)}</span>
                     </div>
+                    
+                    {/* 👇 DESGLOSE B2B: EFECTIVO */}
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
+                        <span>├ Restaurante:</span>
+                        <span>{formaterMoneda((totalEfectivoDia + descuentosEfectivo) - efectivoB2B)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
+                        <span>└ Mayoreo (B2B):</span>
+                        <span>{formaterMoneda(efectivoB2B)}</span>
+                    </div>
+
                     {descuentosEfectivo > 0 && (
                         <div className="flex justify-between text-sm font-bold text-orange-500">
                             <span>- Descuentos en Efectivo:</span>
                             <span>-{formaterMoneda(descuentosEfectivo)}</span>
                         </div>
                     )}
-
                     <div className="flex justify-between text-sm font-bold text-red-500">
                         <span>- Gastos Pagados de Caja:</span>
                         <span>-{formaterMoneda(gastosCompras)}</span>
                     </div>
 
-                    {/* 👇 DESGLOSE DE RETIROS Y FONDOS ACTUALIZADO */}
+                    {/* DESGLOSE DE RETIROS Y FONDOS */}
                     <div className="pt-2 mt-2 border-t border-slate-100">
                         {Number(efectivoEntregadoTotal) > 0 && (
                             <div className="flex justify-between text-sm font-bold text-blue-600 mb-0.5">
@@ -103,6 +116,17 @@ const CuadreGlobal = ({
                         </div>
                         <span>{formaterMoneda(totalVentasBrutas)}</span>
                     </div>
+
+                    {/* 👇 DESGLOSE B2B: VENTAS BRUTAS */}
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
+                        <span>├ Restaurante:</span>
+                        <span>{formaterMoneda(totalVentasBrutas - ventasB2B)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
+                        <span>└ Mayoreo (B2B):</span>
+                        <span>{formaterMoneda(ventasB2B)}</span>
+                    </div>
+
                     <div className="flex justify-between text-sm font-bold text-orange-500">
                         <span>- Descuentos Aplicados:</span>
                         <span>-{formaterMoneda(tDescuentos)}</span>

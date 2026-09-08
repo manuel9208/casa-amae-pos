@@ -93,7 +93,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const dataGastos = await resGastos.json();
       setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
 
-      // 👇 NUEVA LÓGICA: Evaluación en tiempo real de horarios para el Cajero
       const estaDisponiblePorHorario = (item) => {
         if (item.disponible === false || item.disponible === 'false' || item.disponible === 0) return false;
         if (item.usa_horario !== true && item.usa_horario !== 'true') return true;
@@ -101,11 +100,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         try {
           const ahora = new Date();
           let diaActual = ahora.getDay();
-          diaActual = diaActual === 0 ? 7 : diaActual; // Convertir Domingo (0) a 7
+          diaActual = diaActual === 0 ? 7 : diaActual; 
 
           let dias = item.dias_disponibles;
           if (typeof dias === 'string') dias = JSON.parse(dias);
-          if (!Array.isArray(dias)) return true; // Fallback de seguridad
+          if (!Array.isArray(dias)) return true; 
 
           if (!dias.includes(diaActual)) return false;
 
@@ -117,15 +116,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           const minFin = hFin * 60 + mFin;
 
           if (minIni <= minFin) {
-              // Horario diurno (Ej: 08:00 a 14:00)
               if (minutosActuales < minIni || minutosActuales > minFin) return false;
           } else {
-              // Horario cruzado/nocturno (Ej: 20:00 a 02:00)
               if (minutosActuales < minIni && minutosActuales > minFin) return false;
           }
           return true;
         } catch (e) {
-          return true; // En caso de falla técnica, no esconder el producto
+          return true; 
         }
       };
 
@@ -189,7 +186,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
                 if (ultimoEvento.turno_cerrado === false && ultimoEvento.fondo_inicial !== null) {
                     setFondoCaja(Number(ultimoEvento.fondo_inicial));
-                    setTurnoActivo(ultimoEvento); // 👇 NUEVO: Guardamos el turno para leer su hora de apertura
+                    setTurnoActivo(ultimoEvento); 
                 } else {
                     setFondoCaja(null);
                     setTurnoActivo(null);
@@ -258,22 +255,18 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       } catch (error) {}
     };
 
-    // 1. Primera carga inicial al abrir el sistema
     cargarConfig();
     cargarDataDinamica();
 
-    // 2. 🚀 CONEXIÓN POR SOCKETS (Reemplazo del setInterval que quemaba Render)
     const baseUrl = apiUrl ? apiUrl.replace('/api', '') : 'http://localhost:4000';
     const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
 
-    // 3. Escuchadores de eventos reactivos
     socket.on('nuevo_pedido', () => cargarDataDinamica());
     socket.on('pedido_actualizado', () => cargarDataDinamica());
     socket.on('corte_actualizado', () => cargarDataDinamica());
     socket.on('configuracion_actualizada', () => cargarConfig());
-    socket.on('cambio_catalogo', () => cargarDataDinamica()); // Si usas un evento para cambios de insumos/menú
+    socket.on('cambio_catalogo', () => cargarDataDinamica()); 
 
-    // 4. Limpieza al desmontar
     return () => {
       socket.disconnect();
     };
@@ -323,7 +316,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setTicketImprimir(pedido);
     const modoImpresion = configGlobal?.ticket_modo_impresion || 'pdf';
 
-    // Función auxiliar para quitar emojis y dejar solo texto limpio
     const stripEmojis = (str) => {
       return String(str || '')
         .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '')
@@ -331,11 +323,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         .trim();
     };
 
-    // Función maestra que arma el texto del ticket
     const construirTextoTicket = () => {
       let receipt = "";
       
-      // Ajusta el texto sin cortarlo, haciéndolo saltar de línea si pasa los 32 caracteres (tamaño impresora 58mm)
       const formatearLinea = (texto, maxLen = 32, prefijo = '') => {
         if (!texto) return '';
         const words = String(texto).split(' ');
@@ -357,26 +347,23 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const center = (text) => {
         const str = String(text || '');
         if (str.length > 32) {
-            return formatearLinea(str, 32); // Si es muy largo, lo centra dividiéndolo en líneas
+            return formatearLinea(str, 32); 
         }
         const pad = Math.floor((32 - str.length) / 2);
         return " ".repeat(Math.max(0, pad)) + str + "\n";
       };
 
-      // 1. Cabecera del Negocio
       receipt += center(stripEmojis(configGlobal?.nombre_negocio || 'Mi Negocio'));
       if (configGlobal?.ticket_domicilio) receipt += center(stripEmojis(configGlobal.ticket_domicilio));
       if (configGlobal?.whatsapp) receipt += center(`Tel: ${configGlobal.whatsapp}`);
       receipt += `--------------------------------\n`;
       
-      // 2. Datos Generales de la Orden
       receipt += `TICKET: #${pedido.numero_pedido}\n`;
       receipt += `FECHA: ${new Date().toLocaleString('es-MX')}\n`;
       receipt += formatearLinea(stripEmojis(pedido.cliente_nombre || 'Invitado'), 32, 'CLIENTE: ');
       
       if (pedido.cliente_telefono) receipt += `TEL: ${pedido.cliente_telefono}\n`;
       
-      // 👇 DIRECCIÓN COMPLETA SIN CORTES
       if (pedido.direccion_entrega) {
           receipt += formatearLinea(stripEmojis(pedido.direccion_entrega), 32, 'DIR: ');
       }
@@ -385,7 +372,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       if (pedido.mesa) receipt += `MESA: ${pedido.mesa}\n`;
       receipt += `--------------------------------\n`;
 
-      // 3. Desglose del Carrito (Platillos y Extras COMPLETOS)
       const items = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : pedido.carrito;
       
       items.forEach(item => {
@@ -393,8 +379,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         const nombreItem = stripEmojis(item.nombre);
         const precio = Number(item.precioFinal || 0).toFixed(2);
         
-        // Fila del producto principal (Ej: "2x Pizza Pepperoni   $200.00")
-        // Calculamos espacios para alinear el precio a la derecha
         const itemLineStart = `${cant}x ${nombreItem}`;
         const itemLineEnd = `$${precio}`;
         
@@ -402,17 +386,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
              const spaces = 32 - (itemLineStart.length + itemLineEnd.length);
              receipt += `${itemLineStart}${" ".repeat(Math.max(0, spaces))}${itemLineEnd}\n`;
         } else {
-             // Si el nombre es muy largo, pone el nombre en una línea y el precio abajo a la derecha
              receipt += formatearLinea(itemLineStart, 32);
              const spaces = 32 - itemLineEnd.length;
              receipt += `${" ".repeat(Math.max(0, spaces))}${itemLineEnd}\n`;
         }
 
-        // 👇 EXTRAS Y NOTAS SIN LIMITAR CARACTERES
         if (item.extras && item.extras.length > 0) {
           item.extras.forEach(ex => {
             const nombreExtra = stripEmojis(ex.nombre);
-            // El prefijo "  + " da indentación visual para que se note que pertenece al platillo de arriba
             receipt += formatearLinea(nombreExtra, 32, '  + '); 
           });
         }
@@ -420,7 +401,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       
       receipt += `--------------------------------\n`;
       
-      // 4. Totales
       const costoEnvio = Number(pedido.costo_envio || 0);
       if (costoEnvio > 0) {
           const subtotal = Number(pedido.total) - costoEnvio;
@@ -428,14 +408,12 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           receipt += `ENVIO: $${costoEnvio.toFixed(2)}\n`;
       }
 
-      // Si pagó con Puntos, lo mostramos
       if (Number(pedido.descuento_puntos) > 0) {
           receipt += `PAGO C/ PUNTOS: -${pedido.descuento_puntos} pts\n`;
       }
 
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
       
-      // 5. Pie de página
       if (configGlobal?.ticket_mensaje_final) {
           receipt += `\n`;
           receipt += center(stripEmojis(configGlobal.ticket_mensaje_final));
@@ -445,9 +423,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       return receipt;
     };
 
-    // Ejecución de la Impresión según la configuración (Igual que antes)
     if (modoImpresion === 'bluetooth') {
-      setTimeout(() => setTicketImprimir(null), 1000);
+      setTimeout(() => setTicketImprimir(null), 3000);
     } else if (modoImpresion === 'rawbt_nativo') {
       try {
         const receipt = construirTextoTicket();
@@ -458,7 +435,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       } catch (err) {
         mostrarAlertaCaja('Error de RawBT', 'No se pudo conectar con la aplicación de impresión instalada.', 'error');
       }
-      setTimeout(() => setTicketImprimir(null), 1000);
+      setTimeout(() => setTicketImprimir(null), 3000);
 
     } else if (modoImpresion === 'traductor_silencioso') {
       try {
@@ -497,7 +474,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       } catch (err) {
         mostrarAlertaCaja('Error', 'Fallo interno al enviar el texto del ticket.', 'error');
       }
-      setTimeout(() => setTicketImprimir(null), 1000);
+      setTimeout(() => setTicketImprimir(null), 8000);
 
     } else {
       setTimeout(() => {
@@ -507,7 +484,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           window.removeEventListener('afterprint', handleAfterPrint);
         };
         window.addEventListener('afterprint', handleAfterPrint);
-        setTimeout(handleAfterPrint, 1000);
+        setTimeout(handleAfterPrint, 8000);
       }, 1500);
     }
   };
@@ -577,7 +554,18 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       });
 
       if (res.ok) {
-        if (!estadoRechazo && !esPostPago && configGlobal?.ticket_impresion_activa) lanzarImpresion(modalPago);
+        
+        const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion);
+        
+        if (!estadoRechazo && !esPostPago && !yaCocinada && configGlobal?.ticket_impresion_activa) {
+            const ordenActualizada = {
+                ...modalPago,
+                estado_preparacion: estadoFinal,
+                metodo_pago: metodoPagoFinal,
+                descuento_puntos: puntosUsados > 0 ? puntosUsados : modalPago.descuento_puntos
+            };
+            lanzarImpresion(ordenActualizada);
+        }
         
         if (puntosUsados > 0) {
             mostrarAlertaCaja('Cobro Exitoso', `Se descontaron ${puntosUsados} puntos del monedero del cliente.`, 'success');
@@ -597,30 +585,36 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };
 
   const liquidarPedidoRepartidor = async (pedidoIds) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
-      const promesas = idsArray.map(id =>
-        fetch(`${apiUrl}/pedidos/${id}/estado`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: 'Efectivo', cajero_id: operadorActual?.id })
-        })
-      );
-      const results = await Promise.all(promesas);
-      const todosOk = results.every(res => res.ok);
-      if (todosOk) {
-        await cargarDataDinamica();
-        mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el efectivo en caja.`, 'success');
-      } else {
-        mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar.', 'error');
-        await cargarDataDinamica();
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+      try {
+          const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
+          const promesas = idsArray.map(id => {
+              const pedido = pedidos.find(p => p.id === id);
+              // 👇 FIX: Respetamos el método de pago que eligió el repartidor (Mixto, Transf, Efe). Si no eligió, por defecto es Efectivo.
+              const metodoSeguro = (pedido && ['Efectivo', 'Mixto', 'Transferencia'].includes(pedido.metodo_pago))
+                                   ? pedido.metodo_pago
+                                   : 'Efectivo';
+
+              return fetch(`${apiUrl}/pedidos/${id}/estado`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: metodoSeguro, cajero_id: operadorActual?.id })
+              });
+          });
+          const results = await Promise.all(promesas);
+          const todosOk = results.every(res => res.ok);
+          if (todosOk) {
+              await cargarDataDinamica();
+              mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el pago en caja.`, 'success');
+          } else {
+              mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar.', 'error');
+              await cargarDataDinamica();
+          }
+      } catch (error) {
+          mostrarAlertaCaja('Error de Red', 'Problema de conexión.', 'error');
       }
-    } catch (error) {
-        mostrarAlertaCaja('Error de Red', 'Problema de conexión.', 'error');
-    }
-    setIsSubmitting(false);
+      setIsSubmitting(false);
   };
 
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado, extraData = {}) => {
@@ -629,8 +623,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
     const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);
     let estadoSeguro = nuevoEstado;
+    
+    // 👇 FIX: Si se envía manualmente a preparación sin chef, se pone en Aceptado para que KDS lo absorba.
     if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
-      estadoSeguro = 'Pagado';
+      estadoSeguro = 'Aceptado';
     }
 
     if (estadoSeguro === 'Entregado' && pedidoFull?.tipo_consumo === 'Local' && !pedidoFull?.mesa) {
@@ -685,14 +681,18 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await fetch(`${apiUrl}/pedidos/${id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
-            estado_preparacion: 'Pagado', 
+            estado_preparacion: 'Aceptado', // 👈 FIX: Estado puente que no confunde a Finanzas ni a Cocina
             metodo_pago: metodoPagoAjustado, 
             cajero_id: operadorActual?.id 
         }) 
       });
 
       if (pedidoConfirmado) {
-        lanzarImpresion(pedidoConfirmado);
+        lanzarImpresion({
+            ...pedidoConfirmado,
+            estado_preparacion: 'Aceptado',
+            metodo_pago: metodoPagoAjustado
+        });
       }
 
       await cargarDataDinamica();
@@ -716,7 +716,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ 
-            estado_preparacion: 'Pagado', 
+            estado_preparacion: 'Aceptado', // 👈 FIX: Estado puente
             metodo_pago: metodoPagoAjustado, 
             costo_envio, 
             total: t, 
@@ -725,7 +725,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       });
 
       if (modalZonaEnvio) {
-         lanzarImpresion(modalZonaEnvio); 
+         const ordenActualizadaParaTicket = {
+             ...modalZonaEnvio,
+             estado_preparacion: 'Aceptado',
+             metodo_pago: metodoPagoAjustado,
+             costo_envio: costo_envio,
+             total: t
+         };
+         lanzarImpresion(ordenActualizadaParaTicket); 
       }
 
       setModalZonaEnvio(null);
@@ -778,10 +785,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     if (isSubmitting) return; setIsSubmitting(true);
     
     try {  
-      // 👇 NUEVO: Enrutador Inteligente (Proveedor Múltiple vs Caja Individual)
       if (payload.tipo_compra === 'proveedor_multi') {
         
-        // Enviamos la factura a la nueva tabla de gastos (Quedará Pendiente para el Admin)
         await fetch(`${apiUrl}/gastos-proveedores`, {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
@@ -799,7 +804,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         if (setModalCompraRapida) setModalCompraRapida(false);
 
       } else {
-        // Flujo Original: Compra rápida individual descontada directamente de Caja
         const payloadConUsuario = { ...payload, usuario_id: operadorActual?.id };  
         await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadConUsuario)
@@ -980,56 +984,53 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     p.tipo_consumo === 'Domicilio' &&
     (
       p.estado_preparacion === 'En Camino' ||
-      (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago))
-    )
+      (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia', 'Mixto'].includes(p.metodo_pago))
+     )
   );
 
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion));
 
-  // 👇 NUEVO: Filtramos los gastos para aislar solo los de este cajero en su turno actual
   const gastosTurnoActivo = gastosDia.filter(g => {
       if (Number(g.usuario_id) !== Number(operadorActual?.id)) return false;
-      
-      // Si la base de datos devuelve timestamps, aseguramos que el gasto sea de DESPUÉS de abrir caja
       if (turnoActivo && turnoActivo.created_at && g.created_at) {
           return new Date(g.created_at).getTime() >= new Date(turnoActivo.created_at).getTime();
       }
       return true; 
   });
 
-  return {
-    vistaActiva, setVistaActiva, subVistaHistorial, setSubVistaHistorial,
-    pedidos, mesas, catalogoIngredientes, configGlobal, insumosDB, gastosDia, 
-    gastosTurnoActivo, turnoActivo,
-    modalPago, setModalPago, montoRecibido, setMontoRecibido,
-    modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx,
-    accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo,
-    ticketImprimir, modalZonaEnvio, setModalZonaEnvio,
-    modalVerDetalle, setModalVerDetalle, modalEditarPedido, setModalEditarPedido,
-    modalCompraRapida, setModalCompraRapida,
-    modalMermas, setModalMermas,
-    insumoComprar, setInsumoComprar,
-    paquetesComprados, setPaquetesComprados, alertaCaja, setAlertaCaja,
-    modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
-    modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
-    telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
-    modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, setOrdenEditandoRapida, modalComedor, setModalComedor, 
-    productos, clasificaciones, empleadosPOS,
-    isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
-    isSubmitting, fondoCaja, inputFondo, setInputFondo, 
-    apiUrl, cargarDataDinamica,
-    fondosRepartidores, actualizarFondoRepartidor, fondoRepartidorGlobal, liquidarPedidoRepartidor,
-    modalAsistencia, setModalAsistencia,
-    pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
-    pedidosPorLiquidar, mesasPagadas, pedidosConAlerta,
-    buscarClienteParaPedido, registrarClienteParaPedido,
-    toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno,
-    lanzarImpresion, procesarPago, confirmarPedidoRecoger,
-    confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido,
-    limpiarAlerta, abrirModalResolver, enviarRespuestaCocina,
-    registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
-    onGoToKiosco: onGoToKioscoLocal,
-    forzarLiberacionMesas,
-    pedidosAuditados,combosActivos 
-  };
+      return {
+        vistaActiva, setVistaActiva, subVistaHistorial, setSubVistaHistorial,
+        pedidos, mesas, catalogoIngredientes, configGlobal, insumosDB, gastosDia,
+        gastosTurnoActivo, turnoActivo,
+        modalPago, setModalPago, montoRecibido, setMontoRecibido,
+        modalResolver, setModalResolver, itemAfectadoIdx, setItemAfectadoIdx,
+        accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo,
+        ticketImprimir, modalZonaEnvio, setModalZonaEnvio,
+        modalVerDetalle, setModalVerDetalle, modalEditarPedido, setModalEditarPedido,
+        modalCompraRapida, setModalCompraRapida,
+        modalMermas, setModalMermas,
+        insumoComprar, setInsumoComprar,
+        paquetesComprados, setPaquetesComprados, alertaCaja, setAlertaCaja,
+        modalAgregarExtra, setModalAgregarExtra, alertaCobroExtra, setAlertaCobroExtra,
+        modalIdentificar, setModalIdentificar, pasoIdentificar, setPasoIdentificar,
+        telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente,
+        modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, setOrdenEditandoRapida, modalComedor, setModalComedor,
+        productos, clasificaciones, empleadosPOS,
+        isCajaBloqueada, setIsCajaBloqueada, operadorActual, setOperadorActual,
+        isSubmitting, setIsSubmitting, fondoCaja, inputFondo, setInputFondo,
+        apiUrl, cargarDataDinamica,
+        fondosRepartidores, actualizarFondoRepartidor, fondoRepartidorGlobal, liquidarPedidoRepartidor,
+        modalAsistencia, setModalAsistencia,
+        pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
+        pedidosPorLiquidar, mesasPagadas, pedidosConAlerta,
+        buscarClienteParaPedido, registrarClienteParaPedido,
+        toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno,
+        lanzarImpresion, procesarPago, confirmarPedidoRecoger,
+        confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido,
+        limpiarAlerta, abrirModalResolver, enviarRespuestaCocina,
+        registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
+        onGoToKiosco: onGoToKioscoLocal,
+        forzarLiberacionMesas,
+        pedidosAuditados, combosActivos
+    };
 };

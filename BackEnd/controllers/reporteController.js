@@ -71,12 +71,10 @@ exports.obtenerReporteVentas = async (req, res) => {
     let params = [];
     let paramIndex = 1;
 
-    // 👇 ESCUDO DE ZONA HORARIA APLICADO (America/Mazatlan)
     if (tipo === 'dia' || tipo === 'historico') {
       queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = $${paramIndex}::DATE`;
       params.push(fecha || 'NOW()'); paramIndex++;
     } else if (tipo === 'rango') {
-      // 🟢 Si es Rango, usamos BETWEEN (Desde y Hasta)
       queryTimeConsumo += ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE >= $${paramIndex}::DATE AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE <= $${paramIndex + 1}::DATE`;
       params.push(fecha || 'NOW()');
       params.push(fechaFin || fecha || 'NOW()');
@@ -122,18 +120,31 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     const catFiltro = (clasificacion || 'Todas').trim().toLowerCase();
 
+    // ===============================================
+    // CÁLCULO DE VENTAS DEL RESTAURANTE
+    // ===============================================
     pedidosRes.rows.forEach(p => {
       t_envio += parseMoney(p.costo_envio);
       if (p.metodo_pago === 'Efectivo') t_efectivo += parseMoney(p.total);
       if (p.metodo_pago === 'Tarjeta') t_tarjeta += parseMoney(p.total);
       if (p.metodo_pago === 'Transferencia') t_transf += parseMoney(p.total);
+      
+      // 👇 FIX MÁSTER: Escudo protector contra pagos mixtos corruptos en el backend
       if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-          let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch(e) {}
-          pm.forEach(x => {
-              if(x.metodo === 'Efectivo') t_efectivo += parseMoney(x.monto);
-              if(x.metodo === 'Tarjeta') t_tarjeta += parseMoney(x.monto);
-              if(x.metodo === 'Transferencia') t_transf += parseMoney(x.monto);
-          });
+        try {
+            let pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+            if (typeof pm === 'string') pm = JSON.parse(pm); // Doble parseo de seguridad
+            
+            if (Array.isArray(pm)) {
+                pm.forEach(x => {
+                    if(x.metodo === 'Efectivo') t_efectivo += parseMoney(x.monto);
+                    if(x.metodo === 'Tarjeta') t_tarjeta += parseMoney(x.monto);
+                    if(x.metodo === 'Transferencia') t_transf += parseMoney(x.monto);
+                });
+            }
+        } catch(e) {
+            console.error("Dato corrupto evadido en reporte de ventas:", e);
+        }
       }
 
       let carrito = [];
@@ -318,13 +329,15 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     let detalles = Object.values(ventasObj).map(v => {
         let c_unitario = 0;
+        
+        // 👇 B2B ELIMINADO TOTALMENTE. CÁLCULO DIRECTO.
         if (v.categoria !== 'Extras' && v.categoria !== 'Envíos') {
             c_unitario = costoMap.get(Number(v.producto_id)) || 0;
-        }
-        
+        }  
+
         const descProp = Number(v.descuentos_aplicados || 0);
         const subVentas = Number(v.cantidad_vendida) * Number(v.precio_venta);
-        const subInversion = Number(v.cantidad_vendida) * Number(c_unitario);
+        const subInversion = Number(v.cantidad_vendida) * Number(c_unitario);  
 
         return {
             ...v,
@@ -359,15 +372,14 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     detalles = [...detalles, ...detalles_comedor];
     detalles.sort((a, b) => {
-        const catA = a.categoria === 'Comedor' ? 4 : (a.categoria === 'Envíos' ? 3 : (a.categoria === 'Extras' ? 2 : 1));
-        const catB = b.categoria === 'Comedor' ? 4 : (b.categoria === 'Envíos' ? 3 : (b.categoria === 'Extras' ? 2 : 1));
+        const catA = a.categoria === 'Comedor' ? 5 : (a.categoria === 'Envíos' ? 4 : (a.categoria === 'Extras' ? 3 : 2));
+        const catB = b.categoria === 'Comedor' ? 5 : (b.categoria === 'Envíos' ? 4 : (b.categoria === 'Extras' ? 3 : 2));
         if (catA !== catB) return catA - catB;
         return b.ganancia_neta - a.ganancia_neta;
     });
 
     let t_fondo = 0; let t_gastos = 0;
     try {
-        // 👇 APLICADO ESCUDO ZONA HORARIA A CORTES HISTORICOS
         const hcRes = await db.query(`SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha_corte')}`);
         hcRes.rows.forEach(row => {
             if(row.fondo_inicial) t_fondo += Number(row.fondo_inicial);
@@ -419,7 +431,6 @@ exports.obtenerReporteVentas = async (req, res) => {
     insights.productosCeroVentasHoy = todosProds.rows.filter(p => !idsVendidosHoy.has(p.id)).map(p => p.nombre);
 
     try {
-        // 👇 APLICADO ESCUDO ZONA HORARIA A CÁLCULO DEL DÍA DE AYER
         const ayerRes = await db.query(`
             SELECT carrito FROM pedidos 
             WHERE estado_preparacion != 'Cancelado' 
@@ -461,7 +472,6 @@ exports.obtenerReporteVentas = async (req, res) => {
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
             const boundsRes = await db.query(`SELECT TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio, TO_CHAR((${finSql}) - INTERVAL '1 second', 'DD/MM/YYYY') as fecha_fin`, [fecha || 'NOW()']);
             
-            // 👇 APLICADO ESCUDO ZONA HORARIA A RANGOS COMPARATIVOS
             const res = await db.query(`SELECT p.fecha_creacion, p.carrito, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql})`, [fecha || 'NOW()']);
 
             let totalPlatillos = 0; let horas = Array(24).fill(0);
@@ -590,7 +600,6 @@ exports.obtenerReporteCombustible = async (req, res) => {
         let queryTimeConsumo = '';
         let params = [fecha];
 
-        // 👇 FIX: CONVERSIÓN ESTRICTA A LA ZONA HORARIA LOCAL PARA LOGÍSTICA
         if (periodo === 'dia') {
             queryTimeConsumo = `(p.tiempo_entregado AT TIME ZONE 'America/Mazatlan')::DATE = $1::DATE`;
         } else if (periodo === 'semana') {
