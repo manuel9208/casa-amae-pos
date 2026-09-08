@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { BellRing, MessageSquare, XCircle, DollarSign, Clock, CreditCard, Smartphone, Wallet, PlusCircle, Eye } from 'lucide-react';
 
 import VistaMesas from './vistas/mesas/GestorMesasPrincipal';
@@ -120,110 +120,124 @@ const VistasCaja = (props) => {
     setLimpiandoMesas(false);
   };
 
-  const totalGastos = (props.gastosTurnoActivo || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
+  // 👇 OPTIMIZACIÓN EXTREMA: Envolvemos los gastos en useMemo
+  const totalGastos = useMemo(() => {
+    return (props.gastosTurnoActivo || []).reduce((sum, gasto) => sum + Number(gasto.costo_total), 0);
+  }, [props.gastosTurnoActivo]);
   
-  const pedidosValidos = pedidos.filter(p => 
-      p.estado_preparacion !== 'Pendiente' && 
-      p.estado_preparacion !== 'Cancelado' && 
-      !(pedidosAuditados && pedidosAuditados.has(p.id)) &&
-      (Number(p.cajero_id) === Number(user?.id) || (!p.cajero_id && (user?.rol === 'admin' || user?.rol === 'gerente')))
-  );
+  // 👇 OPTIMIZACIÓN EXTREMA: Envolvemos todas las finanzas y parseo JSON en useMemo
+  const financieras = useMemo(() => {
+    let totalPlatillos = 0; let totalExtras = 0; let totalEnvio = 0;
+    let dPlatillos = 0; let dExtras = 0; let dEnvio = 0; let dEfectivo = 0; let dTarjeta = 0; let dTransf = 0;
+    let tDescuentos = 0;
 
-  let totalPlatillos = 0; let totalExtras = 0; let totalEnvio = 0;
-  let dPlatillos = 0; let dExtras = 0; let dEnvio = 0; let dEfectivo = 0; let dTarjeta = 0; let dTransf = 0;
-  let tDescuentos = 0;
+    const parsearMixto = (pagos_mixtos) => {
+        try {
+            let pm = typeof pagos_mixtos === 'string' ? JSON.parse(pagos_mixtos) : pagos_mixtos;
+            if (typeof pm === 'string') pm = JSON.parse(pm); 
+            if (Array.isArray(pm)) return pm;
+        } catch(e) {}
+        return [];
+    };
 
-  // 👇 FUNCIÓN DE PARSEO SEGURO INYECTADA PARA PAGOS MIXTOS
-  const parsearMixto = (pagos_mixtos) => {
-      try {
-          let pm = typeof pagos_mixtos === 'string' ? JSON.parse(pagos_mixtos) : pagos_mixtos;
-          if (typeof pm === 'string') pm = JSON.parse(pm); // Escudo contra doble string
-          if (Array.isArray(pm)) return pm;
-      } catch(e) {}
-      return [];
-  };
+    const pedidosValidos = pedidos.filter(p => 
+        p.estado_preparacion !== 'Pendiente' && 
+        p.estado_preparacion !== 'Cancelado' && 
+        !(pedidosAuditados && pedidosAuditados.has(p.id)) &&
+        (Number(p.cajero_id) === Number(user?.id) || (!p.cajero_id && (user?.rol === 'admin' || user?.rol === 'gerente')))
+    );
 
-  pedidosValidos.forEach(p => {
-    const isDomicilio = p.tipo_consumo === 'Domicilio';
-    totalEnvio += Number(p.costo_envio || 0);
-    if (isDomicilio) dEnvio += Number(p.costo_envio || 0);
+    pedidosValidos.forEach(p => {
+      const isDomicilio = p.tipo_consumo === 'Domicilio';
+      totalEnvio += Number(p.costo_envio || 0);
+      if (isDomicilio) dEnvio += Number(p.costo_envio || 0);
 
-    const items = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
-    let order_gross = Number(p.costo_envio || 0);
+      const items = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
+      let order_gross = Number(p.costo_envio || 0);
 
-    items.forEach(item => {
-      const qty = Number(item.cantidad || 1);
-      let extrasMonetariosReales = 0;
-      if (item.extras && Array.isArray(item.extras)) {
-        item.extras.forEach(ext => {
-          if (ext.tipo === 'extra' || ext.es_extra === true || String(ext.nombre).toLowerCase().includes('extra')) {
-            extrasMonetariosReales += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
-          }
-        });
+      items.forEach(item => {
+        const qty = Number(item.cantidad || 1);
+        let extrasMonetariosReales = 0;
+        if (item.extras && Array.isArray(item.extras)) {
+          item.extras.forEach(ext => {
+            if (ext.tipo === 'extra' || ext.es_extra === true || String(ext.nombre).toLowerCase().includes('extra')) {
+              extrasMonetariosReales += Number(ext.precioExtra || ext.precio_extra || ext.precio || 0);
+            }
+          });
+        }
+        const calcExtra = (extrasMonetariosReales * qty);
+        totalExtras += calcExtra;
+        if (isDomicilio) dExtras += calcExtra;
+
+        const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
+        const precioBasePlatillo = precioTotalItem - extrasMonetariosReales;
+        const calcPlat = (precioBasePlatillo * qty);
+
+        totalPlatillos += calcPlat;
+        if (isDomicilio) dPlatillos += calcPlat;
+
+        order_gross += precioTotalItem * qty;
+      });
+
+      if (p.metodo_pago !== 'Comida Personal') {
+          const discount = order_gross - Number(p.total || 0);
+          if (discount > 0) tDescuentos += discount;
       }
-      const calcExtra = (extrasMonetariosReales * qty);
-      totalExtras += calcExtra;
-      if (isDomicilio) dExtras += calcExtra;
 
-      const precioTotalItem = Number(item.precioFinal || item.precio_base || item.precio || 0);
-      const precioBasePlatillo = precioTotalItem - extrasMonetariosReales;
-      const calcPlat = (precioBasePlatillo * qty);
-
-      totalPlatillos += calcPlat;
-      if (isDomicilio) dPlatillos += calcPlat;
-
-      order_gross += precioTotalItem * qty;
+      if (isDomicilio) {
+        if(p.metodo_pago === 'Efectivo') dEfectivo += Number(p.total);
+        if(p.metodo_pago === 'Tarjeta') dTarjeta += Number(p.total);
+        if(p.metodo_pago === 'Transferencia') dTransf += Number(p.total);
+        if(p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+            const pm = parsearMixto(p.pagos_mixtos);
+            pm.forEach(x => {
+              if(x.metodo === 'Efectivo') dEfectivo += Number(x.monto);
+              if(x.metodo === 'Tarjeta') dTarjeta += Number(x.monto);
+              if(x.metodo === 'Transferencia') dTransf += Number(x.monto);
+            });
+        }
+      }
     });
 
-    if (p.metodo_pago !== 'Comida Personal') {
-        const discount = order_gross - Number(p.total || 0);
-        if (discount > 0) tDescuentos += discount;
-    }
-
-    if (isDomicilio) {
-      if(p.metodo_pago === 'Efectivo') dEfectivo += Number(p.total);
-      if(p.metodo_pago === 'Tarjeta') dTarjeta += Number(p.total);
-      if(p.metodo_pago === 'Transferencia') dTransf += Number(p.total);
-      if(p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-          const pm = parsearMixto(p.pagos_mixtos);
-          pm.forEach(x => {
-            if(x.metodo === 'Efectivo') dEfectivo += Number(x.monto);
-            if(x.metodo === 'Tarjeta') dTarjeta += Number(x.monto);
-            if(x.metodo === 'Transferencia') dTransf += Number(x.monto);
-          });
+    const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
+      if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
+      if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+        const pm = parsearMixto(p.pagos_mixtos);
+        const ef = pm.find(x => x.metodo === 'Efectivo');
+        if (ef) return sum + Number(ef.monto);
       }
-    }
-  });
+      return sum;
+    }, 0);
 
-  const totalEfectivoVentas = pedidosValidos.reduce((sum, p) => {
-    if (p.metodo_pago === 'Efectivo') return sum + Number(p.total);
-    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = parsearMixto(p.pagos_mixtos);
-      const ef = pm.find(x => x.metodo === 'Efectivo');
-      if (ef) return sum + Number(ef.monto);
-    }
-    return sum;
-  }, 0);
+    const totalTarjetaVentas = pedidosValidos.reduce((sum, p) => {
+      if (p.metodo_pago === 'Tarjeta') return sum + Number(p.total);
+      if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+        const pm = parsearMixto(p.pagos_mixtos);
+        const tar = pm.find(x => x.metodo === 'Tarjeta');
+        if (tar) return sum + Number(tar.monto);
+      }
+      return sum;
+    }, 0);
 
-  const totalTarjetaVentas = pedidosValidos.reduce((sum, p) => {
-    if (p.metodo_pago === 'Tarjeta') return sum + Number(p.total);
-    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = parsearMixto(p.pagos_mixtos);
-      const tar = pm.find(x => x.metodo === 'Tarjeta');
-      if (tar) return sum + Number(tar.monto);
-    }
-    return sum;
-  }, 0);
+    const totalTransferenciaVentas = pedidosValidos.reduce((sum, p) => {
+      if (p.metodo_pago === 'Transferencia') return sum + Number(p.total);
+      if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+        const pm = parsearMixto(p.pagos_mixtos);
+        const trans = pm.find(x => x.metodo === 'Transferencia');
+        if (trans) return sum + Number(trans.monto);
+      }
+      return sum;
+    }, 0);
 
-  const totalTransferenciaVentas = pedidosValidos.reduce((sum, p) => {
-    if (p.metodo_pago === 'Transferencia') return sum + Number(p.total);
-    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
-      const pm = parsearMixto(p.pagos_mixtos);
-      const trans = pm.find(x => x.metodo === 'Transferencia');
-      if (trans) return sum + Number(trans.monto);
-    }
-    return sum;
-  }, 0);
+    return {
+      totalPlatillos, totalExtras, totalEnvio,
+      dPlatillos, dExtras, dEnvio,
+      lEfectivo: totalEfectivoVentas - dEfectivo, 
+      lTarjeta: totalTarjetaVentas - dTarjeta, 
+      lTransf: totalTransferenciaVentas - dTransf, 
+      dEfectivo, dTarjeta, dTransf, tDescuentos 
+    };
+  }, [pedidos, pedidosAuditados, user]);
 
   const ordenesEnCaja = props.pendientesDePago || [];
 
@@ -401,21 +415,7 @@ const VistasCaja = (props) => {
             onLogout={props.onLogout}
             fondoCaja={props.fondoCaja}
             totalGastos={totalGastos}
-            mathData={{
-              totalPlatillos, 
-              totalExtras, 
-              totalEnvio, 
-              dPlatillos, 
-              dExtras, 
-              dEnvio, 
-              lEfectivo: totalEfectivoVentas - dEfectivo, 
-              lTarjeta: totalTarjetaVentas - dTarjeta, 
-              lTransf: totalTransferenciaVentas - dTransf, 
-              dEfectivo, 
-              dTarjeta, 
-              dTransf,
-              tDescuentos 
-            }}
+            mathData={financieras}
             fondoRepartidor={fondoRepartidorGlobal}
           />
         )}

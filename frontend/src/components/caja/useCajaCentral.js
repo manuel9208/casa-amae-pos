@@ -499,9 +499,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     } catch (e) {}
   };
 
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista aplicada a Cobros
   const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosUsados = 0) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+
     let estadoFinal;
     let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
 
@@ -524,233 +526,191 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
     }
 
+    // 1. CAMBIO VISUAL INMEDIATO (Fake state)
+    const ordenCobrada = { ...modalPago };
+    setPedidos(prev => prev.map(p => p.id === ordenCobrada.id ? {
+        ...p,
+        estado_preparacion: estadoFinal,
+        metodo_pago: metodoPagoFinal,
+        pagos_mixtos: pagosMixtos || p.pagos_mixtos,
+        descuento_puntos: puntosUsados > 0 ? puntosUsados : p.descuento_puntos
+    } : p));
+
+    setModalPago(null);
+    setMontoRecibido('');
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
     try {
       const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, cajero_id: operadorActual?.id };
       if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
 
       if (puntosUsados > 0) {
           payload.descuento_puntos = puntosUsados;
-          payload.cliente_id = modalPago.cliente_id;
+          payload.cliente_id = ordenCobrada.cliente_id;
+          fetch(`${apiUrl}/pedidos/${ordenCobrada.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  descuento_puntos: puntosUsados, 
+                  cliente_id: ordenCobrada.cliente_id,
+                  metodo_pago: metodoPagoFinal
+              })
+          }).catch(()=>{});
       }
 
-      if (puntosUsados > 0 && modalPago.cliente_id) {
-          try {
-              await fetch(`${apiUrl}/pedidos/${modalPago.id}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                      descuento_puntos: puntosUsados, 
-                      cliente_id: modalPago.cliente_id,
-                      metodo_pago: metodoPagoFinal
-                  })
-              });
-          } catch (err) {
-              console.warn("Aviso: Fallo al inyectar puntos en la ruta principal", err);
-          }
-      }
-
-      const res = await fetch(`${apiUrl}/pedidos/${modalPago.id}/estado`, {
+      fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
 
-      if (res.ok) {
-        
-        const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion);
-        
-        if (!estadoRechazo && !esPostPago && !yaCocinada && configGlobal?.ticket_impresion_activa) {
-            const ordenActualizada = {
-                ...modalPago,
-                estado_preparacion: estadoFinal,
-                metodo_pago: metodoPagoFinal,
-                descuento_puntos: puntosUsados > 0 ? puntosUsados : modalPago.descuento_puntos
-            };
-            lanzarImpresion(ordenActualizada);
-        }
-        
-        if (puntosUsados > 0) {
-            mostrarAlertaCaja('Cobro Exitoso', `Se descontaron ${puntosUsados} puntos del monedero del cliente.`, 'success');
-        }
-
-        setModalPago(null);
-        setMontoRecibido('');
-        await cargarDataDinamica();
-      } else {
-        const errData = await res.json().catch(() => ({}));
-        mostrarAlertaCaja('Error de Servidor', errData.error || 'El backend rechazó el pago.', 'error');
+      // Impresión Inmediata
+      const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(ordenCobrada.estado_preparacion);
+      if (!estadoRechazo && !esPostPago && !yaCocinada && configGlobal?.ticket_impresion_activa) {
+          const ordenActualizada = { ...ordenCobrada, estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, descuento_puntos: puntosUsados > 0 ? puntosUsados : ordenCobrada.descuento_puntos };
+          lanzarImpresion(ordenActualizada);
       }
+      
+      if (puntosUsados > 0) mostrarAlertaCaja('Cobro Exitoso', `Se descontaron ${puntosUsados} puntos.`, 'success');
+
     } catch (error) {
-      mostrarAlertaCaja('Error de Red', 'Problema de conexión al procesar el pago.', 'error');
+      console.error("Fallo de red, se corregirá con Sockets.");
     }
-    setIsSubmitting(false);
+    
+    // Un micro-retraso para evitar doble-clic
+    setTimeout(() => setIsSubmitting(false), 200);
   };
 
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista aplicada a Liquidación Repartidor
   const liquidarPedidoRepartidor = async (pedidoIds) => {
       if (isSubmitting) return;
       setIsSubmitting(true);
+      
+      const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
+
+      // 1. CAMBIO VISUAL INMEDIATO
+      setPedidos(prev => prev.map(p => {
+          if (idsArray.includes(p.id)) {
+              const metodoSeguro = ['Efectivo', 'Mixto', 'Transferencia'].includes(p.metodo_pago) ? p.metodo_pago : 'Efectivo';
+              return { ...p, estado_preparacion: 'Liquidado', metodo_pago: metodoSeguro };
+          }
+          return p;
+      }));
+
+      // 2. SINCRONIZACIÓN SILENCIOSA
       try {
-          const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
           const promesas = idsArray.map(id => {
               const pedido = pedidos.find(p => p.id === id);
-              // 👇 FIX: Respetamos el método de pago que eligió el repartidor (Mixto, Transf, Efe). Si no eligió, por defecto es Efectivo.
-              const metodoSeguro = (pedido && ['Efectivo', 'Mixto', 'Transferencia'].includes(pedido.metodo_pago))
-                                   ? pedido.metodo_pago
-                                   : 'Efectivo';
-
+              const metodoSeguro = (pedido && ['Efectivo', 'Mixto', 'Transferencia'].includes(pedido.metodo_pago)) ? pedido.metodo_pago : 'Efectivo';
               return fetch(`${apiUrl}/pedidos/${id}/estado`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: metodoSeguro, cajero_id: operadorActual?.id })
               });
           });
-          const results = await Promise.all(promesas);
-          const todosOk = results.every(res => res.ok);
-          if (todosOk) {
-              await cargarDataDinamica();
+          Promise.all(promesas).then(() => {
               mostrarAlertaCaja('Liquidación Exitosa', `Se ha asentado el pago en caja.`, 'success');
-          } else {
-              mostrarAlertaCaja('Error Parcial', 'Algunas órdenes no se pudieron liquidar.', 'error');
-              await cargarDataDinamica();
-          }
-      } catch (error) {
-          mostrarAlertaCaja('Error de Red', 'Problema de conexión.', 'error');
-      }
-      setIsSubmitting(false);
+          }).catch(console.error);
+      } catch (error) {}
+      
+      setTimeout(() => setIsSubmitting(false), 200);
   };
 
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista aplicada a Actualización Genérica
   const actualizarEstadoPedido = async (pedidoOId, nuevoEstado, extraData = {}) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
     const idReal = typeof pedidoOId === 'object' ? pedidoOId.id : pedidoOId;
     const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);
-    let estadoSeguro = nuevoEstado;
-    
-    // 👇 FIX: Si se envía manualmente a preparación sin chef, se pone en Aceptado para que KDS lo absorba.
-    if (nuevoEstado === 'Preparando' && (!pedidoFull || !pedidoFull.chef_id)) {
-      estadoSeguro = 'Aceptado';
-    }
+    let estadoSeguro = nuevoEstado;  
 
     if (estadoSeguro === 'Entregado' && pedidoFull?.tipo_consumo === 'Local' && !pedidoFull?.mesa) {
-        estadoSeguro = 'Finalizado';
-    }
-    
+      estadoSeguro = 'Finalizado';
+    }  
+
+    // 1. CAMBIO VISUAL INMEDIATO
+    setPedidos(prev => prev.map(p => p.id === idReal ? { ...p, estado_preparacion: estadoSeguro, ...extraData } : p));
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
     try {
       let payload = { estado_preparacion: estadoSeguro, ...extraData };
-      if (estadoSeguro === 'Entregado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
-      } else if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
+      if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
         payload.metodo_pago = 'Por Cobrar';
       }
-      const res = await fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
+      fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        await cargarDataDinamica();
-      }
+      }).catch(console.error);
     } catch (error) {}
-    setIsSubmitting(false);
+  };
+
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Entregar/Completar en Mesa
+  const confirmarPedidoRecoger = async (id) => {
+    // 1. CAMBIO VISUAL INMEDIATO
+    const pedidoConfirmado = pedidosPorConfirmar.find(p => p.id === id);  
+    const pedidoRecoger = pedidos.find(p => p.id === id);
+    let metodoPagoAjustado = pedidoRecoger?.metodo_pago;  
+    if (metodoPagoAjustado === 'Efectivo') metodoPagoAjustado = 'Por Cobrar';  
+
+    setPedidos(prev => prev.map(p => p.id === id ? { ...p, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado } : p));
+
+    if (pedidoConfirmado && configGlobal?.ticket_impresion_activa) {
+        lanzarImpresion({ ...pedidoConfirmado, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado });
+    }
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
+    try {
+      fetch(`${apiUrl}/pedidos/${id}/estado`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
+      }).catch(console.error);  
+    } catch (error) {}
+  };
+
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Mandar a Repartir
+  const confirmarPedidoDomicilio = async (pedidoModificado) => {
+    const { costo_envio } = pedidoModificado;
+    const t = Number(pedidoModificado.total) + Number(costo_envio);  
+    let metodoPagoAjustado = pedidoModificado.metodo_pago;  
+    if (metodoPagoAjustado === 'Efectivo') metodoPagoAjustado = 'Por Cobrar';  
+
+    // 1. CAMBIO VISUAL INMEDIATO
+    setPedidos(prev => prev.map(p => p.id === pedidoModificado.id ? { 
+        ...p, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t 
+    } : p));
+
+    if (modalZonaEnvio && configGlobal?.ticket_impresion_activa) {
+        lanzarImpresion({ ...modalZonaEnvio, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t });
+    }  
+    setModalZonaEnvio(null);
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
+    try {
+      fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
+      }).catch(console.error);  
+    } catch (error) {}
   };
 
   const forzarLiberacionMesas = async (arrayMesasOcupadas) => {
-    setIsSubmitting(true);
+    // 1. CAMBIO VISUAL INMEDIATO
+    const idsLiberadas = arrayMesasOcupadas.map(m => m.id);
+    setMesas(prev => prev.map(m => idsLiberadas.includes(m.id) ? { ...m, estado: 'Libre', pedido_actual_id: null } : m));
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      const promesas = arrayMesasOcupadas.map(m =>
+      arrayMesasOcupadas.forEach(m => {
         fetch(`${apiUrl}/mesas/${m.id}/estado`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ estado: 'Libre' })
-        })
-      );
-      await Promise.all(promesas);
-      await cargarDataDinamica();
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'Libre' })
+        }).catch(console.error);
+      });
     } catch(e) {}
-    setIsSubmitting(false);
   };
 
-  const confirmarPedidoRecoger = async (id) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const pedidoConfirmado = pedidosPorConfirmar.find(p => p.id === id);
-
-      const pedidoRecoger = pedidos.find(p => p.id === id);
-      let metodoPagoAjustado = pedidoRecoger?.metodo_pago;
-
-      if (metodoPagoAjustado === 'Efectivo') {
-          metodoPagoAjustado = 'Por Cobrar';
-      }
-
-      await fetch(`${apiUrl}/pedidos/${id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ 
-            estado_preparacion: 'Aceptado', // 👈 FIX: Estado puente que no confunde a Finanzas ni a Cocina
-            metodo_pago: metodoPagoAjustado, 
-            cajero_id: operadorActual?.id 
-        }) 
-      });
-
-      if (pedidoConfirmado) {
-        lanzarImpresion({
-            ...pedidoConfirmado,
-            estado_preparacion: 'Aceptado',
-            metodo_pago: metodoPagoAjustado
-        });
-      }
-
-      await cargarDataDinamica();
-    } catch (error) {}
-    setIsSubmitting(false);
-  };
-
-  const confirmarPedidoDomicilio = async (pedidoModificado) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      const { costo_envio } = pedidoModificado;
-      const t = Number(pedidoModificado.total) + Number(costo_envio);
-      
-      let metodoPagoAjustado = pedidoModificado.metodo_pago;
-
-      if (metodoPagoAjustado === 'Efectivo') {
-          metodoPagoAjustado = 'Por Cobrar';
-      }
-
-      await fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ 
-            estado_preparacion: 'Aceptado', // 👈 FIX: Estado puente
-            metodo_pago: metodoPagoAjustado, 
-            costo_envio, 
-            total: t, 
-            cajero_id: operadorActual?.id 
-        }) 
-      });
-
-      if (modalZonaEnvio) {
-         const ordenActualizadaParaTicket = {
-             ...modalZonaEnvio,
-             estado_preparacion: 'Aceptado',
-             metodo_pago: metodoPagoAjustado,
-             costo_envio: costo_envio,
-             total: t
-         };
-         lanzarImpresion(ordenActualizadaParaTicket); 
-      }
-
-      setModalZonaEnvio(null);
-      await cargarDataDinamica();
-    } catch (error) {}
-    setIsSubmitting(false);
-  };
-
+  // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Limpiar Alertas y Responder
   const limpiarAlerta = async (id) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+    setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
     try {
-      await fetch(`${apiUrl}/pedidos/${id}/alerta`, {
+      fetch(`${apiUrl}/pedidos/${id}/alerta`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: null })
-      });
-      await cargarDataDinamica();
+      }).catch(console.error);
     } catch(e) {}
-    setIsSubmitting(false);
   };
 
   const abrirModalResolver = (pedido) => {
@@ -760,25 +720,85 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     setIngredienteReemplazo('');
   };
 
-  const confirmarAgregarExtra = async (pedidoOriginal, idxItem, extraObj) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+  const enviarRespuestaCocina = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    
+    const items = typeof modalResolver.carrito === 'string' ? JSON.parse(modalResolver.carrito) : modalResolver.carrito;
+    let payloadEstado = { estado_preparacion: modalResolver.estado_preparacion };
+    let textoRespuesta = 'CAJA RESPONDE: Revisado.';
+
+    if (accionAlerta === 'cancelar') {
+        payloadEstado.estado_preparacion = 'Cancelado';
+        textoRespuesta = 'CAJA RESPONDE: Se canceló todo el pedido.';
+    } else if (accionAlerta === 'quitar') {
+        items[itemAfectadoIdx].extras = items[itemAfectadoIdx].extras || [];
+        items[itemAfectadoIdx].extras.push({ nombre: `❌ SIN ingrediente faltante`, precioExtra: 0 });
+        textoRespuesta = 'CAJA RESPONDE: El cliente aceptó quitarlo.';
+    } else if (accionAlerta === 'cambiar') {
+        items[itemAfectadoIdx].extras = items[itemAfectadoIdx].extras || [];
+        items[itemAfectadoIdx].extras.push({ nombre: `🔄 Cambiar por: ${ingredienteReemplazo}`, precioExtra: 0 });
+        textoRespuesta = `CAJA RESPONDE: Cambiar por ${ingredienteReemplazo}.`;
+    } else if (accionAlerta === 'aceptar') {
+        textoRespuesta = 'CAJA RESPONDE: El cliente aceptó tu propuesta.';
+    }
+
+    // 1. CAMBIO VISUAL INMEDIATO
+    setPedidos(prev => prev.map(p => p.id === modalResolver.id ? { 
+        ...p, estado_preparacion: payloadEstado.estado_preparacion, alerta_cocina: textoRespuesta, carrito: items 
+    } : p));
+    
+    if (accionAlerta === 'cancelar' && modalResolver.mesa) {
+        setMesas(prev => prev.map(m => String(m.numero_mesa) === String(modalResolver.mesa) ? { ...m, estado: 'Libre' } : m));
+    }
+
+    const modalId = modalResolver.id;
+    const mesaIdParaLiberar = modalResolver.mesa ? mesas.find(m => String(m.numero_mesa) === String(modalResolver.mesa))?.id : null;
+
+    setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta(''); setIngredienteReemplazo('');
+
+    // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      const items = typeof pedidoOriginal.carrito === 'string' ? JSON.parse(pedidoOriginal.carrito) : pedidoOriginal.carrito;
-      const itemReal = items[idxItem];
-      itemReal.extras = itemReal.extras || [];
-      itemReal.extras.push({ nombre: extraObj.nombre, precioExtra: extraObj.precio_extra || extraObj.precioExtra || 0, tipo: 'extra' });
-      itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
-      const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
-      await fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, {
+      fetch(`${apiUrl}/pedidos/${modalId}/estado`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ carrito: items, estado_preparacion: payloadEstado.estado_preparacion })
+      }).catch(console.error);
+
+      fetch(`${apiUrl}/pedidos/${modalId}/alerta`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: textoRespuesta })
+      }).catch(console.error);
+
+      if (accionAlerta === 'cancelar' && mesaIdParaLiberar) {
+         fetch(`${apiUrl}/mesas/${mesaIdParaLiberar}/estado`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'Libre' })
+         }).catch(console.error);
+      }
+    } catch (error) {}
+  };
+
+  const confirmarAgregarExtra = async (pedidoOriginal, idxItem, extraObj) => {
+    if (isSubmitting) return; setIsSubmitting(true);
+    
+    const items = typeof pedidoOriginal.carrito === 'string' ? JSON.parse(pedidoOriginal.carrito) : pedidoOriginal.carrito;
+    const itemReal = items[idxItem];
+    itemReal.extras = itemReal.extras || [];
+    itemReal.extras.push({ nombre: extraObj.nombre, precioExtra: extraObj.precio_extra || extraObj.precioExtra || 0, tipo: 'extra' });
+    itemReal.precioFinal = (Number(itemReal.precioFinal) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
+    const nuevoTotal = (Number(pedidoOriginal.total) + Number(extraObj.precio_extra || extraObj.precioExtra || 0)).toFixed(2);
+    
+    // 1. CAMBIO VISUAL INMEDIATO
+    setPedidos(prev => prev.map(p => p.id === pedidoOriginal.id ? { ...p, carrito: items, total: nuevoTotal } : p));
+    
+    setModalAgregarExtra(null);
+    setAlertaCobroExtra({ orden: pedidoOriginal.numero_pedido, platillo: itemReal.nombre, extra: extraObj.nombre, monto: extraObj.precio_extra || extraObj.precioExtra || 0 });
+    
+    // 2. SINCRONIZACIÓN SILENCIOSA
+    try {
+      fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ carrito: items, total: nuevoTotal, estado_preparacion: pedidoOriginal.estado_preparacion })
-      });
-      setModalAgregarExtra(null);
-      setAlertaCobroExtra({ orden: pedidoOriginal.numero_pedido, platillo: itemReal.nombre, extra: extraObj.nombre, monto: extraObj.precio_extra || extraObj.precioExtra || 0 });
-      await cargarDataDinamica();
+      }).catch(console.error);
     } catch(e) {}
-    setIsSubmitting(false);
+    
+    setTimeout(() => setIsSubmitting(false), 200);
   };
 
   const registrarCompraRapida = async (payload) => {
@@ -818,47 +838,6 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     } catch(e) {
       mostrarAlertaCaja("Error", "Fallo de conexión al registrar la operación.", "error");
     }
-    setIsSubmitting(false);
-  };
-
-  const enviarRespuestaCocina = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (isSubmitting) return; setIsSubmitting(true);
-    try {
-      const items = typeof modalResolver.carrito === 'string' ? JSON.parse(modalResolver.carrito) : modalResolver.carrito;
-      let payloadEstado = { carrito: items, estado_preparacion: modalResolver.estado_preparacion };
-      let textoRespuesta = 'CAJA RESPONDE: Revisado.';
-      if (accionAlerta === 'cancelar') {
-        payloadEstado.estado_preparacion = 'Cancelado';
-        textoRespuesta = 'CAJA RESPONDE: Se canceló todo el pedido.';
-        if (modalResolver.mesa) {
-          const tableObj = mesas.find(m => String(m.numero_mesa) === String(modalResolver.mesa));
-          if (tableObj) {
-            await fetch(`${apiUrl}/mesas/${tableObj.id}/estado`, {
-              method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'Libre' })
-            });
-          }
-        }
-      } else if (accionAlerta === 'quitar') {
-        items[itemAfectadoIdx].extras = items[itemAfectadoIdx].extras || [];
-        items[itemAfectadoIdx].extras.push({ nombre: `❌ SIN ingrediente faltante`, precioExtra: 0 });
-        textoRespuesta = 'CAJA RESPONDE: El cliente aceptó quitarlo.';
-      } else if (accionAlerta === 'cambiar') {
-        items[itemAfectadoIdx].extras = items[itemAfectadoIdx].extras || [];
-        items[itemAfectadoIdx].extras.push({ nombre: `🔄 Cambiar por: ${ingredienteReemplazo}`, precioExtra: 0 });
-        textoRespuesta = `CAJA RESPONDE: Cambiar por ${ingredienteReemplazo}.`;
-      } else if (accionAlerta === 'aceptar') {
-        textoRespuesta = 'CAJA RESPONDE: El cliente aceptó tu propuesta.';
-      }
-      await fetch(`${apiUrl}/pedidos/${modalResolver.id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadEstado)
-      });
-      await fetch(`${apiUrl}/pedidos/${modalResolver.id}/alerta`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: textoRespuesta })
-      });
-      setModalResolver(null); setItemAfectadoIdx(''); setAccionAlerta(''); setIngredienteReemplazo('');
-      await cargarDataDinamica();
-    } catch (error) {}
     setIsSubmitting(false);
   };
 

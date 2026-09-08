@@ -8,7 +8,6 @@ import ModalProblema from './cocina/ModalProblema';
 import ModalSolicitarInsumo from './cocina/ModalSolicitarInsumo';
 import ModalAsistencia from './cocina/ModalAsistencia';  
 
-// 👇 IMPORTACIÓN DEL GESTOR DE MERMAS DE CAJA (Regla #12: No duplicar código)
 import GestorMermasPrincipal from './caja/modales/mermas/GestorMermasPrincipal';
 
 const Cocina = ({ user, onLogout }) => {
@@ -16,7 +15,6 @@ const Cocina = ({ user, onLogout }) => {
     const [catalogoIngredientes, setCatalogoIngredientes] = useState([]);
     const [clasificaciones, setClasificaciones] = useState([]);
     
-    // 👇 ESTADOS PARA ALIMENTAR EL MODAL DE MERMAS
     const [productos, setProductos] = useState([]);
     const [insumosDB, setInsumosDB] = useState([]);
 
@@ -34,6 +32,9 @@ const Cocina = ({ user, onLogout }) => {
     const [modalAsistencia, setModalAsistencia] = useState(null);
     const [alertaCaja, setAlertaCaja] = useState(null);  
 
+    // 👇 ESCUDO ANTI-PARPADEO: Guarda temporalmente los IDs que estamos modificando
+    const bloqueosOptimistasRef = useRef(new Set());
+    
     const audioRef = useRef(new Audio('/campana.mp3'));
     const prevPedidosCount = useRef(0);
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';  
@@ -122,18 +123,32 @@ const Cocina = ({ user, onLogout }) => {
             if (!res.ok) throw new Error("Error en petición");
             let data = await res.json();  
             
-            // 👇 FIX: Añadimos 'Aceptado' al radar de la cocina para que lo vean apenas la Caja lo confirme
             data = data.filter(p => ['Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion));
             
-            if (data.length > prevPedidosCount.current) {
-                audioRef.current.play().catch(() => console.log('Bloqueo de audio por navegador'));
-            }
-            prevPedidosCount.current = data.length;
-            setPedidos(data);
+            // 👇 SOLUCIÓN: Separamos las órdenes intocables (las que acabamos de tocar) de las nuevas
+            setPedidos(prev => {
+                // 1. Órdenes locales bajo escudo protector
+                const bloqueados = prev.filter(p => bloqueosOptimistasRef.current.has(p.id));
+                // 2. Órdenes frescas de la BD que no estamos modificando
+                const frescos = data.filter(p => !bloqueosOptimistasRef.current.has(p.id));
+                
+                const nuevaLista = [...bloqueados, ...frescos];
+                nuevaLista.sort((a, b) => a.id - b.id); // Mantiene el orden visual
+                return nuevaLista;
+            });
+
         } catch (error) {
             console.error("Error al cargar pedidos:", error);
         }
     }, [apiUrl]);  
+
+    // Reubicamos el audio para cumplir buenas prácticas de React y no afectar el render
+    useEffect(() => {
+        if (pedidos.length > prevPedidosCount.current) {
+            audioRef.current.play().catch(() => {});
+        }
+        prevPedidosCount.current = pedidos.length;
+    }, [pedidos.length]);
 
     useEffect(() => {
         fetchPedidos();
@@ -164,39 +179,50 @@ const Cocina = ({ user, onLogout }) => {
 
     // 👇 LA MAGIA DE COLABORACIÓN: Función maestra que actualiza por Platillo individual
     const procesarAccionItems = async (pedido, indicesAfectados, accion, trabajadorId) => {
-        if (isSubmitting) return;
-        setIsSubmitting(true);
+        // Activamos el escudo protector para esta orden
+        bloqueosOptimistasRef.current.add(pedido.id);
+
+        const carritoActualizado = [...getCarrito(pedido)];
+        const ahoraStr = new Date().toISOString();
+
+        indicesAfectados.forEach(idx => {
+            if (accion === 'Preparar' || accion === 'Ayudar') {
+                carritoActualizado[idx].estado = 'Preparando';
+                carritoActualizado[idx].chef_id = trabajadorId;
+                if (accion === 'Preparar') carritoActualizado[idx].tiempo_inicio = ahoraStr;
+            } else if (accion === 'Terminar') {
+                carritoActualizado[idx].estado = 'Listo';
+                carritoActualizado[idx].tiempo_fin = ahoraStr;
+            }
+        });
+
+        let allListos = true;
+        let anyPreparando = false;
+
+        carritoActualizado.forEach(i => {
+            if (i.estado !== 'Listo' && i.estado !== 'Finalizado') allListos = false;
+            if (i.estado === 'Preparando') anyPreparando = true;
+        });
+
+        let nuevoEstadoGlobal = pedido.estado_preparacion;
+        if (allListos) nuevoEstadoGlobal = 'Listo';
+        else if (anyPreparando || accion === 'Preparar' || accion === 'Ayudar') nuevoEstadoGlobal = 'Preparando';
+
+        const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;
+
+        // 1. ACTUALIZACIÓN OPTIMISTA INMEDIATA
+        setPedidos(prev => {
+            if (nuevoEstadoGlobal === 'Listo') {
+                return prev.filter(p => p.id !== pedido.id); // Si ya todo está listo, desaparece para siempre sin parpadeos
+            }
+            return prev.map(p => p.id === pedido.id 
+                ? { ...p, estado_preparacion: nuevoEstadoGlobal, chef_id: mainChefId, carrito: carritoActualizado } 
+                : p
+            );
+        });
+
+        // 2. PETICIÓN EN SEGUNDO PLANO
         try {
-            const carritoActualizado = [...getCarrito(pedido)];
-            const ahoraStr = new Date().toISOString();
-
-            // 1. Actualizamos exclusivamente los platillos afectados
-            indicesAfectados.forEach(idx => {
-                if (accion === 'Preparar' || accion === 'Ayudar') {
-                    carritoActualizado[idx].estado = 'Preparando';
-                    carritoActualizado[idx].chef_id = trabajadorId;
-                    if (accion === 'Preparar') carritoActualizado[idx].tiempo_inicio = ahoraStr;
-                } else if (accion === 'Terminar') {
-                    carritoActualizado[idx].estado = 'Listo';
-                    carritoActualizado[idx].tiempo_fin = ahoraStr;
-                }
-            });
-
-            // 2. Evaluamos cómo debe quedar la Orden Global
-            let allListos = true;
-            let anyPreparando = false;
-
-            carritoActualizado.forEach(i => {
-                if (i.estado !== 'Listo' && i.estado !== 'Finalizado') allListos = false;
-                if (i.estado === 'Preparando') anyPreparando = true;
-            });
-
-            let nuevoEstadoGlobal = pedido.estado_preparacion;
-            if (allListos) nuevoEstadoGlobal = 'Listo';
-            else if (anyPreparando || accion === 'Preparar' || accion === 'Ayudar') nuevoEstadoGlobal = 'Preparando';
-
-            const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;
-
             await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -206,39 +232,61 @@ const Cocina = ({ user, onLogout }) => {
                     carrito: carritoActualizado
                 })
             });
-            fetchPedidos();
         } catch (error) {
             console.error("Error al actualizar platillos:", error);
+        } finally {
+            // Desactivamos el escudo después de 1.5 segundos (tiempo suficiente para que la BD termine de procesar)
+            setTimeout(() => {
+                bloqueosOptimistasRef.current.delete(pedido.id);
+                fetchPedidos();
+            }, 1500);
         }
-        setIsSubmitting(false);
     };
 
     const enviarAlerta = async () => {
         if (!modalAlerta || !faltanteSelec || !propuestaSelec) return;
         setIsSubmitting(true);
+        const targetId = modalAlerta.pedido.id;
+        bloqueosOptimistasRef.current.add(targetId);
+
         try {
-            // modalAlerta.itemIndex ya trae el índice exacto
             const msj = `[IDX:${modalAlerta.itemIndex}] 🚨 FALTANTE: ${faltanteSelec}. PROPUESTA COCINA: ${propuestaSelec}`;
-            await fetch(`${apiUrl}/pedidos/${modalAlerta.pedido.id}/alerta`, {
+            
+            // Actualización optimista local
+            setPedidos(prev => prev.map(p => p.id === targetId ? { ...p, alerta_cocina: msj } : p));
+
+            await fetch(`${apiUrl}/pedidos/${targetId}/alerta`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ alerta_cocina: msj })
             });
-            fetchPedidos();
             setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');
         } catch (error) { console.error(error); }
-        setIsSubmitting(false);
+        finally {
+            setTimeout(() => {
+                bloqueosOptimistasRef.current.delete(targetId);
+                fetchPedidos();
+            }, 1500);
+            setIsSubmitting(false);
+        }
     };  
 
     const limpiarAlerta = async (id) => {
-        setIsSubmitting(true);
+        bloqueosOptimistasRef.current.add(id);
+        // Actualización optimista local
+        setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
+
         try {
             await fetch(`${apiUrl}/pedidos/${id}/alerta`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ alerta_cocina: null })
             });
-            fetchPedidos();
         } catch(e) {}
-        setIsSubmitting(false);
+        finally {
+            setTimeout(() => {
+                bloqueosOptimistasRef.current.delete(id);
+                fetchPedidos();
+            }, 1500);
+        }
     };  
 
     const obtenerNombreTrabajadorActivo = (id) => {
@@ -331,7 +379,6 @@ const Cocina = ({ user, onLogout }) => {
                 />
             )}  
 
-            {/* CONECTAMOS EL GESTOR DE MERMAS DE CAJA DIRECTO EN COCINA */}
             <GestorMermasPrincipal
                 modalMermas={modalMermas}
                 setModalMermas={setModalMermas}
