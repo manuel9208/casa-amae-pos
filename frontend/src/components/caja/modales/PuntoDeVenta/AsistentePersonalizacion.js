@@ -600,23 +600,43 @@ const AsistentePersonalizacion = ({
                         <div className="mt-4 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3 pl-1">Selecciona el reemplazo:</p>
                            <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-40 overflow-y-auto custom-scrollbar pr-2">
-                             {catalogoIngredientes.filter(ing => {
-                                const categoriaOpcion = String(o.categoria || o.clasificacion || '').trim().toLowerCase();
-                                const catIngLimpia = String(ing.clasificacion_nombre || '').trim().toLowerCase();
-                                return catIngLimpia === categoriaOpcion && ing.nombre !== o.nombre;
-                             }).map((ingRep, iIdx) => {
-                                const diferenciaCostos = calcularPrecioSustitucion(o.nombre, ingRep.nombre);
-                                return (
-                                  <button key={iIdx} onClick={() => {
-                                     setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ingRep.nombre, precioCalculado: diferenciaCostos }});
-                                     setIngredientesBase(ingredientesBase.filter(x => x !== o.nombre));
-                                     setIngredienteDesplegado(null);
-                                  }} className="bg-white border border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-2 md:p-3 rounded-xl transition text-left flex flex-col items-start shadow-sm active:scale-95">
-                                    <span className="font-bold text-indigo-900 text-xs md:text-sm">{ingRep.nombre}</span>
-                                    <span className="text-[9px] md:text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded mt-1">{diferenciaCostos > 0 ? `+$${diferenciaCostos}` : 'Sin costo extra'}</span>
-                                  </button>
-                                );
-                             })}
+                             {(() => {
+                                // 1. Sacamos la categoría global del platillo (Ej: 'Crepas')
+                                const categoriaItem = String(productoEnEspera.categoria || '').trim().toLowerCase();
+                                const clasifObj = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === categoriaItem);
+                                const clasifId = clasifObj ? clasifObj.id : null;
+                                
+                                // 2. Guardamos qué ingredientes YA trae el platillo de base (Ej: ['platano', 'nuez'])
+                                const recetaOriginal = (productoEnEspera.opciones || []).filter(op => op.tipo === 'base').map(op => String(op.nombre).trim().toLowerCase());
+
+                                return catalogoIngredientes.filter(ing => {
+                                    // 3. Verificamos si este extra pertenece a 'Crepas' o es un extra global
+                                    const catIng = String(ing.clasificacion_nombre || '').trim().toLowerCase();
+                                    const coincideCategoria = (clasifId && Number(ing.clasificacion_id) === Number(clasifId)) || (catIng === categoriaItem);
+                                    const esValido = (coincideCategoria || ing.es_extra || String(ing.tipo) === 'extra') && ing.permite_extra !== false;
+                                    
+                                    // 4. Verificamos que el extra NO esté ya dentro de la receta original
+                                    const noEsBaseOriginal = !recetaOriginal.includes(String(ing.nombre).trim().toLowerCase());
+
+                                    return esValido && noEsBaseOriginal && ing.nombre !== o.nombre;
+                                }).map((ingRep, iIdx) => {
+                                    // 5. Calculamos el precio, que ahora puede ser negativo (descuento)
+                                    const diferenciaCostos = calcularPrecioSustitucion(o.nombre, ingRep.nombre);
+                                    
+                                    return (
+                                      <button key={iIdx} onClick={() => {
+                                        setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ingRep.nombre, precioCalculado: diferenciaCostos }});
+                                        setIngredientesBase(ingredientesBase.filter(x => x !== o.nombre));
+                                        setIngredienteDesplegado(null);
+                                      }} className="bg-white border border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-2 md:p-3 rounded-xl transition text-left flex flex-col items-start shadow-sm active:scale-95">
+                                        <span className="font-bold text-indigo-900 text-xs md:text-sm">{ingRep.nombre}</span>
+                                        <span className={`text-[9px] md:text-[10px] font-black px-2 py-0.5 rounded mt-1 ${diferenciaCostos > 0 ? 'text-indigo-500 bg-indigo-50' : diferenciaCostos < 0 ? 'text-emerald-600 bg-emerald-100' : 'text-slate-500 bg-slate-100'}`}>
+                                            {diferenciaCostos > 0 ? `+$${diferenciaCostos.toFixed(2)}` : diferenciaCostos < 0 ? `-$${Math.abs(diferenciaCostos).toFixed(2)}` : 'Mismo precio'}
+                                        </span>
+                                      </button>
+                                    );
+                                });
+                            })()}
                            </div>
                         </div>
                       )}

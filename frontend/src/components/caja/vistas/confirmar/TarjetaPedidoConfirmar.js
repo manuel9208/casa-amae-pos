@@ -43,7 +43,7 @@ const TarjetaPedidoConfirmar = ({
     .join(', ')
     .trim();
 
-  // 👇 NUEVA FUNCIÓN: Genera el enlace de WhatsApp con el mensaje preescrito
+  // 👇 FUNCIÓN ACTUALIZADA: Mensaje Inteligente para WhatsApp
   const generarEnlaceWhatsApp = (pedido, telefono) => {
     if (!telefono) return '#';
     
@@ -62,7 +62,14 @@ const TarjetaPedidoConfirmar = ({
         });
     } catch(e) {}
 
-    mensaje += `\n*Total a pagar:* $${Number(pedido.total).toFixed(2)}\n\n`;
+    // 👇 CONDICIÓN MÁGICA: Si es Domicilio, se agrega el *+ ENVÍO* en negritas
+    if (pedido.tipo_consumo === 'Domicilio') {
+        mensaje += `\n*Total platillos:* $${Number(pedido.total).toFixed(2)} *+ ENVÍO*\n`;
+        mensaje += `_(El costo de envío te lo confirmaremos en un momento según tu zona)_ \n\n`;
+    } else {
+        mensaje += `\n*Total a pagar:* $${Number(pedido.total).toFixed(2)}\n\n`;
+    }
+
     mensaje += `¿Nos confirmas que todo esté correcto para comenzar a prepararlo? 👨‍🍳🔥`;
 
     return `https://wa.me/52${numLimpio}?text=${encodeURIComponent(mensaje)}`;
@@ -101,7 +108,6 @@ const TarjetaPedidoConfirmar = ({
             <User size={16} className="text-slate-400" /> {clienteExtraido}
           </p>
           
-          {/* 👇 FIX APLICADO: Usamos la nueva función generarEnlaceWhatsApp en el href */}
           {telefono && (
             <a 
               href={generarEnlaceWhatsApp(pedido, telefono)} 

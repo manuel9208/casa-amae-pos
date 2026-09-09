@@ -412,12 +412,17 @@ const PuntoDeVentaPrincipal = ({
     };
 
     const calcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
-        if (!politicasSustUI.activa) return 0;
+        if (!politicasSustUI?.activa) return 0;
         if (politicasSustUI.modalidad === 'fija') return Number(politicasSustUI.tarifa_fija || 0);
+        
         const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
         const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
-        const diff = Number(ingNuevo?.precio_extra || 0) - Number(ingBase?.precio_extra || 0);
-        return diff > 0 ? diff : 0;
+        
+        const precioViejo = Number(ingBase?.precio_extra || ingBase?.precioExtra || 0);
+        const precioNuevo = Number(ingNuevo?.precio_extra || ingNuevo?.precioExtra || 0);
+        
+        // Retornamos la diferencia pura. Si es negativa, será un descuento para el cliente.
+        return precioNuevo - precioViejo;
     };
 
     const evaluarUpsell = (prodId, catName) => {

@@ -32,7 +32,6 @@ const Cocina = ({ user, onLogout }) => {
     const [modalAsistencia, setModalAsistencia] = useState(null);
     const [alertaCaja, setAlertaCaja] = useState(null);  
 
-    // 👇 ESCUDO ANTI-PARPADEO: Guarda temporalmente los IDs que estamos modificando
     const bloqueosOptimistasRef = useRef(new Set());
     
     const audioRef = useRef(new Audio('/campana.mp3'));
@@ -125,15 +124,15 @@ const Cocina = ({ user, onLogout }) => {
             
             data = data.filter(p => ['Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion));
             
-            // 👇 SOLUCIÓN: Separamos las órdenes intocables (las que acabamos de tocar) de las nuevas
             setPedidos(prev => {
-                // 1. Órdenes locales bajo escudo protector
                 const bloqueados = prev.filter(p => bloqueosOptimistasRef.current.has(p.id));
-                // 2. Órdenes frescas de la BD que no estamos modificando
                 const frescos = data.filter(p => !bloqueosOptimistasRef.current.has(p.id));
                 
                 const nuevaLista = [...bloqueados, ...frescos];
-                nuevaLista.sort((a, b) => a.id - b.id); // Mantiene el orden visual
+                
+                // 👇 FIX APLICADO: ORDENAMIENTO ESTRICTO POR FECHA (MÁS ANTIGUO ARRIBA SIEMPRE)
+                nuevaLista.sort((a, b) => new Date(a.fecha_creacion).getTime() - new Date(b.fecha_creacion).getTime());
+                
                 return nuevaLista;
             });
 
@@ -142,7 +141,6 @@ const Cocina = ({ user, onLogout }) => {
         }
     }, [apiUrl]);  
 
-    // Reubicamos el audio para cumplir buenas prácticas de React y no afectar el render
     useEffect(() => {
         if (pedidos.length > prevPedidosCount.current) {
             audioRef.current.play().catch(() => {});
@@ -179,7 +177,7 @@ const Cocina = ({ user, onLogout }) => {
 
     // 👇 LA MAGIA DE COLABORACIÓN: Función maestra que actualiza por Platillo individual
     const procesarAccionItems = async (pedido, indicesAfectados, accion, trabajadorId) => {
-        // Activamos el escudo protector para esta orden
+        // 🔥 ELIMINAMOS EL BLOQUEO GLOBAL (isSubmitting) PARA CERO LATENCIA TÁCTIL
         bloqueosOptimistasRef.current.add(pedido.id);
 
         const carritoActualizado = [...getCarrito(pedido)];
@@ -210,10 +208,10 @@ const Cocina = ({ user, onLogout }) => {
 
         const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;
 
-        // 1. ACTUALIZACIÓN OPTIMISTA INMEDIATA
+        // 1. ACTUALIZACIÓN VISUAL INMEDIATA (Cero Latencia)
         setPedidos(prev => {
             if (nuevoEstadoGlobal === 'Listo') {
-                return prev.filter(p => p.id !== pedido.id); // Si ya todo está listo, desaparece para siempre sin parpadeos
+                return prev.filter(p => p.id !== pedido.id); 
             }
             return prev.map(p => p.id === pedido.id 
                 ? { ...p, estado_preparacion: nuevoEstadoGlobal, chef_id: mainChefId, carrito: carritoActualizado } 
@@ -221,26 +219,22 @@ const Cocina = ({ user, onLogout }) => {
             );
         });
 
-        // 2. PETICIÓN EN SEGUNDO PLANO
-        try {
-            await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    estado_preparacion: nuevoEstadoGlobal,
-                    chef_id: mainChefId,
-                    carrito: carritoActualizado
-                })
-            });
-        } catch (error) {
-            console.error("Error al actualizar platillos:", error);
-        } finally {
-            // Desactivamos el escudo después de 1.5 segundos (tiempo suficiente para que la BD termine de procesar)
-            setTimeout(() => {
-                bloqueosOptimistasRef.current.delete(pedido.id);
-                fetchPedidos();
-            }, 1500);
-        }
+        // 2. ENVÍO SILENCIOSO EN SEGUNDO PLANO (Fire and Forget)
+        fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                estado_preparacion: nuevoEstadoGlobal,
+                chef_id: mainChefId,
+                carrito: carritoActualizado
+            })
+        }).catch(error => console.error("Error al actualizar platillos:", error));
+        
+        // 3. RETIRAMOS EL ESCUDO ANTI-PARPADEO DESPUÉS DE 1.5 SEGUNDOS
+        setTimeout(() => {
+            bloqueosOptimistasRef.current.delete(pedido.id);
+            fetchPedidos();
+        }, 1500);
     };
 
     const enviarAlerta = async () => {
@@ -252,7 +246,6 @@ const Cocina = ({ user, onLogout }) => {
         try {
             const msj = `[IDX:${modalAlerta.itemIndex}] 🚨 FALTANTE: ${faltanteSelec}. PROPUESTA COCINA: ${propuestaSelec}`;
             
-            // Actualización optimista local
             setPedidos(prev => prev.map(p => p.id === targetId ? { ...p, alerta_cocina: msj } : p));
 
             await fetch(`${apiUrl}/pedidos/${targetId}/alerta`, {
@@ -265,14 +258,13 @@ const Cocina = ({ user, onLogout }) => {
             setTimeout(() => {
                 bloqueosOptimistasRef.current.delete(targetId);
                 fetchPedidos();
-            }, 1500);
-            setIsSubmitting(false);
+                setIsSubmitting(false);
+            }, 1000);
         }
     };  
 
     const limpiarAlerta = async (id) => {
         bloqueosOptimistasRef.current.add(id);
-        // Actualización optimista local
         setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
 
         try {
@@ -285,7 +277,7 @@ const Cocina = ({ user, onLogout }) => {
             setTimeout(() => {
                 bloqueosOptimistasRef.current.delete(id);
                 fetchPedidos();
-            }, 1500);
+            }, 1000);
         }
     };  
 

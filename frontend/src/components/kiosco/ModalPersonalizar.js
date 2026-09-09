@@ -287,11 +287,11 @@ const ModalPersonalizar = ({
     const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
     const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
 
-    const precioBase = Number(ingBase?.precio_extra || 0);
-    const precioNuevo = Number(ingNuevo?.precio_extra || 0);
+    const precioBase = Number(ingBase?.precio_extra || ingBase?.precioExtra || 0);
+    const precioNuevo = Number(ingNuevo?.precio_extra || ingNuevo?.precioExtra || 0);
 
-    const diferencia = precioNuevo - precioBase;
-    return diferencia > 0 ? diferencia : 0; 
+    // Retorna la diferencia pura. Si es negativa, se convierte en descuento a favor del cliente
+    return precioNuevo - precioBase; 
   };
 
   if (!currentItem) return null;
@@ -478,8 +478,8 @@ const ModalPersonalizar = ({
                   return (
                     <div key={idx} className={`p-3 md:p-4 rounded-xl transition border ${isBaseQuitada ? 'bg-rose-50 border-rose-200' : isSustituida ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-emerald-50 border-emerald-200'}`}>
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                            <span className={`font-bold text-sm ${isBaseQuitada ? 'line-through text-rose-500' : isSustituida ? 'text-blue-700' : 'text-emerald-700'}`}>
-                                {o.nombre} {isSustituida ? `(🔄 x ${isSustituida.nuevoNombre})` : ''}
+                            <span className={`font-black text-sm md:text-base ${isBaseQuitada ? 'line-through text-rose-500' : isSustituida ? 'text-blue-800' : 'text-emerald-800'}`}>
+                                {o.nombre}
                             </span>
                             
                             <div className="flex gap-2 w-full sm:w-auto">
@@ -513,25 +513,53 @@ const ModalPersonalizar = ({
                             </div>
                         </div>
 
+                        {/* Recuadro visual para mostrar ingredientes sustituidos con sus descuentos */}
+                        {isSustituida && (
+                          <div className="bg-white p-3 rounded-xl border border-blue-100 text-xs font-bold text-blue-700 flex justify-between items-center mt-3 shadow-sm">
+                            <span>🔄 Cambiado por: {isSustituida.nuevoNombre}</span>
+                            {isSustituida.precioCalculado !== 0 && (
+                                <span className={`px-2 py-1 rounded-md ${isSustituida.precioCalculado > 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {isSustituida.precioCalculado > 0 ? '+' : '-'}${Math.abs(isSustituida.precioCalculado).toFixed(2)}
+                                </span>
+                            )}
+                          </div>
+                        )}
+
                         {isSelectingSust && !isSustituida && !isBaseQuitada && (
                             <div className="mt-4 pt-4 border-t border-emerald-200/50 animate-in fade-in zoom-in-95">
                                 <p className="text-[10px] uppercase font-black text-slate-500 mb-3 tracking-widest">Elige el ingrediente de reemplazo:</p>
                                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                                    {catalogoIngredientes.filter(i => 
-                                        (i.clasificacion_id === currentItem.clasificacion_id || i.es_extra || i.tipo === 'extra') && 
-                                        i.permite_extra !== false
-                                    ).map((ex, idxEx) => {
-                                        const extraCost = calcularPrecioSustitucion(o.nombre, ex.nombre);
-                                        return (
-                                            <button key={idxEx} type="button" onClick={() => {
-                                                setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ex.nombre, precioCalculado: extraCost }});
-                                                setIngredienteDesplegado(null);
-                                            }} className="text-left p-3 rounded-xl bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm transition group">
-                                                <p className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-800">{ex.nombre}</p>
-                                                <p className="text-[10px] font-black mt-0.5 text-blue-500">{extraCost > 0 ? `+$${extraCost.toFixed(2)}` : 'Gratis'}</p>
-                                            </button>
-                                        )
-                                    })}
+                                    {(() => {
+                                        const categoriaItem = String(currentItem.categoria || '').trim().toLowerCase();
+                                        const recetaOriginal = (currentItem.opciones || []).filter(op => op.tipo === 'base').map(op => String(op.nombre).trim().toLowerCase());
+
+                                        return catalogoIngredientes.filter(ing => {
+                                            const catIng = String(ing.clasificacion_nombre || ing.categoria || '').trim().toLowerCase();
+                                            const coincideCategoria = catIng === categoriaItem;
+                                            const esExtraGlobal = (ing.es_extra === true || ing.es_extra === 'true' || String(ing.tipo).toLowerCase() === 'extra');
+                                            
+                                            if (ing.permite_extra === false || (!coincideCategoria && !esExtraGlobal)) return false;
+
+                                            const nombreIngLimpio = String(ing.nombre).trim().toLowerCase();
+                                            if (recetaOriginal.includes(nombreIngLimpio)) return false;
+                                            if (nombreIngLimpio === String(o.nombre).trim().toLowerCase()) return false;
+
+                                            return true;
+                                        }).map((ex, idxEx) => {
+                                            const extraCost = calcularPrecioSustitucion(o.nombre, ex.nombre);
+                                            return (
+                                                <button key={idxEx} type="button" onClick={() => {
+                                                    setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ex.nombre, precioCalculado: extraCost }});
+                                                    setIngredienteDesplegado(null);
+                                                }} className="text-left p-3 rounded-xl bg-white border border-slate-200 hover:border-blue-400 hover:bg-blue-50 hover:shadow-sm transition group flex flex-col justify-between h-full">
+                                                    <p className="text-xs font-bold text-slate-700 truncate group-hover:text-blue-800">{ex.nombre}</p>
+                                                    <p className={`text-[10px] font-black mt-2 w-fit px-2 py-0.5 rounded ${extraCost > 0 ? 'bg-indigo-50 text-indigo-500' : extraCost < 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {extraCost > 0 ? `+$${extraCost.toFixed(2)}` : extraCost < 0 ? `-$${Math.abs(extraCost).toFixed(2)}` : 'Mismo precio'}
+                                                    </p>
+                                                </button>
+                                            )
+                                        });
+                                    })()}
                                 </div>
                             </div>
                         )}
