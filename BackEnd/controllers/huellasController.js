@@ -107,10 +107,16 @@ exports.generarOpcionesRegistro = async (req, res) => {
             userID = `CLI_${cliente_id}`;
             userName = cliRes.rows[0].telefono;
             userDisplayName = cliRes.rows[0].nombre;
+        } else {
+            return res.status(400).json({ error: 'No se recibió ID válido.' });
         }
 
         const options = await generateRegistrationOptions({
-            rpName, rpID, userID, userName, userDisplayName,
+            rpName, 
+            rpID, 
+            userID: new Uint8Array(Buffer.from(userID)), // 👈 EL FIX DE ENCRIPTACIÓN BINARIA ESTÁ AQUÍ
+            userName, 
+            userDisplayName,
             attestationType: 'none',
             authenticatorSelection: { userVerification: 'preferred', residentKey: 'required' }
         });
@@ -118,6 +124,7 @@ exports.generarOpcionesRegistro = async (req, res) => {
         challengesConfig[userID] = options.challenge;
         res.json(options);
     } catch (error) {
+        console.error("🚨 Error al generar opciones biométricas:", error); // 👈 AHORA SÍ LO VEREMOS EN RENDER
         res.status(500).json({ error: 'Error al generar opciones biométricas.' });
     }
 };
