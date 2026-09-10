@@ -75,8 +75,6 @@ const AsistentePersonalizacion = ({
         setPasoPersonalizacion(0);
       } else {
         setPasoPersonalizacion(0);
-        setGruposSeleccionados({});
-        setGruposOpcionalesSeleccionados({});
         
         const bOriginales = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
         setIngredientesBase(bOriginales);
@@ -87,7 +85,10 @@ const AsistentePersonalizacion = ({
 
         let newOpcionSel = null;
         let newSaborSel = null;
+        let gruposSelTemp = {};
+        let gruposOpcTemp = {};
 
+        // 1. Detección de configuración de Combo
         if (productoEnEspera._esComboBuilder || productoEnEspera._esCombo) {
           let configData = productoEnEspera._configuracionCombo?.configuracion_grupos;
           if (configData) {
@@ -103,45 +104,46 @@ const AsistentePersonalizacion = ({
               newSaborSel = (productoEnEspera.opciones || []).find(o => o.categoria === 'Sabor' && String(o.nombre).toLowerCase() === String(basesCombo['Sabor']).toLowerCase());
             }
           }
-        } else if (isSubItem) {
-          const basesHijo = productoEnEspera._variacionesBaseComboHijo || {};
-          
-          if (basesHijo['Tamaño']) {
-            newOpcionSel = (productoEnEspera.opciones || []).find(o => o.categoria === 'Tamaño' && String(o.nombre).toLowerCase() === String(basesHijo['Tamaño']).toLowerCase());
-          } else {
-            const opcionesTamano = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
-            if (opcionesTamano.length > 0) newOpcionSel = opcionesTamano.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesTamano[0]);
-          }
-          
-          if (basesHijo['Sabor']) {
-            newSaborSel = (productoEnEspera.opciones || []).find(o => (o.categoria === 'Sabor' || o.tipo === 'variacion') && String(o.nombre).toLowerCase() === String(basesHijo['Sabor']).toLowerCase());
-          } else {
-            const opcionesSabor = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
-            if (opcionesSabor.length > 0) newSaborSel = opcionesSabor.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesSabor[0]);
-          }
-        }
+        } 
         else if (productoEnEspera._esPromo) {
           const varEfectiva = obtenerVariacionBaseEfectiva(productoEnEspera);
           if (varEfectiva) {
             newOpcionSel = (productoEnEspera.opciones || []).find(o => o.categoria === 'Tamaño' && String(o.nombre).toLowerCase() === varEfectiva);
             newSaborSel = (productoEnEspera.opciones || []).find(o => (o.categoria === 'Sabor' || o.tipo === 'variacion') && String(o.nombre).toLowerCase() === varEfectiva);
-          } else {
-            const opcionesTamano = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
-            if (opcionesTamano.length > 0) newOpcionSel = opcionesTamano.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesTamano[0]);
-
-            const opcionesSabor = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
-            if (opcionesSabor.length > 0) newSaborSel = opcionesSabor.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesSabor[0]);
           }
-        } else {
-          const opcionesTamano = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
-          if (opcionesTamano.length > 0) newOpcionSel = opcionesTamano.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesTamano[0]);
-
-          const opcionesSabor = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
-          if (opcionesSabor.length > 0) newSaborSel = opcionesSabor.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesSabor[0]);
         }
 
-        if (newOpcionSel) setOpcionSeleccionada(newOpcionSel);
-        if (newSaborSel) setSaborSeleccionado(newSaborSel);
+        // 👇 FIX MÁSTER: Auto-Fill de opciones por Defecto (Fast-Checkout Pattern)
+        (productoEnEspera.opciones || []).forEach(o => {
+            if (o.isDefault) {
+                if (o.tipo === 'grupo_obligatorio') {
+                    if (!gruposSelTemp[o.categoria]) gruposSelTemp[o.categoria] = o;
+                } else if (o.tipo === 'grupo_opcional') {
+                    if (!gruposOpcTemp[o.categoria]) gruposOpcTemp[o.categoria] = [];
+                    gruposOpcTemp[o.categoria].push(o);
+                }
+            }
+        });
+
+        // 3. Fallback inteligente de Tamaños (Si no está en un combo ni tiene Default, elige el más barato)
+        if (!newOpcionSel && !isSubItem) {
+          const opcionesTamano = (productoEnEspera.opciones || []).filter(o => o.categoria === 'Tamaño');
+          if (opcionesTamano.length > 0) {
+              newOpcionSel = opcionesTamano.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesTamano[0]);
+          }
+        }
+        
+        if (!newSaborSel && !isSubItem && !(productoEnEspera._esComboBuilder || productoEnEspera._esCombo)) {
+          const opcionesSabor = (productoEnEspera.opciones || []).filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
+          if (opcionesSabor.length > 0) {
+              newSaborSel = opcionesSabor.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesSabor[0]);
+          }
+        }
+
+        setOpcionSeleccionada(newOpcionSel);
+        setSaborSeleccionado(newSaborSel);
+        setGruposSeleccionados(gruposSelTemp);
+        setGruposOpcionalesSeleccionados(gruposOpcTemp);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,8 +166,8 @@ const AsistentePersonalizacion = ({
         objGruposOpcionales[o.categoria].opciones.push(o);
       });
 
-      if (tamanosList.length > 0) pasosTemp.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', opciones: tamanosList });
-      if (saboresList.length > 0) pasosTemp.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
+      if (tamanosList.length > 0) pasosTemp.push({ id: 'tamano', tipo: 'tamaño', titulo: 'Elige el Tamaño *', categoria: 'Tamaño', opciones: tamanosList });
+      if (saboresList.length > 0) pasosTemp.push({ id: 'sabor', tipo: 'sabor', titulo: 'Elige un Sabor *', categoria: 'Sabor', opciones: saboresList.sort((a, b) => a.nombre.localeCompare(b.nombre)) });
 
       gruposObligatoriosList.forEach(g => {
         pasosTemp.push({
@@ -182,14 +184,54 @@ const AsistentePersonalizacion = ({
       });
 
       const bases = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').sort((a, b) => a.nombre.localeCompare(b.nombre));
-      if (bases.length > 0) pasosTemp.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Modificar Ingredientes Base', opciones: bases });
+      if (bases.length > 0) pasosTemp.push({ id: 'quitar_ingredientes', tipo: 'quitar_ingredientes', titulo: 'Receta', opciones: bases });
 
-      pasosTemp.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Añadir Extras y Notas' });
+      pasosTemp.push({ id: 'extras_notas', tipo: 'extras_notas', titulo: 'Extras', categoria: 'Extras' });
 
       setPasosWiz(pasosTemp);
+
+      if (pasosTemp.length > 0 && pasoPersonalizacion === 0) {
+          // Si la primera pestaña es Receta u Opcional, lo catapultamos a Extras
+          if (pasosTemp[0].tipo === 'quitar_ingredientes' || pasosTemp[0].tipo === 'opcional' || pasosTemp[0].tipo === 'grupo_opcional') {
+              const lastIndex = pasosTemp.length - 1;
+              setPasoPersonalizacion(lastIndex); 
+              setPasoActualObj(pasosTemp[lastIndex]);
+              return;
+          }
+      }
+
       setPasoActualObj(pasosTemp[pasoPersonalizacion] || null);
     }
-  }, [productoEnEspera, pasoPersonalizacion]);
+  }, [productoEnEspera, pasoPersonalizacion, setPasoPersonalizacion]);
+
+  // 👇 MEJORA UX (SMART SKIP): Función matemática para la catapulta de pantallas
+  const avanzarSiguienteInteligente = (nuevosEstados = {}) => {
+      let nextIndex = pasosWiz.length - 1; // Por defecto apunta a la pestaña final (Extras)
+      
+      // Busca desde la pestaña actual hacia adelante
+      for (let i = pasoPersonalizacion + 1; i < pasosWiz.length - 1; i++) {
+          const step = pasosWiz[i];
+          let isCompleted = false;
+
+          if (step.tipo === 'tamaño') {
+              isCompleted = !!(nuevosEstados.opcionSeleccionada !== undefined ? nuevosEstados.opcionSeleccionada : opcionSeleccionada);
+          } else if (step.tipo === 'sabor') {
+              isCompleted = !!(nuevosEstados.saborSeleccionado !== undefined ? nuevosEstados.saborSeleccionado : saborSeleccionado);
+          } else if (step.tipo === 'grupo_obligatorio') {
+              const currentGrpSel = nuevosEstados.gruposSeleccionados || gruposSeleccionados;
+              isCompleted = !!currentGrpSel[step.categoria];
+          } else {
+              // Los grupos opcionales y "quitar ingredientes" siempre se consideran completos para poder saltarlos
+              isCompleted = true; 
+          }
+
+          if (!isCompleted) {
+              nextIndex = i; // Si encontró uno vacío y obligatorio, frena aquí.
+              break;
+          }
+      }
+      setPasoPersonalizacion(nextIndex); // Ejecuta el salto
+  };
 
   if (!productoEnEspera || !pasoActualObj) return null;
 
@@ -313,13 +355,11 @@ const AsistentePersonalizacion = ({
     Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria || 'Extra'}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' }));
     Object.entries(ingredientesSustituidos).forEach(([base, data]) => extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado || 0, tipo: 'sustitucion' }));
     
-    // 👇 FIX MÁSTER: Identificamos qué ingredientes QUEDARON AFUERA respecto a la receta original
     const recetaOriginal = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
     recetaOriginal.forEach(ingredienteOriginal => {
         const loDejoElCliente = ingredientesBase.includes(ingredienteOriginal);
         const loSustituyoElCliente = ingredientesSustituidos[ingredienteOriginal] !== undefined;
         
-        // Si no lo dejó y tampoco lo sustituyó... significa que explícitamente lo quiere "SIN"
         if (!loDejoElCliente && !loSustituyoElCliente) {
             extrasFinales.push({ nombre: `Sin ${ingredienteOriginal}`, precioExtra: 0, tipo: 'base' });
         }
@@ -429,11 +469,9 @@ const AsistentePersonalizacion = ({
 
   const isSiguienteDisabled = (() => {
     if (!pasoActualObj) return false;
-    if ((pasoActualObj.tipo === 'tamaño' || pasoActualObj.id === 'tamano') && !opcionSeleccionada) return true;
-    if ((pasoActualObj.tipo === 'sabor' || pasoActualObj.id === 'sabor') && !saborSeleccionado) return true;
-    if (pasoActualObj.tipo === 'grupo_obligatorio' || pasoActualObj.tipo === 'obligatorio') {
-      if (!gruposSeleccionados[pasoActualObj.categoria || pasoActualObj.id]) return true;
-    }
+    if (pasoActualObj.tipo === 'tamaño') return !opcionSeleccionada;
+    if (pasoActualObj.tipo === 'sabor') return !saborSeleccionado;
+    if (pasoActualObj.tipo === 'grupo_obligatorio') return !gruposSeleccionados[pasoActualObj.categoria || pasoActualObj.id];
     return false;
   })();
 
@@ -442,18 +480,34 @@ const AsistentePersonalizacion = ({
     else resetWizard();
   };
 
+  // 👇 LÓGICA DE SUSTITUCIÓN MEJORADA (Permite valores negativos / Descuentos a favor)
+  const customCalcularPrecioSustitucion = (nombreBase, nombreNuevo) => {
+    let politicas = politicasSustUI || { activa: false, modalidad: 'proporcional', tarifa_fija: 0 };
+    
+    if (!politicas.activa) return 0;
+    if (politicas.modalidad === 'fija') return Number(politicas.tarifa_fija || 0);
+
+    const ingBase = catalogoIngredientes.find(i => i.nombre === nombreBase);
+    const ingNuevo = catalogoIngredientes.find(i => i.nombre === nombreNuevo);
+
+    const precioBase = Number(ingBase?.precio_extra || ingBase?.precioExtra || 0);
+    const precioNuevo = Number(ingNuevo?.precio_extra || ingNuevo?.precioExtra || 0);
+
+    return precioNuevo - precioBase; 
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">
       
-      {pasoPersonalizacion > 0 && (
-        <button onClick={() => setPasoPersonalizacion(p => p - 1)} className="absolute left-4 top-4 md:left-6 md:top-6 text-white bg-slate-800/50 hover:bg-blue-600 p-2 md:p-3 rounded-full shadow-lg transition z-50 flex items-center gap-1">
-          <ArrowLeft size={20} /> <span className="hidden sm:inline font-bold">Volver</span>
-        </button>
-      )}
-
       <div className="bg-slate-50 rounded-[32px] md:rounded-[40px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-100 relative mt-8">
         
-        <div className="p-6 md:p-8 text-center shrink-0 bg-white border-b border-slate-200">
+        <div className="p-6 md:p-8 text-center shrink-0 bg-white border-b border-slate-200 relative">
+          
+          {/* Botón Volver Minimalista */}
+          <button onClick={manejarCancelar} className="absolute left-6 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-red-500 bg-slate-50 p-2 rounded-full transition-colors z-10 hidden sm:block">
+            <ArrowLeft size={24} />
+          </button>
+
           <h3 className="text-2xl md:text-3xl font-black text-slate-800">
             {productoEnEspera._esComboBuilder || productoEnEspera._esCombo ? productoEnEspera._configuracionCombo?.nombre || productoEnEspera.nombre : productoEnEspera.nombre}
             {itemEditando && <span className="text-emerald-500 text-sm md:text-lg align-middle ml-2 font-bold">(Editando)</span>}
@@ -467,13 +521,39 @@ const AsistentePersonalizacion = ({
           )}
         </div>
 
-        <div className="flex justify-center gap-1.5 mb-6 mt-4">
-          {pasosWiz.map((_, i) => (
-            <div key={i} className={`h-1.5 rounded-full transition-all ${i === pasoPersonalizacion ? 'w-6 bg-blue-600' : i < pasoPersonalizacion ? 'w-3 bg-emerald-500' : 'w-3 bg-slate-200'}`} />
-          ))}
+        {/* 👇 MEJORA UX (TABS NAV): Reemplazamos los puntitos por pestañas interactivas */}
+        <div className="flex overflow-x-auto custom-scrollbar gap-2 px-6 pt-4 pb-2 bg-white shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.03)] snap-x">
+          {pasosWiz.map((step, i) => {
+              const isActive = i === pasoPersonalizacion;
+              let title = step.categoria || step.titulo.replace('Elige ', '').replace(' *', '').replace('Personaliza: ', '');
+              if (step.id === 'tamano') title = 'Tamaño';
+              if (step.id === 'quitar_ingredientes') title = 'Receta';
+              if (step.id === 'extras_notas') title = 'Extras';
+
+              let isCompleted = false;
+              if (step.tipo === 'tamaño') isCompleted = !!opcionSeleccionada;
+              if (step.tipo === 'sabor') isCompleted = !!saborSeleccionado;
+              if (step.tipo === 'grupo_obligatorio') isCompleted = !!gruposSeleccionados[step.categoria || step.id];
+              if (step.tipo === 'grupo_opcional' || step.tipo === 'opcional') isCompleted = true; 
+              if (step.tipo === 'quitar_ingredientes') isCompleted = true; // La receta base también nace completada
+
+              return (
+                  <button 
+                      key={i}
+                      onClick={() => setPasoPersonalizacion(i)}
+                      className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all snap-start flex items-center gap-2 border shadow-sm
+                          ${isActive ? 'bg-blue-600 text-white border-blue-600 scale-105 z-10' : 
+                            isCompleted ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                            'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                  >
+                      {isCompleted && !isActive && <CheckCircle2 size={16} className="text-emerald-500"/>}
+                      {title}
+                  </button>
+              )
+          })}
         </div>
 
-        <div className="flex-1 overflow-y-auto pr-2 space-y-6 custom-scrollbar relative">
+        <div className="flex-1 overflow-y-auto pr-2 space-y-6 custom-scrollbar relative pt-6">
           
           {['tamaño', 'sabor', 'grupo_obligatorio', 'grupo_opcional', 'obligatorio', 'opcional'].includes(pasoActualObj.tipo) && (
             <div className="animate-in slide-in-from-right duration-200 px-4 md:px-8">
@@ -487,7 +567,7 @@ const AsistentePersonalizacion = ({
 
               {(pasoActualObj.tipo !== 'grupo_opcional' && pasoActualObj.tipo !== 'opcional') && <div className="border-b pb-4 mb-4"></div>}
 
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
+              <div className="grid grid-cols-2 gap-3 md:gap-4 pb-6">
                 {pasoActualObj.opciones.map((o, idx) => {
                   let estaSeleccionado = false;
                   if (pasoActualObj.tipo === 'tamaño' || pasoActualObj.id === 'tamano') {
@@ -512,10 +592,18 @@ const AsistentePersonalizacion = ({
                       key={idx}
                       disabled={disabled}
                       onClick={() => {
-                        if (pasoActualObj.tipo === 'tamaño' || pasoActualObj.id === 'tamano') setOpcionSeleccionada(o);
-                        else if (pasoActualObj.tipo === 'sabor' || pasoActualObj.id === 'sabor') setSaborSeleccionado(o);
+                        if (pasoActualObj.tipo === 'tamaño' || pasoActualObj.id === 'tamano') {
+                            setOpcionSeleccionada(o);
+                            setTimeout(() => avanzarSiguienteInteligente({ opcionSeleccionada: o }), 150);
+                        }
+                        else if (pasoActualObj.tipo === 'sabor' || pasoActualObj.id === 'sabor') {
+                            setSaborSeleccionado(o);
+                            setTimeout(() => avanzarSiguienteInteligente({ saborSeleccionado: o }), 150);
+                        }
                         else if (pasoActualObj.tipo === 'grupo_obligatorio' || pasoActualObj.tipo === 'obligatorio') {
-                           setGruposSeleccionados({ ...gruposSeleccionados, [pasoActualObj.categoria || pasoActualObj.id]: o });
+                            const nvosGrupos = { ...gruposSeleccionados, [pasoActualObj.categoria || pasoActualObj.id]: o };
+                            setGruposSeleccionados(nvosGrupos);
+                            setTimeout(() => avanzarSiguienteInteligente({ gruposSeleccionados: nvosGrupos }), 150);
                         }
                         else if (pasoActualObj.tipo === 'grupo_opcional' || pasoActualObj.tipo === 'opcional') {
                            if (estaSeleccionado) {
@@ -552,7 +640,7 @@ const AsistentePersonalizacion = ({
           {pasoActualObj.tipo === 'quitar_ingredientes' && (
             <div className="animate-in slide-in-from-right duration-200 px-4 md:px-8">
               <p className="text-center text-slate-400 font-bold mb-6 uppercase tracking-widest text-[10px] md:text-xs">Modificar Receta Base</p>
-              <div className="space-y-3 md:space-y-4">
+              <div className="space-y-3 md:space-y-4 pb-6">
                 {pasoActualObj.opciones.map((o, idx) => {
                   const estaSustituido = ingredientesSustituidos[o.nombre] !== undefined;
                   const estaQuitado = !ingredientesBase.includes(o.nombre);
@@ -592,7 +680,11 @@ const AsistentePersonalizacion = ({
                       {estaSustituido && (
                         <div className="bg-white p-3 rounded-xl border border-indigo-100 text-xs font-bold text-indigo-700 flex justify-between items-center mt-2 shadow-sm">
                           <span>🔄 Cambiado por: {ingredientesSustituidos[o.nombre].nuevoNombre}</span>
-                          {ingredientesSustituidos[o.nombre].precioCalculado > 0 && <span className="bg-indigo-100 px-2 py-1 rounded-md">+{ingredientesSustituidos[o.nombre].precioCalculado}</span>}
+                          {ingredientesSustituidos[o.nombre].precioCalculado !== 0 && (
+                            <span className={`px-2 py-1 rounded-md ${ingredientesSustituidos[o.nombre].precioCalculado > 0 ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {ingredientesSustituidos[o.nombre].precioCalculado > 0 ? '+' : '-'}${Math.abs(ingredientesSustituidos[o.nombre].precioCalculado).toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       )}
 
@@ -601,33 +693,28 @@ const AsistentePersonalizacion = ({
                            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3 pl-1">Selecciona el reemplazo:</p>
                            <div className="grid grid-cols-2 gap-2 md:gap-3 max-h-40 overflow-y-auto custom-scrollbar pr-2">
                              {(() => {
-                                // 1. Sacamos la categoría global del platillo (Ej: 'Crepas')
                                 const categoriaItem = String(productoEnEspera.categoria || '').trim().toLowerCase();
                                 const clasifObj = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === categoriaItem);
                                 const clasifId = clasifObj ? clasifObj.id : null;
                                 
-                                // 2. Guardamos qué ingredientes YA trae el platillo de base (Ej: ['platano', 'nuez'])
                                 const recetaOriginal = (productoEnEspera.opciones || []).filter(op => op.tipo === 'base').map(op => String(op.nombre).trim().toLowerCase());
 
                                 return catalogoIngredientes.filter(ing => {
-                                    // 3. Verificamos si este extra pertenece a 'Crepas' o es un extra global
                                     const catIng = String(ing.clasificacion_nombre || '').trim().toLowerCase();
                                     const coincideCategoria = (clasifId && Number(ing.clasificacion_id) === Number(clasifId)) || (catIng === categoriaItem);
                                     const esValido = (coincideCategoria || ing.es_extra || String(ing.tipo) === 'extra') && ing.permite_extra !== false;
                                     
-                                    // 4. Verificamos que el extra NO esté ya dentro de la receta original
                                     const noEsBaseOriginal = !recetaOriginal.includes(String(ing.nombre).trim().toLowerCase());
 
                                     return esValido && noEsBaseOriginal && ing.nombre !== o.nombre;
                                 }).map((ingRep, iIdx) => {
-                                    // 5. Calculamos el precio, que ahora puede ser negativo (descuento)
-                                    const diferenciaCostos = calcularPrecioSustitucion(o.nombre, ingRep.nombre);
+                                    const diferenciaCostos = customCalcularPrecioSustitucion(o.nombre, ingRep.nombre);
                                     
                                     return (
                                       <button key={iIdx} onClick={() => {
-                                        setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ingRep.nombre, precioCalculado: diferenciaCostos }});
-                                        setIngredientesBase(ingredientesBase.filter(x => x !== o.nombre));
-                                        setIngredienteDesplegado(null);
+                                         setIngredientesSustituidos({...ingredientesSustituidos, [o.nombre]: { nuevoNombre: ingRep.nombre, precioCalculado: diferenciaCostos }});
+                                         setIngredientesBase(ingredientesBase.filter(x => x !== o.nombre));
+                                         setIngredienteDesplegado(null);
                                       }} className="bg-white border border-indigo-100 hover:border-indigo-400 hover:bg-indigo-50 p-2 md:p-3 rounded-xl transition text-left flex flex-col items-start shadow-sm active:scale-95">
                                         <span className="font-bold text-indigo-900 text-xs md:text-sm">{ingRep.nombre}</span>
                                         <span className={`text-[9px] md:text-[10px] font-black px-2 py-0.5 rounded mt-1 ${diferenciaCostos > 0 ? 'text-indigo-500 bg-indigo-50' : diferenciaCostos < 0 ? 'text-emerald-600 bg-emerald-100' : 'text-slate-500 bg-slate-100'}`}>
@@ -636,7 +723,7 @@ const AsistentePersonalizacion = ({
                                       </button>
                                     );
                                 });
-                            })()}
+                             })()}
                            </div>
                         </div>
                       )}
@@ -648,7 +735,7 @@ const AsistentePersonalizacion = ({
           )}
 
           {pasoActualObj.tipo === 'extras_notas' && (
-            <div className="animate-in slide-in-from-right duration-200 px-4 md:px-8">
+            <div className="animate-in slide-in-from-right duration-200 px-4 md:px-8 pb-6">
               {(() => {
                 const categoriaItem = String(productoEnEspera.categoria || '').trim().toLowerCase();
                 const clasifObj = (clasificaciones || []).find(c => String(c.nombre).trim().toLowerCase() === categoriaItem);
@@ -736,7 +823,7 @@ const AsistentePersonalizacion = ({
                  </button>
                  <button 
                    disabled={isSiguienteDisabled}
-                   onClick={() => setPasoPersonalizacion(pasoPersonalizacion + 1)} 
+                   onClick={() => avanzarSiguienteInteligente()} 
                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 md:py-5 rounded-2xl md:rounded-3xl shadow-lg shadow-blue-500/30 transition active:scale-95 flex justify-center items-center gap-2 text-lg md:text-xl tracking-wide disabled:opacity-50 disabled:shadow-none"
                  >
                    Siguiente <ArrowRight size={24}/>

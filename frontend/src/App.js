@@ -8,6 +8,7 @@ import PantallaTV from './components/PantallaTV';
 import Repartidor from './components/Repartidor';
 import PortalEmpleado from './components/empleado/PortalEmpleado';
 import { suscribirANotificaciones } from './pushManager';
+import { useBiometria } from './hooks/useBiometria';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -21,6 +22,16 @@ const App = () => {
   const [modoInvitado, setModoInvitado] = useState(false);
   const [vistaAdmin, setVistaAdmin] = useState('panel');
   const [vistaTV, setVistaTV] = useState(false);
+
+  // 👇 2. AGREGAR ESTO (Estado MDM y Configuración del Lector)
+  const [pantallasPermitidasMDM, setPantallasPermitidasMDM] = useState(null);
+  const [politicaMDM, setPoliticaMDM] = useState({ activo: false, restringidas: [] });
+
+  const customShowAlert = (title, message, type) => {
+      setError(`${title}: ${message}`);
+      setTimeout(() => setError(''), 5000);
+  };
+  const { iniciarSesionConHuella } = useBiometria(apiUrl, customShowAlert);
 
   // ==========================================
   // ESTADOS NUEVOS: OMNICANALIDAD (Kiosco)
@@ -229,6 +240,37 @@ const App = () => {
     };  
 
     cargarConfig();
+
+    // 👇 3. REEMPLAZA EL CARGAR MDM POR ESTE
+    const cargarMDM = async () => {
+      try {
+        const confRes = await fetch(`${apiUrl}/biometria/configuracion`);
+        const configMdm = await confRes.json();
+        
+        if (configMdm.control_dispositivos_activo) {
+          // Guardamos las pantallas que el dueño decidió bloquear al exterior
+          setPoliticaMDM({
+             activo: true,
+             restringidas: configMdm.pantallas_restringidas || ['caja', 'cocina', 'admin']
+          });
+          
+          const devRes = await fetch(`${apiUrl}/biometria/equipos`);
+          const equipos = await devRes.json();
+          const miId = localStorage.getItem('pos_device_id');
+          const miEquipo = equipos.find(e => e.device_id === miId);
+          
+          if (miEquipo) {
+            setPantallasPermitidasMDM(miEquipo.pantallas_permitidas || []);
+          } else {
+            setPantallasPermitidasMDM(null); // Null significa "Es un equipo foráneo"
+          }
+        } else {
+          setPoliticaMDM({ activo: false, restringidas: [] });
+        }
+      } catch (err) {}
+    };
+    cargarMDM();
+
     const intervaloConfig = setInterval(cargarConfig, 5000);
     return () => clearInterval(intervaloConfig);
   }, []); 
@@ -478,6 +520,19 @@ const App = () => {
     } catch (err) { setError('Error de conexión.'); }
   };
 
+  // 👇 4. AGREGAR ESTA FUNCIÓN NUEVA
+  const handleLoginBiometrico = async () => {
+    setError('');
+    const data = await iniciarSesionConHuella();
+    if (data && data.success) {
+      if (data.tipo === 'empleado') {
+        iniciarSesionPersistente('empleado', data.usuario, data.segunda_sesion || false);
+      } else if (data.tipo === 'cliente') {
+        iniciarSesionPersistente('cliente', data.data);
+      }
+    }
+  };
+
   const ingresarAPantalla = (op, forzarCierre = false) => {
     if (forzarCierre && socketRef.current) {
       const miDispositivo = localStorage.getItem('pos_device_id');
@@ -504,6 +559,13 @@ const App = () => {
   };
 
   const intentarIngresar = (op) => {
+
+    if (op.bloqueado) {
+      setError('❌ Por política de seguridad MDM, esta pantalla no está autorizada para abrirse en tu dispositivo actual.');
+      setTimeout(() => setError(''), 5000);
+      return;
+    }
+
     if (!segundaSesionActiva) {
       ingresarAPantalla(op, false);
       return;
@@ -600,21 +662,39 @@ const App = () => {
       const opcionesMenu = [];
       const perms = usuarioActivo.permisos || {};  
       
+      // 👇 5. REEMPLAZA LA FUNCIÓN CHECKMDM POR ESTA:
+      const checkMDM = (pantalla) => {
+        if (usuarioActivo.usuario === 'admin') return true; // El Admin Global es inmune
+        if (!politicaMDM.activo) return true; // Si MDM está apagado, todo es libre
+
+        // Si el equipo ESTÁ registrado en la empresa, le hacemos caso a lo que diga la lista verde
+        if (pantallasPermitidasMDM !== null) {
+          return pantallasPermitidasMDM.includes(pantalla);
+        }
+
+        // Si el equipo NO ESTÁ registrado, bloqueamos SOLO las pantallas que el dueño configuró
+        return !politicaMDM.restringidas.includes(pantalla);
+      };
+
       if (['admin', 'gerente'].includes(usuarioActivo.rol) && perms.pantalla_admin === true) {
-        opcionesMenu.push({ id: 'admin', nombre: 'Panel de Administración', emoji: '👑', color: 'bg-purple-600 hover:bg-purple-700' });
+        const bloqueado = !checkMDM('admin');
+        opcionesMenu.push({ id: 'admin', nombre: bloqueado ? 'Panel Admin (Solo en Sucursal)' : 'Panel de Administración', emoji: bloqueado ? '🔒' : '👑', color: bloqueado ? 'bg-slate-300 opacity-60 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700', bloqueado });
       }
       if (usuarioActivo.rol === 'cajero' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_caja === true)) {
-        opcionesMenu.push({ id: 'caja', nombre: 'Caja Principal (POS)', emoji: '💵', color: 'bg-blue-600 hover:bg-blue-700' });
+        const bloqueado = !checkMDM('caja');
+        opcionesMenu.push({ id: 'caja', nombre: bloqueado ? 'Caja (Bloqueada en tu celular)' : 'Caja Principal (POS)', emoji: bloqueado ? '🔒' : '💵', color: bloqueado ? 'bg-slate-300 opacity-60 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700', bloqueado });
       }
       if (usuarioActivo.rol === 'cocina' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_cocina === true)) {
-        opcionesMenu.push({ id: 'cocina', nombre: 'Cocina (KDS)', emoji: '👨‍🍳', color: 'bg-orange-600 hover:bg-orange-700' });
+        const bloqueado = !checkMDM('cocina');
+        opcionesMenu.push({ id: 'cocina', nombre: bloqueado ? 'Cocina (Requiere Tablet)' : 'Cocina (KDS)', emoji: bloqueado ? '🔒' : '👨‍🍳', color: bloqueado ? 'bg-slate-300 opacity-60 cursor-not-allowed' : 'bg-orange-600 hover:bg-orange-700', bloqueado });
       }
       if (usuarioActivo.rol === 'repartidor' || (['admin', 'gerente', 'jefe'].includes(usuarioActivo.rol) && perms.pantalla_repartidor === true)) {
-        opcionesMenu.push({ id: 'repartidor', nombre: 'Logística de Reparto', emoji: '🛵', color: 'bg-indigo-500 hover:bg-indigo-600' });
+        const bloqueado = !checkMDM('repartidor');
+        opcionesMenu.push({ id: 'repartidor', nombre: bloqueado ? 'Logística (Bloqueada)' : 'Logística de Reparto', emoji: bloqueado ? '🔒' : '🛵', color: bloqueado ? 'bg-slate-300 opacity-60 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-600', bloqueado });
       }
       
-      opcionesMenu.push({ id: 'portal', nombre: 'Mi Portal (Empleado)', emoji: '👤', color: 'bg-emerald-500 hover:bg-emerald-600' });  
-      
+      opcionesMenu.push({ id: 'portal', nombre: 'Mi Portal (Empleado)', emoji: '👤', color: 'bg-emerald-500 hover:bg-emerald-600', bloqueado: false });
+     
       return (
         <>
           <style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} />
@@ -880,6 +960,32 @@ const App = () => {
                   Identificarme
                 </button>
               </form>
+            )}
+
+            {/* 👇 6. NUEVO BOTÓN DE HUELLA DIGITAL */}
+            {!necesitaRegistro && !empleadoFase2 && (
+              <div className="mt-8 flex justify-center animate-in zoom-in duration-300">
+                <button 
+                  type="button" 
+                  onClick={handleLoginBiometrico}
+                  title="Ingresar con Huella"
+                  className="w-20 h-20 bg-slate-50 hover:bg-blue-50 text-blue-600 border-2 border-slate-200 hover:border-blue-200 rounded-full flex flex-col items-center justify-center shadow-lg hover:shadow-blue-500/20 transition-all active:scale-95 group"
+                >
+                  {/* SVG de Huella Dactilar */}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:scale-110 transition-transform mb-1">
+                    <path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/>
+                    <path d="M14 13.12c0 2.38 0 6.38-1 8.88"/>
+                    <path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/>
+                    <path d="M2 12a10 10 0 0 1 18-6"/>
+                    <path d="M2 16h.01"/>
+                    <path d="M21.8 16c.2-2 .131-5.354 0-6"/>
+                    <path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/>
+                    <path d="M8.65 22c.21-.66.45-1.32.57-2"/>
+                    <path d="M9 6.8a6 6 0 0 1 9 5.2v2"/>
+                  </svg>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 group-hover:text-blue-500 transition-colors">Huella</span>
+                </button>
+              </div>
             )}
 
             {/* BOTÓN GIGANTE PARA INVITADOS EN MODO TERMINAL */}

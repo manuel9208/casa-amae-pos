@@ -140,7 +140,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         if (metodoPagoReal === 'Tarjeta') tar += parseMoney(p.total);
         if (metodoPagoReal === 'Transferencia') tra += parseMoney(p.total);
         
-        // 👇 FIX MATEMÁTICO: Escudo blindado para pagos mixtos corruptos
         if (metodoPagoReal === 'Mixto' && p.pagos_mixtos) {
             try { 
                 let pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; 
@@ -203,7 +202,11 @@ const VistaCortesHistorico = ({ apiUrl }) => {
     let efectivoEntregadoTotal = 0, efectivoEnCajaTotal = 0, fondosAdicionales = 0;
 
     if (corteSeleccionadoId === 'global' || periodo !== 'dia') {
-        gastosCompras = compras.reduce((s, c) => s + Number(c.costo_total || 0), 0);
+        
+        // 👇 FIX MÁSTER APLICADO: Filtramos las compras que vienen del Panel Admin para no descontarlas del cajón físico de Caja.
+        gastosCompras = compras
+            .filter(c => c.origen !== 'Admin')
+            .reduce((s, c) => s + Number(c.costo_total || 0), 0);
         
         if (cortesDelDia.length > 0) {
             fondoCaja = cortesDelDia.filter(c => fondosSeleccionados.includes(c.id)).reduce((s, c) => s + Number(c.fondo_inicial || 0), 0);
@@ -225,7 +228,6 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         }
     }
 
-    // LA MATEMÁTICA MAESTRA (SIN B2B)
     const totalEfectivoDia = lEfectivo + dEfectivo; 
     const totalFondoGlobal = fondoCaja + fondoRepartidor;
     const totalVentasBrutas = tPlatillos + tExtras + tEnvio; 

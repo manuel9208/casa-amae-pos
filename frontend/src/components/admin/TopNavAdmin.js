@@ -1,6 +1,6 @@
 import React from 'react';
 import { 
-  ShoppingCart, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
+  ShoppingCart, Fingerprint, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
   Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase 
 } from 'lucide-react';
 
@@ -8,7 +8,7 @@ const TopNavAdmin = ({
   user, onLogout, onGoToKiosco, seccion, setSeccion,
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
   canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
-  canViewProveedores, canViewDistribucion
+  canViewProveedores, canViewDistribucion, canViewHuellas
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -123,6 +123,16 @@ const TopNavAdmin = ({
               <button onClick={() => setSeccion('configuracion')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'configuracion' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                  <Settings size={18}/> Configuración
               </button>
+            )}
+
+            {/* 👇 2. AGREGA EL BOTÓN DE HUELLAS */}
+            {canViewHuellas && (
+            <button 
+               onClick={() => setSeccion('huellas')} 
+               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'huellas' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+            >
+               <Fingerprint size={18}/> Biometría
+            </button>
             )}
          </div>
       </div>

@@ -23,17 +23,14 @@ const FormularioProducto = ({
   const [usaStock, setUsaStock] = useState(false);
   const [stockPreparado, setStockPreparado] = useState(0);
 
-  // 👇 NUEVOS ESTADOS: Control de Horario
   const [usaHorario, setUsaHorario] = useState(false);
-  const [diasDisponibles, setDiasDisponibles] = useState([1, 2, 3, 4, 5, 6, 7]); // Lunes a Domingo
+  const [diasDisponibles, setDiasDisponibles] = useState([1, 2, 3, 4, 5, 6, 7]); 
   const [horaInicio, setHoraInicio] = useState('00:00');
   const [horaFin, setHoraFin] = useState('23:59');
 
-  // Rastrear el stock previo para detectar cuando cruza el cero hacia arriba
   const prevStockRef = useRef(stockPreparado);
 
   useEffect(() => {
-    // Si cruza de 0 o menos, hacia arriba, auto-encender el producto
     if (usaStock && stockPreparado > 0 && prevStockRef.current <= 0) {
       setDisponible(true);
     }
@@ -71,25 +68,40 @@ const FormularioProducto = ({
     copia[index].nombreGrupo = valor;
     setGruposObligatorios(copia);
   };
+  
   const toggleIngredienteGrupo = (gIndex, ingId, checked) => {
     const copia = [...gruposObligatorios];
     if (checked) {
-      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true });
+      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true, isDefault: false });
     } else {
       copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(i => (typeof i === 'object' ? i.id : i) !== Number(ingId));
     }
     setGruposObligatorios(copia);
   };
+  
   const toggleCobroGrupo = (gIndex, ingId, cobrar) => {
     const copia = [...gruposObligatorios];
     const itemIndex = copia[gIndex].ingredientesAgregados.findIndex(i => (typeof i === 'object' ? i.id : i) === Number(ingId));
     if (itemIndex > -1) {
        if (typeof copia[gIndex].ingredientesAgregados[itemIndex] !== 'object') {
-           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar };
+           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar, isDefault: false };
        } else {
            copia[gIndex].ingredientesAgregados[itemIndex].cobrar = cobrar;
        }
     }
+    setGruposObligatorios(copia);
+  };
+
+  // 👇 NUEVO: Marcar selección por defecto (Obligatorio - Solo 1 por grupo)
+  const marcarDefaultGrupo = (gIndex, ingId) => {
+    const copia = [...gruposObligatorios];
+    copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.map(item => {
+      const isTarget = (typeof item === 'object' ? item.id : item) === Number(ingId);
+      if (typeof item !== 'object') {
+         return { id: item, cobrar: true, isDefault: isTarget };
+      }
+      return { ...item, isDefault: isTarget };
+    });
     setGruposObligatorios(copia);
   };
 
@@ -108,7 +120,7 @@ const FormularioProducto = ({
   const toggleIngredienteGrupoOpcional = (gIndex, ingId, checked) => {
     const copia = [...gruposOpcionales];
     if (checked) {
-      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true });
+      copia[gIndex].ingredientesAgregados.push({ id: Number(ingId), cobrar: true, isDefault: false });
     } else {
       copia[gIndex].ingredientesAgregados = copia[gIndex].ingredientesAgregados.filter(i => (typeof i === 'object' ? i.id : i) !== Number(ingId));
     }
@@ -119,9 +131,23 @@ const FormularioProducto = ({
     const itemIndex = copia[gIndex].ingredientesAgregados.findIndex(i => (typeof i === 'object' ? i.id : i) === Number(ingId));
     if (itemIndex > -1) {
        if (typeof copia[gIndex].ingredientesAgregados[itemIndex] !== 'object') {
-           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar };
+           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar, isDefault: false };
        } else {
            copia[gIndex].ingredientesAgregados[itemIndex].cobrar = cobrar;
+       }
+    }
+    setGruposOpcionales(copia);
+  };
+
+  // 👇 NUEVO: Marcar selección por defecto (Opcional - Pueden ser varios)
+  const toggleDefaultGrupoOpcional = (gIndex, ingId, isDefault) => {
+    const copia = [...gruposOpcionales];
+    const itemIndex = copia[gIndex].ingredientesAgregados.findIndex(i => (typeof i === 'object' ? i.id : i) === Number(ingId));
+    if (itemIndex > -1) {
+       if (typeof copia[gIndex].ingredientesAgregados[itemIndex] !== 'object') {
+           copia[gIndex].ingredientesAgregados[itemIndex] = { id: copia[gIndex].ingredientesAgregados[itemIndex], cobrar: true, isDefault };
+       } else {
+           copia[gIndex].ingredientesAgregados[itemIndex].isDefault = isDefault;
        }
     }
     setGruposOpcionales(copia);
@@ -139,7 +165,6 @@ const FormularioProducto = ({
     setStockPreparado(0);
     prevStockRef.current = 0; 
     
-    // 👇 Limpiar estados de Horario
     setUsaHorario(false);
     setDiasDisponibles([1, 2, 3, 4, 5, 6, 7]);
     setHoraInicio('00:00');
@@ -184,7 +209,6 @@ const FormularioProducto = ({
       setStockPreparado(sPrep);
       prevStockRef.current = sPrep; 
       
-      // 👇 Cargar configuración de Horarios
       setUsaHorario(p.usa_horario === true || p.usa_horario === 'true');
       try {
         setDiasDisponibles(typeof p.dias_disponibles === 'string' ? JSON.parse(p.dias_disponibles) : (p.dias_disponibles || [1,2,3,4,5,6,7]));
@@ -226,7 +250,8 @@ const FormularioProducto = ({
           if (catItem) {
               loadedGruposMap.get(o.categoria).ingredientesAgregados.push({
                  id: Number(catItem.id),
-                 cobrar: Number(o.precioExtra) > 0
+                 cobrar: Number(o.precioExtra) > 0,
+                 isDefault: o.isDefault || false // 👇 FIX: Cargar configuración previa
               });
           }
         } else if (o.tipo === 'grupo_opcional') {
@@ -240,7 +265,8 @@ const FormularioProducto = ({
           if (catItem) {
               loadedGruposOpcionalesMap.get(o.categoria).ingredientesAgregados.push({
                  id: Number(catItem.id),
-                 cobrar: Number(o.precioExtra) > 0
+                 cobrar: Number(o.precioExtra) > 0,
+                 isDefault: o.isDefault || false // 👇 FIX: Cargar configuración previa
               });
           }
         } else {
@@ -300,13 +326,16 @@ const FormularioProducto = ({
         grupo.ingredientesAgregados.forEach(item => {
           const itemId = typeof item === 'object' ? item.id : item;
           const itemCobrar = typeof item === 'object' ? item.cobrar : true;
+          const itemDefault = typeof item === 'object' ? item.isDefault : false; // 👇 FIX: Extraer prop
+          
           const ing = catalogoIngredientes.find(i => Number(i.id) === Number(itemId));
           if (ing) {
             opcionesArmadas.push({
               nombre: ing.nombre,
               precioExtra: itemCobrar ? Number(ing.precio_extra || 0) : 0,
               tipo: 'grupo_obligatorio',
-              categoria: grupo.nombreGrupo.trim()
+              categoria: grupo.nombreGrupo.trim(),
+              isDefault: itemDefault // 👇 FIX: Inyectar prop en BD
             });
           }
         });
@@ -318,6 +347,8 @@ const FormularioProducto = ({
         grupo.ingredientesAgregados.forEach(item => {
           const itemId = typeof item === 'object' ? item.id : item;
           const itemCobrar = typeof item === 'object' ? item.cobrar : true;
+          const itemDefault = typeof item === 'object' ? item.isDefault : false; // 👇 FIX: Extraer prop
+
           const ing = catalogoIngredientes.find(i => Number(i.id) === Number(itemId));
           if (ing) {
             opcionesArmadas.push({
@@ -325,7 +356,8 @@ const FormularioProducto = ({
               precioExtra: itemCobrar ? Number(ing.precio_extra || 0) : 0,
               tipo: 'grupo_opcional',
               categoria: grupo.nombreGrupo.trim(),
-              limite: Number(grupo.limite) || 1
+              limite: Number(grupo.limite) || 1,
+              isDefault: itemDefault // 👇 FIX: Inyectar prop en BD
             });
           }
         });
@@ -358,7 +390,6 @@ const FormularioProducto = ({
     formData.append('usa_stock', usaStock);
     formData.append('stock_preparado', stockPreparado);
     
-    // 👇 NUEVO: Inyectar campos de Horario
     formData.append('usa_horario', usaHorario);
     formData.append('dias_disponibles', JSON.stringify(diasDisponibles));
     formData.append('hora_inicio', horaInicio);
@@ -489,7 +520,7 @@ const FormularioProducto = ({
           </div>
         </div>
 
-        {/* 👇 NUEVO BLOQUE: HORARIO ESPECIAL */}
+        {/* BLOQUE: HORARIO ESPECIAL */}
         <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 transition-all shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -625,6 +656,9 @@ const FormularioProducto = ({
                             const estaEnEsteGrupo = !!estaEnEsteGrupoObj;
                             const cobrarExtra = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.cobrar : true;
                             
+                            // 👇 NUEVO: Leer si es default
+                            const isDefault = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.isDefault : false;
+                            
                             const estaEnOtroGrupo = idsEnGrupos.has(ing.id) && !estaEnEsteGrupo;
                             const estaEnGrupoOpcional = idsEnGruposOpcionales.has(ing.id);
                             const tienePrecio = Number(ing.precio_extra) > 0;
@@ -638,11 +672,19 @@ const FormularioProducto = ({
                                   <span className={`text-sm truncate ${estaEnEsteGrupo ? 'font-black' : 'font-medium'}`} title={ing.nombre}>{ing.nombre}</span>
                                 </label>
                                 
-                                {estaEnEsteGrupo && tienePrecio && (
-                                  <div className="mt-2 pl-6 border-t border-purple-200/60 pt-2">
-                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-purple-700 hover:text-purple-900 transition">
-                                       <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupo(gIndex, ing.id, e.target.checked)} className="accent-purple-600 w-3 h-3"/>
-                                       {cobrarExtra ? `COBRAR EXTRA (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                {estaEnEsteGrupo && (
+                                  <div className="mt-2 pl-6 border-t border-purple-200/60 pt-2 flex flex-col gap-2">
+                                     {tienePrecio && (
+                                       <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-purple-700 hover:text-purple-900 transition">
+                                         <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupo(gIndex, ing.id, e.target.checked)} className="accent-purple-600 w-3 h-3"/>
+                                         {cobrarExtra ? `COBRAR (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                       </label>
+                                     )}
+                                     
+                                     {/* 👇 UI PARA SELECCIÓN POR DEFECTO (Radio, porque es obligatorio 1) */}
+                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-blue-600 hover:text-blue-800 transition">
+                                       <input type="radio" name={`default_grupo_${gIndex}`} checked={isDefault} onChange={() => marcarDefaultGrupo(gIndex, ing.id)} className="accent-blue-600 w-3 h-3"/>
+                                       ⭐ POR DEFECTO
                                      </label>
                                   </div>
                                 )}
@@ -696,6 +738,9 @@ const FormularioProducto = ({
                             const estaEnEsteGrupoObj = grupo.ingredientesAgregados.find(i => (typeof i === 'object' ? i.id : i) === ing.id);
                             const estaEnEsteGrupo = !!estaEnEsteGrupoObj;
                             const cobrarExtra = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.cobrar : true;
+                            
+                            // 👇 NUEVO: Leer si es default
+                            const isDefault = estaEnEsteGrupoObj && typeof estaEnEsteGrupoObj === 'object' ? estaEnEsteGrupoObj.isDefault : false;
 
                             const estaEnOtroGrupoObligatorio = idsEnGrupos.has(ing.id);
                             const estaEnOtroGrupoOpcional = idsEnGruposOpcionales.has(ing.id) && !estaEnEsteGrupo;
@@ -710,11 +755,19 @@ const FormularioProducto = ({
                                   <span className={`text-sm truncate ${estaEnEsteGrupo ? 'font-black' : 'font-medium'}`} title={ing.nombre}>{ing.nombre}</span>
                                 </label>
                                 
-                                {estaEnEsteGrupo && tienePrecio && (
-                                  <div className="mt-2 pl-6 border-t border-emerald-200/60 pt-2">
-                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-emerald-700 hover:text-emerald-900 transition">
-                                       <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-emerald-600 w-3 h-3"/>
-                                       {cobrarExtra ? `COBRAR EXTRA (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                {estaEnEsteGrupo && (
+                                  <div className="mt-2 pl-6 border-t border-emerald-200/60 pt-2 flex flex-col gap-2">
+                                     {tienePrecio && (
+                                       <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-emerald-700 hover:text-emerald-900 transition">
+                                         <input type="checkbox" checked={cobrarExtra} onChange={e => toggleCobroGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-emerald-600 w-3 h-3"/>
+                                         {cobrarExtra ? `COBRAR (+$${ing.precio_extra})` : 'INCLUIDO (GRATIS)'}
+                                       </label>
+                                     )}
+                                     
+                                     {/* 👇 UI PARA SELECCIÓN POR DEFECTO (Checkbox porque puede ser > 1) */}
+                                     <label className="flex items-center gap-1.5 text-[10px] font-black cursor-pointer text-blue-600 hover:text-blue-800 transition">
+                                       <input type="checkbox" checked={isDefault} onChange={e => toggleDefaultGrupoOpcional(gIndex, ing.id, e.target.checked)} className="accent-blue-600 w-3 h-3"/>
+                                       ⭐ POR DEFECTO
                                      </label>
                                   </div>
                                 )}

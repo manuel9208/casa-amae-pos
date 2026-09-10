@@ -16,64 +16,91 @@ exports.identificar = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-  const { usuario, password, dispositivo_id } = req.body;
-  try {
-    const result = await db.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2', [usuario, password]);
+    const { usuario, password, dispositivo_id } = req.body;
+    try {
+        const result = await db.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2', [usuario, password]);
 
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
-      const ahora = new Date();
-      const hace8Horas = new Date(ahora.getTime() - (8 * 60 * 60 * 1000));
+        if (result.rows.length > 0) {
+            const user = result.rows[0];
 
-      // Control Multi-Sesión Inteligente
-      let devices = [];
-      if (user.ultimo_acceso && new Date(user.ultimo_acceso) > hace8Horas) {
-        devices = (user.dispositivo_id || '').split(',').filter(Boolean);
-      }
+            // 👇 NUEVO: BLOQUEO ESTRICTO (MATRIZ EQUIPO-ROL)
+            try {
+                // El Admin Global ignora todo bloqueo
+                if (user.usuario !== 'admin') { 
+                    const confMdm = await db.query('SELECT control_dispositivos_activo, roles_restringidos FROM configuracion_biometria WHERE id = 1');
+                    if (confMdm.rows.length > 0 && confMdm.rows[0].control_dispositivos_activo) {
+                        const rolesRestringidos = confMdm.rows[0].roles_restringidos || [];
+                        
+                        // Si el rol del empleado tiene prohibido iniciar fuera de la red
+                        if (rolesRestringidos.includes(user.rol)) {
+                            const equipoAuth = await db.query('SELECT id, alias, roles_permitidos FROM equipos_autorizados WHERE device_id = $1', [dispositivo_id]);
+                            
+                            // 1. ¿El equipo está registrado?
+                            if (equipoAuth.rows.length === 0) {
+                                return res.status(403).json({ 
+                                    error: 'Acceso Denegado. Tu cuenta solo puede iniciar sesión en las tablets y equipos oficiales de la sucursal.' 
+                                });
+                            }
 
-      // Si el equipo actual no está registrado en la sesión activa...
-      if (!devices.includes(dispositivo_id)) {
-        if (devices.length >= 2) {
-          return res.status(403).json({ error: 'Esta cuenta ya está abierta en 2 equipos simultáneamente. Cierra la sesión en alguno de ellos primero o pide a tu administrador que reinicie tus sesiones.' });
+                            // 2. ¿El equipo permite a ESTE rol? (Ej. Un cajero intentando usar la tablet de cocina)
+                            const rolesPermitidos = equipoAuth.rows[0].roles_permitidos || [];
+                            if (!rolesPermitidos.includes(user.rol)) {
+                                return res.status(403).json({ 
+                                    error: `Esta máquina (${equipoAuth.rows[0].alias}) no está autorizada para el rol de ${user.rol.toUpperCase()}.` 
+                                });
+                            }
+                        }
+                    }
+                } 
+            } catch(e) { console.error("Error en validación MDM", e); }
+            // ☝️ FIN BLOQUEO MDM
+
+            const ahora = new Date();
+            const hace8Horas = new Date(ahora.getTime() - (8 * 60 * 60 * 1000));
+
+            let devices = [];
+            if (user.ultimo_acceso && new Date(user.ultimo_acceso) > hace8Horas) {
+                devices = (user.dispositivo_id || '').split(',').filter(Boolean);
+            }
+
+            if (!devices.includes(dispositivo_id)) {
+                if (devices.length >= 2) {
+                    return res.status(403).json({ error: 'Esta cuenta ya está abierta en 2 equipos simultáneamente. Cierra la sesión en alguno de ellos primero.' });
+                }
+                devices.push(dispositivo_id); 
+            }
+
+            const es_secundaria = devices.indexOf(dispositivo_id) > 0;
+
+            await db.query(
+                'UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2',
+                [devices.join(','), user.id]
+            );
+
+            const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
+            const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
+
+            if (isLoginActivo && !es_secundaria) {
+                const turnoAbierto = await db.query(
+                    'SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE',
+                    [user.id]
+                );
+                if (turnoAbierto.rows.length === 0) {
+                    await db.query(
+                        'INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP)',
+                        [user.id]
+                    );
+                }
+            }
+
+            res.json({ usuario: user, segunda_sesion: es_secundaria });
+        } else {
+            res.status(401).json({ error: 'Credenciales incorrectas' });
         }
-        devices.push(dispositivo_id); // Agregamos el nuevo equipo (Máximo 2)
-      }
-
-      // Detectamos si es la segunda sesión (el índice será > 0)
-      const es_secundaria = devices.indexOf(dispositivo_id) > 0;
-
-      await db.query(
-        'UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2',
-        [devices.join(','), user.id]
-      );
-
-      // REVISAMOS SI ESTÁ ACTIVADO EL LOGIN AUTOMÁTICO
-      const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
-      const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
-
-      // Solo abrimos asistencia automáticamente si es la sesión primaria (para no duplicar entradas por accidente)
-      if (isLoginActivo && !es_secundaria) {
-        const turnoAbierto = await db.query(
-          'SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE',
-          [user.id]
-        );
-        if (turnoAbierto.rows.length === 0) {
-          await db.query(
-            'INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP)',
-            [user.id]
-          );
-        }
-      }
-
-      // Mandamos la bandera 'segunda_sesion' al frontend para que sepa si debe bloquearle el Área de Trabajo
-      res.json({ usuario: user, segunda_sesion: es_secundaria });
-    } else {
-      res.status(401).json({ error: 'Credenciales incorrectas' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error en el servidor' });
     }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Error en el servidor' });
-  }
 };
 
 exports.logout = async (req, res) => {

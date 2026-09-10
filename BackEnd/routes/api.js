@@ -35,11 +35,16 @@ const distribucionCtrl = require('../controllers/distribucionController');
 const distClientesCtrl = require('../controllers/distClientesController');
 const distVentasCtrl = require('../controllers/distVentasController');
 
+// 👇 NUEVOS: Controladores MDM y Huellas
+const equipoCtrl = require('../controllers/equipoController');
+const huellasCtrl = require('../controllers/huellasController'); // <-- Nombre corregido
+
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
 distribucionCtrl.inicializarTablas();
 distClientesCtrl.inicializarTablas(); // 👈 Inicializa tablas de CRM B2B y Configuración SMTP
 distVentasCtrl.inicializarTablas(); 
+huellasCtrl.inicializarTablas();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -325,6 +330,26 @@ router.use((req, res, next) => {
   if (!globalIo && req.app) globalIo = req.app.get('io');
   next();
 });
+
+// ==========================================
+// MÓDULO AISLADO: BIOMETRÍA Y CONTROL DE EQUIPOS (MDM)
+// ==========================================
+// Configuración aislada (Engrane de SMTP y MDM Activo)
+router.get('/biometria/configuracion', equipoCtrl.obtenerConfiguracion);
+router.put('/biometria/configuracion', equipoCtrl.actualizarConfiguracion);
+
+// Gestión de Dispositivos Permitidos
+router.get('/biometria/equipos', equipoCtrl.obtenerEquipos);
+router.post('/biometria/equipos', equipoCtrl.registrarEquipo);
+router.put('/biometria/equipos/:id', equipoCtrl.actualizarEquipo);
+router.delete('/biometria/equipos/:id', equipoCtrl.eliminarEquipo);
+
+// Motor Biométrico (Huellas)
+router.post('/huellas/generar-registro', huellasCtrl.generarOpcionesRegistro);
+router.post('/huellas/verificar-registro', huellasCtrl.verificarRegistro);
+router.post('/huellas/enviar-codigo', huellasCtrl.enviarCodigoVerificacion);
+router.post('/huellas/generar-login', huellasCtrl.generarOpcionesAutenticacion);
+router.post('/huellas/verificar-login', huellasCtrl.verificarAutenticacion);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)

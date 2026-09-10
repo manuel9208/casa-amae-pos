@@ -13,6 +13,7 @@ import AdminPromociones from './admin/AdminPromociones';
 import AdminMesas from './admin/AdminMesas';  
 import AdminProveedores from './admin/AdminProveedores';
 import AdminDistribucion from './admin/AdminDistribucion'; // 👈 RUTA CORREGIDA
+import AdminBiometria from './admin/AdminBiometria';
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -49,6 +50,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewMesas = isGlobalAdmin || user?.permisos?.mesas === true;  
   const canViewProveedores = isGlobalAdmin || user?.permisos?.proveedores === true;
   const canViewDistribucion = isGlobalAdmin || user?.permisos?.distribucion === true; // 👈 NUEVO PERMISO B2B
+  const canViewHuellas = isGlobalAdmin || user?.permisos?.huellas === true;
 
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
@@ -171,6 +173,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           canViewMesas={canViewMesas}
           canViewProveedores={canViewProveedores}
           canViewDistribucion={canViewDistribucion} // 👈 NUEVO PROP
+          canViewHuellas={canViewHuellas}
         />  
       </div>
 
@@ -215,6 +218,11 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         {/* 👇 NUEVO ESPACIO: DISTRIBUCIÓN Y MAYOREO B2B */}
         {seccion === 'distribucion' && canViewDistribucion && (
           <AdminDistribucion {...commonProps} configGlobal={configGlobal} user={user} />
+        )}
+
+        {/* 👇 NUEVO ESPACIO: GESTOR BIOMÉTRICO Y MDM */}
+        {seccion === 'huellas' && canViewHuellas && (
+        <AdminBiometria {...commonProps} user={user} />
         )}
 
         {seccion === 'configuracion' && canViewConfig && (
