@@ -19,7 +19,8 @@ export const useBiometria = (apiUrl, showAlert) => {
 
             let credencial;
             try {
-                credencial = await startRegistration(options);
+                // Sintaxis actualizada para @simplewebauthn/browser v10
+                credencial = await startRegistration({ optionsJSON: options });
             } catch (err) {
                 if (err.name === 'NotAllowedError') {
                     showAlert('Cancelado', 'El registro fue cancelado por el usuario.', 'info');
@@ -69,7 +70,8 @@ export const useBiometria = (apiUrl, showAlert) => {
             // B. El navegador prende el lector de huellas
             let credencial;
             try {
-                credencial = await startAuthentication(options);
+                // Sintaxis actualizada para @simplewebauthn/browser v10
+                credencial = await startAuthentication({ optionsJSON: options });
             } catch (err) {
                 if (err.name === 'NotAllowedError') return null; // El usuario canceló o quitó el dedo
                 throw err;
