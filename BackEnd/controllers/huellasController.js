@@ -85,6 +85,7 @@ exports.enviarCodigoVerificacion = async (req, res) => {
 
         res.json({ success: true, message: 'Código enviado al correo.' });
     } catch (error) {
+        console.error("🚨 Error al enviar correo:", error);
         res.status(500).json({ error: 'Error al enviar el código de verificación.' });
     }
 };
@@ -114,7 +115,7 @@ exports.generarOpcionesRegistro = async (req, res) => {
         const options = await generateRegistrationOptions({
             rpName, 
             rpID, 
-            userID: new Uint8Array(Buffer.from(userID)), // 👈 EL FIX DE ENCRIPTACIÓN BINARIA ESTÁ AQUÍ
+            userID: new Uint8Array(Buffer.from(userID)), 
             userName, 
             userDisplayName,
             attestationType: 'none',
@@ -124,7 +125,7 @@ exports.generarOpcionesRegistro = async (req, res) => {
         challengesConfig[userID] = options.challenge;
         res.json(options);
     } catch (error) {
-        console.error("🚨 Error al generar opciones biométricas:", error); // 👈 AHORA SÍ LO VEREMOS EN RENDER
+        console.error("🚨 Error al generar opciones biométricas:", error);
         res.status(500).json({ error: 'Error al generar opciones biométricas.' });
     }
 };
@@ -145,16 +146,22 @@ exports.verificarRegistro = async (req, res) => {
         });
 
         if (verification.verified) {
-            const { credentialID, credentialPublicKey } = verification.registrationInfo;
+            // 👇 FIX: Compatibilidad con la nueva versión v10 de la librería
+            const publicKey = verification.registrationInfo.credential 
+                ? verification.registrationInfo.credential.publicKey 
+                : verification.registrationInfo.credentialPublicKey;
             
+            // Usamos directamente el ID que manda el navegador en formato String Seguro
+            const credIDString = credencial.id; 
+
             await db.query(
                 `INSERT INTO credenciales_biometricas (usuario_id, cliente_id, credential_id, public_key, dispositivo) 
                  VALUES ($1, $2, $3, $4, $5)`,
                 [
                     usuario_id || null, 
                     cliente_id || null,
-                    Buffer.from(credentialID).toString('base64'), 
-                    Buffer.from(credentialPublicKey).toString('base64'), 
+                    credIDString, 
+                    Buffer.from(publicKey).toString('base64'), 
                     dispositivo_nombre || 'Dispositivo Desconocido'
                 ]
             );
@@ -165,12 +172,13 @@ exports.verificarRegistro = async (req, res) => {
             res.status(400).json({ error: 'No se pudo verificar la huella.' });
         }
     } catch (error) {
+        console.error("🚨 Error interno en verificarRegistro:", error);
         res.status(500).json({ error: 'Error interno de criptografía.' });
     }
 };
 
 // ==============================================================
-// 👇 4. NUEVO: MÉTODOS DE INICIO DE SESIÓN CON HUELLA (LOGIN)
+// 4. MÉTODOS DE INICIO DE SESIÓN CON HUELLA (LOGIN)
 // ==============================================================
 
 exports.generarOpcionesAutenticacion = async (req, res) => {
@@ -180,10 +188,10 @@ exports.generarOpcionesAutenticacion = async (req, res) => {
             userVerification: 'preferred',
         });
         
-        // Guardamos el reto genéricamente, ya que la tablet sabrá quién es la huella localmente
         challengesConfig['login_global'] = options.challenge;
         res.json(options);
     } catch (error) {
+        console.error("🚨 Error en generarOpcionesAutenticacion:", error);
         res.status(500).json({ error: 'Error al preparar el lector de huellas.' });
     }
 };
@@ -194,16 +202,15 @@ exports.verificarAutenticacion = async (req, res) => {
         const expectedChallenge = challengesConfig['login_global'];
         if (!expectedChallenge) return res.status(400).json({ error: 'Tiempo de espera agotado. Vuelve a intentarlo.' });
 
-        // Convertimos el ID de la credencial (base64url) al estándar base64 (como se guardó en la BD)
-        const b64 = credencial.id.replace(/-/g, '+').replace(/_/g, '/');
-        const pad = b64.length % 4;
-        const base64CredID = pad ? b64 + '='.repeat(4 - pad) : b64;
-
-        // Buscamos a quién le pertenece esta huella en la BD
-        const credRes = await db.query('SELECT * FROM credenciales_biometricas WHERE credential_id = $1', [base64CredID]);
+        // 👇 FIX: Buscamos a quién le pertenece la huella usando el ID exacto en String
+        const credRes = await db.query('SELECT * FROM credenciales_biometricas WHERE credential_id = $1', [credencial.id]);
         if (credRes.rows.length === 0) return res.status(404).json({ error: 'Huella no reconocida en la base de datos.' });
 
         const credGuardada = credRes.rows[0];
+
+        // Convertimos el String a formato Buffer para que la librería lo verifique matemáticamente
+        const b64 = credGuardada.credential_id.replace(/-/g, '+').replace(/_/g, '/');
+        const credIDBuffer = Buffer.from(b64, 'base64');
 
         const verification = await verifyAuthenticationResponse({
             response: credencial,
@@ -212,21 +219,19 @@ exports.verificarAutenticacion = async (req, res) => {
             expectedRPID: rpID,
             authenticator: {
                 credentialPublicKey: Buffer.from(credGuardada.public_key, 'base64'),
-                credentialID: Buffer.from(credGuardada.credential_id, 'base64'),
+                credentialID: credIDBuffer,
                 counter: credGuardada.counter,
             }
         });
 
         if (verification.verified) {
-            // Actualizamos contador de seguridad de la huella
             await db.query('UPDATE credenciales_biometricas SET counter = $1 WHERE id = $2', [verification.authenticationInfo.newCounter, credGuardada.id]);
 
-            // Si es un empleado, obtenemos sus datos, abrimos su turno (asistencia) y verificamos MDM
             if (credGuardada.usuario_id) {
                 const userRes = await db.query('SELECT * FROM usuarios WHERE id = $1', [credGuardada.usuario_id]);
                 const user = userRes.rows[0];
 
-                // 👇 NUEVO: BLOQUEO ESTRICTO MDM (TAMBIÉN PARA HUELLAS)
+                // 👇 BLOQUEO ESTRICTO MDM (TAMBIÉN PARA HUELLAS)
                 try {
                     if (user.usuario !== 'admin') { 
                         const confMdm = await db.query('SELECT control_dispositivos_activo, roles_restringidos FROM configuracion_biometria WHERE id = 1');
@@ -252,9 +257,8 @@ exports.verificarAutenticacion = async (req, res) => {
                         }
                     } 
                 } catch(e) { console.error("Error en validación MDM Biométrico", e); }
-                // ☝️ FIN BLOQUEO MDM
 
-                // Auto-Asistencia (Igual que en el Login por PIN)
+                // Auto-Asistencia y Control Multi-Sesión
                 const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
                 const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true;
 
@@ -265,7 +269,6 @@ exports.verificarAutenticacion = async (req, res) => {
                     }
                 }
 
-                // Control Multi-Sesión y Dispositivo
                 let devices = (user.dispositivo_id || '').split(',').filter(Boolean);
                 if (dispositivo_id && !devices.includes(dispositivo_id)) {
                     devices.push(dispositivo_id);
@@ -276,7 +279,6 @@ exports.verificarAutenticacion = async (req, res) => {
                 return res.json({ success: true, tipo: 'empleado', usuario: user, segunda_sesion: es_secundaria });
             }
 
-            // Si es un cliente, cargamos sus datos y le abrimos el Kiosco
             if (credGuardada.cliente_id) {
                 const cliRes = await db.query('SELECT * FROM clientes WHERE id = $1', [credGuardada.cliente_id]);
                 if (cliRes.rows.length > 0) {
@@ -287,7 +289,7 @@ exports.verificarAutenticacion = async (req, res) => {
             res.status(400).json({ error: 'No se pudo verificar matemáticamente la huella.' });
         }
     } catch (error) {
-        console.error(error);
+        console.error("🚨 Error en verificarAutenticacion:", error);
         res.status(500).json({ error: 'Error interno del servidor al procesar la huella.' });
     }
 };
