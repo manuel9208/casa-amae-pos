@@ -138,20 +138,22 @@ exports.verificarRegistro = async (req, res) => {
         const expectedChallenge = challengesConfig[userID];
         if (!expectedChallenge) return res.status(400).json({ error: 'Reto caducado. Intenta de nuevo.' });
 
+        // 👇 FIX: Sanitizamos las variables para evitar bloqueos por espacios invisibles o diagonales
+        const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
+        const cleanRPID = rpID.trim();
+
         const verification = await verifyRegistrationResponse({
             response: credencial,
             expectedChallenge,
-            expectedOrigin,
-            expectedRPID: rpID,
+            expectedOrigin: cleanOrigin,
+            expectedRPID: cleanRPID,
         });
 
         if (verification.verified) {
-            // 👇 FIX: Compatibilidad con la nueva versión v10 de la librería
             const publicKey = verification.registrationInfo.credential 
                 ? verification.registrationInfo.credential.publicKey 
                 : verification.registrationInfo.credentialPublicKey;
             
-            // Usamos directamente el ID que manda el navegador en formato String Seguro
             const credIDString = credencial.id; 
 
             await db.query(
@@ -172,7 +174,8 @@ exports.verificarRegistro = async (req, res) => {
             res.status(400).json({ error: 'No se pudo verificar la huella.' });
         }
     } catch (error) {
-        console.error("🚨 Error interno en verificarRegistro:", error);
+        // 👇 AHORA SÍ VEREMOS EL MOTIVO EXACTO DEL RECHAZO
+        console.error("🚨 Error interno en verificarRegistro:", error.message || error);
         res.status(500).json({ error: 'Error interno de criptografía.' });
     }
 };
