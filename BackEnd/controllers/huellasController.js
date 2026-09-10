@@ -208,10 +208,6 @@ exports.verificarAutenticacion = async (req, res) => {
 
         const credGuardada = credRes.rows[0];
 
-        const b64 = credGuardada.credential_id.replace(/-/g, '+').replace(/_/g, '/');
-        const credIDBuffer = Buffer.from(b64, 'base64');
-
-        // 👇 FIX CRÍTICO: Limpiamos los links igual que en el registro
         const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
         const cleanRPID = rpID.trim();
 
@@ -220,10 +216,11 @@ exports.verificarAutenticacion = async (req, res) => {
             expectedChallenge,
             expectedOrigin: cleanOrigin,
             expectedRPID: cleanRPID,
-            requireUserVerification: false, // 👈 FIX CRÍTICO: Evita colapsos en Chrome/Windows
-            authenticator: {
-                credentialPublicKey: Buffer.from(credGuardada.public_key, 'base64'),
-                credentialID: credIDBuffer,
+            requireUserVerification: false, 
+            // 👇 FIX CRÍTICO: La versión 10 de la librería exige que se llame 'credential' y no 'authenticator'
+            credential: {
+                id: credGuardada.credential_id, // Ahora exige que el ID se envíe como String
+                publicKey: new Uint8Array(Buffer.from(credGuardada.public_key, 'base64')), // Exige que se convierta a Uint8Array
                 counter: credGuardada.counter,
             }
         });
