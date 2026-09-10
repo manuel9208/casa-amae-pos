@@ -138,7 +138,6 @@ exports.verificarRegistro = async (req, res) => {
         const expectedChallenge = challengesConfig[userID];
         if (!expectedChallenge) return res.status(400).json({ error: 'Reto caducado. Intenta de nuevo.' });
 
-        // 👇 FIX: Sanitizamos las variables para evitar bloqueos por espacios invisibles o diagonales
         const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
         const cleanRPID = rpID.trim();
 
@@ -174,7 +173,6 @@ exports.verificarRegistro = async (req, res) => {
             res.status(400).json({ error: 'No se pudo verificar la huella.' });
         }
     } catch (error) {
-        // 👇 AHORA SÍ VEREMOS EL MOTIVO EXACTO DEL RECHAZO
         console.error("🚨 Error interno en verificarRegistro:", error.message || error);
         res.status(500).json({ error: 'Error interno de criptografía.' });
     }
@@ -205,21 +203,24 @@ exports.verificarAutenticacion = async (req, res) => {
         const expectedChallenge = challengesConfig['login_global'];
         if (!expectedChallenge) return res.status(400).json({ error: 'Tiempo de espera agotado. Vuelve a intentarlo.' });
 
-        // 👇 FIX: Buscamos a quién le pertenece la huella usando el ID exacto en String
         const credRes = await db.query('SELECT * FROM credenciales_biometricas WHERE credential_id = $1', [credencial.id]);
         if (credRes.rows.length === 0) return res.status(404).json({ error: 'Huella no reconocida en la base de datos.' });
 
         const credGuardada = credRes.rows[0];
 
-        // Convertimos el String a formato Buffer para que la librería lo verifique matemáticamente
         const b64 = credGuardada.credential_id.replace(/-/g, '+').replace(/_/g, '/');
         const credIDBuffer = Buffer.from(b64, 'base64');
+
+        // 👇 FIX CRÍTICO: Limpiamos los links igual que en el registro
+        const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
+        const cleanRPID = rpID.trim();
 
         const verification = await verifyAuthenticationResponse({
             response: credencial,
             expectedChallenge,
-            expectedOrigin,
-            expectedRPID: rpID,
+            expectedOrigin: cleanOrigin,
+            expectedRPID: cleanRPID,
+            requireUserVerification: false, // 👈 FIX CRÍTICO: Evita colapsos en Chrome/Windows
             authenticator: {
                 credentialPublicKey: Buffer.from(credGuardada.public_key, 'base64'),
                 credentialID: credIDBuffer,
@@ -234,7 +235,7 @@ exports.verificarAutenticacion = async (req, res) => {
                 const userRes = await db.query('SELECT * FROM usuarios WHERE id = $1', [credGuardada.usuario_id]);
                 const user = userRes.rows[0];
 
-                // 👇 BLOQUEO ESTRICTO MDM (TAMBIÉN PARA HUELLAS)
+                // BLOQUEO ESTRICTO MDM (TAMBIÉN PARA HUELLAS)
                 try {
                     if (user.usuario !== 'admin') { 
                         const confMdm = await db.query('SELECT control_dispositivos_activo, roles_restringidos FROM configuracion_biometria WHERE id = 1');
@@ -292,7 +293,7 @@ exports.verificarAutenticacion = async (req, res) => {
             res.status(400).json({ error: 'No se pudo verificar matemáticamente la huella.' });
         }
     } catch (error) {
-        console.error("🚨 Error en verificarAutenticacion:", error);
+        console.error("🚨 Error en verificarAutenticacion:", error.message || error);
         res.status(500).json({ error: 'Error interno del servidor al procesar la huella.' });
     }
 };
