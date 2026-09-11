@@ -357,6 +357,9 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                             <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
                                 <input type="checkbox" checked={uPermisos.configuracion === true} onChange={e => setUPermisos({...uPermisos, configuracion: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Acceso a Configuración
                             </label>
+                            <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
+                                <input type="checkbox" checked={uPermisos.huellas === true} onChange={e => setUPermisos({...uPermisos, huellas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Seguridad y Biometría
+                            </label>
                         </div>
                     )}
 

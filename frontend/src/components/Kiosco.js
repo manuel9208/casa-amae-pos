@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Fingerprint } from 'react';
 import io from 'socket.io-client';
+import { useBiometria } from '../hooks/useBiometria'; // 👈 NUEVO
 
 import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
@@ -432,6 +433,34 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
   };
 
+    // 👇 INICIALIZAMOS BIOMETRÍA PARA EL KIOSCO
+  const hookBiometria = useBiometria(apiUrl, (tit, msg) => setErrorNip(msg));
+
+  // 👇 NUEVA FUNCIÓN: CANJEAR PUNTOS CON HUELLA
+  const canjearConHuella = async () => {
+      setErrorNip('');
+      const data = await hookBiometria.iniciarSesionConHuella();
+      
+      if (data && data.success && data.tipo === 'cliente') {
+          // Verificamos que la huella sea del cliente que tiene la sesión abierta
+          if (data.data.id === clienteActivo.id) {
+              
+              // 🟢 LA HUELLA ES CORRECTA 🟢
+              // Haz exactamente lo mismo que haces cuando el NIP es correcto. 
+              // Por lo general es cerrar el modal, limpiar errores y aplicar los puntos:
+              setModalNip(false);
+              setErrorNip('');
+              setNipInput('');
+              
+              // 👇 COPIA AQUÍ LA LÓGICA DE ÉXITO QUE TIENES DENTRO DE TU FUNCIÓN `verificarNip`
+              // (Ejemplo: setDescuentoPuntosPuntosFisicos(clienteActivo.puntos); )
+              
+          } else {
+              setErrorNip('Esta huella pertenece a otra cuenta.');
+          }
+      }
+  };
+
   const solicitarRecuperacionNip = async (e) => {
     e.preventDefault();
     setMensajeRecuperacion(null);
@@ -720,6 +749,27 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
             <span className="text-6xl mb-4 block">🎁</span>
             <h2 className="text-2xl font-black text-slate-800 mb-2">Seguridad de Puntos</h2>
             <p className="text-slate-500 font-medium mb-6">Ingresa tu NIP para usar tus <strong className="text-blue-600">{clienteActivo?.puntos || 0} pts</strong>.</p>
+            
+            {/* 👇 BOTÓN INTELIGENTE DE HUELLA */}
+            {clienteActivo?.tiene_huella && (
+                <button
+                    type="button"
+                    onClick={canjearConHuella}
+                    className="w-full mb-6 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 font-black py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-95 border border-emerald-200 shadow-sm"
+                >
+                    <Fingerprint size={24} /> Canjear con Huella
+                </button>
+            )}
+
+            {/* SEPARADOR VISUAL */}
+            {clienteActivo?.tiene_huella && (
+                <div className="w-full flex items-center gap-4 mb-6 opacity-60">
+                    <div className="h-px bg-slate-300 flex-1"></div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">O usa tu NIP</span>
+                    <div className="h-px bg-slate-300 flex-1"></div>
+                </div>
+            )}
+            
             <input type="password" maxLength="4" required value={nipInput} onChange={e => setNipInput(e.target.value.replace(/\D/g, ''))} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-3xl font-black tracking-[1em] outline-none focus:border-blue-500 mb-2 text-slate-800" placeholder="••••" />
             
             <button type="button" onClick={() => { setModalNip(false); setModalRecuperarNip(true); }} className="text-blue-500 hover:text-blue-700 text-xs font-bold underline mb-6 block w-full transition">¿Olvidaste tu NIP?</button>

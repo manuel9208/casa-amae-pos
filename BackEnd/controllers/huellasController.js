@@ -119,7 +119,11 @@ exports.generarOpcionesRegistro = async (req, res) => {
             userName, 
             userDisplayName,
             attestationType: 'none',
-            authenticatorSelection: { userVerification: 'preferred', residentKey: 'required' }
+            authenticatorSelection: { 
+                authenticatorAttachment: 'platform', // 👈 FIX: Obliga a usar el hardware físico del equipo, rechazando nubes externas.
+                userVerification: 'preferred', 
+                residentKey: 'required' 
+            }
         });
 
         challengesConfig[userID] = options.challenge;
@@ -292,5 +296,16 @@ exports.verificarAutenticacion = async (req, res) => {
     } catch (error) {
         console.error("🚨 Error en verificarAutenticacion:", error.message || error);
         res.status(500).json({ error: 'Error interno del servidor al procesar la huella.' });
+    }
+};
+
+exports.eliminarHuellaCliente = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('DELETE FROM credenciales_biometricas WHERE cliente_id = $1', [id]);
+        res.json({ success: true, message: 'Huella eliminada correctamente.' });
+    } catch (error) {
+        console.error("🚨 Error al eliminar huella de cliente:", error);
+        res.status(500).json({ error: 'Error interno al intentar eliminar la huella.' });
     }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, XCircle, Smartphone, Mail, Save, Users, Monitor } from 'lucide-react';
+import { Settings, XCircle, Smartphone, Mail, Save, Users, Monitor, Fingerprint } from 'lucide-react';
 
 const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -7,6 +7,7 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
         control_dispositivos_activo: false,
         roles_restringidos: ['cajero', 'cocina', 'repartidor'],
         pantallas_restringidas: ['caja', 'cocina', 'admin'],
+        metodo_asistencia: 'ambos', // 👈 NUEVO: Estado por defecto
         smtp_host: '', smtp_port: '', smtp_user: '', smtp_pass: '', correo_remitente: ''
     });
 
@@ -37,6 +38,7 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
                     ...prev, ...data, 
                     roles_restringidos: data.roles_restringidos || [],
                     pantallas_restringidas: data.pantallas_restringidas || [],
+                    metodo_asistencia: data.metodo_asistencia || 'ambos',
                     smtp_pass: '' 
                 }));
             }
@@ -55,7 +57,7 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
                 body: JSON.stringify(configuracion)
             });
             if (res.ok) {
-                showAlert('¡Guardado!', 'Políticas de seguridad actualizadas. Los cambios aplican de inmediato.', 'success');
+                showAlert('¡Guardado!', 'Políticas de seguridad y asistencia actualizadas.', 'success');
                 onClose();
             } else { showAlert('Error', 'No se pudo guardar la configuración.', 'error'); }
         } catch (error) { showAlert('Error', 'Verifica tu conexión a internet.', 'error'); }
@@ -153,6 +155,40 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
                             </div>
                         </div>
                     )}
+
+                    {/* 👇 NUEVO: CONTROL DE ASISTENCIA */}
+                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                        <h4 className="font-black text-lg text-slate-800 mb-2 flex items-center gap-2">
+                            <Fingerprint className="text-emerald-500" size={20} /> Control de Asistencia
+                        </h4>
+                        <p className="text-sm font-medium text-slate-500 mb-6">Elige cómo quieres que los empleados registren su hora de entrada y salida en las pantallas de Caja y Cocina.</p>
+
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <label className={`flex-1 flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${configuracion.metodo_asistencia === 'ambos' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-slate-100'}`}>
+                                <input type="radio" name="asistencia" value="ambos" checked={configuracion.metodo_asistencia === 'ambos' || !configuracion.metodo_asistencia} onChange={(e) => setConfiguracion({...configuracion, metodo_asistencia: e.target.value})} className="hidden" />
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${configuracion.metodo_asistencia === 'ambos' ? 'border-emerald-500' : 'border-slate-300'}`}>
+                                    {configuracion.metodo_asistencia === 'ambos' && <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>}
+                                </div>
+                                <span className="font-bold text-slate-700 text-sm">Ambos Métodos</span>
+                            </label>
+
+                            <label className={`flex-1 flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${configuracion.metodo_asistencia === 'biometria' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-100'}`}>
+                                <input type="radio" name="asistencia" value="biometria" checked={configuracion.metodo_asistencia === 'biometria'} onChange={(e) => setConfiguracion({...configuracion, metodo_asistencia: e.target.value})} className="hidden" />
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${configuracion.metodo_asistencia === 'biometria' ? 'border-blue-500' : 'border-slate-300'}`}>
+                                    {configuracion.metodo_asistencia === 'biometria' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>}
+                                </div>
+                                <span className="font-bold text-slate-700 text-sm">Solo Huella 👆</span>
+                            </label>
+
+                            <label className={`flex-1 flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${configuracion.metodo_asistencia === 'botones' ? 'border-orange-500 bg-orange-50' : 'border-slate-200 bg-white hover:border-slate-100'}`}>
+                                <input type="radio" name="asistencia" value="botones" checked={configuracion.metodo_asistencia === 'botones'} onChange={(e) => setConfiguracion({...configuracion, metodo_asistencia: e.target.value})} className="hidden" />
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${configuracion.metodo_asistencia === 'botones' ? 'border-orange-500' : 'border-slate-300'}`}>
+                                    {configuracion.metodo_asistencia === 'botones' && <div className="w-2.5 h-2.5 bg-orange-500 rounded-full"></div>}
+                                </div>
+                                <span className="font-bold text-slate-700 text-sm">Solo PIN/Botones</span>
+                            </label>
+                        </div>
+                    </div>
 
                     {/* SERVIDOR SMTP */}
                     <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm opacity-60 hover:opacity-100 transition-opacity">

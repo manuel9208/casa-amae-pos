@@ -5,6 +5,7 @@ import { Fingerprint, Smartphone, Users, Settings, ShieldCheck } from 'lucide-re
 import ModalConfigSeguridad from './huellas/ModalConfigSeguridad';
 import GestorDispositivos from './huellas/GestorDispositivos';
 import GestorHuellasEmpleados from './huellas/GestorHuellasEmpleados';
+import GestorHuellasClientes from './huellas/GestorHuellasClientes';
 
 const AdminBiometria = ({ apiUrl, showAlert, user }) => {
     const [subTab, setSubTab] = useState('dispositivos'); 
@@ -67,9 +68,8 @@ const AdminBiometria = ({ apiUrl, showAlert, user }) => {
                     </div>
                 )}
                 {subTab === 'clientes' && (
-                    <div className="text-center py-20 text-slate-400">
-                        <Users size={48} className="mx-auto mb-4 opacity-50" />
-                        <h2 className="text-xl font-black">Módulo en Construcción</h2>
+                    <div className="animate-in fade-in">
+                        <GestorHuellasClientes apiUrl={apiUrl} showAlert={showAlert} />
                     </div>
                 )}
             </div>

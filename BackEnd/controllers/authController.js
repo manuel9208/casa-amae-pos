@@ -1,18 +1,24 @@
 const db = require('../config/db');
 
 exports.identificar = async (req, res) => {
-  const { telefono } = req.body;
-  try {
-    const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1', [telefono]);
-    if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: empleado.rows[0] });
+    const { telefono } = req.body;
+    try {
+        const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1', [telefono]);
+        if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: empleado.rows[0] });  
 
-    const cliente = await db.query('SELECT * FROM clientes WHERE telefono = $1', [telefono]);
-    if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: cliente.rows[0] });
+        // 👇 FIX: Ahora revisamos si el cliente tiene huella al momento de teclear su celular
+        const cliente = await db.query(`
+            SELECT c.*, 
+            EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella 
+            FROM clientes c WHERE telefono = $1
+        `, [telefono]);
+        
+        if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: cliente.rows[0] });  
 
-    return res.json({ tipo: 'nuevo' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al identificar' });
-  }
+        return res.json({ tipo: 'nuevo' });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al identificar' });
+    }
 };
 
 exports.login = async (req, res) => {

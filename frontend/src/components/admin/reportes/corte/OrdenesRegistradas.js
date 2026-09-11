@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingBag, Printer, Eye, User, Store, Package } from 'lucide-react';
-import TicketImpresionMayoreo from '../../../caja/modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo'; // 👈 RUTA EXACTA CORREGIDA
+import TicketImpresionMayoreo from '../../../caja/modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo'; // 👈 Asegúrate de que esta ruta sea correcta para tu proyecto
 
 const deserializarCarrito = (carritoRaw) => {
     if (Array.isArray(carritoRaw)) return carritoRaw;
@@ -12,10 +12,13 @@ const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g, "")) || 0;
 const OrdenesRegistradas = ({
     pedidosFiltradosFinales, pedidoSeleccionado, setPedidoSeleccionado,
     filtroCliente, setFiltroCliente, filtroMetodoPago, setFiltroMetodoPago, formaterMoneda,
-    pedidosB2B = [], configGlobal, apiUrl // 👈 INYECCIÓN PARA B2B
+    pedidosB2B = [], configGlobal, apiUrl
 }) => {
     const [modoTab, setModoTab] = useState('restaurante');
     const [configDist, setConfigDist] = useState({ activa: false, nombre: 'Distribución' });
+    
+    // 👇 NUEVO ESTADO PARA EL FILTRO DE ORIGEN
+    const [filtroOrigen, setFiltroOrigen] = useState('Todos');
 
     // Consultamos la configuración B2B
     useEffect(() => {
@@ -31,42 +34,49 @@ const OrdenesRegistradas = ({
                         });
                     }
                 })
-                .catch(() => {});
+                .catch(() => { });
         }
     }, [apiUrl]);
 
-    // Aplicamos los filtros también a los pedidos B2B
+    // Aplicamos los filtros básicos a los B2B
     const ventasB2BFiltradas = (pedidosB2B || []).filter(p => {
         if (['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return false;
         if (filtroMetodoPago !== 'Todos' && p.metodo_pago !== filtroMetodoPago) return false;
         if (filtroCliente.trim() !== '') {
-            const cliente = (p.cliente_nombre || '').toLowerCase(); 
+            const cliente = (p.cliente_nombre || '').toLowerCase();
             const iden = (p.numero_pedido || '').toString();
             if (!cliente.includes(filtroCliente.toLowerCase()) && !iden.includes(filtroCliente.toLowerCase())) return false;
         }
         return true;
     }).sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
 
-    const ordenesAMostrar = modoTab === 'restaurante' ? pedidosFiltradosFinales : ventasB2BFiltradas;
+    // 👇 SEPARACIÓN DE LA LÓGICA DE FILTRADO PARA AGREGAR EL ORIGEN
+    const ordenesAMostrarBrutas = modoTab === 'restaurante' ? pedidosFiltradosFinales : ventasB2BFiltradas;
+
+    const ordenesAMostrar = ordenesAMostrarBrutas.filter(p => {
+        if (filtroOrigen === 'Todos') return true;
+        const org = p.origen || 'Caja'; // Si por algún motivo está vacío en BD, se asume que fue en Caja
+        if (filtroOrigen === 'Web/Kiosco') return org === 'Kiosco' || org === 'Web';
+        return org === filtroOrigen;
+    });
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:w-full">
             <div className="lg:col-span-2 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col h-[600px] print:h-auto print:border-none print:shadow-none print:p-0 print:block print:w-full">
-                
+
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 shrink-0 border-b border-slate-100 pb-4 print:border-black print:mb-2 gap-4">
                     <h3 className="text-lg font-black text-slate-800 flex items-center gap-2 print:text-black">
                         <ShoppingBag className="text-blue-500 print:hidden" size={20} /> Órdenes ({ordenesAMostrar.length})
                     </h3>
                     <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto print:hidden">
 
-                        {/* 👇 NUEVO SWITCH B2B */}
                         {configDist.activa && (
                             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner mr-2">
                                 <button onClick={() => { setModoTab('restaurante'); setPedidoSeleccionado(null); }} className={`px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${modoTab === 'restaurante' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <Store size={14} className="inline mr-1 mb-0.5"/> Local
+                                    <Store size={14} className="inline mr-1 mb-0.5" /> Local
                                 </button>
                                 <button onClick={() => { setModoTab('mayoreo'); setPedidoSeleccionado(null); }} className={`px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${modoTab === 'mayoreo' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                    <Package size={14} className="inline mr-1 mb-0.5"/> {configDist.nombre}
+                                    <Package size={14} className="inline mr-1 mb-0.5" /> {configDist.nombre}
                                 </button>
                             </div>
                         )}
@@ -79,6 +89,20 @@ const OrdenesRegistradas = ({
                                 className="w-full sm:w-48 pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-500 transition-colors"
                             />
                         </div>
+
+                        {/* 👇 NUEVO SELECTOR DE FILTRO POR ORIGEN */}
+                        <select
+                            value={filtroOrigen} onChange={e => setFiltroOrigen(e.target.value)}
+                            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-blue-500 cursor-pointer text-slate-600"
+                        >
+                            <option value="Todos">Origen: Todos</option>
+                            <option value="Caja">Mostrador (Caja)</option>
+                            <option value="Web/Kiosco">Kiosco / Web</option>
+                            <option value="Totem">Tótem Físico</option>
+                            <option value="Drive-Thru">Drive-Thru</option>
+                            <option value="QR Mesa">Mesa QR</option>
+                        </select>
+
                         <select
                             value={filtroMetodoPago} onChange={e => setFiltroMetodoPago(e.target.value)}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-blue-500 cursor-pointer"
@@ -90,6 +114,7 @@ const OrdenesRegistradas = ({
                             <option value="Mixto">Mixto</option>
                             {modoTab === 'mayoreo' && <option value="Crédito">Crédito</option>}
                         </select>
+
                         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-slate-700 transition shadow-md">
                             <Printer size={14} /> <span className="hidden sm:inline">Imprimir</span>
                         </button>
@@ -102,6 +127,8 @@ const OrdenesRegistradas = ({
                             <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest print:border-black print:text-black">
                                 <th className="pb-3 px-2">Orden</th>
                                 <th className="pb-3 px-2">Cliente / Identificador</th>
+                                {/* 👇 NUEVA COLUMNA EN EL HEADER */}
+                                <th className="pb-3 px-2 text-center">Origen</th>
                                 <th className="pb-3 px-2 text-center">Método</th>
                                 <th className="pb-3 px-2 text-center">Estado</th>
                                 <th className="pb-3 px-2 text-center">Promo / Descuento</th>
@@ -111,7 +138,8 @@ const OrdenesRegistradas = ({
                         <tbody className="divide-y divide-slate-50 print:divide-slate-300">
                             {ordenesAMostrar.length === 0 ? (
                                 <tr>
-                                    <td colSpan="6" className="text-center py-10 font-bold text-slate-400 print:text-black">
+                                    {/* 👇 Cambiamos el colSpan a 7 por la nueva columna */}
+                                    <td colSpan="7" className="text-center py-10 font-bold text-slate-400 print:text-black">
                                         No hay órdenes para los filtros aplicados.
                                     </td>
                                 </tr>
@@ -135,7 +163,7 @@ const OrdenesRegistradas = ({
                                         const car = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []);
                                         const hasUpsell = car.some(item => item.extras && item.extras.some(ex => String(ex.nombre).includes('⭐ Promo')));
                                         if (hasUpsell) promosText.push(`🔥 Oferta`);
-                                    } catch(e) {}
+                                    } catch (e) { }
 
                                     let estadoVisual = p.estado_preparacion;
                                     if (estadoVisual === 'Pagado' && ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago)) {
@@ -160,21 +188,28 @@ const OrdenesRegistradas = ({
                                                     {modoTab === 'mayoreo' ? 'B2B: ' : ''}{p.tipo_consumo} {p.mesa ? `- MESA ${p.mesa}` : ''}
                                                 </p>
                                             </td>
+
+                                            {/* 👇 NUEVA CELDA: ORIGEN DEL PEDIDO */}
+                                            <td className="py-3 px-2 text-center align-top">
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 print:text-black">
+                                                    {p.origen || 'CAJA'}
+                                                </span>
+                                            </td>
+
                                             <td className="py-3 px-2 text-center align-top">
                                                 <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' :
                                                     p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' :
-                                                    p.metodo_pago === 'Transferencia' ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-600'
-                                                }`}>
+                                                        p.metodo_pago === 'Transferencia' ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-600'
+                                                    }`}>
                                                     {p.metodo_pago}
                                                 </span>
                                             </td>
                                             <td className="py-3 px-2 text-center align-top">
-                                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${
-                                                    isCancelado ? 'bg-red-100 text-red-700' :
+                                                <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${isCancelado ? 'bg-red-100 text-red-700' :
                                                     ['Entregado', 'Finalizado', 'Liquidado'].includes(p.estado_preparacion) ? 'bg-emerald-100 text-emerald-700' :
-                                                    estadoVisual === 'EN COLA' ? 'bg-orange-100 text-orange-700' :
-                                                    'bg-amber-100 text-amber-700'
-                                                }`}>
+                                                        estadoVisual === 'EN COLA' ? 'bg-orange-100 text-orange-700' :
+                                                            'bg-amber-100 text-amber-700'
+                                                    }`}>
                                                     {estadoVisual}
                                                 </span>
                                             </td>
@@ -210,18 +245,16 @@ const OrdenesRegistradas = ({
                 <div className="flex-1 overflow-hidden flex flex-col">
                     {pedidoSeleccionado ? (
                         pedidoSeleccionado._esB2B ? (
-                            // 👇 VISOR EXCLUSIVO B2B (REUTILIZA TU COMPONENTE TICKET)
                             <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center bg-slate-200/50 rounded-2xl border border-slate-200 pt-4 animate-in zoom-in-95 duration-200 relative">
                                 <div className="transform scale-[0.85] origin-top w-full flex justify-center pb-10">
-                                    <TicketImpresionMayoreo 
-                                        ticketImprimir={pedidoSeleccionado} 
-                                        configGlobal={configGlobal} 
-                                        apiUrl={apiUrl} 
+                                    <TicketImpresionMayoreo
+                                        ticketImprimir={pedidoSeleccionado}
+                                        configGlobal={configGlobal}
+                                        apiUrl={apiUrl}
                                     />
                                 </div>
                             </div>
                         ) : (
-                            // 👇 VISOR ORIGINAL DEL RESTAURANTE
                             <div className="flex-1 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
                                 <div className="bg-slate-900 text-white p-5 rounded-3xl shadow-md shrink-0 mb-4 border border-slate-800">
                                     <div className="flex justify-between items-start mb-2">

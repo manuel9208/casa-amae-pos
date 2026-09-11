@@ -18,7 +18,8 @@ const TopNavCaja = ({
 
   const isCocinaCajaActiva = configGlobal?.cocina_en_caja_activa === true || configGlobal?.cocina_en_caja_activa === 'true';
   const canVerCocina = isCocinaCajaActiva && ['admin', 'gerente', 'jefe', 'cocina', 'ayudante_cocina', 'cajero'].includes(user?.rol);
-  const isAsistenciaPin = configGlobal?.asistencia_pin_caja === undefined || configGlobal?.asistencia_pin_caja === true || String(configGlobal?.asistencia_pin_caja) === 'true';  
+  // 👇 FIX: Ahora leemos el nuevo interruptor de asistencia
+const isAsistenciaPin = !configGlobal?.metodo_asistencia || ['ambos', 'botones', 'biometria'].includes(configGlobal?.metodo_asistencia);
 
   const toggleFullScreen = () => {
     if (!document.fullscreenElement) {

@@ -7,7 +7,6 @@ const CuadreGlobal = ({
     diferenciaAuditoria, cortesDelDia, corteSeleccionadoId, setModalFondosAbierto,
     fondosAdicionales, totalVentasBrutas, tDescuentos, totalIngresoNetoReal,
     descuentosEfectivo = 0,
-    // 👇 NUEVAS PROPS B2B (Por defecto en 0)
     ventasB2B = 0,
     efectivoB2B = 0
 }) => {
@@ -47,15 +46,19 @@ const CuadreGlobal = ({
                         <span>{formaterMoneda(totalEfectivoDia + descuentosEfectivo)}</span>
                     </div>
                     
-                    {/* 👇 DESGLOSE B2B: EFECTIVO */}
-                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
-                        <span>├ Restaurante:</span>
-                        <span>{formaterMoneda((totalEfectivoDia + descuentosEfectivo) - efectivoB2B)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
-                        <span>└ Mayoreo (B2B):</span>
-                        <span>{formaterMoneda(efectivoB2B)}</span>
-                    </div>
+                    {/* 👇 FIX: Condicionamos el desglose B2B en el Cuadre Global */}
+                    {efectivoB2B > 0 && (
+                        <>
+                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
+                                <span>├ Restaurante:</span>
+                                <span>{formaterMoneda((totalEfectivoDia + descuentosEfectivo) - efectivoB2B)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
+                                <span>└ Mayoreo (B2B):</span>
+                                <span>{formaterMoneda(efectivoB2B)}</span>
+                            </div>
+                        </>
+                    )}
 
                     {descuentosEfectivo > 0 && (
                         <div className="flex justify-between text-sm font-bold text-orange-500">
@@ -68,7 +71,6 @@ const CuadreGlobal = ({
                         <span>-{formaterMoneda(gastosCompras)}</span>
                     </div>
 
-                    {/* DESGLOSE DE RETIROS Y FONDOS */}
                     <div className="pt-2 mt-2 border-t border-slate-100">
                         {Number(efectivoEntregadoTotal) > 0 && (
                             <div className="flex justify-between text-sm font-bold text-blue-600 mb-0.5">
@@ -117,15 +119,19 @@ const CuadreGlobal = ({
                         <span>{formaterMoneda(totalVentasBrutas)}</span>
                     </div>
 
-                    {/* 👇 DESGLOSE B2B: VENTAS BRUTAS */}
-                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
-                        <span>├ Restaurante:</span>
-                        <span>{formaterMoneda(totalVentasBrutas - ventasB2B)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
-                        <span>└ Mayoreo (B2B):</span>
-                        <span>{formaterMoneda(ventasB2B)}</span>
-                    </div>
+                    {/* 👇 FIX: Condicionamos el desglose de ventas B2B */}
+                    {ventasB2B > 0 && (
+                        <>
+                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pl-4 mt-0.5">
+                                <span>├ Restaurante:</span>
+                                <span>{formaterMoneda(totalVentasBrutas - ventasB2B)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[10px] font-bold text-indigo-400 pl-4 mb-2">
+                                <span>└ Mayoreo (B2B):</span>
+                                <span>{formaterMoneda(ventasB2B)}</span>
+                            </div>
+                        </>
+                    )}
 
                     <div className="flex justify-between text-sm font-bold text-orange-500">
                         <span>- Descuentos Aplicados:</span>

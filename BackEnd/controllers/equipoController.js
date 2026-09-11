@@ -9,13 +9,20 @@ exports.obtenerConfiguracion = async (req, res) => {
             ADD COLUMN IF NOT EXISTS pantallas_restringidas JSONB DEFAULT '["caja", "cocina", "admin"]'
         `).catch(() => {});
 
-        // 👇 NUEVA AUTO-MIGRACIÓN PARA LA MATRIZ DE ROLES POR EQUIPO
+        // Auto-migración para la matriz de roles por equipo
         await db.query(`
             ALTER TABLE equipos_autorizados 
             ADD COLUMN IF NOT EXISTS roles_permitidos JSONB DEFAULT '[]'
         `).catch(() => {});
 
-        const result = await db.query('SELECT control_dispositivos_activo, roles_restringidos, pantallas_restringidas, smtp_host, smtp_port, smtp_user, correo_remitente FROM configuracion_biometria WHERE id = 1');
+        // 👇 NUEVA AUTO-MIGRACIÓN: Preferencia del método de asistencia
+        await db.query(`
+            ALTER TABLE configuracion_biometria 
+            ADD COLUMN IF NOT EXISTS metodo_asistencia TEXT DEFAULT 'ambos'
+        `).catch(() => {});
+
+        // Se envía todo al frontend
+        const result = await db.query('SELECT control_dispositivos_activo, roles_restringidos, pantallas_restringidas, metodo_asistencia, smtp_host, smtp_port, smtp_user, correo_remitente FROM configuracion_biometria WHERE id = 1');
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener la configuración biométrica.' });
@@ -23,18 +30,20 @@ exports.obtenerConfiguracion = async (req, res) => {
 };
 
 exports.actualizarConfiguracion = async (req, res) => {
-    const { control_dispositivos_activo, roles_restringidos, pantallas_restringidas, smtp_host, smtp_port, smtp_user, smtp_pass, correo_remitente } = req.body;
+    // 👇 AHORA SÍ RECIBE TODOS LOS DATOS NUEVOS
+    const { control_dispositivos_activo, roles_restringidos, pantallas_restringidas, metodo_asistencia, smtp_host, smtp_port, smtp_user, smtp_pass, correo_remitente } = req.body;
     try {
-        let query = 'UPDATE configuracion_biometria SET control_dispositivos_activo = $1, roles_restringidos = $2, pantallas_restringidas = $3, smtp_host = $4, smtp_port = $5, smtp_user = $6, correo_remitente = $7';
+        let query = 'UPDATE configuracion_biometria SET control_dispositivos_activo = $1, roles_restringidos = $2, pantallas_restringidas = $3, metodo_asistencia = $4, smtp_host = $5, smtp_port = $6, smtp_user = $7, correo_remitente = $8';
         let params = [
             control_dispositivos_activo, 
             JSON.stringify(roles_restringidos || []), 
             JSON.stringify(pantallas_restringidas || []), 
+            metodo_asistencia || 'ambos', 
             smtp_host, smtp_port, smtp_user, correo_remitente
         ];
 
         if (smtp_pass && smtp_pass.trim() !== '') {
-            query += ', smtp_pass = $8 WHERE id = 1 RETURNING control_dispositivos_activo';
+            query += ', smtp_pass = $9 WHERE id = 1 RETURNING control_dispositivos_activo';
             params.push(smtp_pass);
         } else {
             query += ' WHERE id = 1 RETURNING control_dispositivos_activo';

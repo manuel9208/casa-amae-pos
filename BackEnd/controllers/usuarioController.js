@@ -1,12 +1,17 @@
 const db = require('../config/db');  
 
 exports.obtenerUsuarios = async (req, res) => {
-  try {
-    const result = await db.query('SELECT * FROM usuarios ORDER BY id ASC');
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener usuarios' });
-  }
+    try {
+        // 👇 FIX: Ahora verificamos si ya tienen huella registrada
+        const result = await db.query(`
+            SELECT u.*, 
+            EXISTS(SELECT 1 FROM credenciales_biometricas c WHERE c.usuario_id = u.id) as tiene_huella 
+            FROM usuarios u ORDER BY id ASC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener usuarios' });
+    }
 };  
 
 exports.obtenerAyudantesCocina = async (req, res) => {

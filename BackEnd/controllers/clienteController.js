@@ -262,7 +262,7 @@ exports.cambiarCorreoConCodigo = async (req, res) => {
 
 exports.obtenerClientes = async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM clientes ORDER BY id DESC');
+    const result = await db.query('SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella FROM clientes c ORDER BY id DESC');
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener clientes' });

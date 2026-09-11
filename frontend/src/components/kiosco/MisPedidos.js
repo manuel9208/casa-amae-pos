@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, CheckCircle2, User, Save, MapPin, Mail, Calendar, Phone, Award, Lock, ShieldCheck, Fingerprint } from 'lucide-react';
+import { ShoppingBag, CheckCircle2, User, Save, MapPin, Mail, Calendar, Phone, Award, Lock, ShieldCheck, Fingerprint, Trash2 } from 'lucide-react';
 import { useBiometria } from '../../hooks/useBiometria'; 
 
 const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteActivo, apiUrl, configGlobal }) => {
@@ -18,16 +18,17 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
   const [nuevoNip, setNuevoNip] = useState('');
   const [mensajeNip, setMensajeNip] = useState(null);
 
-  // 👇 NUEVOS ESTADOS PARA EL FLUJO 2FA DEL CORREO
+  // ESTADOS PARA EL FLUJO 2FA DEL CORREO
   const [flujoCorreo, setFlujoCorreo] = useState('inactivo');
   const [codigoVerificacionCorreo, setCodigoVerificacionCorreo] = useState('');
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [mensajeCorreo, setMensajeCorreo] = useState(null);
 
-  // 👇 ESTADOS PARA HUELLA DIGITAL
+  // ESTADOS PARA HUELLA DIGITAL
   const [flujoHuella, setFlujoHuella] = useState('inactivo');
   const [nipHuella, setNipHuella] = useState('');
   const [mensajeHuella, setMensajeHuella] = useState(null);
+  const [accionHuella, setAccionHuella] = useState('vincular');
 
   const hookBiometria = useBiometria(apiUrl, (titulo, mensaje, tipo) => {
       setMensajeHuella({ tipo: tipo === 'error' ? 'error' : 'success', texto: mensaje });
@@ -51,7 +52,6 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
         dia: d
       });
       
-      // Reiniciamos los flujos de seguridad
       setNuevoNip('');
       setCodigoVerificacion('');
       setFlujoNip('inactivo');
@@ -64,10 +64,11 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     }
   }, [clienteActivo]);
 
-  const pedidosActivos = misPedidos.filter(p => ['Pendiente', 'Preparando', 'En Camino'].includes(p.estado_preparacion));
-  const pedidosFinalizados = misPedidos.filter(p => ['Entregado', 'Cancelado'].includes(p.estado_preparacion));
-
-  // 1. GUARDADO DE PERFIL GENERAL
+  // 👇 FIX: Ahora los finalizados incluyen todos los estados inactivos (Entregado, Cancelado, Finalizado, Pagado sin actividad)
+  const estadosActivos = ['Pendiente', 'Preparando', 'En Camino', 'Por Confirmar'];
+  const pedidosActivos = misPedidos.filter(p => estadosActivos.includes(p.estado_preparacion));
+  const pedidosFinalizados = misPedidos.filter(p => !estadosActivos.includes(p.estado_preparacion));
+  
   const actualizarPerfil = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -92,7 +93,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     const payload = { 
       nombre: formData.nombre,
       apellido: formData.apellido,
-      correo: formData.correo, // Si ya estaba bloqueado, simplemente se re-envía el mismo
+      correo: formData.correo, 
       direccion: formData.direccion,
       fecha_nacimiento: fecha_nacimiento_unida 
     };
@@ -117,10 +118,6 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     setIsSubmitting(false);
   };
 
-  // ========================================================
-  // 🔐 MÓDULOS DE SEGURIDAD 2FA (NIP Y CORREO)
-  // ========================================================
-
   const solicitarCodigoSeguridad = async (tipoFlujo) => {
     if (!clienteActivo.correo && !formData.correo) {
       const msg = 'Para usar opciones de seguridad, primero ingresa tu correo electrónico y haz clic en "Guardar Cambios".';
@@ -133,7 +130,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     else { setFlujoCorreo('solicitando'); setMensajeCorreo(null); }
 
     try {
-      const res = await fetch(`${apiUrl}/clientes/solicitar-codigo-nip`, { // Reciclamos el mismo endpoint
+      const res = await fetch(`${apiUrl}/clientes/solicitar-codigo-nip`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteActivo.id })
@@ -172,7 +169,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
         setMensajeNip({ tipo: 'error', texto: data.error || 'El código es incorrecto o ya expiró.' });
       }
     } catch (error) {
-      setFlujoNip('verificando'); setMensajeNip({ tipo: 'error', texto: 'Error de conexión.' });
+        setFlujoNip('verificando'); setMensajeNip({ tipo: 'error', texto: 'Error de conexión.' });
     }
   };
 
@@ -189,22 +186,19 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
       if (res.ok) {
         setFlujoCorreo('inactivo'); setCodigoVerificacionCorreo(''); setNuevoCorreo('');
         setMensajeCorreo({ tipo: 'success', texto: '¡Tu correo fue actualizado correctamente!' });
-        
-        // Actualizamos el contexto visual de inmediato
         setFormData(prev => ({ ...prev, correo: nuevoCorreo }));
         clienteActivo.correo = nuevoCorreo; 
-
         setTimeout(() => setMensajeCorreo(null), 6000);
       } else {
         setFlujoCorreo('verificando');
         setMensajeCorreo({ tipo: 'error', texto: data.error || 'El código es incorrecto o ya expiró.' });
       }
     } catch (error) {
-      setFlujoCorreo('verificando'); setMensajeCorreo({ tipo: 'error', texto: 'Error de conexión.' });
+        setFlujoCorreo('verificando'); setMensajeCorreo({ tipo: 'error', texto: 'Error de conexión.' });
     }
   };
 
-  const handleActivarHuella = async () => {
+  const handleProcesarHuella = async () => {
     setMensajeHuella(null);
     if (!nipHuella || nipHuella.length !== 4) {
         setMensajeHuella({ tipo: 'error', texto: 'Ingresa tu NIP de 4 dígitos.' });
@@ -212,7 +206,6 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     }
     setIsSubmitting(true);
     try {
-        // 1. Verificamos que se sepa su NIP
         const resNip = await fetch(`${apiUrl}/clientes/verificar-nip`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -224,12 +217,30 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
             setIsSubmitting(false); return;
         }
 
-        // 2. Encendemos lector
-        const exito = await hookBiometria.registrarHuella(null, clienteActivo.id);
-        if (exito) {
-            setFlujoHuella('inactivo'); setNipHuella('');
-            setMensajeHuella({ tipo: 'success', texto: '¡Huella digital vinculada exitosamente!' });
-            setTimeout(() => setMensajeHuella(null), 5000);
+        if (accionHuella === 'vincular') {
+            const exito = await hookBiometria.registrarHuella(null, clienteActivo.id);
+            if (exito) {
+                clienteActivo.tiene_huella = true;
+                const sesion = JSON.parse(localStorage.getItem('pos_sesion') || '{}');
+                if (sesion.data) { sesion.data.tiene_huella = true; localStorage.setItem('pos_sesion', JSON.stringify(sesion)); }
+                
+                setFlujoHuella('inactivo'); setNipHuella('');
+                setMensajeHuella({ tipo: 'success', texto: '¡Huella digital vinculada exitosamente!' });
+                setTimeout(() => setMensajeHuella(null), 5000);
+            }
+        } else if (accionHuella === 'eliminar') {
+            const resDel = await fetch(`${apiUrl}/huellas/cliente/${clienteActivo.id}`, { method: 'DELETE' });
+            if (resDel.ok) {
+                clienteActivo.tiene_huella = false;
+                const sesion = JSON.parse(localStorage.getItem('pos_sesion') || '{}');
+                if (sesion.data) { sesion.data.tiene_huella = false; localStorage.setItem('pos_sesion', JSON.stringify(sesion)); }
+                
+                setFlujoHuella('inactivo'); setNipHuella('');
+                setMensajeHuella({ tipo: 'success', texto: 'Tu huella ha sido eliminada por seguridad.' });
+                setTimeout(() => setMensajeHuella(null), 5000);
+            } else {
+                setMensajeHuella({ tipo: 'error', texto: 'No se pudo eliminar la huella.' });
+            }
         }
     } catch (error) {
         setMensajeHuella({ tipo: 'error', texto: 'Error de conexión.' });
@@ -355,7 +366,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* DATOS BLOQUEADOS (No editables directamente) */}
+              {/* DATOS BLOQUEADOS */}
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1"><Phone size={14}/> Celular (Fijo)</label>
                 <input disabled type="text" value={clienteActivo.telefono || ''} className="w-full bg-slate-100 border border-slate-200 rounded-2xl p-4 text-slate-500 font-bold opacity-70 cursor-not-allowed" />
@@ -375,7 +386,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
                 <input required disabled={isSubmitting} type="text" value={formData.apellido} onChange={e => setFormData({...formData, apellido: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-800 font-bold focus:border-blue-500 outline-none transition" />
               </div>
               
-              {/* 👇 CORREO ELECTRÓNICO (Bloqueado si ya existe, forzando uso de 2FA) */}
+              {/* CORREO ELECTRÓNICO */}
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between gap-1">
                   <div className="flex items-center gap-1"><Mail size={14}/> Correo Electrónico *</div>
@@ -421,11 +432,10 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
               </button>
             </div>
             
-            {/* 👇 SECCIÓN 2: SEGURIDAD (FLUJO 2FA APPLE STYLE EXPANDIDO) */}
+            {/* 👇 SECCIÓN 2: SEGURIDAD Y BIOMETRÍA */}
             <div className="space-y-4 pt-8 border-t border-slate-100 mt-8">
               <h4 className="text-lg font-black text-slate-800 flex items-center gap-2"><ShieldCheck size={20} className="text-blue-600"/> Seguridad de la Cuenta</h4>
               
-              {/* MENSAJES DE ALERTA COMPARTIDOS PARA LA SECCIÓN DE SEGURIDAD */}
               {(mensajeNip || mensajeCorreo) && (
                 <div className={`p-4 rounded-2xl border text-sm font-bold flex items-center gap-2 animate-in fade-in ${(mensajeNip?.tipo === 'success' || mensajeCorreo?.tipo === 'success') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
                   {(mensajeNip?.tipo === 'success' || mensajeCorreo?.tipo === 'success') && <CheckCircle2 size={18}/>}
@@ -433,7 +443,6 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
                 </div>
               )}
 
-              {/* BOTONES DE ACCIÓN (Se ocultan si algún flujo está activo) */}
               {flujoNip === 'inactivo' && flujoCorreo === 'inactivo' && (
                 <div className="flex flex-col gap-3">
                   <button type="button" onClick={() => solicitarCodigoSeguridad('nip')} className="w-full sm:w-auto text-left bg-slate-100 text-slate-600 hover:bg-slate-200 font-black py-4 px-6 rounded-2xl transition-all active:scale-95 text-sm flex items-center gap-2">
@@ -445,27 +454,44 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
                     </button>
                   )}
 
-                  {/* 👇 BOTÓN Y FLUJO DE HUELLA */}
-                  <button type="button" onClick={() => setFlujoHuella('solicitando')} className="w-full sm:w-auto text-left bg-slate-100 text-slate-600 hover:bg-slate-200 font-black py-4 px-6 rounded-2xl transition-all active:scale-95 text-sm flex items-center gap-2">
-                      <Fingerprint size={18} className="text-purple-600" /> Habilitar Inicio de Sesión con Huella 👆
-                  </button>
+                  {/* 👇 BOTÓN Y FLUJO DE HUELLA DINÁMICO */}
+                  {clienteActivo.tiene_huella ? (
+                      <div className="flex flex-col sm:flex-row gap-3 w-full animate-in zoom-in duration-300">
+                          <div className="flex-1 bg-emerald-50 text-emerald-700 font-black py-4 px-6 rounded-2xl text-sm flex items-center gap-2 border border-emerald-200 cursor-default">
+                              <CheckCircle2 size={20} /> Huella Vinculada
+                          </div>
+                          <button type="button" onClick={() => { setAccionHuella('eliminar'); setFlujoHuella('solicitando'); }} className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-4 px-6 rounded-2xl transition-all active:scale-95 text-sm flex items-center justify-center gap-2 border border-red-100">
+                              <Trash2 size={18} /> Quitar Huella
+                          </button>
+                      </div>
+                  ) : (
+                      <button type="button" onClick={() => { setAccionHuella('vincular'); setFlujoHuella('solicitando'); }} className="w-full sm:w-auto text-left bg-slate-100 text-slate-600 hover:bg-slate-200 font-black py-4 px-6 rounded-2xl transition-all active:scale-95 text-sm flex items-center gap-2">
+                          <Fingerprint size={18} className="text-purple-600" /> Habilitar Inicio de Sesión con Huella 👆
+                      </button>
+                  )}
 
                   {flujoHuella === 'solicitando' && (
                       <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 animate-in zoom-in-95 mt-2">
-                          <h4 className="font-black text-slate-800 flex items-center gap-2 mb-2"><Fingerprint size={20} className="text-purple-600"/> Autorizar Huella</h4>
-                          <p className="text-sm font-bold text-slate-500 mb-6">Ingresa tu NIP de 4 dígitos para confirmar tu identidad y encender el lector de huellas.</p>
+                          <h4 className={`font-black flex items-center gap-2 mb-2 ${accionHuella === 'eliminar' ? 'text-red-600' : 'text-slate-800'}`}>
+                              {accionHuella === 'eliminar' ? <Trash2 size={20}/> : <Fingerprint size={20} className="text-purple-600"/>} 
+                              {accionHuella === 'eliminar' ? 'Eliminar Huella' : 'Autorizar Huella'}
+                          </h4>
+                          <p className="text-sm font-bold text-slate-500 mb-6">
+                              Ingresa tu NIP de 4 dígitos para confirmar tu identidad y {accionHuella === 'eliminar' ? 'eliminar tu acceso biométrico' : 'encender el lector de huellas'}.
+                          </p>
 
                           <div className="flex flex-col sm:flex-row gap-4 items-center">
                               <input type="password" maxLength="4" autoFocus value={nipHuella} onChange={e => setNipHuella(e.target.value.replace(/\D/g, ''))} className="w-full sm:w-1/3 bg-white border-2 border-slate-200 rounded-2xl p-4 text-center text-2xl font-black outline-none tracking-[0.5em] focus:border-purple-500" placeholder="••••" disabled={isSubmitting} />
                               <div className="flex gap-2 w-full sm:w-auto">
                                   <button type="button" onClick={() => { setFlujoHuella('inactivo'); setNipHuella(''); setMensajeHuella(null); }} className="flex-1 sm:flex-none px-6 py-4 rounded-2xl font-black bg-slate-200 text-slate-600 hover:bg-slate-300">Cancelar</button>
-                                  <button type="button" disabled={nipHuella.length !== 4 || isSubmitting} onClick={handleActivarHuella} className="flex-1 sm:flex-none px-6 py-4 rounded-2xl font-black bg-purple-600 text-white shadow-lg shadow-purple-500/30 hover:bg-purple-700 disabled:opacity-50">Escanear Dedo</button>
+                                  <button type="button" disabled={nipHuella.length !== 4 || isSubmitting} onClick={handleProcesarHuella} className={`flex-1 sm:flex-none px-6 py-4 rounded-2xl font-black text-white shadow-lg transition-all ${accionHuella === 'eliminar' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/30' : 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30'} disabled:opacity-50`}>
+                                      {accionHuella === 'eliminar' ? 'Eliminar' : 'Escanear Dedo'}
+                                  </button>
                               </div>
                           </div>
                           {mensajeHuella && <p className={`mt-4 font-bold text-sm ${mensajeHuella.tipo === 'error' ? 'text-red-500' : 'text-emerald-600'}`}>{mensajeHuella.texto}</p>}
                       </div>
                   )}
-
                 </div>
               )}
 
@@ -505,7 +531,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
                 </div>
               )}
 
-              {/* 👇 FLUJO 2FA: CAMBIO DE CORREO */}
+              {/* FLUJO 2FA: CAMBIO DE CORREO */}
               {flujoCorreo === 'verificando' && (
                 <div className="bg-purple-50/50 p-6 md:p-8 rounded-[24px] border border-purple-100 animate-in zoom-in-95 shadow-inner">
                   <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
@@ -538,7 +564,6 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
           </form>
         )}
       </div>
-
     </div>
   );
 };
