@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef, Fingerprint } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import { useBiometria } from '../hooks/useBiometria'; // 👈 NUEVO
+
+// ✅ CORRECTO (Asegúrate de que Fingerprint esté aquí)
+import { Fingerprint } from 'lucide-react';
 
 import MenuPrincipal from './kiosco/MenuPrincipal';
 import ModalPersonalizar from './kiosco/ModalPersonalizar';
