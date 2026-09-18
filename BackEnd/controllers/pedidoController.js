@@ -72,7 +72,7 @@ exports.obtenerPedidosHoy = async (req, res) => {
 };
 
 // =========================================================
-// CREAR UN NUEVO PEDIDO
+// CREAR UN NUEVO PEDIDO (Motor con Fallback Múltiple JSONB)
 // =========================================================
 exports.crearPedido = async (req, res) => {
     const datosPuros = limpiarNulos(req.body);
@@ -135,113 +135,113 @@ exports.crearPedido = async (req, res) => {
             await client.query("UPDATE mesas SET estado = 'Ocupada', pedido_actual_id = $1 WHERE numero_mesa = $2", [pedidoInsertado.id, mesa]);
         }
 
-        // 👇 NUEVO MOTOR DE EXPLOSIÓN: Base + Sabores + Extras
-            if (carrito && carrito.length > 0) {
+        // 👇 NUEVO MOTOR DE EXPLOSIÓN: Base + Sabores + Extras (CON INTELIGENCIA DE SUSTITUTOS MÚLTIPLES)
+        if (carrito && carrito.length > 0) {
             for (const item of carrito) {
                 const pId = item.producto_id || item.id;
-                const cantidadVendida = parseInt(item.cantidad) || 1;
+                const cantidadVendida = parseInt(item.cantidad) || 1;  
 
-                if (!pId || isNaN(parseInt(pId))) continue;
+                if (!pId || isNaN(parseInt(pId))) continue;  
 
-                // 1. Extraer los nombres de las variaciones (Sabores/Tamaños) que eligió el cliente
                 const nombresVariaciones = (item.extras || [])
-                .filter(e => e.tipo === 'variacion')
-                .map(e => String(e.nombre).trim().toLowerCase());
+                    .filter(e => e.tipo === 'variacion')
+                    .map(e => String(e.nombre).trim().toLowerCase());  
 
-                // 2. Procesar y Descontar el Platillo Base (y sus variaciones)
-                const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);
+                const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);  
 
                 if (prodRes.rows.length > 0) {
-                const row = prodRes.rows[0];
-                const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
-                let stock_preparado = parseInt(row.stock_preparado) || 0;
+                    const row = prodRes.rows[0];
+                    const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
 
-                if (isUsaStock) {
-                    stock_preparado -= cantidadVendida;
-                    let seAcabo = false;
-                    if (stock_preparado <= 0) {
-                    stock_preparado = 0;
-                    seAcabo = true;
-                    }
-                    if (seAcabo) {
-                    await client.query('UPDATE productos SET stock_preparado = $1, disponible = false WHERE id = $2', [stock_preparado, pId]);
-                    if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef'], '⚠️ Producto Agotado', `El platillo "${row.nombre}" se quedó sin stock y se ocultó del menú automáticamente.`);
+                    if (isUsaStock) {
+                        await client.query('UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2', [cantidadVendida, pId]);
                     } else {
-                    await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
-                    if (stock_preparado <= 3 && typeof notificarStaff !== 'undefined') {
-                        notificarStaff(['admin', 'gerente', 'cajero'], '⚠️ Stock Bajo', `Quedan solo ${stock_preparado} unidades de "${row.nombre}".`);
-                    }
-                    }
-                } else {
-                    const rendimiento = parseFloat(row.rendimiento) || 1;
-                    let lotesADescontar = 0;
+                        const rendimiento = parseFloat(row.rendimiento) || 1;
+                        let lotesADescontar = cantidadVendida / rendimiento;  
 
-                    if (rendimiento <= 1) {
-                    lotesADescontar = cantidadVendida;
-                    } else {
-                    if (cantidadVendida <= stock_preparado) {
-                        stock_preparado -= cantidadVendida;
-                    } else {
-                        let falta = cantidadVendida - stock_preparado;
-                        lotesADescontar = Math.ceil(falta / rendimiento);
-                        stock_preparado = (lotesADescontar * rendimiento) - falta;
-                    }
-                    await client.query('UPDATE productos SET stock_preparado = $1 WHERE id = $2', [stock_preparado, pId]);
+                        if (lotesADescontar > 0) {
+                            const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+                            
+                            // 👇 QUERY PLATILLOS CON MÚLTIPLES RESPALDOS
+                            const recursiveQueryPlatillo = `
+                                WITH RECURSIVE Explosion AS (
+                                    SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                    FROM recetas r
+                                    WHERE r.producto_id = $2
+                                    AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                                    UNION ALL
+                                    SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                    FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                    WHERE e.sub_producto_id IS NOT NULL
+                                ),
+                                Requeridos AS (
+                                    SELECT insumo_id, SUM(qty_factor) as total_descontar 
+                                    FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                ),
+                                MapeoSustitutos AS (
+                                    SELECT 
+                                        CASE 
+                                            WHEN i.stock_actual <= 0 AND i.insumos_sustitutos IS NOT NULL AND jsonb_array_length(i.insumos_sustitutos) > 0 THEN i.insumos_sustitutos
+                                            ELSE jsonb_build_array(i.id)
+                                        END as array_ids,
+                                        r.total_descontar
+                                    FROM Requeridos r
+                                    JOIN insumos i ON r.insumo_id = i.id
+                                ),
+                                TotalesFinales AS (
+                                    SELECT CAST(jsonb_array_elements_text(array_ids) AS INTEGER) as final_insumo_id, SUM(total_descontar) as qty
+                                    FROM MapeoSustitutos GROUP BY final_insumo_id
+                                )
+                                UPDATE insumos i SET stock_actual = i.stock_actual - t.qty
+                                FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
+                            `;
+                            await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones]);
+                        }
                     }
 
-                    if (lotesADescontar > 0) {
-                    // 👇 MODIFICACIÓN 1: El query ahora busca la Base + el Sabor exacto seleccionado
-                    const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
-                    const recursiveQueryPlatillo = `
-                        WITH RECURSIVE Explosion AS (
-                        SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
-                        FROM recetas r 
-                        WHERE r.producto_id = $2 
-                        AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
-                        UNION ALL
-                        SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
-                        FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
-                        WHERE e.sub_producto_id IS NOT NULL
-                        )
-                        UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
-                        SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
-                        ) calc WHERE insumos.id = calc.insumo_id;
-                    `;
-                    await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones]);
+                    // 👇 QUERY EXTRAS/EMPAQUES OBLIGATORIOS (Aplicando la misma regla de respaldos múltiples)
+                    if (item.extras && item.extras.length > 0) {
+                        for (const extra of item.extras) {
+                            if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
+                                const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
+                                const ingRes = await client.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
+                                
+                                if (ingRes.rows.length > 0) {
+                                    const ingredienteId = ingRes.rows[0].id;
+                                    
+                                    const recursiveQueryExtra = `
+                                        WITH RECURSIVE Explosion AS (
+                                            SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                            FROM recetas r WHERE r.ingrediente_id = $2
+                                            UNION ALL
+                                            SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                            FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                            WHERE e.sub_producto_id IS NOT NULL
+                                        ),
+                                        Requeridos AS (
+                                            SELECT insumo_id, SUM(qty_factor) as total_descontar 
+                                            FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                        ),
+                                        MapeoSustitutos AS (
+                                            SELECT 
+                                                CASE 
+                                                    WHEN i.stock_actual <= 0 AND i.insumos_sustitutos IS NOT NULL AND jsonb_array_length(i.insumos_sustitutos) > 0 THEN i.insumos_sustitutos
+                                                    ELSE jsonb_build_array(i.id)
+                                                END as array_ids, 
+                                                r.total_descontar
+                                            FROM Requeridos r JOIN insumos i ON r.insumo_id = i.id
+                                        ),
+                                        TotalesFinales AS (
+                                            SELECT CAST(jsonb_array_elements_text(array_ids) AS INTEGER) as final_insumo_id, SUM(total_descontar) as qty 
+                                            FROM MapeoSustitutos GROUP BY final_insumo_id
+                                        )
+                                        UPDATE insumos i SET stock_actual = i.stock_actual - t.qty FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
+                                    `;
+                                    await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId]);
+                                }
+                            }
+                        }
                     }
-                }
-            }
-
-                // 👇 MODIFICACIÓN 2: Motor Independiente que lee los Extras/Ingredientes Adicionales
-                if (item.extras && item.extras.length > 0) {
-                for (const extra of item.extras) {
-                    if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
-                    // El frontend manda un string formateado. Extraemos el nombre real:
-                    const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
-                    
-                    // Buscamos el ID del ingrediente en el catálogo
-                    const ingRes = await client.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
-                    
-                    if (ingRes.rows.length > 0) {
-                        const ingredienteId = ingRes.rows[0].id;
-                        
-                        const recursiveQueryExtra = `
-                        WITH RECURSIVE Explosion AS (
-                            SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
-                            FROM recetas r WHERE r.ingrediente_id = $2
-                            UNION ALL
-                            SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
-                            FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
-                            WHERE e.sub_producto_id IS NOT NULL
-                        )
-                        UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
-                            SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
-                        ) calc WHERE insumos.id = calc.insumo_id;
-                        `;
-                        await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId]);
-                    }
-                    }
-                }
                 }
             }
         }
@@ -262,7 +262,6 @@ exports.crearPedido = async (req, res) => {
         }
 
         if (estadoReal === 'Pagado') {
-            // 👇 SOLUCIÓN PUNTOS FANTASMAS (Crear Pedido Directo)
             if (cliente_id) {
                 try {
                     const confRes = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -288,7 +287,6 @@ exports.crearPedido = async (req, res) => {
                                 }
                             }
                             
-                            // Restar lo que se pagó con puntos para no ganar puntos sobre lo regalado
                             const puntosAplicados = Number(pedidoInsertado.descuento_puntos) || 0;
                             totalElegible -= (puntosAplicados * valorPeso);
                             if (totalElegible < 0) totalElegible = 0;

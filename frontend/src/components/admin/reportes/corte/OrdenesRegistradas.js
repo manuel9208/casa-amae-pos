@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingBag, Printer, Eye, User, Store, Package } from 'lucide-react';
-import TicketImpresionMayoreo from '../../../caja/modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo'; // 👈 Asegúrate de que esta ruta sea correcta para tu proyecto
+import TicketImpresionMayoreo from '../../../caja/modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo';
 
 const deserializarCarrito = (carritoRaw) => {
     if (Array.isArray(carritoRaw)) return carritoRaw;
@@ -16,11 +16,8 @@ const OrdenesRegistradas = ({
 }) => {
     const [modoTab, setModoTab] = useState('restaurante');
     const [configDist, setConfigDist] = useState({ activa: false, nombre: 'Distribución' });
-    
-    // 👇 NUEVO ESTADO PARA EL FILTRO DE ORIGEN
     const [filtroOrigen, setFiltroOrigen] = useState('Todos');
 
-    // Consultamos la configuración B2B
     useEffect(() => {
         if (apiUrl) {
             const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
@@ -38,7 +35,6 @@ const OrdenesRegistradas = ({
         }
     }, [apiUrl]);
 
-    // Aplicamos los filtros básicos a los B2B
     const ventasB2BFiltradas = (pedidosB2B || []).filter(p => {
         if (['Cancelado', 'Pendiente', 'Por Confirmar'].includes(p.estado_preparacion)) return false;
         if (filtroMetodoPago !== 'Todos' && p.metodo_pago !== filtroMetodoPago) return false;
@@ -50,12 +46,11 @@ const OrdenesRegistradas = ({
         return true;
     }).sort((a, b) => new Date(b.fecha_creacion) - new Date(a.fecha_creacion));
 
-    // 👇 SEPARACIÓN DE LA LÓGICA DE FILTRADO PARA AGREGAR EL ORIGEN
     const ordenesAMostrarBrutas = modoTab === 'restaurante' ? pedidosFiltradosFinales : ventasB2BFiltradas;
 
     const ordenesAMostrar = ordenesAMostrarBrutas.filter(p => {
         if (filtroOrigen === 'Todos') return true;
-        const org = p.origen || 'Caja'; // Si por algún motivo está vacío en BD, se asume que fue en Caja
+        const org = p.origen || 'Caja';
         if (filtroOrigen === 'Web/Kiosco') return org === 'Kiosco' || org === 'Web';
         return org === filtroOrigen;
     });
@@ -90,7 +85,6 @@ const OrdenesRegistradas = ({
                             />
                         </div>
 
-                        {/* 👇 NUEVO SELECTOR DE FILTRO POR ORIGEN */}
                         <select
                             value={filtroOrigen} onChange={e => setFiltroOrigen(e.target.value)}
                             className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-blue-500 cursor-pointer text-slate-600"
@@ -127,7 +121,6 @@ const OrdenesRegistradas = ({
                             <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-widest print:border-black print:text-black">
                                 <th className="pb-3 px-2">Orden</th>
                                 <th className="pb-3 px-2">Cliente / Identificador</th>
-                                {/* 👇 NUEVA COLUMNA EN EL HEADER */}
                                 <th className="pb-3 px-2 text-center">Origen</th>
                                 <th className="pb-3 px-2 text-center">Método</th>
                                 <th className="pb-3 px-2 text-center">Estado</th>
@@ -138,7 +131,6 @@ const OrdenesRegistradas = ({
                         <tbody className="divide-y divide-slate-50 print:divide-slate-300">
                             {ordenesAMostrar.length === 0 ? (
                                 <tr>
-                                    {/* 👇 Cambiamos el colSpan a 7 por la nueva columna */}
                                     <td colSpan="7" className="text-center py-10 font-bold text-slate-400 print:text-black">
                                         No hay órdenes para los filtros aplicados.
                                     </td>
@@ -154,6 +146,18 @@ const OrdenesRegistradas = ({
                                     let clienteExtracto = p.cliente_nombre || 'Invitado';
                                     if (clienteExtracto === 'Invitado' && p.direccion_entrega && p.direccion_entrega.includes('A NOMBRE DE:')) {
                                         clienteExtracto = p.direccion_entrega.split('A NOMBRE DE:')[1].split('|')[0].trim();
+                                    }
+
+                                    // 👇 FIX APLICADO: Extracción Dinámica de Pagos Mixtos (Cualquier método)
+                                    let desgloseMixto = null;
+                                    if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
+                                        try {
+                                            let pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos;
+                                            if (typeof pm === 'string') pm = JSON.parse(pm); // Doble parseo preventivo
+                                            if (Array.isArray(pm)) {
+                                                desgloseMixto = pm.map(x => `${String(x.metodo).toUpperCase().substring(0, 3)}: $${Number(x.monto).toFixed(2)}`).join(' | ');
+                                            }
+                                        } catch(e){}
                                     }
 
                                     let promosText = [];
@@ -189,7 +193,6 @@ const OrdenesRegistradas = ({
                                                 </p>
                                             </td>
 
-                                            {/* 👇 NUEVA CELDA: ORIGEN DEL PEDIDO */}
                                             <td className="py-3 px-2 text-center align-top">
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 print:text-black">
                                                     {p.origen || 'CAJA'}
@@ -199,10 +202,17 @@ const OrdenesRegistradas = ({
                                             <td className="py-3 px-2 text-center align-top">
                                                 <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${p.metodo_pago === 'Efectivo' ? 'bg-emerald-100 text-emerald-700' :
                                                     p.metodo_pago === 'Tarjeta' ? 'bg-blue-100 text-blue-700' :
-                                                        p.metodo_pago === 'Transferencia' ? 'bg-purple-100 text-purple-700' : 'bg-slate-200 text-slate-600'
+                                                        p.metodo_pago === 'Transferencia' ? 'bg-purple-100 text-purple-700' : 
+                                                        p.metodo_pago === 'Mixto' ? 'bg-pink-100 text-pink-700' : 'bg-slate-200 text-slate-600'
                                                     }`}>
                                                     {p.metodo_pago}
                                                 </span>
+                                                {/* 👇 EL DESGLOSE DE PAGO MIXTO APARECE AQUÍ DEBAJO DE LA ETIQUETA */}
+                                                {desgloseMixto && (
+                                                    <div className="text-[8px] font-bold text-slate-500 mt-1.5 whitespace-nowrap">
+                                                        {desgloseMixto}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="py-3 px-2 text-center align-top">
                                                 <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md print:border print:bg-transparent print:text-black ${isCancelado ? 'bg-red-100 text-red-700' :
@@ -263,7 +273,16 @@ const OrdenesRegistradas = ({
                                             {pedidoSeleccionado.estado_preparacion}
                                         </span>
                                     </div>
-                                    <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5"><User size={12} className="text-blue-400" /> {pedidoSeleccionado.cliente_nombre || 'Invitado'}</p>
+                                    <div className="flex justify-between items-center mt-1">
+                                        <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                                            <User size={12} className="text-blue-400" /> {pedidoSeleccionado.cliente_nombre || 'Invitado'}
+                                        </p>
+                                        {pedidoSeleccionado.origen && (
+                                            <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                            💻 Origen: {pedidoSeleccionado.origen}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3 shrink-0 px-2">Desglose de Platillos</p>
                                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
@@ -291,7 +310,28 @@ const OrdenesRegistradas = ({
                                     ))}
                                 </div>
                                 <div className="bg-slate-950 p-5 rounded-3xl border border-slate-800 text-sm space-y-3 mt-4 shrink-0 shadow-inner">
-                                    <div className="flex justify-between items-center"><span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Liquidación:</span><span className="font-black uppercase text-slate-200">{pedidoSeleccionado.metodo_pago}</span></div>
+                                    
+                                    {/* 👇 FIX APLICADO: Inyección dinámica en el Visor Lateral */}
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Liquidación:</span>
+                                        <div className="text-right">
+                                            <span className="font-black uppercase text-slate-200 block">{pedidoSeleccionado.metodo_pago}</span>
+                                            {pedidoSeleccionado.metodo_pago === 'Mixto' && pedidoSeleccionado.pagos_mixtos && (() => {
+                                                try {
+                                                    let pm = typeof pedidoSeleccionado.pagos_mixtos === 'string' ? JSON.parse(pedidoSeleccionado.pagos_mixtos) : pedidoSeleccionado.pagos_mixtos;
+                                                    if (typeof pm === 'string') pm = JSON.parse(pm); // Doble parseo preventivo
+                                                    if (Array.isArray(pm)) {
+                                                        return (
+                                                            <span className="text-[9px] text-slate-400 font-bold mt-0.5 block">
+                                                                {pm.map(x => `${String(x.metodo).toUpperCase().substring(0, 3)}: $${Number(x.monto).toFixed(2)}`).join(' | ')}
+                                                            </span>
+                                                        );
+                                                    }
+                                                } catch(e){ return null; }
+                                            })()}
+                                        </div>
+                                    </div>
+                                    
                                     <div className="flex justify-between items-center pt-3 border-t border-slate-800/60 mt-1"><span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Total Abonado:</span><span className="text-emerald-400 font-black text-2xl tracking-tight">{formaterMoneda(parseMoney(pedidoSeleccionado.total))}</span></div>
                                 </div>
                             </div>

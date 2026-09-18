@@ -13,7 +13,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   const [recetaActivaId, setRecetaActivaId] = useState('');
   const [recetaItems, setRecetaItems] = useState([]);
   
-  // 👇 NUEVOS ESTADOS (SABORES Y EXTRAS HÍBRIDOS)
+  // ESTADOS (SABORES Y EXTRAS HÍBRIDOS)
   const [modoCosteo, setModoCosteo] = useState('platillos');
   const [extraActivoId, setExtraActivoId] = useState('');
   const [saborActivo, setSaborActivo] = useState('Base');
@@ -74,7 +74,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         }
       }
 
-      // 👇 Fetch condicionado al modo de costeo para la Fase 2 del Backend
+      // Fetch condicionado al modo de costeo
       fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`)
         .then(r => r.json())
         .then(data => setRecetaItems(Array.isArray(data) ? data : []))
@@ -85,25 +85,29 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   }, [recetaActivaId, extraActivoId, modoCosteo, productos, apiUrl]);
 
   // ==========================================
-  // FUNCIONES DE BASES OCULTAS
+  // FUNCIONES DE BASES OCULTAS (BLINDADAS)
   // ==========================================
   const iniciarCreacionBase = () => {
     if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación donde guardar esta base.", "warning");
     setNombreNuevaBase('');
     setModalCrearBase(true);
-  };
+  };  
 
   const guardarNuevaBase = async (e) => {
     e.preventDefault();
     if (!nombreNuevaBase.trim()) return;
     try {
       let nombreFinal = nombreNuevaBase.trim();
-      if (!nombreFinal.toLowerCase().includes('(base)')) nombreFinal = `${nombreFinal} (Base)`;
+      // 👇 BLINDAJE INVISIBLE: Si no le puso (Base), se lo inyectamos al final
+      if (!nombreFinal.toLowerCase().includes('(base)')) {
+        nombreFinal = `${nombreFinal} (Base)`;
+      }
+      
       const formData = new FormData();
       formData.append('nombre', nombreFinal);
       formData.append('categoria', recetaCategoriaFiltro);
       formData.append('precio_base', 0);
-      formData.append('disponible', 'false');
+      formData.append('disponible', 'false'); // Esto la oculta del Kiosco y Caja automáticamente
       formData.append('genera_puntos', 'false');
       const res = await fetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
       if(res.ok) {
@@ -112,22 +116,27 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         refrescarDatos();
       }
     } catch(e) { showAlert("Error", "No se pudo crear la base.", "error"); }
-  };
+  };  
 
   const iniciarEdicionBase = () => {
     const prod = productos.find(p => String(p.id) === String(recetaActivaId));
     if(prod) {
-      setNombreEditadoBase(prod.nombre);
+      // 👇 MAGIA VISUAL: Se lo borramos para que el usuario no vea el (Base)
+      setNombreEditadoBase(prod.nombre.replace(/\(Base\)/gi, '').trim());
       setModalEditarBase(true);
     }
-  };
+  };  
 
   const guardarEdicionBase = async (e) => {
     e.preventDefault();
     if (!nombreEditadoBase.trim()) return;
     try {
       let nombreFinal = nombreEditadoBase.trim();
-      if (!nombreFinal.toLowerCase().includes('(base)')) nombreFinal = `${nombreFinal} (Base)`;
+      // 👇 BLINDAJE INVISIBLE: Volvemos a inyectarlo por debajo
+      if (!nombreFinal.toLowerCase().includes('(base)')) {
+        nombreFinal = `${nombreFinal} (Base)`;
+      }
+      
       const prod = productos.find(p => String(p.id) === String(recetaActivaId));
       const formData = new FormData();
       formData.append('nombre', nombreFinal);
@@ -153,7 +162,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     if (modoCosteo === 'extras' && !extraActivoId) return;
 
     try {
-      // 👇 FIX MÁSTER: Payload Inteligente que detecta el Sabor Activo y el Modo
+      // Payload Inteligente que detecta el Sabor Activo y el Modo
       let payload = {
         modo_costeo: modoCosteo,
         producto_id: modoCosteo === 'platillos' ? recetaActivaId : null,
@@ -197,7 +206,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         setNuevoItemReceta({ insumo_id: '', cantidad_usada: '' }); 
         setNuevoItemSubReceta({ sub_producto_id: '', cantidad_usada: '' });
         
-        // 👇 FIX: Recargar la lista correcta (Platillo o Extra) para refrescar la tabla
+        // Recargar la lista correcta (Platillo o Extra) para refrescar la tabla
         const idTarget = modoCosteo === 'platillos' ? recetaActivaId : extraActivoId;
         const resData = await fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`);
         const dataR = await resData.json();
@@ -213,7 +222,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   const eliminarItemReceta = async (id) => {
     try {
       await fetch(`${apiUrl}/recetas/${id}`, { method: 'DELETE' });
-      // 👇 FIX: Refrescar la tabla correctamente al borrar
+      // Refrescar la tabla correctamente al borrar
       const idTarget = modoCosteo === 'platillos' ? recetaActivaId : extraActivoId;
       const resData = await fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`);
       const dataR = await resData.json();
@@ -304,7 +313,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   // CÁLCULOS MAESTROS DE COSTOS (MATEMÁTICAS)
   // ==========================================
   const productoSeleccionado = productos.find(p => Number(p.id) === Number(recetaActivaId));
-  const esSubReceta = productoSeleccionado && (productoSeleccionado.disponible === false || productoSeleccionado.disponible === 'false' || productoSeleccionado.disponible === 0);
+  const esSubReceta = productoSeleccionado && productoSeleccionado.nombre.toLowerCase().includes('(base)');
   
   let tamanosConfigurados = [];
   let saboresConfigurados = [];
@@ -314,14 +323,14 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     saboresConfigurados = ops.filter(o => o.tipo === 'variacion' && o.categoria !== 'Tamaño');
   }
 
-  // 👇 FILTRO UI: Solo muestra en la tabla los insumos de la pestaña activa (Base o Sabor XYZ)
+  // FILTRO UI: Solo muestra en la tabla los insumos de la pestaña activa (Base o Sabor XYZ)
   const recetaItemsFiltrados = recetaItems.filter(item => {
     if (modoCosteo === 'extras') return true;
-    if (saborActivo === 'Base') return !item.sabor_nombre; // Null o vacío
+    if (saborActivo === 'Base') return !item.sabor_nombre; 
     return item.sabor_nombre === saborActivo;
   });
 
-  // 👇 COSTO TOTAL REAL (Suma los insumos Base + Los exclusivos del Sabor Activo)
+  // COSTO TOTAL REAL (Suma los insumos Base + Los exclusivos del Sabor Activo)
   const itemsParaCosto = recetaItems.filter(item => {
     if (modoCosteo === 'extras') return true;
     return !item.sabor_nombre || item.sabor_nombre === saborActivo;
@@ -372,8 +381,9 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     }
   }
 
+  // Filtra y limpia visualmente las bases que van al SelectorPlatillo (el form para agregar subrecetas a otra)
   const subRecetasDisponibles = productos.filter(p => {
-    if (p.disponible !== false && p.disponible !== 'false' && p.disponible !== 0) return false;
+    if (!p.nombre.toLowerCase().includes('(base)')) return false;
     if (modoCosteo === 'platillos' && String(p.id) === String(recetaActivaId)) return false;
     return true;
   });
@@ -424,7 +434,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
       {((modoCosteo === 'platillos' && recetaActivaId) || (modoCosteo === 'extras' && extraActivoId)) && (
         <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-sm border border-slate-200">
           <h3 className="text-xl font-black text-slate-800 mb-6 uppercase tracking-widest border-b border-slate-100 pb-4">
-            {modoCosteo === 'platillos' ? `Receta: ${saborActivo === 'Base' ? 'Insumos Base' : `Exclusivos de Sabor ${saborActivo}`}` : 'Explosión de Insumos para Extra'}
+            {modoCosteo === 'platillos' ? `Receta: ${saborActivo === 'Base' ? 'Insumos Base' : `Exclusivos de ${saborActivo}`}` : 'Explosión de Insumos para Extra'}
           </h3>
           
           <TablaIngredientes 
@@ -435,7 +445,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
             formatearCantidadVisual={formatearCantidadVisual} 
           />
 
-          {/* 👇 UI ESPECÍFICA PARA EXTRAS (Más Minimalista) */}
+          {/* 👇 UI ESPECÍFICA PARA EXTRAS */}
           {modoCosteo === 'extras' && (
              <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-6 text-center animate-in fade-in">
                  <p className="text-sm font-black text-orange-600 uppercase tracking-widest mb-2">Costo Neto de Producción</p>
@@ -445,7 +455,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
 
           {/* 👇 UI ESPECÍFICA PARA PLATILLOS */}
           {modoCosteo === 'platillos' && (
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-6 mt-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-blue-100 text-blue-600 rounded-xl"><Package size={24}/></div>
                 <div>
@@ -529,8 +539,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         </div>
       )}
 
-      {/* TAMAÑOS FIJOS (Solo si aplica) */}
-      {modoCosteo === 'platillos' && recetaActivaId && tamanosConfigurados && tamanosConfigurados.length > 0 && (
+      {/* TAMAÑOS FIJOS (Solo si aplica y si no es subreceta) */}
+      {modoCosteo === 'platillos' && recetaActivaId && tamanosConfigurados && tamanosConfigurados.length > 0 && !esSubReceta && (
         <PanelTamanosFijos
           tamanosConfigurados={tamanosConfigurados} productoSeleccionado={productoSeleccionado}
           configTamanos={configTamanos} setConfigTamanos={setConfigTamanos} insumosDB={insumosDB}
@@ -562,7 +572,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
             <input autoFocus required value={nombreEditadoBase} onChange={e => setNombreEditadoBase(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 font-bold mb-6" />
             <div className="flex gap-3">
               <button type="button" onClick={() => setModalEditarBase(false)} className="flex-1 p-3 bg-slate-100 text-slate-600 font-bold rounded-xl">Cancelar</button>
-              <button type="submit" className="flex-[2] p-3 bg-blue-600 text-white font-black rounded-xl">Actualizar Nombre</button>
+              <button type="submit" className="flex-[2] p-3 bg-orange-600 text-white font-black rounded-xl">Actualizar Nombre</button>
             </div>
           </form>
         </div>

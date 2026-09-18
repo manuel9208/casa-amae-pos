@@ -723,6 +723,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           bloqueoPuntosActivo={bloqueoPuntosActivo}
           setComboEnEspera={setComboEnEspera}
           combosActivos={combosActivos}
+          promociones={promocionesActivas}
         />
       )}
 

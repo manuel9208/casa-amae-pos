@@ -5,12 +5,13 @@ const ListaProductos = ({
   productos, clasificaciones, categoriaSelect,
   baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm,
   setProductoEditando
-}) => {  
+}) => {
   const nombreCategoriaSeleccionada = (clasificaciones || []).find(c => Number(c.id) === Number(categoriaSelect))?.nombre;  
-  
+
+  // 👇 FILTRO ESTRICTO: Solo muestra productos reales, oculta todo lo que contenga "(Base)"
   const productosEnCategoria = (productos || []).filter(p =>
     p.categoria === nombreCategoriaSeleccionada &&
-    !p.nombre.includes('(Base)')
+    !p.nombre.toLowerCase().includes('(base)')
   );  
 
   const eliminarProducto = (id) => {
@@ -32,49 +33,52 @@ const ListaProductos = ({
   return (
     <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 animate-in slide-in-from-bottom-4">
       <h3 className="text-2xl font-black mb-6 text-slate-800">Vista Previa de: <span className="text-blue-600">{nombreCategoriaSeleccionada}</span></h3>
+      
       {productosEnCategoria.length === 0 ? (
         <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl p-10 text-center">
-          <p className="text-slate-500 font-bold text-lg">Aún no hay productos guardados en esta categoría.</p>
+          <p className="text-slate-500 font-bold text-lg">Aún no hay platillos públicos guardados en esta categoría.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {productosEnCategoria.map(p => {
+            // Evaluamos estados del producto para mostrar sus etiquetas
             const daPuntos = p.genera_puntos !== false && p.genera_puntos !== 'false';
-            const seCanjea = p.permite_canje !== false && p.permite_canje !== 'false'; // 👈 NUEVO LECTOR
+            const seCanjea = p.permite_canje !== false && p.permite_canje !== 'false';
             const usaStock = p.usa_stock === true || p.usa_stock === 'true';
-            const stockActual = Number(p.stock_preparado) || 0;  
+            const stockActual = Number(p.stock_preparado) || 0;
+            const estaOculto = p.disponible === false || p.disponible === 'false' || p.disponible === 0;
 
             return (
-              <div key={p.id} className={`bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition ${p.disponible === false ? 'opacity-60 grayscale' : ''}`}>
+              <div key={p.id} className={`bg-slate-50 p-5 rounded-3xl border border-slate-100 flex justify-between items-center hover:border-blue-200 hover:shadow-md transition ${estaOculto ? 'opacity-60 grayscale' : ''}`}>
                 <div className="flex items-center gap-4">
                   {p.imagen_url ? (
                     <img src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} alt={p.nombre} className="w-16 h-16 object-cover rounded-2xl shadow-sm" />
                   ) : (
-                    <span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji}</span>
+                    <span className="text-3xl bg-white w-16 h-16 flex items-center justify-center rounded-2xl shadow-sm">{p.emoji || '🍽️'}</span>
                   )}
                   <div>
                     <p className="font-bold text-lg leading-tight text-slate-800 flex items-center flex-wrap gap-2">
-                      {p.nombre}  
-                      {p.disponible === false && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-md uppercase font-black tracking-widest">Oculto</span>}  
+                      {p.nombre}
+                      
+                      {estaOculto && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-md uppercase font-black tracking-widest">Oculto</span>}  
                       
                       {daPuntos ? (
                         <span className="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1"><Star size={10} className="fill-indigo-700"/> +Pts</span>
                       ) : (
                         <span className="text-[10px] bg-slate-200 text-slate-500 px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1">Sin Pts</span>
                       )}  
-
-                      {/* 👇 NUEVO BADGE: Permite Canje */}
+                      
                       {seCanjea && (
                         <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1">
                           <Gift size={10} className="text-emerald-700"/> Canjeable
                         </span>
-                      )}
-
+                      )}  
+                      
                       {usaStock && (
                         <span className={`text-[10px] px-2 py-1 rounded-md uppercase font-black tracking-widest flex items-center gap-1 ${stockActual <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
                           <Package size={12}/> Stock: {stockActual}
                         </span>
-                      )}  
+                      )}
                     </p>
                     <span className="text-blue-600 font-black text-sm block mt-1">${p.precio_base} • ⏱️ {p.tiempo_preparacion}m</span>
                   </div>
@@ -84,7 +88,8 @@ const ListaProductos = ({
                   <button onClick={() => eliminarProducto(p.id)} className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-100 rounded-xl transition bg-white shadow-sm border border-slate-100"><Trash2 size={18}/></button>
                 </div>
               </div>
-            )})}
+            )
+          })}
         </div>
       )}
     </div>

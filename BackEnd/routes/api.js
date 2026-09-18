@@ -42,9 +42,11 @@ const huellasCtrl = require('../controllers/huellasController'); // <-- Nombre c
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
 distribucionCtrl.inicializarTablas();
-distClientesCtrl.inicializarTablas(); // 👈 Inicializa tablas de CRM B2B y Configuración SMTP
+distClientesCtrl.inicializarTablas();
 distVentasCtrl.inicializarTablas(); 
 huellasCtrl.inicializarTablas();
+insumoCtrl.inicializarTablasAuditoria();
+insumoCtrl.inicializarInsumos();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -225,6 +227,11 @@ router.put('/insumos/:id', insumoCtrl.actualizarInsumo);
 router.put('/insumos/:id/comprar', insumoCtrl.comprarInsumo);
 router.put('/insumos/:id/reiniciar', insumoCtrl.reiniciarStock);
 router.delete('/insumos/:id', insumoCtrl.eliminarInsumo);
+router.put('/insumos/:id/stock-exacto', insumoCtrl.fijarStockExacto);
+router.get('/insumos/auditoria/activa', insumoCtrl.obtenerAuditoriaActiva); // 👈 NUEVA
+router.post('/insumos/auditoria/solicitar', insumoCtrl.solicitarAuditoria); // 👈 NUEVA
+router.put('/insumos/auditoria/:id/guardar', insumoCtrl.guardarProgresoAuditoria); // 👈 NUEVA
+router.put('/insumos/auditoria/:id/resolver', insumoCtrl.resolverAuditoria); // 👈 NUEVA
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  

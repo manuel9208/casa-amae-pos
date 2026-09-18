@@ -1,8 +1,50 @@
 import React from 'react';
-import { Package } from 'lucide-react';
+import { Package, Star } from 'lucide-react'; // 👈 Agregamos Star para el ícono de la promo
 import ImagenCachada from '../../ImagenCachada';
 
-const ProductosGrid = ({ categoriaActiva, setCategoriaActiva, productosFiltrados, abrirModalProducto, baseUrl }) => {
+const ProductosGrid = ({ 
+  categoriaActiva, 
+  setCategoriaActiva, 
+  productosFiltrados, 
+  abrirModalProducto, 
+  baseUrl,
+  promociones = [] // 👈 NUEVA PROP: Recibimos las promociones
+}) => {
+
+  // 👇 NUEVA FUNCIÓN: Escáner visual silencioso
+  const obtenerPromoActiva = (prod) => {
+      if (!promociones || promociones.length === 0) return null;
+      const ahora = new Date();
+      const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const diaHoy = dias[ahora.getDay()];
+      const horaActual = ahora.getHours() * 60 + ahora.getMinutes();
+
+      return promociones.find(p => {
+          if (!p.activo) return false;
+          if (p.tipo !== 'upselling' && p.tipo !== 'happy_hour') return false;
+
+          const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
+          if (!diasPromo.includes(diaHoy)) return false;
+
+          const [hI, mI] = (p.hora_inicio || '00:00').split(':').map(Number);
+          const [hF, mF] = (p.hora_fin || '23:59').split(':').map(Number);
+          const minI = hI * 60 + mI;
+          const minF = hF * 60 + mF;
+
+          if (minI <= minF) {
+              if (horaActual < minI || horaActual > minF) return false;
+          } else {
+              if (horaActual < minI && horaActual > minF) return false;
+          }
+
+          if (p.producto_trigger_id && String(p.producto_trigger_id) === String(prod.id)) return true;
+          if (p.categoria_trigger && p.categoria_trigger === prod.categoria) return true;
+          if (!p.producto_trigger_id && !p.categoria_trigger) return true;
+
+          return false;
+      });
+  };
+
   return (
     <div className="flex flex-col h-full animate-in fade-in">
       <div className="flex items-center justify-between mb-8 gap-4 bg-white p-4 rounded-3xl shadow-sm border">
@@ -21,13 +63,26 @@ const ProductosGrid = ({ categoriaActiva, setCategoriaActiva, productosFiltrados
           const stockActual = Number(p.stock_preparado) || 0;
           const agotado = isUsaStock && stockActual <= 0;
 
+          // 👇 Ejecutamos el escáner para este producto
+          const promoActiva = obtenerPromoActiva(p);
+
           return (
             <button 
               key={p.id} 
               disabled={agotado} 
               onClick={() => abrirModalProducto(p)} 
-              className={`bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center transition-transform hover:shadow-md hover:border-blue-200 ${agotado ? 'opacity-50 grayscale cursor-not-allowed' : 'active:scale-95'}`}
+              // 👇 FIX: Solo agregué la clase "relative" al inicio para que el diseño no se rompa
+              className={`relative bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center transition-transform hover:shadow-md hover:border-blue-200 ${agotado ? 'opacity-50 grayscale cursor-not-allowed' : 'active:scale-95'}`}
             >
+              
+              {/* 👇 ETIQUETA VISUAL FLOTANTE (Solo se muestra si hay promo y no está agotado) */}
+              {promoActiva && !agotado && (
+                  <div className={`absolute top-2 left-2 md:top-4 md:left-4 px-2 py-1 md:px-3 md:py-1.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest text-white shadow-md z-10 flex items-center gap-1.5 ${promoActiva.tipo === 'happy_hour' ? 'bg-purple-500 shadow-purple-500/30' : 'bg-orange-500 shadow-orange-500/30'}`}>
+                      <Star size={12} className={promoActiva.tipo === 'happy_hour' ? 'animate-pulse' : ''}/>
+                      {promoActiva.tipo === 'happy_hour' ? 'Happy Hour' : 'Promo'}
+                  </div>
+              )}
+
               {p.imagen_url ? (
                 <ImagenCachada 
                   src={p.imagen_url?.startsWith('http') ? p.imagen_url : `${baseUrl}${p.imagen_url}`} 

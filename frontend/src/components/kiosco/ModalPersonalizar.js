@@ -108,6 +108,12 @@ const ModalPersonalizar = ({
               if (objOpcion) varsTemp[cat] = objOpcion;
           });
       }
+      else if (currentItem._isCustomizedChild && currentItem._variacionesBaseComboHijo) {
+          Object.entries(currentItem._variacionesBaseComboHijo).forEach(([cat, nombreVar]) => {
+              const objOpcion = (currentItem.opciones || []).find(o => o.categoria === cat && String(o.nombre).trim().toLowerCase() === String(nombreVar).trim().toLowerCase());
+              if (objOpcion) varsTemp[cat] = objOpcion;
+          });
+      }
       setVariacionesSeleccionadas(varsTemp);
     }
     
@@ -119,26 +125,35 @@ const ModalPersonalizar = ({
   }, [currentItem, itemAEditar, queue.length]);
 
   const getPromoInfo = () => {
-    if (!currentItem._esPromo) return null;
-    const promo = promosReales.find(p => p.nombre === currentItem._nombrePromo);
-    if (!promo) return null;
-
-    let tipoDesc = promo.tipo_descuento;
-    let valorDesc = Number(promo.valor_descuento || 0);
-
-    if (tipoDesc === 'mixto' && promo.config_oferta) {
-        try {
-            const conf = typeof promo.config_oferta === 'string' ? JSON.parse(promo.config_oferta) : promo.config_oferta;
-            let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(currentItem.id || currentItem.producto_id));
-            if (!regla) regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === currentItem.categoria);
-            
-            if (regla) {
-                tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
-                valorDesc = Number(regla.valor_descuento || regla.valor || 0);
-            }
-        } catch(e) {}
+    if (currentItem._esPromo) {
+        const promo = promosReales.find(p => p.nombre === currentItem._nombrePromo);
+        if (!promo) return null;  
+        let tipoDesc = promo.tipo_descuento;
+        let valorDesc = Number(promo.valor_descuento || 0);  
+        if (tipoDesc === 'mixto' && promo.config_oferta) {
+            try {
+                const conf = typeof promo.config_oferta === 'string' ? JSON.parse(promo.config_oferta) : promo.config_oferta;
+                let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(currentItem.id || currentItem.producto_id));
+                if (!regla) regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === currentItem.categoria);  
+                if (regla) {
+                    tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
+                    valorDesc = Number(regla.valor_descuento || regla.valor || 0);
+                }
+            } catch(e) {}
+        }
+        return { tipoDesc, valorDesc, nombrePromo: promo.nombre, isHappyHour: promo.tipo === 'happy_hour' };
+    } else {
+        const promoHH = evaluarHappyHourLocal(currentItem.id || currentItem.producto_id, currentItem.categoria);
+        if (promoHH) {
+            return {
+                tipoDesc: promoHH.tipo_descuento,
+                valorDesc: Number(promoHH.valor_descuento || 0),
+                nombrePromo: promoHH.nombre,
+                isHappyHour: true
+            };
+        }
     }
-    return { tipoDesc, valorDesc };
+    return null;
   };
 
   const obtenerVariacionBaseEfectiva = (itemInfo) => {
@@ -185,6 +200,16 @@ const ModalPersonalizar = ({
   const getPrecioDeltaVisual = (opcionObj) => {
     if (!opcionObj) return 0;
     const precioOpcion = Number(opcionObj.precioExtra || 0);
+
+    if (isSubItemCombo && currentItem._variacionesBaseComboHijo) {
+        const nombreBaseHijo = currentItem._variacionesBaseComboHijo[opcionObj.categoria];
+        if (nombreBaseHijo) {
+            const opcionBaseObj = (currentItem.opciones || []).find(o => o.categoria === opcionObj.categoria && String(o.nombre).trim().toLowerCase() === String(nombreBaseHijo).trim().toLowerCase());
+            const precioBaseOriginal = opcionBaseObj ? Number(opcionBaseObj.precioExtra || 0) : 0;
+            const delta = precioOpcion - precioBaseOriginal;
+            return delta > 0 ? delta : 0;
+        }
+    }
 
     const isVariacionPrincipal = opcionObj.tipo === 'variacion' || opcionObj.categoria === 'Tamaño' || opcionObj.categoria === 'Sabor';
     
@@ -253,21 +278,41 @@ const ModalPersonalizar = ({
     const ahora = new Date();
     const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
     const diaHoy = dias[ahora.getDay()];
-    const horaActual = ahora.getHours() * 60 + ahora.getMinutes();
-
+    const horaActual = ahora.getHours() * 60 + ahora.getMinutes();  
     return promosReales.find(p => {
-        if (!p.activo || p.tipo !== 'upselling') return false;
-        const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
-        if (!diasPromo.includes(diaHoy)) return false;
-        const [hI, mI] = p.hora_inicio.split(':').map(Number);
-        const [hF, mF] = p.hora_fin.split(':').map(Number);
-        const minI = hI * 60 + mI;
-        const minF = hF * 60 + mF;
-        if (horaActual < minI || horaActual > minF) return false;
-        if (p.producto_trigger_id && Number(p.producto_trigger_id) === Number(prodId)) return true;
-        if (p.categoria_trigger && p.categoria_trigger === catName) return true;
-        if (!p.producto_trigger_id && !p.categoria_trigger) return true;
-        return false;
+      if (!p.activo || p.tipo !== 'upselling') return false; 
+      const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
+      if (!diasPromo.includes(diaHoy)) return false;
+      const [hI, mI] = p.hora_inicio.split(':').map(Number);
+      const [hF, mF] = p.hora_fin.split(':').map(Number);
+      const minI = hI * 60 + mI;
+      const minF = hF * 60 + mF;
+      if (horaActual < minI || horaActual > minF) return false;
+      if (p.producto_trigger_id && Number(p.producto_trigger_id) === Number(prodId)) return true;
+      if (p.categoria_trigger && p.categoria_trigger === catName) return true;
+      if (!p.producto_trigger_id && !p.categoria_trigger) return true;
+      return false;
+    });
+  };
+
+  const evaluarHappyHourLocal = (prodId, catName) => {
+    const ahora = new Date();
+    const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const diaHoy = dias[ahora.getDay()];
+    const horaActual = ahora.getHours() * 60 + ahora.getMinutes();  
+    return promosReales.find(p => {
+      if (!p.activo || p.tipo !== 'happy_hour') return false;
+      const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
+      if (!diasPromo.includes(diaHoy)) return false;
+      const [hI, mI] = p.hora_inicio.split(':').map(Number);
+      const [hF, mF] = p.hora_fin.split(':').map(Number);
+      const minI = hI * 60 + mI;
+      const minF = hF * 60 + mF;
+      if (horaActual < minI || horaActual > minF) return false;
+      if (p.producto_trigger_id && Number(p.producto_trigger_id) === Number(prodId)) return true;
+      if (p.categoria_trigger && p.categoria_trigger === catName) return true;
+      if (!p.producto_trigger_id && !p.categoria_trigger) return true;
+      return false;
     });
   };
 
@@ -290,24 +335,27 @@ const ModalPersonalizar = ({
     const precioBase = Number(ingBase?.precio_extra || ingBase?.precioExtra || 0);
     const precioNuevo = Number(ingNuevo?.precio_extra || ingNuevo?.precioExtra || 0);
 
-    // Retorna la diferencia pura. Si es negativa, se convierte en descuento a favor del cliente
     return precioNuevo - precioBase; 
   };
 
   if (!currentItem) return null;
 
   const totalPlatilloCalculado = (() => {
-    let baseCalculada = Number(currentItem.precio_base);
-               
-    if (isSubItemCombo) {
-        baseCalculada = 0; 
-    } else if (currentItem._esComboBuilder) {
-        let configData = currentItem._configuracionCombo.configuracion_grupos;
-        if (typeof configData === 'string') configData = JSON.parse(configData);
-        baseCalculada = Number(configData.precio_combo ?? currentItem.precio_base);
-    } else if (currentItem._esPromo) {
-        baseCalculada = calcularPrecioBaseConPromo();
-    }
+      let baseCalculada = Number(currentItem.precio_base);  
+      const promoInfo = getPromoInfo();
+
+      if (isSubItemCombo) {
+          baseCalculada = 0;
+      } else if (currentItem._esComboBuilder) {
+          let configData = currentItem._configuracionCombo.configuracion_grupos;
+          if (typeof configData === 'string') configData = JSON.parse(configData);
+          baseCalculada = Number(configData.precio_combo ?? currentItem.precio_base);
+      } else if (currentItem._esPromo || (promoInfo && promoInfo.isHappyHour)) {
+          // 👇 FIX APLICADO: Ahora sí lee el precio exacto del modal o recalcula correctamente
+          baseCalculada = currentItem._precioDescontadoAplicado !== undefined 
+            ? currentItem._precioDescontadoAplicado 
+            : calcularPrecioBaseConPromo();
+      }  
 
     return (baseCalculada + 
         extrasAgregados.reduce((s, e) => s + Number(e.precioExtra || 0), 0) + 
@@ -513,7 +561,6 @@ const ModalPersonalizar = ({
                             </div>
                         </div>
 
-                        {/* Recuadro visual para mostrar ingredientes sustituidos con sus descuentos */}
                         {isSustituida && (
                           <div className="bg-white p-3 rounded-xl border border-blue-100 text-xs font-bold text-blue-700 flex justify-between items-center mt-3 shadow-sm">
                             <span>🔄 Cambiado por: {isSustituida.nuevoNombre}</span>
@@ -699,8 +746,10 @@ const ModalPersonalizar = ({
                 extrasAgregados.forEach(ex => extrasFinales.push({ nombre: `Extra ${ex.nombre}`, precioExtra: ex.precioExtra, tipo: 'extra' }));
                 if (notaEspecial.trim() !== '') extrasFinales.push({ nombre: `📝 Nota: ${notaEspecial.trim()}`, precioExtra: 0, tipo: 'nota' });
 
-                if (currentItem._esPromo) {
-                    extrasFinales.push({ nombre: `⭐ Promo: ${currentItem._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
+                // 👇 FIX APLICADO: Inyectar la etiqueta y precio del Happy Hour silencioso al presionar Guardar
+                const promoInfo = getPromoInfo();
+                if (currentItem._esPromo || (promoInfo && promoInfo.isHappyHour)) {
+                    extrasFinales.push({ nombre: `⭐ Promo: ${currentItem._nombrePromo || promoInfo.nombrePromo}`, precioExtra: 0, tipo: 'nota' });
                     const hashRef = Math.random().toString(36).substr(2, 4).toUpperCase();
                     extrasFinales.push({ nombre: `🔗 Ref: ${hashRef}`, precioExtra: 0, tipo: 'nota' });
                 }
@@ -713,8 +762,11 @@ const ModalPersonalizar = ({
                     let configData = currentItem._configuracionCombo.configuracion_grupos;
                     if (typeof configData === 'string') configData = JSON.parse(configData);
                     baseCalculada = Number(configData.precio_combo ?? currentItem.precio_base);
-                } else if (currentItem._esPromo) {
-                    baseCalculada = calcularPrecioBaseConPromo();
+                } else if (currentItem._esPromo || (promoInfo && promoInfo.isHappyHour)) {
+                    // 👇 FIX APLICADO: Tomar el precio exacto
+                    baseCalculada = currentItem._precioDescontadoAplicado !== undefined 
+                        ? currentItem._precioDescontadoAplicado 
+                        : calcularPrecioBaseConPromo();
                 }
 
                 const precioIndividualCalculado = baseCalculada + 
@@ -740,8 +792,9 @@ const ModalPersonalizar = ({
                   cantidad: cantidadProducto,
                   opciones: currentItem.opciones || [],
                   extras: extrasFinales,
-                  _esPromo: currentItem._esPromo,
-                  _nombrePromo: currentItem._nombrePromo,
+                  // 👇 FIX APLICADO: Guardar los datos de la promo silenciosa
+                  _esPromo: currentItem._esPromo || (promoInfo && promoInfo.isHappyHour ? true : false),
+                  _nombrePromo: currentItem._nombrePromo || (promoInfo && promoInfo.isHappyHour ? promoInfo.nombrePromo : null),
                   _variacionBasePromo: currentItem._variacionBasePromo
                 };
 
@@ -751,8 +804,6 @@ const ModalPersonalizar = ({
                     return;
                 }
 
-                // 👇 FIX MÁSTER: Evitamos que el Kiosco agregue el combo doble al carrito.
-                // Detenemos la inserción aquí y lo mandamos directamente al Asistente de Combos.
                 if (currentItem._esComboBuilder) {
                     nuevoItem.nombre = currentItem._configuracionCombo.nombre;
                     nuevoItem._esCombo = true;
@@ -764,7 +815,6 @@ const ModalPersonalizar = ({
                         itemAEditar: itemAEditar 
                     });
 
-                    // Limpiamos la cola en el fondo para que cuando se cierre el Asistente todo fluya normal
                     if (queue.length > 1) {
                         avanzarCola();
                     } else {
@@ -773,7 +823,7 @@ const ModalPersonalizar = ({
                     }
                     
                     setIsSubmitting(false);
-                    return; // 🛑 AQUÍ DETENEMOS LA EJECUCIÓN (Cura el Doble Producto)
+                    return;
                 }
 
                 setCarrito(prev => {

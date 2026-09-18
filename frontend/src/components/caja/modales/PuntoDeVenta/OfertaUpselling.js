@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Gift, Plus, Minus, CheckCircle2 } from 'lucide-react';
-// 👇 FIX: Ruta respetada para la Caja
+// 👇 Ruta respetada para la Caja
 import ImagenCachada from '../../../ImagenCachada'; 
 
 const OfertaUpselling = ({
@@ -51,37 +51,32 @@ const OfertaUpselling = ({
       }
   };
 
-  // 👇 NUEVO MOTOR LECTOR DE REGLAS DE DESCUENTO JSONB
-  const calcularPrecioDescuento = (prodOriginal) => {
+    const calcularPrecioDescuento = (prodOriginal) => {
       if (!promocionVigente) return { precioFinal: Number(prodOriginal.precio_base || 0), variacionBase: null, precioBaseReal: Number(prodOriginal.precio_base || 0) };
 
       let tipoDesc = promocionVigente.tipo_descuento;
       let valorDesc = Number(promocionVigente.valor_descuento || 0);
       let variacionBase = null;
 
-      // Si el descuento es Mixto (Individual), extraemos la regla específica del JSON
-      if (tipoDesc === 'mixto' && promocionVigente.config_oferta) {
-          try {
-              const conf = typeof promocionVigente.config_oferta === 'string' ? JSON.parse(promocionVigente.config_oferta) : promocionVigente.config_oferta;
-              
-              // 1. Buscamos si hay una regla específica para el Platillo
-              let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(prodOriginal.id));
-              
-              // 2. Si no, buscamos si hay regla para su Categoría
-              if (!regla) {
-                  regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === prodOriginal.categoria);
-              }
+      let conf = null;
+      try {
+          if (promocionVigente.config_oferta) {
+              conf = typeof promocionVigente.config_oferta === 'string' ? JSON.parse(promocionVigente.config_oferta) : promocionVigente.config_oferta;
+          }
+      } catch(e) {}
 
-              if (regla) {
-                  // Soporte robusto por si el admin panel guarda las llaves con otros nombres
-                  tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
-                  valorDesc = Number(regla.valor_descuento || regla.valor || 0);
-                  variacionBase = regla.variacion_base;
-              }
-          } catch(e) {}
+      // 👇 FIX MÁSTER: Leer correctamente "individual" sin importar el tipo_descuento global
+      if (conf && conf.modo_descuento === 'individual') {
+          let regla = (conf.selecciones || []).find(s => s.tipo === 'producto' && String(s.valor) === String(prodOriginal.id));
+          if (!regla) regla = (conf.selecciones || []).find(s => s.tipo === 'categoria' && s.valor === prodOriginal.categoria);
+
+          if (regla) {
+              tipoDesc = regla.tipo_descuento || regla.tipo_rebaja || tipoDesc;
+              valorDesc = Number(regla.valor_descuento || regla.valor || 0);
+              variacionBase = regla.variacion_base;
+          }
       }
 
-      // 👇 LÓGICA CORREGIDA: Reconstruir el precio real sumando la variación (Tamaño/Sabor)
       let precioBaseCrudo = Number(prodOriginal.precio_base || 0);
       let precioVariacionExtra = 0;
       
@@ -93,16 +88,13 @@ const OfertaUpselling = ({
               if (vb) precioVariacionExtra = Number(vb.precioExtra || 0);
               else precioVariacionExtra = Math.min(...opcionesVariacion.map(o => Number(o.precioExtra || 0)));
           } else {
-              // Si no hay variación base configurada, toma la más económica por defecto
               precioVariacionExtra = Math.min(...opcionesVariacion.map(o => Number(o.precioExtra || 0)));
           }
       }
 
-      // Precio Real con el que trabajará la matemática
       let precioBaseReal = precioBaseCrudo + precioVariacionExtra;
       let final = precioBaseReal;
 
-      // Ejecución de Descuentos
       if (tipoDesc === 'porcentaje') {
           final = precioBaseReal - (precioBaseReal * (valorDesc / 100));
       } else if (tipoDesc === 'descuento_fijo' || tipoDesc === 'descontar_cantidad') {
@@ -112,7 +104,7 @@ const OfertaUpselling = ({
       }
 
       return { precioFinal: Math.max(0, final), variacionBase, precioBaseReal };
-  };
+    };
 
   const validData = useMemo(() => {
       if (!promocionVigente) return { limite: 1, opciones: [] };
@@ -120,7 +112,21 @@ const OfertaUpselling = ({
       let limite = 1;
       let opcionesTemp = [];
 
-      if (promocionVigente.config_oferta) {
+      // 👇 MOTOR INTERCEPTOR PARA HAPPY HOUR INYECTADO
+      if (promocionVigente.tipo === 'happy_hour') {
+          limite = 0; // Sin límite
+          if (promocionVigente.producto_trigger_id) {
+              const prod = productos.find(p => String(p.id) === String(promocionVigente.producto_trigger_id));
+              if (prod) opcionesTemp.push(prod);
+          } else if (promocionVigente.categoria_trigger) {
+              const filtrados = productos.filter(p => p.categoria === promocionVigente.categoria_trigger);
+              opcionesTemp = [...filtrados];
+          } else {
+              opcionesTemp = [...productos]; // Global
+          }
+      } 
+      // Lógica Upselling original
+      else if (promocionVigente.config_oferta) {
           try {
               const conf = typeof promocionVigente.config_oferta === 'string' ? JSON.parse(promocionVigente.config_oferta) : promocionVigente.config_oferta;
               limite = Number(conf.limite) || 0;
@@ -186,16 +192,16 @@ const OfertaUpselling = ({
               const prodOriginal = productos.find(p => String(p.id) === String(prodId));
               if (!prodOriginal) return;
               
-              // 👇 AQUÍ USAMOS LA NUEVA FUNCIÓN MATEMÁTICA
               const infoDesc = calcularPrecioDescuento(prodOriginal);
               
               for(let i=0; i<qty; i++){
                    itemsQueue.push({
                        ...prodOriginal,
-                       precio_base: infoDesc.precioFinal, 
                        _esPromo: true,
                        _nombrePromo: promocionVigente.nombre,
-                       _variacionBasePromo: infoDesc.variacionBase
+                       _variacionBasePromo: infoDesc.variacionBase,
+                       // 👈 FIX: Inyectamos el precio calculado mágicamente para que el Wizard no lo borre
+                       _precioDescontadoAplicado: infoDesc.precioFinal 
                    });
               }
           }
@@ -213,22 +219,21 @@ const OfertaUpselling = ({
           </div>
           <h2 className="text-2xl font-black text-slate-800 leading-tight mb-1">{promocionVigente.nombre}</h2>
           <p className="text-slate-500 font-bold text-sm">
-             {limite > 0 
-                ? `Elige hasta ${limite} opción(es) con descuento` 
-                : 'Elige todas las opciones que desees con descuento'}
+             {promocionVigente.tipo === 'happy_hour' 
+                ? '🎉 ¡Aprovecha el Happy Hour con estas opciones!'
+                : limite > 0 
+                   ? `Elige hasta ${limite} opción(es) con descuento` 
+                   : 'Elige todas las opciones que desees con descuento'}
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
            {opcionesValidas.map(p => {
                const qty = seleccionados[p.id] || 0;
-               
-               // 👇 AQUÍ USAMOS LA NUEVA FUNCIÓN PARA LA INTERFAZ
                const infoDesc = calcularPrecioDescuento(p);
 
                return (
                    <div key={p.id} className={`flex items-center gap-4 p-4 rounded-3xl border transition-all ${qty > 0 ? 'bg-blue-50 border-blue-300 shadow-sm' : 'bg-white border-slate-200'}`}>
-                      {/* CACHÉ EXTREMO */}
                       {p.imagen_url ? (
                           <ImagenCachada src={p.imagen_url} alt={p.nombre} className="w-16 h-16 rounded-2xl object-cover shadow-sm bg-white"/>
                       ) : (
@@ -241,7 +246,6 @@ const OfertaUpselling = ({
                           <p className="font-black text-slate-800 leading-tight">{p.nombre}</p>
                           <div className="flex items-center gap-2 mt-1.5">
                               <span className="text-xs font-black text-blue-600 bg-blue-100 px-2.5 py-0.5 rounded-md border border-blue-200">${infoDesc.precioFinal.toFixed(2)}</span>
-                              {/* 👇 PRECIO TACHADO CORREGIDO: Ahora muestra el precio real del tamaño seleccionado */}
                               <span className="text-[10px] font-bold text-slate-400 line-through">${infoDesc.precioBaseReal.toFixed(2)}</span>
                           </div>
                       </div>

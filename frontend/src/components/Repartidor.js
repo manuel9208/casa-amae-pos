@@ -89,6 +89,13 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
     const finalizarEntregaDirecta = async (pedidoId) => {
         setIsSubmitting(true);
         try {
+            // 👇 FIX LÓGICO 1: Si es un pago online (Tarjeta), lo liquidamos directo sin molestar al cajero
+            await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, { 
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ estado_preparacion: 'Liquidado' })
+            });
+
             const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -126,51 +133,59 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
 
     // 👇 FIX MÁSTER: Procesamiento de Pago Flexible en Ruta con formato estandarizado
     const confirmarCobroFlexible = async () => {
-        setIsSubmitting(true);
-        try {
-        let payloadEstado = { estado_preparacion: 'Entregado' };
-
-        if (tipoCobro === 'mixto') {
-            payloadEstado.metodo_pago = 'Mixto';
-            
-            // 👇 SOLUCIÓN APLICADA: Convertimos el objeto en el Array que espera la Caja y el Corte
-            const arrMixto = [];
-            if (Number(montoEfectivo) > 0) {
-                arrMixto.push({ metodo: 'Efectivo', monto: Number(montoEfectivo) });
-            }
-            if (Number(montoTransferencia) > 0) {
-                arrMixto.push({ metodo: 'Transferencia', monto: Number(montoTransferencia) });
-            }
-            payloadEstado.pagos_mixtos = arrMixto;
-            
-        } else if (tipoCobro === 'transferencia') {
-            payloadEstado.metodo_pago = 'Transferencia';
-        } else {
-            payloadEstado.metodo_pago = 'Efectivo';
+        if (tipoCobro === 'mixto' && (Number(montoEfectivo || 0) + Number(montoTransferencia || 0)).toFixed(2) !== Number(modalCobro.total).toFixed(2)) {
+            mostrarAlerta("La suma del pago mixto debe ser exacta al total.", "error");
+            return;
         }
 
-        // 1. Actualizamos el método de pago real con el que se topó el repartidor
-        await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payloadEstado)
-        });
+        setIsSubmitting(true);
+        try {
+            // 👇 FIX LÓGICO 2: Si es transferencia pura, brinca directo a "Liquidado"
+            let payloadEstado = { 
+                estado_preparacion: tipoCobro === 'transferencia' ? 'Liquidado' : 'Entregado' 
+            };
 
-        // 2. Ejecutamos la entrega oficial en logística
-        await fetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
-        });
+            if (tipoCobro === 'mixto') {
+                payloadEstado.metodo_pago = 'Mixto';
+                
+                // Convertimos el objeto en el Array que espera la Caja y el Corte
+                const arrMixto = [];
+                if (Number(montoEfectivo) > 0) {
+                    arrMixto.push({ metodo: 'Efectivo', monto: Number(montoEfectivo) });
+                }
+                if (Number(montoTransferencia) > 0) {
+                    arrMixto.push({ metodo: 'Transferencia', monto: Number(montoTransferencia) });
+                }
+                payloadEstado.pagos_mixtos = arrMixto;
+                
+            } else if (tipoCobro === 'transferencia') {
+                payloadEstado.metodo_pago = 'Transferencia';
+            } else {
+                payloadEstado.metodo_pago = 'Efectivo';
+            }
 
-        await cargarDatosLogistica();
-        if (misViajes.length <= 1) setTabActiva('disponibles');
-        setModalCobro(null);
-        mostrarAlerta("¡Cobro y entrega registrados con éxito!", "success");
+            // 1. Actualizamos el método de pago real con el que se topó el repartidor
+            await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payloadEstado)
+            });
+
+            // 2. Ejecutamos la entrega oficial en logística
+            await fetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
+            });
+
+            await cargarDatosLogistica();
+            if (misViajes.length <= 1) setTabActiva('disponibles');
+            setModalCobro(null);
+            mostrarAlerta("¡Cobro y entrega registrados con éxito!", "success");
         } catch (error) {
-        mostrarAlerta("Error de conexión al cerrar la entrega.", "error");
+            mostrarAlerta("Error de conexión al cerrar la entrega.", "error");
         } finally {
-        setIsSubmitting(false);
+            setIsSubmitting(false);
         }
     };
 
@@ -344,9 +359,11 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                 ) : tabActiva === 'mi_ruta' ? (
                     <>
                         {misViajes.map(viaje => {
-                            const esDeuda = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia'].includes(viaje.metodo_pago);
-                            const tagTransferencia = String(viaje.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA');
-                            
+                            // 👇 FIX VISUAL: Filtros de pago inteligente para la ruta
+                            const tagTransferencia = String(viaje.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || viaje.metodo_pago === 'Transferencia';
+                            const esCobroMixtoOPuroEfectivo = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(viaje.metodo_pago) && !tagTransferencia;
+                            const esDeudaActiva = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia'].includes(viaje.metodo_pago);
+
                             return (
                                 <div key={viaje.id} className="bg-slate-900 border-2 border-emerald-600 rounded-[36px] p-6 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200 mb-6">
                                     <div className="flex justify-between items-start md:items-center border-b border-slate-800 pb-4">
@@ -361,13 +378,13 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                             </div>
                                         </div>
                                         <div className="text-right mt-1 sm:mt-0">
-                                            <p className={`text-[10px] font-black uppercase tracking-widest ${esDeuda ? 'text-slate-500' : 'text-emerald-500'}`}>
-                                                {esDeuda ? 'Cobro Neto' : 'Estado de Pago'}
+                                            <p className={`text-[10px] font-black uppercase tracking-widest ${esDeudaActiva ? 'text-slate-500' : 'text-emerald-500'}`}>
+                                                {esDeudaActiva ? 'Cobro Neto' : 'Estado de Pago'}
                                             </p>
-                                            <p className={`text-2xl font-black ${esDeuda ? 'text-white' : 'text-emerald-400'}`}>
-                                                {esDeuda ? `$${viaje.total}` : '✅ PAGADO'}
+                                            <p className={`text-2xl font-black ${esDeudaActiva ? 'text-white' : 'text-emerald-400'}`}>
+                                                {esDeudaActiva ? `$${viaje.total}` : '✅ PAGADO'}
                                             </p>
-                                            {esDeuda && (
+                                            {esDeudaActiva && (
                                                 <p className={`text-[9px] font-bold mt-1 uppercase tracking-widest ${tagTransferencia ? 'text-blue-400' : 'text-orange-400'}`}>
                                                     Sugerido: {tagTransferencia ? 'Transferencia' : 'Efectivo'}
                                                 </p>
@@ -415,12 +432,21 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                                         </button>
                                     </div>
 
+                                    {/* 👇 FIX VISUAL: BOTÓN INTELIGENTE */}
                                     <button
                                         disabled={isSubmitting}
                                         onClick={() => handleAbrirCobro(viaje)}
-                                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-500/30 font-black text-sm transition active:scale-95 flex items-center justify-center gap-2 uppercase tracking-wider"
+                                        className={`w-full py-4 font-black text-sm uppercase tracking-wider transition active:scale-95 flex items-center justify-center gap-2 rounded-2xl shadow-lg ${
+                                            esCobroMixtoOPuroEfectivo 
+                                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/30' 
+                                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 shadow-none'
+                                        }`}
                                     >
-                                        <CheckCircle2 size={20}/> Finalizar Entrega y Cobro
+                                        {esCobroMixtoOPuroEfectivo ? (
+                                            <><CheckCircle2 size={20}/> Finalizar Entrega y Cobro</>
+                                        ) : (
+                                            <><Package size={20}/> Confirmar Entrega (Sin Efectivo)</>
+                                        )}
                                     </button>
                                 </div>
                             )

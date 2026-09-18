@@ -247,13 +247,39 @@ const ModalPago = ({
     const procesar_Pago_Local = (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosOverride = null) => {
         const ordenYaCocinada = !['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion);
         const ordenBloqueadaExplicitamente = modalPago._evitarImpresion === true;
-        const yaFueImpreso = ordenBloqueadaExplicitamente || ordenYaCocinada;
-
-        if (yaFueImpreso) modalPago._evitarImpresion = true;
-
+        const yaFueImpreso = ordenBloqueadaExplicitamente || ordenYaCocinada;  
+        
+        if (yaFueImpreso) modalPago._evitarImpresion = true;  
+        
         const puntosFinales = puntosOverride !== null ? puntosOverride : puntosAplicados;
-        procesarPago(estadoRechazo, esPostPago, pagosMixtos, puntosFinales);
-    };
+
+        // 👇 LÓGICA INTELIGENTE (ACTUALIZADA Y PERFECCIONADA)
+        let estadoFinal = estadoRechazo;
+        
+        // Si la acción NO es una cancelación/rechazo (es un pago normal o mixto)
+        if (!estadoRechazo || estadoRechazo === 'Pagado') {
+            const estadoActual = modalPago.estado_preparacion;
+
+            // 1. Si está en Entregas (Listo) y se cobra en ventanilla -> Se entrega y finaliza automáticamente.
+            if (estadoActual === 'Listo') {
+                estadoFinal = 'Finalizado'; 
+            } 
+            // 2. Si es una mesa de comedor (Entregado) y paga al irse -> Finalizado.
+            else if (estadoActual === 'Entregado' || estadoActual === 'Liquidado') {
+                estadoFinal = 'Finalizado';
+            } 
+            // 3. Si se cobra MIENTRAS está en cocina o en la moto -> Conserva su estado operativo.
+            else if (['Preparando', 'En Camino'].includes(estadoActual)) {
+                estadoFinal = estadoActual;
+            } 
+            // 4. Si se cobra en "Cuentas por Cobrar" antes de entrar a cocina -> Pagado (Pasa a la cola del KDS).
+            else {
+                estadoFinal = 'Pagado'; 
+            }
+        }
+
+        procesarPago(estadoFinal, esPostPago, pagosMixtos, puntosFinales);
+    };  
 
     // ----------------------------------------------------
     // FLUJO BLINDADO DE PUNTOS Y NIP

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, MapPin, Star, Clock, Lock, Edit, CheckCircle2, Save, Package } from 'lucide-react';
+import { ShoppingBag, Tag, XCircle, ArrowLeft, ArrowRight, Trash2, Plus, Minus, Store, Bike, Phone, AlertTriangle, Info, Lock, Edit, CheckCircle2, Save, Package } from 'lucide-react';
 import FormularioConsumoLocal from './FormularioConsumoLocal';
 import FormularioConsumoLlevar from './FormularioConsumoLlevar';
 import FormularioConsumoDomicilio from './FormularioConsumoDomicilio';
@@ -42,7 +42,7 @@ const PuntoDeVentaPrincipal = ({
     const [clienteAsignado, setClienteAsignado] = useState(null);
     const [telefonoCliente, setTelefonoCliente] = useState('');
     const [telefonoOrdenRapida, setTelefonoOrdenRapida] = useState('');
-    const [nombreOrden, setNombreOrden] = useState('');
+    const [nombreOrden, setNombreOrden] = useState('Invitado');
     const [tipoConsumo, setTipoConsumo] = useState('Local');
     const [notaOpcional, setNotaOpcional] = useState('');
     const [mesaSeleccionada, setMesaSeleccionada] = useState('');
@@ -53,9 +53,10 @@ const PuntoDeVentaPrincipal = ({
     const [cuponActivo, setCuponActivo] = useState(null);
     const [msgCupon, setMsgCupon] = useState({ texto: '', tipo: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
-    const terminoBusqueda = clienteAsignado ? '' : nombreOrden;
-    const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(terminoBusqueda, apiUrl);
+    const [, setMostrarSugerencias] = useState(false);
+    const [modalBuscador, setModalBuscador] = useState(false);
+    const [terminoBusquedaModal, setTerminoBusquedaModal] = useState('');
+    const { sugerencias, buscando: buscandoSugerencias } = useBuscadorClientes(terminoBusquedaModal, apiUrl);
     const [modalCuentaAbierta, setModalCuentaAbierta] = useState(false);
     const [promocionVigente, setPromocionVigente] = useState(null);
     const [modalNip, setModalNip] = useState(false);
@@ -171,11 +172,21 @@ const PuntoDeVentaPrincipal = ({
         setCategoriaActiva(null);
         resetWizard();
         setCarrito([]);
-        setNombreOrden(''); setTipoConsumo('Local'); setNotaOpcional('');
-        setMesaSeleccionada(''); setZonaEnvioCosto('');
-        setCuponActivo(null); setCuponInput('');
-        setDescuentoPuntosPuntosFisicos(0); setDescuentoPuntosDinero(0);
-        setClienteAsignado(null); setTelefonoCliente(''); setTelefonoOrdenRapida('');
+        setNombreOrden('Invitado'); 
+        setTipoConsumo('Local'); 
+        setNotaOpcional('');
+        setMesaSeleccionada(''); 
+        setZonaEnvioCosto('');
+        setCuponActivo(null); 
+        setCuponInput('');
+        
+        // 👇 LIMPIEZA ABSOLUTA DE CLIENTE Y PUNTOS
+        setDescuentoPuntosPuntosFisicos(0); 
+        setDescuentoPuntosDinero(0);
+        setClienteAsignado(null); 
+        setTelefonoCliente(''); 
+        setTelefonoOrdenRapida('');
+        
         setConfirmacionFinanciera(null);
         setPasoFlujoCaja(1);
         setModoVenta('menu');
@@ -183,19 +194,20 @@ const PuntoDeVentaPrincipal = ({
         if (onClose) onClose();
     };
 
-    const seleccionarSugerencia = (sug) => {
+        const seleccionarSugerencia = async (sug) => {
         setNombreOrden(sug.cliente_nombre);
-        
+
         if (sug.cliente_telefono && !telefonoOrdenRapida.trim()) {
             setTelefonoCliente(sug.cliente_telefono);
             setTelefonoOrdenRapida(sug.cliente_telefono);
         }
-        
+
         if (sug.direccion_entrega && sug.direccion_entrega !== 'Pendiente de dirección' && !notaOpcional.trim()) {
             setNotaOpcional(sug.direccion_entrega);
         }
-
+        
         if (sug.tipo === 'registrado') {
+            // 1. Asignación inmediata visual para que no se sienta lento
             setClienteAsignado({
                 id: sug.cliente_id,
                 nombre: sug.cliente_nombre,
@@ -203,7 +215,28 @@ const PuntoDeVentaPrincipal = ({
                 direccion: sug.direccion_entrega,
                 puntos: sug.puntos
             });
+
+            // 2. 👇 FIX DEFINITIVO: Rompedor de Caché (Cache-Busting) con timestamp
+            try {
+                const res = await fetch(`${apiUrl}/clientes/${sug.cliente_id}?t=${Date.now()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    // Asegurarnos de extraer los puntos sin importar si el backend envía un objeto o un arreglo
+                    const clienteFresco = Array.isArray(data) ? data[0] : data;
+                    
+                    if (clienteFresco && clienteFresco.puntos !== undefined) {
+                        setClienteAsignado(prev => prev ? { 
+                            ...prev, 
+                            puntos: Number(clienteFresco.puntos) 
+                        } : null);
+                    }
+                }
+            } catch (e) {
+                console.error("Error al actualizar puntos en tiempo real:", e);
+            }
         }
+        
         setMostrarSugerencias(false);
     };
 
@@ -238,24 +271,37 @@ const PuntoDeVentaPrincipal = ({
     useEffect(() => {
         let dCup = 0;
         if (cuponActivo) {
-            if (cuponActivo.tipo === 'porcentaje') dCup = subtotal * (Number(cuponActivo.valor) / 100);
-            else dCup = Number(cuponActivo.valor);
+        if (cuponActivo.tipo === 'porcentaje') dCup = subtotal * (Number(cuponActivo.valor) / 100);
+        else dCup = Number(cuponActivo.valor);
         }
         if (dCup > subtotal) dCup = subtotal;
-        setDescuentoCuponDinero(dCup);
-        
+        setDescuentoCuponDinero(dCup);  
+
         let dPts = 0;
         if ((!puntosCanjeActivo || bloqueoPuntosActivo) && descuentoPuntosPuntosFisicos > 0) {
-            setDescuentoPuntosPuntosFisicos(0);
+        setDescuentoPuntosPuntosFisicos(0);
         } else if (puntosCanjeActivo && descuentoPuntosPuntosFisicos > 0) {
-            const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
-            dPts = descuentoPuntosPuntosFisicos * valorPeso;
-            const limitePermitido = Math.min(subtotal - dCup, subtotalCanjeable);
-            if (dPts > limitePermitido) dPts = limitePermitido;
+        
+        // 👇 PROTECCIÓN ESTRICTA CONTRA PUNTOS NEGATIVOS
+        const puntosDisponibles = clienteAsignado?.puntos || 0;
+        let puntosAUsar = descuentoPuntosPuntosFisicos;
+        
+        if (puntosAUsar > puntosDisponibles) {
+            puntosAUsar = puntosDisponibles;
+            // Auto-corrige el estado si intentaron meter más de lo que tiene
+            setDescuentoPuntosPuntosFisicos(puntosAUsar); 
+        }
+
+        const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
+        dPts = puntosAUsar * valorPeso;
+        
+        const limitePermitido = Math.min(subtotal - dCup, subtotalCanjeable);
+        if (dPts > limitePermitido) dPts = limitePermitido;
         }
         setDescuentoPuntosDinero(dPts > 0 ? dPts : 0);
-    }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal, bloqueoPuntosActivo, subtotalCanjeable, puntosCanjeActivo]);
-
+    // 👇 Se agrega clienteAsignado al arreglo de dependencias
+    }, [descuentoPuntosPuntosFisicos, configGlobal, carrito, cuponActivo, subtotal, bloqueoPuntosActivo, subtotalCanjeable, puntosCanjeActivo, clienteAsignado]); 
+        
     const descuentoTotal = descuentoCuponDinero + descuentoPuntosDinero;
     const totalConEnvio = (subtotal - descuentoTotal) + (tipoConsumo === 'Domicilio' && zonaEnvioCosto ? Number(zonaEnvioCosto) : 0);
     const esEdicion = !!ordenEditandoRapida;
@@ -426,7 +472,46 @@ const PuntoDeVentaPrincipal = ({
     };
 
     const evaluarUpsell = (prodId, catName) => {
-        return promocionesActivas.find(p => p.activo && p.tipo === 'upselling' && (String(p.producto_trigger_id) === String(prodId) || p.categoria_trigger === catName));
+        return promocionesActivas.find(p => {
+            if (!p.activo) return false;
+            const esPromocionValida = p.tipo === 'upselling'; // 👈 FIX: SOLO EL UPSELLING DISPARA EL MODAL NARANJA
+            const coincideProducto = String(p.producto_trigger_id) === String(prodId);
+            const coincideCategoria = p.categoria_trigger === catName;
+            const esGlobal = !p.producto_trigger_id && !p.categoria_trigger;
+
+            return esPromocionValida && (esGlobal || coincideProducto || coincideCategoria);
+        });
+    };
+
+    // 👇 NUEVO: ESCÁNER SILENCIOSO EXCLUSIVO PARA HAPPY HOUR
+    const evaluarHappyHourLocal = (prodId, catName) => {
+        const ahora = new Date();
+        const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const diaHoy = dias[ahora.getDay()];
+        const horaActual = ahora.getHours() * 60 + ahora.getMinutes();
+        
+        return promocionesActivas.find(promo => {
+            if (!promo.activo || promo.tipo !== 'happy_hour') return false;
+            
+            const diasPromo = typeof promo.dias_aplicables === 'string' ? JSON.parse(promo.dias_aplicables || '[]') : (promo.dias_aplicables || []);
+            if (!diasPromo.includes(diaHoy)) return false;
+            
+            const [hI, mI] = (promo.hora_inicio || '00:00').split(':').map(Number);
+            const [hF, mF] = (promo.hora_fin || '23:59').split(':').map(Number);
+            const minI = hI * 60 + mI;
+            const minF = hF * 60 + mF;
+            
+            if (minI <= minF) {
+                if (horaActual < minI || horaActual > minF) return false;
+            } else {
+                if (horaActual < minI && horaActual > minF) return false;
+            }
+            
+            if (promo.producto_trigger_id && String(promo.producto_trigger_id) === String(prodId)) return true;
+            if (promo.categoria_trigger && promo.categoria_trigger === catName) return true;
+            if (!promo.producto_trigger_id && !promo.categoria_trigger) return true;
+            return false;
+        });
     };
 
     const handleTerminarPersonalizacion = (nuevoItem) => {
@@ -757,8 +842,9 @@ const PuntoDeVentaPrincipal = ({
                                         categoriaActiva={categoriaActiva} setCategoriaActiva={setCategoriaActiva}
                                         categoriasUnicas={categoriasUnicas} productosFiltrados={productosFiltrados}
                                         getPortadaCategoria={getPortadaCategoria}
+                                        promociones={promocionesActivas}
                                         abrirModalProducto={(p) => {
-                                            resetWizard(); 
+                                            resetWizard();
                                             setItemEditandoId(null);
                                             const productoLimpio = JSON.parse(JSON.stringify(p));
                                             delete productoLimpio._esPromo;
@@ -771,6 +857,31 @@ const PuntoDeVentaPrincipal = ({
                                             delete productoLimpio._configuracionCombo;
                                             delete productoLimpio._esCombo;
                                             delete productoLimpio._comboId;
+                                            delete productoLimpio._precioDescontadoAplicado;
+
+                                            // 👇 APLICACIÓN SILENCIOSA DE HAPPY HOUR AL TOCAR EL PLATO
+                                            const promoHH = evaluarHappyHourLocal(productoLimpio.id, productoLimpio.categoria);
+                                            if (promoHH) {
+                                                productoLimpio._esPromo = true;
+                                                productoLimpio._nombrePromo = promoHH.nombre;
+                                                
+                                                let precioBaseCrudo = Number(productoLimpio.precio_base || 0);
+                                                let finalPrice = precioBaseCrudo;
+                                                const tipoDesc = promoHH.tipo_descuento;
+                                                const valorDesc = Number(promoHH.valor_descuento || 0);
+
+                                                if (tipoDesc === 'porcentaje') {
+                                                    finalPrice = precioBaseCrudo - (precioBaseCrudo * (valorDesc / 100));
+                                                } else if (tipoDesc === 'descuento_fijo' || tipoDesc === 'descontar_cantidad') {
+                                                    finalPrice = precioBaseCrudo - valorDesc;
+                                                } else if (tipoDesc === 'precio_fijo') {
+                                                    finalPrice = valorDesc;
+                                                }
+                                                
+                                                // Lo grabamos temporalmente para que el asistente de personalización lo lea
+                                                productoLimpio._precioDescontadoAplicado = Math.max(0, finalPrice);
+                                            }
+
                                             const comboMatch = combosActivos.find(c => String(c.producto_base_id) === String(productoLimpio.id));
                                             if (comboMatch) {
                                                 productoLimpio._esComboBuilder = true;
@@ -866,65 +977,29 @@ const PuntoDeVentaPrincipal = ({
                                 </div>
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
                                     <label className="block text-xs font-black text-slate-400 uppercase tracking-widest">2. Datos de la Orden</label>
-                                    <div className="relative">
+                                    <div className="flex gap-3 relative">
                                         <input
                                             type="text"
-                                            placeholder="Nombre o Teléfono del Cliente *"
+                                            placeholder="Nombre del Cliente *"
                                             value={nombreOrden}
                                             onChange={e => {
                                                 setNombreOrden(e.target.value);
-                                                setMostrarSugerencias(true);
                                                 if (clienteAsignado) setClienteAsignado(null);
                                             }}
-                                            onFocus={() => { if(sugerencias.length > 0) setMostrarSugerencias(true); }}
-                                            onBlur={() => setTimeout(() => setMostrarSugerencias(false), 250)}
-                                            className={`w-full bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 placeholder-red-300 text-red-900' : 'border-slate-100 focus:border-blue-500 placeholder-slate-400 text-slate-800'}`}
+                                            // 👇 FIX: Al dar clic, se sombrea/selecciona toda la palabra "Invitado"
+                                            onFocus={(e) => e.target.select()}
+                                            className={`flex-1 bg-slate-50 border-2 rounded-2xl p-4 text-base font-bold outline-none transition-all ${!nombreOrden.trim() ? 'border-red-300 focus:border-red-500 text-red-900' : 'border-slate-100 focus:border-blue-500 text-slate-800'}`}
                                         />
-                                        {buscandoSugerencias && (
-                                            <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                               <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                            </div>
-                                        )}
-                                        {mostrarSugerencias && sugerencias.length > 0 && (
-                                            <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                                                <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
-                                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados de Búsqueda</p>
-                                                </div>
-                                                {sugerencias.map((sug, idx) => (
-                                                    <button
-                                                        key={idx}
-                                                        type="button"
-                                                        onMouseDown={(e) => { e.preventDefault(); seleccionarSugerencia(sug); }}
-                                                        className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
-                                                    >
-                                                        <div className="flex justify-between items-center w-full">
-                                                            <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
-                                                            {sug.tipo === 'registrado' ? (
-                                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-md shadow-sm">
-                                                                   <Star size={12} className="fill-indigo-700"/> Registrado
-                                                                </span>
-                                                            ) : (
-                                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-md shadow-sm">
-                                                                   <Clock size={12}/> Histórico
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex flex-wrap items-center gap-4 mt-1">
-                                                            {sug.cliente_telefono && (
-                                                                <span className="text-xs font-bold text-slate-500 flex items-center gap-1">
-                                                                    <Phone size={14} className="text-emerald-500"/> {sug.cliente_telefono}
-                                                                </span>
-                                                            )}
-                                                            {sug.direccion_entrega && (
-                                                                <span className="text-xs font-bold text-slate-500 flex items-center gap-1 line-clamp-1">
-                                                                    <MapPin size={14} className="text-pink-500"/> {sug.direccion_entrega}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setTerminoBusquedaModal(''); // Limpiamos búsquedas pasadas
+                                                setModalBuscador(true);      // Abrimos el modal
+                                            }}
+                                            className="bg-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white px-5 md:px-6 rounded-2xl font-black text-sm transition-all shadow-sm flex items-center gap-2 active:scale-95 shrink-0"
+                                        >
+                                            <span className="text-xl">🔍</span> <span className="hidden sm:inline">Buscar Cliente</span>
+                                        </button>
                                     </div>
                                     {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
                                     {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} />}
@@ -955,7 +1030,8 @@ const PuntoDeVentaPrincipal = ({
                                             {clienteAsignado.puntos > 0 && descuentoPuntosDinero === 0 && (
                                                 <button
                                                     disabled={bloqueoPuntosActivo}
-                                                    onClick={() => setModalNip(true)}
+                                                    // 👇 CORRECCIÓN: Asignamos los puntos físicos directamente al estado
+                                                    onClick={() => setDescuentoPuntosPuntosFisicos(clienteAsignado.puntos)}
                                                     className={`px-5 py-3 rounded-xl text-sm font-black uppercase shadow-md transition active:scale-95 flex items-center gap-1.5 ${bloqueoPuntosActivo ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                                                 >
                                                     {bloqueoPuntosActivo ? <><Lock size={14}/> Bloqueado</> : 'Canjear'}
@@ -1174,6 +1250,72 @@ const PuntoDeVentaPrincipal = ({
                         productos={productos}
                         clasificaciones={clasificaciones}
                     />
+                    {modalBuscador && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+                            <div className="bg-white p-6 md:p-8 rounded-[40px] w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-200 relative">
+                                <button onClick={() => setModalBuscador(false)} className="absolute top-5 right-5 text-slate-400 hover:text-red-500 bg-slate-50 p-2 rounded-full transition-all">
+                                    <XCircle size={24} />
+                                </button>
+                                <h2 className="text-2xl font-black text-slate-800 mb-2">Buscar Cliente</h2>
+                                <p className="text-slate-500 font-medium mb-6 text-sm">Busca por teléfono para vincular puntos o historial.</p>
+
+                                <div className="relative">
+                                    <input
+                                        type="tel"
+                                        autoFocus
+                                        placeholder="Escribe el teléfono..."
+                                        value={terminoBusquedaModal}
+                                        onChange={e => setTerminoBusquedaModal(e.target.value.replace(/\D/g, ''))}
+                                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-base font-bold outline-none focus:border-blue-500 text-slate-800 transition-colors"
+                                    />
+                                    {buscandoSugerencias && (
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                                        </div>
+                                    )}
+                                    {terminoBusquedaModal && sugerencias.length > 0 && (
+                                        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
+                                            <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados</p>
+                                            </div>
+                                            {sugerencias.map((sug, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={(e) => { 
+                                                        e.preventDefault(); 
+                                                        seleccionarSugerencia(sug); 
+                                                        setModalBuscador(false); 
+                                                    }}
+                                                    className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
+                                                >
+                                                    <div className="flex justify-between items-center w-full">
+                                                        <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
+                                                        {sug.tipo === 'registrado' ? (
+                                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md">
+                                                                Registrado
+                                                            </span>
+                                                        ) : (
+                                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">
+                                                                Historial
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {sug.cliente_telefono && <span className="text-xs font-bold text-slate-500">📞 {sug.cliente_telefono}</span>}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {terminoBusquedaModal && sugerencias.length === 0 && !buscandoSugerencias && (
+                                        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-4 text-center">
+                                            <p className="text-slate-500 font-bold text-sm">No se encontraron resultados.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {modalNip && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
                             <form onSubmit={verificarNip} className="bg-white p-8 rounded-[40px] w-full max-w-sm shadow-2xl text-center animate-in zoom-in-95 border border-slate-200">
@@ -1191,7 +1333,7 @@ const PuntoDeVentaPrincipal = ({
                                 />
                                 {errorNip && <p className="text-red-500 text-xs font-bold bg-red-50 p-2 rounded-xl mb-4">{errorNip}</p>}
                                 <div className="flex gap-4">
-                                    <button type="button" onClick={() => { setModalNip(false); setNipInput(''); setErrorNip(''); }} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                                    <button type="button" onClick={() => { setModalNip(false); setNipInput(''); setErrorNip(''); setDescuentoPuntosPuntosFisicos(clienteAsignado.puntos); }} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
                                     <button type="submit" disabled={nipInput.length !== 4 || isSubmitting} className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl disabled:opacity-50 transition active:scale-95 shadow-lg shadow-indigo-500/30">Autorizar</button>
                                 </div>
                             </form>

@@ -1,48 +1,42 @@
 import React from 'react';
-import { AlertTriangle, Edit2, Utensils, BoxSelect } from 'lucide-react';
+import { AlertTriangle, Edit2, Utensils, BoxSelect } from 'lucide-react';  
 
 const SelectorPlatillo = ({
-  // Props Existentes
   clasificaciones, productos, recetaCategoriaFiltro, setRecetaCategoriaFiltro,
   recetaActivaId, setRecetaActivaId, iniciarCreacionBase, iniciarEdicionBase, tamanosConfigurados,
   rendimientoCalculadora, setRendimientoCalculadora, unidadRendimiento, setUnidadRendimiento,
-  // PROPS (Para Híbrido de Sabores y Extras)
   modoCosteo = 'platillos', setModoCosteo,
   ingredientes = [], extraActivoId, setExtraActivoId,
   saboresConfigurados = [], saborActivo = 'Base', setSaborActivo
-}) => {
-  
-  // 1. Identificar si lo que seleccionó es una BASE para mostrarle el botón de Renombrar
+}) => {  
+
   const prodActivo = productos?.find(p => String(p.id) === String(recetaActivaId));
-  const esBaseActiva = prodActivo && (prodActivo.disponible === false || prodActivo.disponible === 'false' || prodActivo.disponible === 0);
+  
+  // 👇 BLINDAJE: Ahora detecta que es una Base buscando la palabra oculta en la base de datos
+  const esBaseActiva = prodActivo && prodActivo.nombre.toLowerCase().includes('(base)');  
 
-  // 2. Filtramos los Platillos por la categoría activa
-  const productosFiltrados = (productos || []).filter(p => !recetaCategoriaFiltro || p.categoria === recetaCategoriaFiltro);
+  const productosFiltrados = (productos || []).filter(p => !recetaCategoriaFiltro || p.categoria === recetaCategoriaFiltro);  
 
-  // 3. Separamos y ORDENAMOS ALFABÉTICAMENTE los Platillos Principales (A-Z)
+  // 👇 BLINDAJE: Separa los platillos normales ocultando los que digan (Base)
   const platillos = productosFiltrados
-    .filter(p => p.disponible === true || p.disponible === 'true' || p.disponible === 1)
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .filter(p => !p.nombre.toLowerCase().includes('(base)'))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
-  // 4. Separamos y ORDENAMOS ALFABÉTICAMENTE las Bases Ocultas (A-Z)
+  // 👇 BLINDAJE: Separa las Bases asegurándose que sí digan (Base)
   const bases = productosFiltrados
-    .filter(p => p.disponible === false || p.disponible === 'false' || p.disponible === 0)
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .filter(p => p.nombre.toLowerCase().includes('(base)'))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
-  // 5. ORDENAMOS ALFABÉTICAMENTE LAS CLASIFICACIONES (A-Z)
   const clasificacionesOrdenadas = (clasificaciones || [])
     .slice()
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
-  // 👇 NUEVO: Filtramos los Extras usando la misma clasificación seleccionada
   const extrasFiltrados = (ingredientes || [])
     .filter(i => !recetaCategoriaFiltro || String(i.clasificacion_nombre) === String(recetaCategoriaFiltro))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
 
   return (
-    <div className="animate-in fade-in">
-      
-      {/* SWITCH PRINCIPAL (PLATILLOS VS EXTRAS) */}
+    <div className="animate-in fade-in">  
       <div className="flex justify-center mb-8">
         <div className="bg-slate-100 p-1.5 rounded-2xl flex gap-2 shadow-inner border border-slate-200 overflow-x-auto">
           <button
@@ -65,30 +59,27 @@ const SelectorPlatillo = ({
             <BoxSelect size={18}/> Costear Extras
           </button>
         </div>
-      </div>
+      </div>  
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* 👇 NUEVO: CLASIFICACIÓN COMPARTIDA (Aparece en ambos modos) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">  
         <div className={`${modoCosteo === 'platillos' ? 'bg-blue-50/50 border-blue-100' : 'bg-orange-50/50 border-orange-100'} p-6 rounded-3xl border transition-colors`}>
           <label className={`block text-sm font-black uppercase tracking-widest mb-3 ${modoCosteo === 'platillos' ? 'text-blue-800' : 'text-orange-800'}`}>
             1. Clasificación
           </label>
-          <select 
-            value={recetaCategoriaFiltro} 
-            onChange={e => { 
-              setRecetaCategoriaFiltro(e.target.value); 
-              if (modoCosteo === 'platillos') setRecetaActivaId(''); 
+          <select
+            value={recetaCategoriaFiltro}
+            onChange={e => {
+              setRecetaCategoriaFiltro(e.target.value);
+              if (modoCosteo === 'platillos') setRecetaActivaId('');
               if (modoCosteo === 'extras') setExtraActivoId('');
-            }} 
+            }}
             className={`w-full p-4 bg-white border rounded-2xl outline-none focus:ring-2 font-bold text-lg cursor-pointer shadow-sm transition-colors ${modoCosteo === 'platillos' ? 'border-blue-200 focus:ring-blue-500' : 'border-orange-200 focus:ring-orange-500'}`}
           >
             <option value="">Todas las clasificaciones...</option>
             {clasificacionesOrdenadas.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
           </select>
-        </div>
+        </div>  
 
-        {/* 👇 SELECTORES DINÁMICOS SEGÚN EL MODO (Columna 2) */}
         {modoCosteo === 'platillos' ? (
           <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
             <div className="flex justify-between items-center mb-3">
@@ -105,8 +96,7 @@ const SelectorPlatillo = ({
                   </button>
                 )}
               </div>
-            </div>
-
+            </div>  
             <select value={recetaActivaId} onChange={e => { setRecetaActivaId(e.target.value); if(setSaborActivo) setSaborActivo('Base'); }} className="w-full p-4 bg-white border border-blue-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg cursor-pointer shadow-sm">
               <option value="">Seleccionar del Menú...</option>
               {platillos.length > 0 && (
@@ -116,7 +106,8 @@ const SelectorPlatillo = ({
               )}
               {bases.length > 0 && (
                 <optgroup label="🥣 PREPARACIONES BASE (Sub-Recetas)">
-                  {bases.map(p => <option key={p.id} value={p.id}>{p.emoji || '🥣'} {p.nombre}</option>)}
+                  {/* 👇 MAGIA VISUAL: Le quitamos la palabra (Base) a la pantalla usando .replace() para que se vea limpio */}
+                  {bases.map(p => <option key={p.id} value={p.id}>{p.emoji || '🥣'} {p.nombre.replace(/\(Base\)/gi, '').trim()}</option>)}
                 </optgroup>
               )}
             </select>
@@ -131,9 +122,8 @@ const SelectorPlatillo = ({
               {extrasFiltrados.map(i => <option key={i.id} value={i.id}>{i.nombre} {i.precio_extra > 0 ? `(+$${i.precio_extra})` : ''}</option>)}
             </select>
           </div>
-        )}
+        )}  
 
-        {/* 👇 COLUMNA DE RENDIMIENTO COMPARTIDA (Columna 3) */}
         {tamanosConfigurados && tamanosConfigurados.length === 0 ? (
           <div className={`${modoCosteo === 'platillos' ? 'bg-purple-50/50 border-purple-100' : 'bg-amber-50/50 border-amber-100'} p-6 rounded-3xl border transition-colors`}>
             <label className={`block text-sm font-black uppercase tracking-widest mb-3 ${modoCosteo === 'platillos' ? 'text-purple-800' : 'text-amber-800'}`}>
@@ -155,41 +145,56 @@ const SelectorPlatillo = ({
             <p className="text-orange-700 font-bold text-sm">El rendimiento y los empaques se configuran por Tamaño Fijo abajo.</p>
           </div>
         )}
-      </div>
+      </div>  
 
-      {/* 👇 PESTAÑAS DE SABORES (Aparece solo si es platillo y detecta sabores) */}
-      {modoCosteo === 'platillos' && recetaActivaId && saboresConfigurados && saboresConfigurados.length > 0 && (
+      {/* PESTAÑAS COMBINADAS DE SABORES Y TAMAÑOS */}
+      {modoCosteo === 'platillos' && recetaActivaId && (saboresConfigurados.length > 0 || tamanosConfigurados.length > 0) && (
         <div className="mt-8 bg-slate-50 border border-slate-200 p-6 rounded-[24px] animate-in fade-in slide-in-from-top-4">
           <label className="block text-sm font-black text-slate-800 uppercase tracking-widest mb-4 flex items-center gap-2">
-             Variaciones (Sabores)
+            Variaciones Específicas de Receta (Sabores y Tamaños)
           </label>
           <div className="flex flex-wrap gap-3">
-             <button
-               onClick={() => { if(setSaborActivo) setSaborActivo('Base'); }}
-               className={`px-6 py-3 rounded-xl font-black text-sm transition-all border-2 ${saborActivo === 'Base' ? 'bg-blue-600 text-white border-blue-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
-             >
-               Receta Base
-             </button>
-             {saboresConfigurados.map(s => (
-               <button
-                 key={s.nombre}
-                 onClick={() => { if(setSaborActivo) setSaborActivo(s.nombre); }}
-                 className={`px-6 py-3 rounded-xl font-black text-sm transition-all border-2 ${saborActivo === s.nombre ? 'bg-purple-600 text-white border-purple-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'}`}
-               >
-                 Sabor: {s.nombre}
-               </button>
-             ))}
+            
+            <button
+              onClick={() => { if(setSaborActivo) setSaborActivo('Base'); }}
+              className={`px-6 py-3 rounded-xl font-black text-sm transition-all border-2 ${saborActivo === 'Base' ? 'bg-blue-600 text-white border-blue-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
+            >
+              Receta Base (Global)
+            </button>
+
+            {saboresConfigurados.map(s => (
+              <button
+                key={s.nombre}
+                onClick={() => { if(setSaborActivo) setSaborActivo(s.nombre); }}
+                className={`px-6 py-3 rounded-xl font-black text-sm transition-all border-2 ${saborActivo === s.nombre ? 'bg-purple-600 text-white border-purple-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300'}`}
+              >
+                Sabor: {s.nombre}
+              </button>
+            ))}
+
+            {tamanosConfigurados && tamanosConfigurados.map(t => (
+              <button
+                key={t.nombre}
+                onClick={() => { if(setSaborActivo) setSaborActivo(t.nombre); }}
+                className={`px-6 py-3 rounded-xl font-black text-sm transition-all border-2 ${saborActivo === t.nombre ? 'bg-emerald-600 text-white border-emerald-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'}`}
+              >
+                Tamaño: {t.nombre}
+              </button>
+            ))}
+
           </div>
           <div className="mt-4 p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
-             <p className="text-xs font-bold text-slate-500">
-               <span className="text-blue-500">💡 Tip de Costeo:</span> {saborActivo === 'Base' ? 'Agrega aquí los insumos comunes a todas las variaciones (ej. vaso, leche, hielo).' : `Agrega aquí los insumos exclusivos del sabor ${saborActivo} (ej. polvos, jarabes, fruta).`}
-             </p>
+            <p className="text-xs font-bold text-slate-500">
+              <span className="text-blue-500">💡 Tip de Costeo:</span> {saborActivo === 'Base' 
+                ? 'Agrega aquí los insumos comunes (ej. vaso estándar, hielo base).' 
+                : `Agrega aquí los insumos exclusivos de "${saborActivo}" (ej. 2 shots extra, jarabe de fresa, domo especial).`}
+            </p>
           </div>
         </div>
-      )}
+      )}  
 
     </div>
   );
-};
+};  
 
 export default SelectorPlatillo;
