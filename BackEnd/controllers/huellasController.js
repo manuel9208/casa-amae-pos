@@ -41,8 +41,8 @@ exports.inicializarTablas = async () => {
 
             CREATE TABLE IF NOT EXISTS credenciales_biometricas (
                 id SERIAL PRIMARY KEY,
-                usuario_id INT REFERENCES usuarios(id) ON DELETE CASCADE,
-                cliente_id INT REFERENCES clientes(id) ON DELETE CASCADE,
+                usuario_id INT,
+                cliente_id INT,
                 credential_id TEXT UNIQUE NOT NULL,
                 public_key TEXT NOT NULL,
                 counter INT DEFAULT 0,
