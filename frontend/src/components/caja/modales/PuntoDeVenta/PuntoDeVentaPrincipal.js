@@ -1253,65 +1253,80 @@ const PuntoDeVentaPrincipal = ({
                     {modalBuscador && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
                             <div className="bg-white p-6 md:p-8 rounded-[40px] w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-200 relative">
-                                <button onClick={() => setModalBuscador(false)} className="absolute top-5 right-5 text-slate-400 hover:text-red-500 bg-slate-50 p-2 rounded-full transition-all">
-                                    <XCircle size={24} />
-                                </button>
-                                <h2 className="text-2xl font-black text-slate-800 mb-2">Buscar Cliente</h2>
-                                <p className="text-slate-500 font-medium mb-6 text-sm">Busca por teléfono para vincular puntos o historial.</p>
-
-                                <div className="relative">
-                                    <input
-                                        type="tel"
-                                        autoFocus
-                                        placeholder="Escribe el teléfono..."
-                                        value={terminoBusquedaModal}
-                                        onChange={e => setTerminoBusquedaModal(e.target.value.replace(/\D/g, ''))}
-                                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-base font-bold outline-none focus:border-blue-500 text-slate-800 transition-colors"
-                                    />
-                                    {buscandoSugerencias && (
-                                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                                        </div>
-                                    )}
-                                    {terminoBusquedaModal && sugerencias.length > 0 && (
-                                        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
-                                            <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados</p>
-                                            </div>
-                                            {sugerencias.map((sug, idx) => (
-                                                <button
-                                                    key={idx}
-                                                    type="button"
-                                                    onClick={(e) => { 
-                                                        e.preventDefault(); 
-                                                        seleccionarSugerencia(sug); 
-                                                        setModalBuscador(false); 
-                                                    }}
-                                                    className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
-                                                >
-                                                    <div className="flex justify-between items-center w-full">
-                                                        <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
-                                                        {sug.tipo === 'registrado' ? (
-                                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md">
-                                                                Registrado
-                                                            </span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">
-                                                                Historial
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    {sug.cliente_telefono && <span className="text-xs font-bold text-slate-500">📞 {sug.cliente_telefono}</span>}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {terminoBusquedaModal && sugerencias.length === 0 && !buscandoSugerencias && (
-                                        <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-4 text-center">
-                                            <p className="text-slate-500 font-bold text-sm">No se encontraron resultados.</p>
-                                        </div>
-                                    )}
+                            <button 
+                                onClick={() => setModalBuscador(false)} 
+                                className="absolute top-5 right-5 text-slate-400 hover:text-red-500 bg-slate-50 p-2 rounded-full transition-all"
+                            >
+                                <XCircle size={24} />
+                            </button>
+                            
+                            <h2 className="text-2xl font-black text-slate-800 mb-2">Buscar Cliente</h2>
+                            <p className="text-slate-500 font-medium mb-6 text-sm">
+                                Busca por nombre o teléfono para vincular puntos o historial.
+                            </p>  
+                            
+                            <div className="relative">
+                                <input
+                                type="text" // 👈 FIX: Cambiado a texto para aceptar letras
+                                autoFocus
+                                placeholder="Escribe el nombre o teléfono..."
+                                value={terminoBusquedaModal}
+                                // 👇 FIX: Quitamos el replace() para que permita cualquier caracter
+                                onChange={e => setTerminoBusquedaModal(e.target.value)} 
+                                className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-base font-bold outline-none focus:border-blue-500 text-slate-800 transition-colors"
+                                />
+                                
+                                {buscandoSugerencias && (
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                                 </div>
+                                )}
+                                
+                                {terminoBusquedaModal && sugerencias.length > 0 && (
+                                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
+                                    <div className="bg-slate-50 px-4 py-2 border-b border-slate-100">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultados</p>
+                                    </div>
+                                    
+                                    {sugerencias.map((sug, idx) => (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={(e) => {
+                                        e.preventDefault();
+                                        seleccionarSugerencia(sug);
+                                        setModalBuscador(false);
+                                        }}
+                                        className="w-full text-left p-4 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors flex flex-col gap-1.5"
+                                    >
+                                        <div className="flex justify-between items-center w-full">
+                                        <span className="font-black text-slate-800 text-base">{sug.cliente_nombre}</span>
+                                        {sug.tipo === 'registrado' ? (
+                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md">
+                                            Registrado
+                                            </span>
+                                        ) : (
+                                            <span className="flex items-center gap-1 text-[10px] font-black uppercase bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md">
+                                            Historial
+                                            </span>
+                                        )}
+                                        </div>
+                                        {sug.cliente_telefono && (
+                                        <span className="text-xs font-bold text-slate-500">
+                                            📞 {sug.cliente_telefono}
+                                        </span>
+                                        )}
+                                    </button>
+                                    ))}
+                                </div>
+                                )}
+                                
+                                {terminoBusquedaModal && sugerencias.length === 0 && !buscandoSugerencias && (
+                                <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 p-4 text-center">
+                                    <p className="text-slate-500 font-bold text-sm">No se encontraron resultados.</p>
+                                </div>
+                                )}
+                            </div>
                             </div>
                         </div>
                     )}
