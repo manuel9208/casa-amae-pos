@@ -358,6 +358,7 @@ router.post('/huellas/enviar-codigo', huellasCtrl.enviarCodigoVerificacion);
 router.post('/huellas/generar-login', huellasCtrl.generarOpcionesAutenticacion);
 router.post('/huellas/verificar-login', huellasCtrl.verificarAutenticacion);
 router.delete('/huellas/cliente/:id', huellasCtrl.eliminarHuellaCliente);
+router.delete('/huellas/empleado/:id', huellasCtrl.eliminarHuellaEmpleado);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)

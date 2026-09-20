@@ -309,3 +309,14 @@ exports.eliminarHuellaCliente = async (req, res) => {
         res.status(500).json({ error: 'Error interno al intentar eliminar la huella.' });
     }
 };
+
+exports.eliminarHuellaEmpleado = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query('DELETE FROM credenciales_biometricas WHERE usuario_id = $1', [id]);
+        res.json({ success: true, message: 'Huella de empleado desvinculada correctamente.' });
+    } catch (error) {
+        console.error("🚨 Error al eliminar huella de empleado:", error);
+        res.status(500).json({ error: 'Error interno al intentar desvincular la huella.' });
+    }
+};

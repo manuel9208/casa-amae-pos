@@ -1,29 +1,55 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Fingerprint, Search, CheckCircle2 } from 'lucide-react';
-import { useBiometria } from '../../../hooks/useBiometria';
+import { ShieldCheck, Fingerprint, Search, CheckCircle2, Trash2 } from 'lucide-react';
+import { useBiometria } from '../../../hooks/useBiometria';  
 
 const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
     const [empleados, setEmpleados] = useState([]);
     const [busqueda, setBusqueda] = useState('');
-    const { registrarHuella } = useBiometria(apiUrl, showAlert);
+    const { registrarHuella } = useBiometria(apiUrl, showAlert);  
 
     const cargarEmpleados = useCallback(async () => {
         try {
             const res = await fetch(`${apiUrl}/usuarios`);
             if (res.ok) setEmpleados(await res.json());
-        } catch (error) { console.error("Error al cargar empleados", error); }
-    }, [apiUrl]);
+        } catch (error) { 
+            console.error("Error al cargar empleados", error); 
+        }
+    }, [apiUrl]);  
 
-    useEffect(() => { cargarEmpleados(); }, [cargarEmpleados]);
+    useEffect(() => { 
+        cargarEmpleados(); 
+    }, [cargarEmpleados]);  
 
     const handleVincularHuella = async (empleado) => {
         const exito = await registrarHuella(empleado.id, null);
         if (exito) {
-            cargarEmpleados(); // 👈 Recarga la lista para que el botón se ponga verde inmediatamente
+            cargarEmpleados(); 
+        }
+    };  
+
+    // FUNCIÓN DE DESVINCULACIÓN (Con la ruta API corregida)
+    const handleDesvincularHuella = async (empleadoId) => {
+        try {
+            // 👇 Ruta corregida para mantener simetría con /huellas/cliente/:id
+            const res = await fetch(`${apiUrl}/huellas/empleado/${empleadoId}`, {
+                method: 'DELETE'
+            });
+            
+            const data = await res.json();
+            
+            if (res.ok) {
+                showAlert(data.message || 'Huella desvinculada correctamente', 'success');
+                cargarEmpleados(); 
+            } else {
+                showAlert(data.error || 'Error al desvincular huella', 'error');
+            }
+        } catch (error) {
+            console.error("Error al intentar desvincular huella:", error);
+            showAlert('Error de conexión al desvincular huella', 'error');
         }
     };
 
-    const filtrados = empleados.filter(e => e.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+    const filtrados = empleados.filter(e => e.nombre.toLowerCase().includes(busqueda.toLowerCase()));  
 
     return (
         <div className="animate-in fade-in">
@@ -32,16 +58,21 @@ const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
                     <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
                         <ShieldCheck className="text-emerald-500" /> Plantilla de Empleados
                     </h2>
-                    <p className="text-sm font-medium text-slate-500">Selecciona al empleado y pide que toque el sensor de este equipo.</p>
+                    <p className="text-sm font-medium text-slate-500">
+                        Selecciona al empleado y pide que toque el sensor de este equipo.
+                    </p>
                 </div>
                 <div className="relative w-full md:w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input 
-                        type="text" placeholder="Buscar empleado..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+                    <input
+                        type="text" 
+                        placeholder="Buscar empleado..." 
+                        value={busqueda} 
+                        onChange={(e) => setBusqueda(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500"
                     />
                 </div>
-            </div>
+            </div>  
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filtrados.map(emp => (
@@ -56,14 +87,29 @@ const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
                                 </h3>
                                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{emp.rol}</p>
                             </div>
-                        </div>
+                        </div>  
                         
                         {emp.tiene_huella ? (
-                            <button onClick={() => handleVincularHuella(emp)} className="w-full py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-black rounded-xl text-sm flex justify-center items-center gap-2 transition-all active:scale-95">
-                                <CheckCircle2 size={16} /> Huella Vinculada (Reemplazar)
-                            </button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => handleVincularHuella(emp)} 
+                                    className="flex-1 py-2.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 font-black rounded-xl text-sm flex justify-center items-center gap-2 transition-all active:scale-95"
+                                >
+                                    <CheckCircle2 size={16} /> Reemplazar
+                                </button>
+                                <button 
+                                    onClick={() => handleDesvincularHuella(emp.id)} 
+                                    className="py-2.5 px-4 bg-red-100 hover:bg-red-200 text-red-700 font-black rounded-xl text-sm flex justify-center items-center gap-2 transition-all active:scale-95"
+                                    title="Desvincular Huella"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
                         ) : (
-                            <button onClick={() => handleVincularHuella(emp)} className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl text-sm flex justify-center items-center gap-2 transition-all active:scale-95 shadow-lg shadow-slate-900/20">
+                            <button 
+                                onClick={() => handleVincularHuella(emp)} 
+                                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl text-sm flex justify-center items-center gap-2 transition-all active:scale-95 shadow-lg shadow-slate-900/20"
+                            >
                                 <Fingerprint size={16} /> Vincular Huella
                             </button>
                         )}
@@ -72,6 +118,6 @@ const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
             </div>
         </div>
     );
-};
+};  
 
 export default GestorHuellasEmpleados;
