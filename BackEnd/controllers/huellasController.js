@@ -287,7 +287,11 @@ exports.verificarAutenticacion = async (req, res) => {
             if (credGuardada.cliente_id) {
                 const cliRes = await db.query('SELECT * FROM clientes WHERE id = $1', [credGuardada.cliente_id]);
                 if (cliRes.rows.length > 0) {
-                    return res.json({ success: true, tipo: 'cliente', data: cliRes.rows[0] });
+                    const clienteData = cliRes.rows[0];
+                    // 👇 FIX: Como el cliente acaba de entrar con huella, inyectamos la bandera en true directamente
+                    clienteData.tiene_huella = true; 
+                    
+                    return res.json({ success: true, tipo: 'cliente', data: clienteData });
                 }
             }
         } else {
