@@ -504,6 +504,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
+    // 👇 FIX MÁSTER: Si viene directamente de "Cobrar Ahora", anulamos la bandera que bloquea la impresión
+    if (modalPago._esCobroDirecto) {
+      esPostPago = false;
+    }
+
     let estadoFinal;
     let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
 
@@ -564,7 +569,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
       // Impresión Inmediata
       const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(ordenCobrada.estado_preparacion);
-      if (!estadoRechazo && !esPostPago && !yaCocinada && configGlobal?.ticket_impresion_activa) {
+      
+      // 👇 FIX MÁSTER: Agregamos "ordenCobrada._esCobroDirecto" como condición válida para imprimir
+      if ((ordenCobrada._esCobroDirecto || (!estadoRechazo && !esPostPago && !yaCocinada)) && configGlobal?.ticket_impresion_activa) {
           const ordenActualizada = { ...ordenCobrada, estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, descuento_puntos: puntosUsados > 0 ? puntosUsados : ordenCobrada.descuento_puntos };
           lanzarImpresion(ordenActualizada);
       }
