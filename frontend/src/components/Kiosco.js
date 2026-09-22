@@ -441,28 +441,25 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
 
   // 👇 NUEVA FUNCIÓN: CANJEAR PUNTOS CON HUELLA
   const canjearConHuella = async () => {
-      setErrorNip('');
-      const data = await hookBiometria.iniciarSesionConHuella();
-      
-      if (data && data.success && data.tipo === 'cliente') {
-          // Verificamos que la huella sea del cliente que tiene la sesión abierta
-          if (data.data.id === clienteActivo.id) {
-              
-              // 🟢 LA HUELLA ES CORRECTA 🟢
-              // Haz exactamente lo mismo que haces cuando el NIP es correcto. 
-              // Por lo general es cerrar el modal, limpiar errores y aplicar los puntos:
-              setModalNip(false);
-              setErrorNip('');
-              setNipInput('');
-              
-              // 👇 COPIA AQUÍ LA LÓGICA DE ÉXITO QUE TIENES DENTRO DE TU FUNCIÓN `verificarNip`
-              // (Ejemplo: setDescuentoPuntosPuntosFisicos(clienteActivo.puntos); )
-              
-          } else {
-              setErrorNip('Esta huella pertenece a otra cuenta.');
-          }
+    setErrorNip('');
+    const data = await hookBiometria.iniciarSesionConHuella();  
+    
+    if (data && data.success && data.tipo === 'cliente') {
+      // Verificamos que la huella sea del cliente que tiene la sesión abierta
+      if (data.data.id === clienteActivo.id) {  
+        // 🟢 LA HUELLA ES CORRECTA 🟢
+        setModalNip(false);
+        setErrorNip('');
+        setNipInput('');  
+        
+        // 👇 FIX MÁSTER: Esta es la línea que faltaba para aplicar el descuento real en el carrito
+        setDescuentoPuntosPuntosFisicos(clienteActivo.puntos);
+        
+      } else {
+        setErrorNip('Esta huella pertenece a otra cuenta.');
       }
-  };
+    }
+  };  
 
   const solicitarRecuperacionNip = async (e) => {
     e.preventDefault();

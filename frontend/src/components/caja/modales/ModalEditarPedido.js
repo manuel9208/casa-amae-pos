@@ -100,6 +100,10 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
             if (c) {
               setClienteDataRespaldada({ telefono: c.telefono, direccion: c.direccion });
               if (!telExtraido && c.telefono) setEditTelefono(c.telefono);
+              
+              // 👇 FIX: Sobrescribir forzosamente la caja de texto con Nombre + Apellido
+              const nombreCompletoBD = `${c.nombre || ''} ${c.apellido || ''}`.trim();
+              setEditNombre(nombreCompletoBD);
             }
           })
           .catch(() => {});
@@ -288,45 +292,67 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
     }
 
     ejecutarGuardadoAvanzado(payload);
-  };  
+  };
+  
+  // 👇 FIX: Función para reconstruir la dirección con el formato estándar del sistema
+  const obtenerDireccionReconstruida = () => {
+    let direccionFinal = editDireccion;
+    if (editConsumo === 'Domicilio' || editConsumo === 'Recoger en Local') {
+      const partes = [
+        editNombre ? `A NOMBRE DE: ${editNombre.trim()}` : '',
+        editDireccion ? editDireccion.trim() : '',
+        editTelefono ? `TEL: ${editTelefono.trim()}` : ''
+      ].filter(Boolean);
+      direccionFinal = partes.join(' | ');
+    }
+    return direccionFinal;
+  };
 
   const manejarIrAKiosco = async () => {
     try {
       let clienteReal = null;
+      const res = await fetch(`${apiUrl}/clientes`);
+      const clientes = await res.json();
+
       if (editClienteId) {
-        const res = await fetch(`${apiUrl}/clientes`);
-        const clientes = await res.json();
         clienteReal = clientes.find(c => Number(c.id) === Number(editClienteId));
+      } else if (editTelefono) {
+        clienteReal = clientes.find(c => c.telefono === editTelefono);
       }
+
       if (!clienteReal && editNombre) {
         clienteReal = { id: null, nombre: editNombre, puntos: 0 };
       }
+
+      // 👇 FIX: Si el cliente existe en BD, unimos su Apellido al Nombre
+      if (clienteReal && clienteReal.apellido) {
+        clienteReal.nombre = `${clienteReal.nombre} ${clienteReal.apellido}`.trim();
+      }
+
       setModalEditarPedido(null);
-      
-      // 👇 FIX MÁSTER: Inyectamos TODOS los datos de logística antes de mandarlo al Menú
-      const ordenCorregida = { 
-        ...modalEditarPedido, 
+
+      const ordenCorregida = {
+        ...modalEditarPedido,
         cliente_nombre: editNombre || 'Invitado',
         cliente_telefono: editTelefono,
-        direccion_entrega: editDireccion,
+        direccion_entrega: obtenerDireccionReconstruida(), // 👈 FIX: Usamos el pegamento aquí
         tipo_consumo: editConsumo,
-        costo_envio: editCostoEnvio
+        costo_envio: editCostoEnvio,
+        cliente_id: clienteReal?.id || editClienteId || null
       };
-      
+
       onGoToKiosco(clienteReal, ordenCorregida);
     } catch(e) {
+      // Fallback
       setModalEditarPedido(null);
-      
-      // 👇 FIX: Lo aseguramos también en caso de que el internet falle
-      const ordenCorregidaFallback = { 
-        ...modalEditarPedido, 
+      const ordenCorregidaFallback = {
+        ...modalEditarPedido,
         cliente_nombre: editNombre || 'Invitado',
         cliente_telefono: editTelefono,
-        direccion_entrega: editDireccion,
+        direccion_entrega: obtenerDireccionReconstruida(), // 👈 FIX: Usamos el pegamento aquí
         tipo_consumo: editConsumo,
         costo_envio: editCostoEnvio
       };
-      
       onGoToKiosco({ id: editClienteId, nombre: editNombre, puntos: 0 }, ordenCorregidaFallback);
     }
   };

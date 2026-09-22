@@ -106,27 +106,39 @@ const GestorComandasPrincipal = ({
     const procesarDireccionYContacto = (pedido) => {
         let dirPura = pedido.direccion_entrega || '';
         let telefonoExtraido = pedido.cliente_telefono || '';
-        let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
+        
+        // 1. Rescatamos el nombre real de la Base de Datos primero
+        let nombreBD = pedido.cliente_nombre ? pedido.cliente_nombre.trim() : '';
+        let clienteExtraido = (nombreBD && nombreBD !== 'Invitado') ? nombreBD : 'Invitado';  
 
         if (dirPura.includes('A NOMBRE DE:')) {
-            const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
-            if (match && match[1]) clienteExtraido = match[1].trim();
-        }
-        if (dirPura.includes('TEL:')) {
-            const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
-            if (matchTel && matchTel[1] && !telefonoExtraido) {
-                telefonoExtraido = matchTel[1].trim();
+        const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
+        if (match && match[1]) {
+            const nombreTicket = match[1].trim();
+            // 2. REGLA DE ORO: Solo usamos el del ticket si es MÁS LARGO que el de la BD.
+            // Si la BD dice "Juan Prieto" (11 letras) y el ticket "Juan" (4 letras), se queda "Juan Prieto".
+            if (clienteExtraido === 'Invitado' || nombreTicket.length > clienteExtraido.length) {
+            clienteExtraido = nombreTicket;
             }
         }
+        }
+
+        if (dirPura.includes('TEL:')) {
+        const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
+        if (matchTel && matchTel[1] && !telefonoExtraido) {
+            telefonoExtraido = matchTel[1].trim();
+        }
+        }
+
         dirPura = dirPura
-            .replace(/TEL:\s*\d*/gi, '')
-            .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
-            .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-            .replace(/\[.*?\]/g, '')
-            .split('|').map(p => p.trim()).filter(p => p.length > 0).join(', ').trim();  
+        .replace(/TEL:\s*\d*/gi, '')
+        .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+        .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
+        .replace(/\[.*?\]/g, '')
+        .split('|').map(p => p.trim()).filter(p => p.length > 0).join(', ').trim();  
 
         return { direccionLimpia: dirPura, telefono: telefonoExtraido, cliente: clienteExtraido };
-    };  
+    };   
 
     return (
         <div className="w-full h-full bg-slate-50 text-slate-800 p-4 md:p-6 flex flex-col overflow-hidden">

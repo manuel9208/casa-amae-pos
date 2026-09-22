@@ -26,27 +26,36 @@ const TarjetaComandaMayoreo = ({
     const procesarDireccionYContacto = (p) => {
         let dirPura = p.direccion_entrega || '';
         let telefonoExtraido = p.cliente_telefono || '';
-        let clienteExtraido = p.cliente_nombre || 'Invitado B2B';
+        
+        let nombreBD = p.cliente_nombre ? p.cliente_nombre.trim() : '';
+        let clienteExtraido = (nombreBD && nombreBD !== 'Invitado B2B' && nombreBD !== 'Invitado') ? nombreBD : 'Invitado B2B';  
 
         if (dirPura.includes('A NOMBRE DE:')) {
-            const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
-            if (match && match[1]) clienteExtraido = match[1].trim();
-        }
-        if (dirPura.includes('TEL:')) {
-            const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
-            if (matchTel && matchTel[1] && !telefonoExtraido) {
-                telefonoExtraido = matchTel[1].trim();
+        const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
+        if (match && match[1]) {
+            const nombreTicket = match[1].trim();
+            if (clienteExtraido === 'Invitado B2B' || nombreTicket.length > clienteExtraido.length) {
+            clienteExtraido = nombreTicket;
             }
         }
+        }
+
+        if (dirPura.includes('TEL:')) {
+        const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
+        if (matchTel && matchTel[1] && !telefonoExtraido) {
+            telefonoExtraido = matchTel[1].trim();
+        }
+        }
+
         dirPura = dirPura
-            .replace(/TEL:\s*\d*/gi, '')
-            .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
-            .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
-            .replace(/\[.*?\]/g, '')
-            .split('|').map(x => x.trim()).filter(x => x.length > 0).join(', ').trim();
+        .replace(/TEL:\s*\d*/gi, '')
+        .replace(/PEDIDO POR TELÉFONO - CONTACTO:\s*\d*/gi, '')
+        .replace(/A NOMBRE DE:\s*([^|]+)/gi, '')
+        .replace(/\[.*?\]/g, '')
+        .split('|').map(x => x.trim()).filter(x => x.length > 0).join(', ').trim();  
 
         return { direccionLimpia: dirPura, telefono: telefonoExtraido, cliente: clienteExtraido };
-    };
+    }; 
 
     const { direccionLimpia, telefono, cliente } = procesarDireccionYContacto(pedido);
 

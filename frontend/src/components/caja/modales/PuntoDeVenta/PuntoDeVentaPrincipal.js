@@ -125,35 +125,79 @@ const PuntoDeVentaPrincipal = ({
 
     useEffect(() => {
         if (ordenEditandoRapida && modalPuntoVenta) {
-            setPasoFlujoCaja(2);
-            if (ordenEditandoRapida.cliente_id) {
-                setClienteAsignado({
-                    id: ordenEditandoRapida.cliente_id,
-                    nombre: ordenEditandoRapida.cliente_nombre,
-                    puntos: ordenEditandoRapida.puntos || 0
-                });
-            } else {
-                setClienteAsignado(null);
-            }
-            setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
-            setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
-            setMesaSeleccionada(ordenEditandoRapida.mesa || '');
-            if (ordenEditandoRapida.tipo_consumo === 'Domicilio') {
-                setZonaEnvioCosto(ordenEditandoRapida.costo_envio || '');
-            } else {
-                setZonaEnvioCosto(0);
-            }
-            let dirPura = ordenEditandoRapida.direccion_entrega || '';
-            if (dirPura.includes('|')) dirPura = dirPura.split('|')[0].trim();
-            setNotaOpcional(dirPura !== 'Pendiente de dirección' ? dirPura : '');
+        setPasoFlujoCaja(2);
+
+        // 👇 FIX 1: Rescatar el carrito que se quedaba en blanco
+        let carritoParseado = [];
+        try {
+            carritoParseado = typeof ordenEditandoRapida.carrito === 'string'
+            ? JSON.parse(ordenEditandoRapida.carrito)
+            : (ordenEditandoRapida.carrito || []);
+        } catch (e) { console.error("Error parseando carrito", e); }
+        setCarrito(carritoParseado);
+
+        // 👇 FIX 2: Búsqueda estricta de Puntos usando el Teléfono
+        const recuperarPuntosReales = async () => {
             try {
-                const carArr = typeof ordenEditandoRapida.carrito === 'string' ? JSON.parse(ordenEditandoRapida.carrito) : ordenEditandoRapida.carrito;
-                setCarrito(carArr || []);
-            } catch (e) { setCarrito([]); }
-            if (ordenEditandoRapida.descuento_puntos && Number(ordenEditandoRapida.descuento_puntos) > 0) {
-                setDescuentoPuntosPuntosFisicos(Number(ordenEditandoRapida.descuento_puntos));
+            const res = await fetch(`${apiUrl}/clientes`);
+            if (res.ok) {
+                const clientes = await res.json();
+                let cReal = null;
+                
+                if (ordenEditandoRapida.cliente_id) {
+                cReal = clientes.find(c => String(c.id) === String(ordenEditandoRapida.cliente_id));
+                } else if (ordenEditandoRapida.cliente_telefono) {
+                // ¡Buscamos por celular si no hay ID!
+                cReal = clientes.find(c => c.telefono === ordenEditandoRapida.cliente_telefono);
+                }
+
+                if (cReal) {
+                    // 👇 FIX: Ignorar el nombre incompleto y forzar SIEMPRE el nombre de la BD
+                    const nombreCompletoBD = `${cReal.nombre || ''} ${cReal.apellido || ''}`.trim();
+                    
+                    setClienteAsignado({
+                    id: cReal.id,
+                    nombre: nombreCompletoBD, // 👈 Inyección forzada
+                    telefono: cReal.telefono,
+                    puntos: Number(cReal.puntos || 0)
+                    });
+
+                    // 👇 FIX: Actualizar la variable global de la orden para que el ticket lo guarde bien
+                    setNombreOrden(nombreCompletoBD);
+                } else {
+                setClienteAsignado(ordenEditandoRapida.cliente_id ? { 
+                    id: ordenEditandoRapida.cliente_id, 
+                    nombre: ordenEditandoRapida.cliente_nombre, 
+                    puntos: 0 
+                } : null);
+                }
             }
+            } catch (error) {
+            console.error("Error recuperando puntos:", error);
+            }
+        };
+        
+        recuperarPuntosReales();
+
+        // Recuperar resto de datos (Dirección y Consumo)
+        setNombreOrden(ordenEditandoRapida.cliente_nombre || '');
+        setTipoConsumo(ordenEditandoRapida.tipo_consumo || 'Local');
+        setMesaSeleccionada(ordenEditandoRapida.mesa || '');
+        setTelefonoOrdenRapida(ordenEditandoRapida.cliente_telefono || '');
+        setZonaEnvioCosto(ordenEditandoRapida.costo_envio !== undefined ? ordenEditandoRapida.costo_envio : '');
+
+        if (ordenEditandoRapida.tipo_consumo === 'Domicilio' || ordenEditandoRapida.tipo_consumo === 'Recoger') {
+            let dirCruda = ordenEditandoRapida.direccion_entrega || '';
+            if (dirCruda.includes('A NOMBRE DE:')) {
+            const partes = dirCruda.split('|').map(p => p.trim());
+            dirCruda = partes.find(p => !p.startsWith('A NOMBRE DE:') && !p.startsWith('TEL:') && !p.startsWith('[LLEVAR')) || dirCruda;
+            }
+            setNotaOpcional(dirCruda === 'Pendiente de dirección' ? '' : dirCruda);
+        } else {
+            setNotaOpcional('');
         }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ordenEditandoRapida, modalPuntoVenta]);
 
     useEffect(() => {
@@ -618,29 +662,45 @@ const PuntoDeVentaPrincipal = ({
         } catch (err) { setMsgCupon({ texto: 'Error de red.', tipo: 'error' }); }
     };
 
-    const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, skipConfirmacion = false) => {
+const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, skipConfirmacion = false) => {
         if (carrito.length === 0 || isSubmitting) return;
         if (!nombreOrden.trim()) return setAlertaUI({ titulo: 'Dato Requerido', mensaje: 'El nombre del cliente para la orden es obligatorio.', tipo: 'info' });
-        if (esEdicion && !skipConfirmacion) {
-            const totalOriginalPagado = Number(ordenEditandoRapida.total || 0);
-            const diferencia = totalConEnvio - totalOriginalPagado;
-            if (Math.abs(diferencia) > 0.01) {
-                setConfirmacionFinanciera({
-                    tipo: diferencia > 0 ? 'cobro' : 'devolucion',
-                    monto: Math.abs(diferencia),
-                    metodoAcelerado,
-                    detallesCuentaAbierta,
-                    isPagado: isPagado
-                });
-                return;
-            }
+
+        // 👇 FIX: Barrera de seguridad estricta para Domicilio (Aplica para nuevos y ediciones)
+        if (tipoConsumo === 'Domicilio') {
+        if (zonaEnvioCosto === '' || zonaEnvioCosto === null || Number(zonaEnvioCosto) === 0) {
+            return setAlertaUI({ titulo: 'Zona Requerida', mensaje: 'Debes seleccionar una Zona de Envío obligatoria.', tipo: 'error' });
         }
+        if (!notaOpcional.trim()) {
+            return setAlertaUI({ titulo: 'Dirección Requerida', mensaje: 'Debes ingresar la dirección de entrega.', tipo: 'error' });
+        }
+        const telFinal = telefonoCliente || telefonoOrdenRapida || clienteAsignado?.telefono;
+        if (!telFinal) {
+            return setAlertaUI({ titulo: 'Teléfono Requerido', mensaje: 'Se requiere un número de contacto para envíos a domicilio.', tipo: 'error' });
+        }
+        }
+
+        if (esEdicion && !skipConfirmacion) {
+        const totalOriginalPagado = Number(ordenEditandoRapida.total || 0);
+        const diferencia = totalConEnvio - totalOriginalPagado;
         
-        // 👇 FIX: Activamos el escudo protector global para ignorar la alerta
-        window.__isGuardandoPedido = true; 
-        setIsSubmitting(true);  
-        
-        const carritoExpandido = [];
+        if (Math.abs(diferencia) > 0.01) {
+            setConfirmacionFinanciera({
+            tipo: diferencia > 0 ? 'cobro' : 'devolucion',
+            monto: Math.abs(diferencia),
+            metodoAcelerado,
+            detallesCuentaAbierta,
+            isPagado: isPagado
+            });
+            return;
+        }
+    }
+    
+    // 👇 FIX: Activamos el escudo protector global para ignorar la alerta de recarga
+    window.__isGuardandoPedido = true;
+    setIsSubmitting(true);
+  
+    const carritoExpandido = [];
         carrito.forEach(item => {
           const qty = item.cantidad || 1;
           for(let i=0; i<qty; i++) { carritoExpandido.push({...item, cantidad: 1, idTicket: item.idTicket + '_' + i}); }
@@ -699,11 +759,31 @@ const PuntoDeVentaPrincipal = ({
               }
             }
             refrescarDatosCaja();
+
+            // 👇 FIX: Armamos la orden combinando la BD + Estado Local para imprimirla correctamente
+            const ordenArmadaCompleta = {
+              ...data,
+              cliente_nombre: nombreOrden.trim() || 'Invitado',
+              cliente_telefono: telParaAnexar || '',
+              tipo_consumo: tipoConsumo,
+              direccion_entrega: stringDireccion.trim(),
+              carrito: carritoExpandido, 
+              mesa: tipoConsumo === 'Local' ? (mesaSeleccionada || null) : null,
+              total: totalConEnvio,
+              costo_envio: costoEnvioFinal,
+              estado_preparacion: estadoInicial,
+              metodo_pago: pagoFinal,
+              descuento_puntos: puntosEfectivosAUsar,
+              _esCobroDirecto: metodoAcelerado === 'Cobrar Ahora'
+            };
+
             if (metodoAcelerado === 'Cobrar Ahora') {
                 cerrarModalVenta();
-                setTimeout(() => setModalPago(data), 100);
+                // 👈 Pasamos la orden completa al Modal de Pago
+                setTimeout(() => setModalPago(ordenArmadaCompleta), 100); 
             } else {
-                if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(data);
+                // 👈 Pasamos la orden completa a la función de Impresión
+                if (!ordenEditandoRapida && configGlobal?.ticket_impresion_activa) lanzarImpresion(ordenArmadaCompleta); 
                 cerrarModalVenta();
             }
           } else {

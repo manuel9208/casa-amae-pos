@@ -60,7 +60,7 @@ const limpiarNulos = (obj) => {
 exports.obtenerPedidosHoy = async (req, res) => {
     try {
         const query = `
-        SELECT p.*, c.nombre as cliente_nombre
+        SELECT p.*, TRIM(COALESCE(c.nombre, '') || ' ' || COALESCE(c.apellido, '')) AS cliente_nombre
         FROM pedidos p
         LEFT JOIN clientes c ON p.cliente_id = c.id
         WHERE (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE

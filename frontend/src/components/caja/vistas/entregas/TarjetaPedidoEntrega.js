@@ -18,6 +18,9 @@ const TarjetaPedidoEntrega = ({
     const [confirmarAnular, setConfirmarAnular] = useState(false);
     const [procesandoLocal, setProcesandoLocal] = useState(false); // Bloqueo local para B2B
 
+    // 👇 FIX MÁSTER: Nuevo estado para bloquear el efecto rebote (flash)
+    const [oculto, setOculto] = useState(false);
+
     const telefono = getTelefonoExtraido(pedido);
     const repartidores = (empleadosPOS || []).filter(emp => String(emp.rol).toLowerCase().includes('repart'));
 
@@ -52,6 +55,9 @@ const TarjetaPedidoEntrega = ({
     // 👇 ENRUTADOR DE ESTADOS (Mayoreo vs Restaurante)
     // ==============================================================
     const handleActualizarEstado = async (id, nuevoEstado, extras = {}) => {
+        // 🛡️ Ocultamos la tarjeta instantáneamente. Aunque el socket traiga data vieja, no brillará.
+        setOculto(true); 
+
         if (esB2B) {
             setProcesandoLocal(true);
             try {
@@ -64,6 +70,7 @@ const TarjetaPedidoEntrega = ({
                 // El backend emite el Socket 'catalogo_actualizado' y la vista se recarga sola.
             } catch (error) {
                 console.error("Error al actualizar estado B2B:", error);
+                setOculto(false); // 👈 Si hay error de red, la volvemos a mostrar
             }
             setProcesandoLocal(false);
         } else {
@@ -84,6 +91,9 @@ const TarjetaPedidoEntrega = ({
     };
 
     const deshabilitado = isSubmitting || limpiandoMesas || procesandoLocal;
+
+    // 👇 FIX MÁSTER: Si está oculta, abortamos el renderizado por completo antes de dibujar la tarjeta
+    if (oculto) return null;
 
     return (
         <>

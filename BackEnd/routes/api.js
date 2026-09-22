@@ -374,6 +374,42 @@ setInterval(async () => {
     const horaActual = res.rows[0].hora;  
     let huboCambios = false;
 
+    // 👇 FIX MAESTRO: AUTO-RESET DEL BOTÓN MANUAL DE CAJA (Inyectado sin romper tu código)
+    const confRes = await db.query('SELECT horarios_semana, negocio_abierto FROM configuracion WHERE id = 1');
+    if (confRes.rows.length > 0) {
+      const config = confRes.rows[0];
+      const estaAbiertoManual = config.negocio_abierto === true || String(config.negocio_abierto) === 'true';
+      
+      if (estaAbiertoManual) {
+        let resetearModoManual = false;
+        
+        // 1. Reseteo de Medianoche (Si se les olvidó apagarlo, a las 12:00 AM se apaga solo)
+        if (horaActual === '00:00') {
+          resetearModoManual = true;
+        } 
+        else {
+          // 2. Reseteo en los topes exactos de Apertura y Cierre
+          const horarios = typeof config.horarios_semana === 'string' ? JSON.parse(config.horarios_semana || '{}') : (config.horarios_semana || {});
+          const diasMapa = { '1': 'Lunes', '2': 'Martes', '3': 'Miércoles', '4': 'Jueves', '5': 'Viernes', '6': 'Sábado', '7': 'Domingo' };
+          const diaHoyStr = diasMapa[diaActual];
+          const configHoy = horarios[diaHoyStr];
+
+          if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
+            // Limpiamos el botón exactamente en el minuto que abre o cierra oficialmente el restaurante
+            if (horaActual === configHoy.apertura || horaActual === configHoy.cierre) {
+              resetearModoManual = true;
+            }
+          }
+        }
+
+        if (resetearModoManual) {
+          await db.query('UPDATE configuracion SET negocio_abierto = false WHERE id = 1');
+          huboCambios = true;
+        }
+      }
+    }
+    // ☝️ FIN DEL FIX MAESTRO
+
     // 1. FORZAR APAGADO SI ESTÁ FUERA DE SU HORARIO ESTRICTO
     const apagarProd = await db.query(`
       UPDATE productos SET disponible = false

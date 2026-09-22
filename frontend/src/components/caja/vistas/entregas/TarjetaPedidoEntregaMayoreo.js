@@ -12,6 +12,9 @@ const TarjetaPedidoEntregaMayoreo = ({
     const [repartidorId, setRepartidorId] = useState(pedido.repartidor_id || '');
     const [confirmarAnular, setConfirmarAnular] = useState(false);
     const [procesandoLocal, setProcesandoLocal] = useState(false);
+    
+    // 👇 FIX MÁSTER: Nuevo estado para bloquear el efecto rebote (flash)
+    const [oculto, setOculto] = useState(false);
 
     const repartidores = (empleadosPOS || []).filter(emp => String(emp.rol).toLowerCase().includes('repart'));
 
@@ -56,7 +59,10 @@ const TarjetaPedidoEntregaMayoreo = ({
     // 🔄 ENRUTADOR DE ESTADOS (B2B DIRECTO)
     // ==============================================================
     const handleActualizarEstado = async (nuevoEstado, extras = {}) => {
+        // 🛡️ Ocultamos la tarjeta instantáneamente para evitar el flash
+        setOculto(true);
         setProcesandoLocal(true);
+        
         try {
             await fetch(`${apiUrl}/distribucion/ventas/${pedido.id}/estado`, {
                 method: 'PUT',
@@ -66,6 +72,7 @@ const TarjetaPedidoEntregaMayoreo = ({
             if (recargarPedidos) recargarPedidos(); // Refrescamos la vista
         } catch (error) {
             console.error("Error al actualizar estado B2B:", error);
+            setOculto(false); // 👈 Si hay error de red, la volvemos a mostrar
         }
         setProcesandoLocal(false);
     };
@@ -79,6 +86,9 @@ const TarjetaPedidoEntregaMayoreo = ({
     };
 
     const deshabilitado = isSubmitting || procesandoLocal;
+
+    // 👇 FIX MÁSTER: Si está oculta, abortamos el renderizado por completo
+    if (oculto) return null;
 
     return (
         <>

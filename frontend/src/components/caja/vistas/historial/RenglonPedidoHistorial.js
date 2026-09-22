@@ -22,24 +22,27 @@ const RenglonPedidoHistorial = ({
 
   const procesarDireccionYContacto = () => {
     let dirPura = pedido.direccion_entrega || '';
-    // 👇 FIX: Prioridad absoluta al teléfono registrado en la base de datos
     let telefonoExtraido = pedido.cliente_telefono || '';
-    let clienteExtraido = pedido.cliente_nombre || 'Invitado';  
+    
+    let nombreBD = pedido.cliente_nombre ? pedido.cliente_nombre.trim() : '';
+    let clienteExtraido = (nombreBD && nombreBD !== 'Invitado') ? nombreBD : 'Invitado';  
 
     if (dirPura.includes('A NOMBRE DE:')) {
       const match = dirPura.match(/A NOMBRE DE:\s*([^|]+)/i);
       if (match && match[1]) {
-        clienteExtraido = match[1].trim();
+        const nombreTicket = match[1].trim();
+        if (clienteExtraido === 'Invitado' || nombreTicket.length > clienteExtraido.length) {
+          clienteExtraido = nombreTicket;
+        }
       }
     }  
 
-    // 👇 FIX: Extracción robusta del teléfono sin destruir el resto de la dirección por culpa del split('|')
     if (dirPura.includes('TEL:')) {
       const matchTel = dirPura.match(/TEL:\s*(\d+)/i);
       if (matchTel && matchTel[1] && !telefonoExtraido) {
         telefonoExtraido = matchTel[1].trim();
       }
-    }
+    }  
 
     dirPura = dirPura
       .replace(/TEL:\s*\d*/gi, '')
@@ -53,7 +56,7 @@ const RenglonPedidoHistorial = ({
       .trim();  
 
     return { direccionLimpia: dirPura, telefono: telefonoExtraido, cliente: clienteExtraido };
-  };  
+  };   
 
   const { direccionLimpia, telefono, cliente } = procesarDireccionYContacto();  
 
