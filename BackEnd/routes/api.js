@@ -34,6 +34,7 @@ const nominaCtrl = require('../controllers/nominaController');
 const distribucionCtrl = require('../controllers/distribucionController');
 const distClientesCtrl = require('../controllers/distClientesController');
 const distVentasCtrl = require('../controllers/distVentasController');
+const asistenciaConfigCtrl = require('../controllers/asistenciaConfigController');
 
 // 👇 NUEVOS: Controladores MDM y Huellas
 const equipoCtrl = require('../controllers/equipoController');
@@ -47,6 +48,7 @@ distVentasCtrl.inicializarTablas();
 huellasCtrl.inicializarTablas();
 insumoCtrl.inicializarTablasAuditoria();
 insumoCtrl.inicializarInsumos();
+asistenciaConfigCtrl.inicializarTablas();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -359,6 +361,16 @@ router.post('/huellas/generar-login', huellasCtrl.generarOpcionesAutenticacion);
 router.post('/huellas/verificar-login', huellasCtrl.verificarAutenticacion);
 router.delete('/huellas/cliente/:id', huellasCtrl.eliminarHuellaCliente);
 router.delete('/huellas/empleado/:id', huellasCtrl.eliminarHuellaEmpleado);
+
+// ==========================================
+// 📍 MÓDULO AISLADO: CONFIGURACIÓN DE ASISTENCIA (GPS / IPs)
+// ==========================================
+router.get('/asistencia/configuracion', asistenciaConfigCtrl.obtenerConfiguracionCompleta);
+router.put('/asistencia/configuracion', asistenciaConfigCtrl.actualizarConfiguracionGeneral);
+router.post('/asistencia/ips', asistenciaConfigCtrl.agregarIP);
+router.delete('/asistencia/ips/:id', asistenciaConfigCtrl.eliminarIP);
+router.post('/asistencia/ubicaciones', asistenciaConfigCtrl.agregarUbicacion);
+router.delete('/asistencia/ubicaciones/:id', asistenciaConfigCtrl.eliminarUbicacion);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)
