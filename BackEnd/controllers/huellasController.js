@@ -263,9 +263,23 @@ exports.verificarAutenticacion = async (req, res) => {
                     } 
                 } catch(e) { console.error("Error en validación MDM Biométrico", e); }
 
-                // Auto-Asistencia y Control Multi-Sesión
-                const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
-                const isLoginActivo = confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true;
+                // 👇 FIX: Ya no existe "asistencia_login" en "configuracion" (fue migrada a configuracion_asistencia).
+                // Ahora se valida si 'login' está dentro del arreglo tipo_registro, y se aísla en su propio
+                // try/catch para que jamás vuelva a bloquear el login biométrico aunque esta parte falle.
+                let isLoginActivo = false;
+                try {
+                    const confAsist = await db.query('SELECT tipo_registro FROM configuracion_asistencia WHERE id = 1');
+                    let metodosActivos = [];
+                    if (confAsist.rows.length > 0) {
+                        metodosActivos = typeof confAsist.rows[0].tipo_registro === 'string'
+                        ? JSON.parse(confAsist.rows[0].tipo_registro)
+                        : confAsist.rows[0].tipo_registro;
+                    }
+                    isLoginActivo = Array.isArray(metodosActivos) && metodosActivos.includes('login');
+                } catch (eAsist) {
+                    console.error("⚠️ No se pudo leer configuracion_asistencia (no bloquea el login):", eAsist.message || eAsist);
+                    isLoginActivo = false;
+                }
 
                 if (isLoginActivo) {
                     const turnoAbierto = await db.query('SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE', [user.id]);
