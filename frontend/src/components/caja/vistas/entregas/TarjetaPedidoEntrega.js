@@ -11,24 +11,23 @@ const TarjetaPedidoEntrega = ({
     renderBotonVerDetalle,
     renderBotonAgregarExtra,
     empleadosPOS,
-    esB2B, // 👈 Recibimos el flag para saber si es de Mayoreo
-    apiUrl // 👈 Recibimos apiUrl para peticiones directas
+    esB2B, 
+    apiUrl 
 }) => {
     const [repartidorId, setRepartidorId] = useState(pedido.repartidor_id || '');
     const [confirmarAnular, setConfirmarAnular] = useState(false);
-    const [procesandoLocal, setProcesandoLocal] = useState(false); // Bloqueo local para B2B
-
-    // 👇 FIX MÁSTER: Nuevo estado para bloquear el efecto rebote (flash)
+    const [procesandoLocal, setProcesandoLocal] = useState(false);
+    
+    // Estados del Gasto Externo (Corregido: Declarados una sola vez)
+    const [modalGastoExterno, setModalGastoExterno] = useState(false);
+    const [costoExterno, setCostoExterno] = useState('');
+    
     const [oculto, setOculto] = useState(false);
-
     const telefono = getTelefonoExtraido(pedido);
     const repartidores = (empleadosPOS || []).filter(emp => String(emp.rol).toLowerCase().includes('repart'));
-
     const faltaPagar = ['Pendiente', 'Por Cobrar'].includes(pedido.metodo_pago);
     const esDomicilio = pedido.tipo_consumo === 'Domicilio';
     const esLocal = pedido.tipo_consumo === 'Local' || pedido.tipo_consumo === 'Local / Mostrador';
-
-    // Extracción inteligente de instrucciones y cliente
     const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
     let direccionLimpia = pedido.direccion_entrega || '';
     let clienteExtraido = pedido.cliente_nombre || 'Invitado';
@@ -51,11 +50,7 @@ const TarjetaPedidoEntrega = ({
         .join(', ')
         .trim();
 
-    // ==============================================================
-    // 👇 ENRUTADOR DE ESTADOS (Mayoreo vs Restaurante)
-    // ==============================================================
     const handleActualizarEstado = async (id, nuevoEstado, extras = {}) => {
-        // 🛡️ Ocultamos la tarjeta instantáneamente. Aunque el socket traiga data vieja, no brillará.
         setOculto(true); 
 
         if (esB2B) {
@@ -67,10 +62,9 @@ const TarjetaPedidoEntrega = ({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ estado_preparacion: nuevoEstado, ...extras })
                 });
-                // El backend emite el Socket 'catalogo_actualizado' y la vista se recarga sola.
             } catch (error) {
                 console.error("Error al actualizar estado B2B:", error);
-                setOculto(false); // 👈 Si hay error de red, la volvemos a mostrar
+                setOculto(false); 
             }
             setProcesandoLocal(false);
         } else {
@@ -78,12 +72,38 @@ const TarjetaPedidoEntrega = ({
         }
     };
 
-    // ==============================================================
-    // 👇 ENRUTADOR DE COBROS (Mayoreo vs Restaurante)
-    // ==============================================================
+    const handleConfirmarGastoExterno = async (e) => {
+        e.preventDefault();
+        if (procesandoLocal || isSubmitting) return;
+        setProcesandoLocal(true);
+
+        try {
+            const montoGasto = parseFloat(costoExterno) || 0;
+            if (montoGasto > 0) {
+                const apiBase = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
+                await fetch(`${apiBase}/gastos-proveedores`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        concepto: `Envío Externo - Pedido #${pedido.numero_pedido}`,
+                        monto: montoGasto,
+                        origen: 'Caja',
+                        estado: 'Pagado'
+                    })
+                });
+            }
+            
+            await handleActualizarEstado(pedido.id, 'Finalizado');
+            setModalGastoExterno(false);
+        } catch (err) {
+            console.error("Error al registrar el gasto externo:", err);
+        } finally {
+            setProcesandoLocal(false);
+        }
+    };
+
     const handleAbrirPago = () => {
         if (esB2B) {
-            // Le inyectamos una "etiqueta secreta" al pedido para que ModalPago sepa qué hacer
             setModalPago({ ...pedido, _esB2B: true });
         } else {
             setModalPago(pedido);
@@ -92,7 +112,6 @@ const TarjetaPedidoEntrega = ({
 
     const deshabilitado = isSubmitting || limpiandoMesas || procesandoLocal;
 
-    // 👇 FIX MÁSTER: Si está oculta, abortamos el renderizado por completo antes de dibujar la tarjeta
     if (oculto) return null;
 
     return (
@@ -152,7 +171,7 @@ const TarjetaPedidoEntrega = ({
                     )}
                 </div>
 
-                {/* SELECTOR DE REPARTIDOR (Solo si es domicilio) */}
+                {/* SELECTOR DE REPARTIDOR */}
                 {esDomicilio && (
                     <div className="mb-4 bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-inner">
                         <label className="text-[10px] font-black uppercase text-slate-400 mb-1 flex items-center gap-1">
@@ -174,7 +193,6 @@ const TarjetaPedidoEntrega = ({
 
                 {/* BOTONES DE ACCIÓN */}
                 <div className="space-y-2 mt-auto">
-                    {/* Botones adicionales (Solo para restaurante, B2B no tiene extras aquí por ahora) */}
                     {!esB2B && (
                         <div className="grid grid-cols-2 gap-2 mb-2">
                             {renderBotonVerDetalle && renderBotonVerDetalle(pedido)}
@@ -184,12 +202,23 @@ const TarjetaPedidoEntrega = ({
 
                     {esDomicilio && faltaPagar ? (
                         <div className="flex flex-col gap-2">
-                            <button disabled={deshabilitado || repartidorId !== ''} onClick={handleAbrirPago} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
-                                <DollarSign size={18} /> Cobrar (Pickup/Externo)
-                            </button>
                             <button disabled={deshabilitado || !repartidorId} onClick={() => handleActualizarEstado(pedido.id, 'En Camino', { repartidor_id: repartidorId })} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}>
-                                <Bike size={18} /> Mandar a Repartir
+                                <Bike size={18} /> Mandar a Repartir (Local)
                             </button>
+                            
+                            <div className="flex gap-2">
+                                <button disabled={deshabilitado || repartidorId !== ''} onClick={handleAbrirPago} className={`flex-1 font-black text-[10px] md:text-xs uppercase tracking-widest py-3 rounded-xl shadow-sm transition-all flex justify-center items-center gap-1 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
+                                    <DollarSign size={16} /> Solo Cobrar
+                                </button>
+                                
+                                {/* 👇 NUEVO BOTÓN QUE INYECTA LA BANDERA EXTERNA */}
+                                <button disabled={deshabilitado || repartidorId !== ''} onClick={() => {
+                                    if (esB2B) setModalPago({ ...pedido, _esB2B: true, _esExterno: true });
+                                    else setModalPago({ ...pedido, _esExterno: true });
+                                }} className={`flex-[1.2] font-black text-[10px] md:text-xs uppercase tracking-widest py-3 rounded-xl shadow-sm transition-all flex justify-center items-center gap-1 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30 active:scale-95'}`}>
+                                    <Package size={16} /> Cobrar + Externo
+                                </button>
+                            </div>
                         </div>
                     ) : faltaPagar ? (
                         esLocal && pedido.mesa ? (
@@ -212,7 +241,7 @@ const TarjetaPedidoEntrega = ({
                                 <button disabled={deshabilitado || !repartidorId} onClick={() => handleActualizarEstado(pedido.id, 'En Camino', { repartidor_id: repartidorId })} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${!repartidorId ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-indigo-600 text-white shadow-slate-800/30 active:scale-95'}`}>
                                     <Bike size={18} /> Despachar (En Camino)
                                 </button>
-                                <button disabled={deshabilitado || repartidorId !== ''} onClick={() => handleActualizarEstado(pedido.id, 'Finalizado')} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
+                                <button disabled={deshabilitado || repartidorId !== ''} onClick={() => setModalGastoExterno(true)} className={`w-full font-black text-xs md:text-sm uppercase tracking-widest py-3 md:py-4 rounded-xl shadow-sm transition-all flex justify-center items-center gap-2 ${repartidorId !== '' ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30 active:scale-95'}`}>
                                     <Package size={18} /> Entregar a Externo
                                 </button>
                             </div>
@@ -242,6 +271,29 @@ const TarjetaPedidoEntrega = ({
                             <button onClick={() => { handleActualizarEstado(pedido.id, 'Cancelado'); setConfirmarAnular(false); }} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl shadow-lg shadow-red-500/30 hover:bg-red-600 transition active:scale-95">Sí, Anular</button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* MODAL REPARTIDOR EXTERNO (REGISTRO DE GASTO) */}
+            {modalGastoExterno && (
+                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <form onSubmit={handleConfirmarGastoExterno} className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl border border-slate-100 animate-in zoom-in-95">
+                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                            <DollarSign size={32} />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-800 text-center mb-1">Repartidor Externo</h3>
+                        <p className="text-slate-500 font-bold text-center text-sm mb-6">¿Cuánto cobró el repartidor por el viaje?</p>
+
+                        <div className="mb-6 relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xl">$</span>
+                            <input type="number" step="0.01" min="0" required autoFocus value={costoExterno} onChange={(e)=>setCostoExterno(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 pl-10 text-2xl font-black text-slate-800 outline-none focus:border-emerald-500 transition-colors" placeholder="0.00" />
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button type="button" onClick={() => setModalGastoExterno(false)} disabled={procesandoLocal} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95 disabled:opacity-50">Cancelar</button>
+                            <button type="submit" disabled={procesandoLocal || isSubmitting} className="flex-1 py-4 bg-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition active:scale-95 disabled:opacity-50">Confirmar</button>
+                        </div>
+                    </form>
                 </div>
             )}
         </>

@@ -6,6 +6,16 @@ import PanelTamanosFijos from './recetas/PanelTamanosFijos';
 import TablaIngredientes from './recetas/TablaIngredientes';
 
 const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, apiUrl, showAlert, showConfirm }) => {
+  // 👇 NUEVO ESTADO: Las Bases ya viven en su propia tabla
+  const [subRecetasDB, setSubRecetasDB] = useState([]);
+
+  useEffect(() => {
+    fetch(`${apiUrl}/sub-recetas`)
+      .then(r => r.json())
+      .then(data => setSubRecetasDB(Array.isArray(data) ? data : []))
+      .catch(console.error);
+  }, [apiUrl]);
+
   // ==========================================
   // ESTADOS DE UI Y SELECCIÓN
   // ==========================================
@@ -85,10 +95,10 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   }, [recetaActivaId, extraActivoId, modoCosteo, productos, apiUrl]);
 
   // ==========================================
-  // FUNCIONES DE BASES OCULTAS (BLINDADAS)
+  // NUEVAS FUNCIONES DE SUB-RECETAS (TABLA INDEPENDIENTE)
   // ==========================================
   const iniciarCreacionBase = () => {
-    if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación donde guardar esta base.", "warning");
+    if (!recetaCategoriaFiltro) return showAlert("Atención", "Selecciona primero una Clasificación donde agrupar esta base.", "warning");
     setNombreNuevaBase('');
     setModalCrearBase(true);
   };  
@@ -97,32 +107,27 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     e.preventDefault();
     if (!nombreNuevaBase.trim()) return;
     try {
-      let nombreFinal = nombreNuevaBase.trim();
-      // 👇 BLINDAJE INVISIBLE: Si no le puso (Base), se lo inyectamos al final
-      if (!nombreFinal.toLowerCase().includes('(base)')) {
-        nombreFinal = `${nombreFinal} (Base)`;
-      }
-      
-      const formData = new FormData();
-      formData.append('nombre', nombreFinal);
-      formData.append('categoria', recetaCategoriaFiltro);
-      formData.append('precio_base', 0);
-      formData.append('disponible', 'false'); // Esto la oculta del Kiosco y Caja automáticamente
-      formData.append('genera_puntos', 'false');
-      const res = await fetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
+      const res = await fetch(`${apiUrl}/sub-recetas`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombreNuevaBase.trim(),
+          categoria: recetaCategoriaFiltro
+        })
+      });
       if(res.ok) {
-        showAlert("¡Base Creada!", "Ya puedes seleccionarla para armar su receta.", "success");
+        showAlert("¡Sub-Receta Creada!", "Ya puedes seleccionarla para armar su receta.", "success");
         setModalCrearBase(false);
-        refrescarDatos();
+        // Recargamos el listado local
+        fetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
       }
     } catch(e) { showAlert("Error", "No se pudo crear la base.", "error"); }
   };  
 
   const iniciarEdicionBase = () => {
-    const prod = productos.find(p => String(p.id) === String(recetaActivaId));
-    if(prod) {
-      // 👇 MAGIA VISUAL: Se lo borramos para que el usuario no vea el (Base)
-      setNombreEditadoBase(prod.nombre.replace(/\(Base\)/gi, '').trim());
+    const sub = subRecetasDB.find(p => String(p.id) === String(recetaActivaId));
+    if(sub) {
+      setNombreEditadoBase(sub.nombre);
       setModalEditarBase(true);
     }
   };  
@@ -131,24 +136,19 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     e.preventDefault();
     if (!nombreEditadoBase.trim()) return;
     try {
-      let nombreFinal = nombreEditadoBase.trim();
-      // 👇 BLINDAJE INVISIBLE: Volvemos a inyectarlo por debajo
-      if (!nombreFinal.toLowerCase().includes('(base)')) {
-        nombreFinal = `${nombreFinal} (Base)`;
-      }
-      
-      const prod = productos.find(p => String(p.id) === String(recetaActivaId));
-      const formData = new FormData();
-      formData.append('nombre', nombreFinal);
-      formData.append('categoria', prod.categoria || 'General');
-      formData.append('precio_base', prod.precio_base || 0);
-      formData.append('disponible', 'false');
-      formData.append('genera_puntos', 'false');
-      const res = await fetch(`${apiUrl}/productos/${recetaActivaId}`, { method: 'PUT', body: formData });
+      const sub = subRecetasDB.find(p => String(p.id) === String(recetaActivaId));
+      const res = await fetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: nombreEditadoBase.trim(),
+          categoria: sub.categoria
+        }) 
+      });
       if(res.ok) {
         showAlert("¡Actualizado!", "El nombre de la sub-receta ha sido modificado.", "success");
         setModalEditarBase(false);
-        refrescarDatos();
+        fetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
       }
     } catch (error) { showAlert("Error", "Fallo de conexión.", "error"); }
   };
@@ -232,21 +232,69 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     }
   };
 
-  const guardarRendimientoYEmpaques = async () => {
+    const guardarRendimientoYEmpaques = async () => {
     if (!recetaActivaId || modoCosteo !== 'platillos') return;
+    
+  // 👇 NUEVA LÓGICA: Determinar si estamos editando una Sub-Receta o un Producto
+  const esBase = subRecetasDB.some(s => String(s.id) === String(recetaActivaId));
+
     try {
-      await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rendimiento: rendimientoCalculadora }) });
-      const prod = productos.find(p => Number(p.id) === Number(recetaActivaId));
-      let opcionesArray = [];
-      if (prod && prod.opciones) opcionesArray = typeof prod.opciones === 'string' ? JSON.parse(prod.opciones) : prod.opciones;
-      const opcionesFiltradas = opcionesArray.filter(o => o.categoria !== 'UnidadRendimiento' && o.categoria !== 'EmpaquesUnicos');
-      opcionesFiltradas.push({ categoria: 'UnidadRendimiento', nombre: unidadRendimiento });
-      const empaquesValidos = empaquesUnicos.filter(e => e.insumo_id !== '');
-      if (empaquesValidos.length > 0) opcionesFiltradas.push({ categoria: 'EmpaquesUnicos', nombre: 'Empaques Base', empaques: empaquesValidos });
-      await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opciones: opcionesFiltradas }) });
-      showAlert("¡Éxito!", "Configuración guardada correctamente.", "success");
+      if (esBase) {
+        // ---------------------------------------------------------
+        // RUTA 1: GUARDAR EN LA TABLA DE SUB-RECETAS (BASES)
+        // ---------------------------------------------------------
+        const subSeleccionada = subRecetasDB.find(s => String(s.id) === String(recetaActivaId));
+        await fetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ 
+            nombre: subSeleccionada.nombre,
+            categoria: subSeleccionada.categoria,
+            rendimiento: rendimientoCalculadora,
+            unidad_rendimiento: unidadRendimiento
+          }) 
+        });
+
+        // Refrescar el estado local de sub-recetas
+        const resSub = await fetch(`${apiUrl}/sub-recetas`);
+        const dataSub = await resSub.json();
+        setSubRecetasDB(Array.isArray(dataSub) ? dataSub : []);
+        
+        showAlert("¡Éxito!", "Rendimiento de la Base guardado correctamente.", "success");
+
+      } else {
+        // ---------------------------------------------------------
+        // RUTA 2: GUARDAR EN LA TABLA DE PRODUCTOS ORIGINAL
+        // ---------------------------------------------------------
+        await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ rendimiento: rendimientoCalculadora }) 
+        });
+
+        const prod = productos.find(p => Number(p.id) === Number(recetaActivaId));
+        let opcionesArray = [];
+        if (prod && prod.opciones) opcionesArray = typeof prod.opciones === 'string' ? JSON.parse(prod.opciones) : prod.opciones;
+        
+        const opcionesFiltradas = opcionesArray.filter(o => o.categoria !== 'UnidadRendimiento' && o.categoria !== 'EmpaquesUnicos');
+        opcionesFiltradas.push({ categoria: 'UnidadRendimiento', nombre: unidadRendimiento });
+        
+        const empaquesValidos = empaquesUnicos.filter(e => e.insumo_id !== '');
+        if (empaquesValidos.length > 0) opcionesFiltradas.push({ categoria: 'EmpaquesUnicos', nombre: 'Empaques Base', empaques: empaquesValidos });
+        
+        await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { 
+          method: 'PUT', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify({ opciones: opcionesFiltradas }) 
+        });
+
+        showAlert("¡Éxito!", "Configuración guardada correctamente.", "success");
+      }
+
       refrescarDatos();
-    } catch (error) { showAlert("Error", "No se pudo guardar.", "error"); }
+    } catch (error) { 
+      showAlert("Error", "No se pudo guardar la configuración.", "error"); 
+    }
   };
 
   // ==========================================
@@ -381,10 +429,9 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     }
   }
 
-  // Filtra y limpia visualmente las bases que van al SelectorPlatillo (el form para agregar subrecetas a otra)
-  const subRecetasDisponibles = productos.filter(p => {
-    if (!p.nombre.toLowerCase().includes('(base)')) return false;
-    if (modoCosteo === 'platillos' && String(p.id) === String(recetaActivaId)) return false;
+  // 👇 NUEVO: Ahora las sub-recetas vienen de su propia tabla
+  const subRecetasDisponibles = subRecetasDB.filter(sub => {
+    if (modoCosteo === 'platillos' && String(sub.id) === String(recetaActivaId)) return false; // Evitar que se agregue a sí misma
     return true;
   });
 
@@ -407,6 +454,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         
         <SelectorPlatillo
           clasificaciones={clasificaciones} productos={productos}
+          subRecetasDB={subRecetasDB} // 👈 NUEVA PROP AÑADIDA
           recetaCategoriaFiltro={recetaCategoriaFiltro} setRecetaCategoriaFiltro={setRecetaCategoriaFiltro}
           recetaActivaId={recetaActivaId} setRecetaActivaId={setRecetaActivaId}
           iniciarCreacionBase={iniciarCreacionBase} iniciarEdicionBase={iniciarEdicionBase}
@@ -468,7 +516,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
             </div>
           )}
 
-          {modoCosteo === 'platillos' && (
+          {/* 👇 FIX MÁSTER: Oculta la caja genérica de Empaques/Margen si el platillo usa Tamaños Fijos */}
+          {modoCosteo === 'platillos' && tamanosConfigurados.length === 0 && (
             <div className="flex flex-col md:flex-row gap-6 mb-8">
               <div className="flex-1 bg-slate-50 p-6 rounded-2xl border border-slate-200">
                 <div className="flex justify-between items-center mb-4">
@@ -529,7 +578,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
             </div>
           )}
 
-          {modoCosteo === 'platillos' && (
+          {/* 👇 FIX: También ocultamos este botón, ya que el panel naranja tiene el suyo propio */}
+          {modoCosteo === 'platillos' && tamanosConfigurados.length === 0 && (
             <div className="flex justify-end pt-6 border-t border-slate-100">
               <button onClick={guardarRendimientoYEmpaques} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition shadow-lg active:scale-95 shadow-blue-500/30">
                 💾 Guardar Rendimiento y Empaque
@@ -542,7 +592,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
       {/* TAMAÑOS FIJOS (Solo si aplica y si no es subreceta) */}
       {modoCosteo === 'platillos' && recetaActivaId && tamanosConfigurados && tamanosConfigurados.length > 0 && !esSubReceta && (
         <PanelTamanosFijos
-          tamanosConfigurados={tamanosConfigurados} productoSeleccionado={productoSeleccionado}
+          tamanosConfigurados={tamanosConfigurados.filter(t => saborActivo === 'Base' || saboresConfigurados.some(s => s.nombre === saborActivo) || t.nombre === saborActivo)}
+          productoSeleccionado={productoSeleccionado}
           configTamanos={configTamanos} setConfigTamanos={setConfigTamanos} insumosDB={insumosDB}
           empaquesDisponibles={empaquesDisponibles} costoTotalRecetaCalculado={costoTotalRecetaCalculado}
           guardarRendimientosTamanos={guardarRendimientosTamanos} actualizarEmpaqueTamanio={actualizarEmpaqueTamanio}

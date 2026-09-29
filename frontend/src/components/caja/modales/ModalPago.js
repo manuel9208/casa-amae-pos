@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
     DollarSign, CreditCard, Smartphone, Wallet, Star, Copy, MessageCircle, 
-    ArrowLeft, XCircle, CheckCircle2, AlertTriangle, FileText
+    ArrowLeft, XCircle, CheckCircle2, AlertTriangle, FileText, Package
 } from 'lucide-react';
 
 const ModalPago = ({
@@ -19,6 +19,11 @@ const ModalPago = ({
     // ESTADOS GENERALES DE COBRO
     // ----------------------------------------------------
     const [montoRecibido, setMontoRecibido] = useState('');
+    const [pasoExterno, setPasoExterno] = useState(false);
+    const [costoExterno, setCostoExterno] = useState('');
+    const [guardandoGasto, setGuardandoGasto] = useState(false);
+    const [datosPagoPendiente, setDatosPagoPendiente] = useState(null); // 👈 NUEVO: Retiene el pago
+    const [alertaRepartidor, setAlertaRepartidor] = useState(null); // 👈 NUEVO: Alerta custom
     const [confirmarAnular, setConfirmarAnular] = useState(false);
     const [toastCopiado, setToastCopiado] = useState(false);
     const [idOrdenAbierta, setIdOrdenAbierta] = useState(null); // Rastreador de orden
@@ -49,6 +54,11 @@ const ModalPago = ({
     // ----------------------------------------------------
     useEffect(() => {
         if (!modalPago) {
+            setPasoExterno(false); 
+            setCostoExterno(''); 
+            setGuardandoGasto(false);
+            setDatosPagoPendiente(null); // 👈 Limpiamos retención
+            setAlertaRepartidor(null); // 👈 Limpiamos alerta custom
             setModoMixto(false);
             setPuntosAUsar('');
             setNipCliente('');
@@ -244,7 +254,7 @@ const ModalPago = ({
         procesar_Pago_Local('Pagado', false, pagosMix);
     };
 
-    const procesar_Pago_Local = (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosOverride = null) => {
+    const procesar_Pago_Local = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosOverride = null) => {
         const ordenYaCocinada = !['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion);
         const ordenBloqueadaExplicitamente = modalPago._evitarImpresion === true;
         const yaFueImpreso = ordenBloqueadaExplicitamente || ordenYaCocinada;  
@@ -256,29 +266,23 @@ const ModalPago = ({
         // 👇 LÓGICA INTELIGENTE (ACTUALIZADA Y PERFECCIONADA)
         let estadoFinal = estadoRechazo;
         
-        // Si la acción NO es una cancelación/rechazo (es un pago normal o mixto)
         if (!estadoRechazo || estadoRechazo === 'Pagado') {
             const estadoActual = modalPago.estado_preparacion;
-
-            // 1. Si está en Entregas (Listo) y se cobra en ventanilla -> Se entrega y finaliza automáticamente.
-            if (estadoActual === 'Listo') {
-                estadoFinal = 'Finalizado'; 
-            } 
-            // 2. Si es una mesa de comedor (Entregado) y paga al irse -> Finalizado.
-            else if (estadoActual === 'Entregado' || estadoActual === 'Liquidado') {
-                estadoFinal = 'Finalizado';
-            } 
-            // 3. Si se cobra MIENTRAS está en cocina o en la moto -> Conserva su estado operativo.
-            else if (['Preparando', 'En Camino'].includes(estadoActual)) {
-                estadoFinal = estadoActual;
-            } 
-            // 4. Si se cobra en "Cuentas por Cobrar" antes de entrar a cocina -> Pagado (Pasa a la cola del KDS).
-            else {
-                estadoFinal = 'Pagado'; 
-            }
+            if (estadoActual === 'Listo') estadoFinal = 'Finalizado'; 
+            else if (estadoActual === 'Entregado' || estadoActual === 'Liquidado') estadoFinal = 'Finalizado';
+            else if (['Preparando', 'En Camino'].includes(estadoActual)) estadoFinal = estadoActual;
+            else estadoFinal = 'Pagado'; 
         }
 
-        procesarPago(estadoFinal, esPostPago, pagosMixtos, puntosFinales);
+        // 🛡️ INTERCEPCIÓN DE FLUJO CORREGIDA 🛡️
+        // Si es Externo, RETENEMOS EL PAGO y abrimos el modal SIN avisar al Padre (Caja).
+        if (estadoFinal !== 'Cancelado' && modalPago._esExterno) {
+            setDatosPagoPendiente({ estadoFinal, esPostPago, pagosMixtos, puntosFinales });
+            setPasoExterno(true);
+        } else {
+            // Si es pedido normal, se cobra directo
+            await procesarPago(estadoFinal, esPostPago, pagosMixtos, puntosFinales);
+        }
     };  
 
     // ----------------------------------------------------
@@ -316,6 +320,110 @@ const ModalPago = ({
         }
         setValidandoNip(false);
     };
+
+    const forzarLiberacionPago = async () => {
+        if (datosPagoPendiente) {
+            await procesarPago(
+                datosPagoPendiente.estadoFinal,
+                datosPagoPendiente.esPostPago,
+                datosPagoPendiente.pagosMixtos,
+                datosPagoPendiente.puntosFinales
+            );
+        }
+        setModalPago(null); 
+    };
+
+    const handleConfirmarGastoExterno = async (e) => {
+        e.preventDefault();
+        if (guardandoGasto) return;
+        setGuardandoGasto(true);
+        
+        try {
+            const monto = parseFloat(costoExterno) || 0;
+            let faltaInsumo = false;
+
+            if (monto > 0) {
+                const baseUrl = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
+                const resInsumos = await fetch(`${baseUrl}/insumos`);
+                const insumos = await resInsumos.json();
+                const insumoRepartidor = insumos.find(i => String(i.nombre).trim().toLowerCase() === 'repartidor externo');
+
+                if (!insumoRepartidor) {
+                    faltaInsumo = true;
+                } else {
+                    await fetch(`${baseUrl}/insumos/${insumoRepartidor.id}/comprar`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            paquetes_comprados: 1, 
+                            nuevo_costo_paquete: monto, 
+                            origen: 'Caja'
+                        })
+                    });
+                }
+            }
+
+            // 🛡️ REGLA CUSTOM UI: Activamos el modal bonito en lugar del alert nativo
+            if (faltaInsumo) {
+                setAlertaRepartidor("Para descontar automáticamente del Corte de Caja, necesitas crear un Insumo llamado 'Repartidor Externo' en el Inventario.");
+                setGuardandoGasto(false);
+                return; // Pausamos el flujo hasta que den clic en Entendido
+            }
+
+            // 🚀 LIBERAMOS EL PAGO
+            await forzarLiberacionPago();
+
+        } catch (error) {
+            console.error("Error de red al registrar gasto del viaje:", error);
+            setAlertaRepartidor("Error de conexión al intentar guardar el gasto.");
+            setGuardandoGasto(false);
+        }
+    };
+    
+    // 🛡️ PANTALLA SOBREPUESTA: REGISTRO DE GASTO EXTERNO 🛡️
+    if (pasoExterno) {
+        return (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[200] p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 relative overflow-hidden">
+                        
+                        {/* 🚨 ALERTA CUSTOM: Reemplaza el alert() nativo */}
+                        {alertaRepartidor && (
+                            <div className="absolute inset-0 bg-white/95 backdrop-blur-sm z-[210] flex items-center justify-center p-8 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="text-center w-full">
+                                    <div className="w-20 h-20 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                                        <AlertTriangle size={40} />
+                                    </div>
+                                    <h3 className="text-2xl font-black text-slate-800 mb-2">¡Atención!</h3>
+                                    <p className="text-slate-500 font-bold mb-8 leading-relaxed text-sm">
+                                        {alertaRepartidor}
+                                    </p>
+                                    <button type="button" onClick={forzarLiberacionPago} className="w-full py-4 bg-amber-500 text-white font-black rounded-2xl hover:bg-amber-600 shadow-lg shadow-amber-500/30 transition active:scale-95">
+                                        Entendido, continuar
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        
+                    <form onSubmit={handleConfirmarGastoExterno} className="bg-white rounded-[40px] p-8 max-w-sm w-full shadow-2xl border border-slate-100 animate-in zoom-in-95">
+                        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                            <Package size={32} />
+                        </div>
+                        <h3 className="text-2xl font-black text-slate-800 text-center mb-1">Repartidor Externo</h3>
+                        <p className="text-slate-500 font-bold text-center text-sm mb-6">¡Cobro exitoso! ¿Cuánto cobró el repartidor por el viaje?</p>
+                        
+                        <div className="mb-6 relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-xl">$</span>
+                            <input type="number" step="0.01" min="0" required autoFocus value={costoExterno} onChange={(e)=>setCostoExterno(e.target.value)} className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 pl-10 text-2xl font-black text-slate-800 outline-none focus:border-blue-500 transition-colors" placeholder="0.00" />
+                        </div>
+
+                        <button type="submit" disabled={guardandoGasto} className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition active:scale-95 disabled:opacity-50">
+                            Confirmar Gasto y Cerrar
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 animate-in fade-in duration-200">

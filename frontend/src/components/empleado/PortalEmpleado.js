@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
-import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, CheckCircle2, XCircle, AlertTriangle, MessageSquare, DollarSign, Camera } from 'lucide-react';
+import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, CheckCircle2, XCircle, AlertTriangle, MessageSquare, DollarSign, Camera, Clock } from 'lucide-react';
 
 import VistaMensajesEmpleado from './VistaMensajesEmpleado';
 import VistaNominasEmpleado from './VistaNominasEmpleado';
-import ImagenCachada from '../ImagenCachada'; 
+import ImagenCachada from '../ImagenCachada';
+import VistaAsistencia from './VistaAsistencia'; 
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -105,7 +106,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
   const misLimpiezasHoy = [];
 
   const diaHoyNombre = diasSemanaMap[hoy.getDay()]; 
-  const miRol = userData.rol;
+  const miRol = userData.rol || '';
   const tareasMiRolHoy = plantillaRoles[miRol]?.[diaHoyNombre] || [];
 
   const miHorarioHoy = horarioSemanal[diaHoyNombre] || {};
@@ -231,10 +232,10 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
               </button>
             )}
             <div className="w-10 h-10 bg-gradient-to-tr from-blue-500 to-blue-400 rounded-full flex items-center justify-center font-black text-xl shadow-lg border-2 border-slate-700">
-              {userData.nombre.charAt(0).toUpperCase()}
+              {userData?.nombre ? userData.nombre.charAt(0).toUpperCase() : 'E'}
             </div>
             <div>
-              <p className="font-black leading-none text-lg">{userData.nombre}</p>
+              <p className="font-black leading-none text-lg">{userData?.nombre || 'Cargando...'}</p>
               <p className="text-[10px] text-blue-300 font-bold uppercase tracking-widest mt-1">Portal del Empleado</p>
             </div>
           </div>
@@ -263,6 +264,10 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
         
         {/* 👇 PESTAÑAS RESTAURADAS */}
         <div className="flex bg-white p-2 rounded-3xl shadow-sm border border-slate-200 mb-8 overflow-x-auto custom-scrollbar print:hidden">
+          {/* 👇 NUEVO BOTÓN: Asistencia */}
+          <button onClick={() => setVistaActiva('asistencia')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'asistencia' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
+            <Clock size={18}/> Asistencia
+          </button>
           <button onClick={() => setVistaActiva('horarios')} className={`flex-1 py-3 px-4 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 min-w-[140px] ${vistaActiva === 'horarios' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
             <Calendar size={18}/> Mi Horario
           </button>
@@ -279,6 +284,13 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
             <MessageSquare size={18}/> Mis Avisos
           </button>
         </div>
+
+        {/* 👇 VISTA DEL RELOJ CHECADOR (Asistencia) */}
+        {vistaActiva === 'asistencia' && (
+            <div className="mb-8">
+               <VistaAsistencia apiUrl={apiUrl} user={userData} />
+            </div>
+        )}
 
         {/* 👇 VISTA HORARIOS RESTAURADA */}
         {vistaActiva === 'horarios' && (

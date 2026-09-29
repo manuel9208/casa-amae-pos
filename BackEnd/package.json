@@ -11,6 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@simplewebauthn/server": "^14.0.1",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.6",
@@ -20,6 +21,7 @@
     "multer-storage-cloudinary": "^4.0.0",
     "node-thermal-printer": "^4.6.0",
     "nodemailer": "^8.0.11",
+    "openai": "^7.23.0",
     "pg": "^8.20.0",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7"

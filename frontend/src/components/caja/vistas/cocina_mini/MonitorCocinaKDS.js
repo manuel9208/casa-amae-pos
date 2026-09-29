@@ -1,83 +1,103 @@
 import React, { useState } from 'react';
-import { ChefHat } from 'lucide-react';
-
-// Importamos nuestros subcomponentes modulares nuevos
+import { ChefHat } from 'lucide-react';  
 import SelectorPersonalCocina from './SelectorPersonalCocina';
-import TarjetaComandaCocina from './TarjetaComandaCocina'; // NOTA: Asegúrate de que apunte al archivo correcto en tu proyecto
+import TarjetaComandaCocina from './TarjetaComandaCocina'; 
 
-const MonitorCocinaKDS = ({ 
-  user, 
-  pedidos, 
-  empleadosPOS, 
-  apiUrl, 
-  isSubmitting 
+const MonitorCocinaKDS = ({
+  user,
+  pedidos,
+  empleadosPOS,
+  apiUrl,
+  isSubmitting
 }) => {
-  // ==========================================
-  // ESTADOS Y VARIABLES LOCALES DE CONTROL
-  // ==========================================
   const [trabajadorActivoId, setTrabajadorActivoId] = useState(user?.id);
   const [procesandoLocal, setProcesandoLocal] = useState(false);  
 
-  // 👇 FILTRO INTELIGENTE ORIGINAL: Identificar el día actual de la semana
+  // Identificar el día actual de la semana
   const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-  const diaHoy = diasSemana[new Date().getDay()];
+  const diaHoy = diasSemana[new Date().getDay()];  
 
-  // 👇 FILTRO: Personal de cocina activo que tenga turno asignado HOY
+  // Personal de cocina activo que tenga turno asignado HOY
   const personalCocina = empleadosPOS.filter(emp => {
-    // 1. Filtrar estrictamente por roles operativos de preparación
-    const esEquipoCocina = ['cocina', 'ayudante_cocina'].includes(emp.rol);
-    
-    // 2. Cruzar con su matriz de horario_semanal guardada en la base de datos
+    const esEquipoCocina = ['cocina', 'ayudante_cocina'].includes(emp.rol);  
     let trabajaHoy = false;
     try {
-      const hor = typeof emp.horario_semanal === 'string' 
-        ? JSON.parse(emp.horario_semanal) 
+      const hor = typeof emp.horario_semanal === 'string'
+        ? JSON.parse(emp.horario_semanal)
         : (emp.horario_semanal || {});
       trabajaHoy = hor[diaHoy] && hor[diaHoy].activo === true;
-    } catch(e) {}
-
+    } catch(e) {}  
     return esEquipoCocina && trabajaHoy;
-  });
+  });  
 
-  // Regla original intacta: Forzar al usuario logueado al inicio de la lista por usabilidad
+  // Forzar al usuario logueado al inicio de la lista
   if (!personalCocina.find(e => e.id === user?.id) && user) {
     personalCocina.unshift(user);
-  }
+  }  
 
-  // 👇 FIX: Añadimos 'Aceptado' al radar para que las comandas aparezcan inmediatamente tras confirmarse en Caja
-  const pedidosCocina = pedidos.filter(p => 
-    ['Pendiente', 'Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion) && 
+  const pedidosCocina = pedidos.filter(p =>
+    ['Pendiente', 'Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion) &&
     p.tipo_consumo !== 'Mostrador'
-  );
+  );  
 
-  // Helpers originales de mapeo
   const obtenerOrdenActiva = (id) => pedidosCocina.find(p => p.chef_id === id && p.estado_preparacion === 'Preparando');  
 
   // ==========================================
-  // MANEJADOR OPERATIVO DE COMANDAS (API REST)
+  // NUEVO MOTOR GRANULAR (Por Platillo)
   // ==========================================
-  const manejarCambioEstado = async (pedidoId, nuevoEstado) => {
+  const procesarAccionItems = async (pedido, indicesAfectados, accion, trabajadorId) => {
     if (procesandoLocal || isSubmitting) return;
     setProcesandoLocal(true);
+
     try {
-      await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, {
-        method: 'PUT', 
+      // Deserializar carrito si es necesario
+      const carritoActualizado = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : [...pedido.carrito];
+      const ahoraStr = new Date().toISOString();  
+
+      // Modificar granularmente los items solicitados
+      indicesAfectados.forEach(idx => {
+        if (accion === 'Preparar' || accion === 'Ayudar') {
+          carritoActualizado[idx].estado = 'Preparando';
+          carritoActualizado[idx].chef_id = trabajadorId;
+          if (accion === 'Preparar') carritoActualizado[idx].tiempo_inicio = ahoraStr;
+        } else if (accion === 'Terminar') {
+          carritoActualizado[idx].estado = 'Listo';
+          carritoActualizado[idx].tiempo_fin = ahoraStr;
+        }
+      });  
+
+      let allListos = true;
+      let anyPreparando = false;  
+
+      carritoActualizado.forEach(i => {
+        if (i.estado !== 'Listo' && i.estado !== 'Finalizado') allListos = false;
+        if (i.estado === 'Preparando') anyPreparando = true;
+      });  
+
+      // Calcular el nuevo estado global en base a los hijos (items)
+      let nuevoEstadoGlobal = pedido.estado_preparacion;
+      if (allListos) nuevoEstadoGlobal = 'Listo';
+      else if (anyPreparando || accion === 'Preparar' || accion === 'Ayudar') nuevoEstadoGlobal = 'Preparando';  
+
+      const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;  
+
+      // Disparar a la API
+      await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          estado_preparacion: nuevoEstado, 
-          chef_id: nuevoEstado === 'Preparando' ? trabajadorActivoId : undefined 
+        body: JSON.stringify({
+          estado_preparacion: nuevoEstadoGlobal,
+          chef_id: mainChefId,
+          carrito: carritoActualizado
         })
       });
     } catch (error) {
-      console.error("Error al actualizar la comanda desde KDS:", error);
+      console.error("Error al actualizar la comanda desde Minicocina KDS:", error);
     }
-    // Anti-debounce original para evitar doble clic accidental en mobile
+    
     setTimeout(() => setProcesandoLocal(false), 800);
   };  
 
-  // ==========================================
-  // CAPA DE RENDERIZADO CONDICIONAL (EMPTY STATE)
-  // ==========================================
   if (pedidosCocina.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] bg-white rounded-[40px] border border-slate-200 border-dashed animate-in fade-in duration-300">
@@ -88,34 +108,28 @@ const MonitorCocinaKDS = ({
     );
   }  
 
-  const ordenPendienteActivo = obtenerOrdenActiva(trabajadorActivoId);  
-
   return (
-    <div className="space-y-6 Lauren-kds-flow animate-in slide-in-from-bottom-4 duration-300 w-full h-full">
-      
-      {/* MÓDULO 1: Barra superior de selección de Chefs */}
-      <SelectorPersonalCocina 
+    <div className="space-y-6 Lauren-kds-flow animate-in slide-in-from-bottom-4 duration-300 w-full h-full">  
+      <SelectorPersonalCocina
         personalCocina={personalCocina}
         trabajadorActivoId={trabajadorActivoId}
         setTrabajadorActivoId={setTrabajadorActivoId}
         obtenerOrdenActiva={obtenerOrdenActiva}
       />  
-
-      {/* MÓDULO 2: Rejilla fluida de Tickets de Comanda */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-20">
         {pedidosCocina.map(pedido => (
-          <TarjetaComandaCocina 
+          <TarjetaComandaCocina
             key={pedido.id}
             pedido={pedido}
             trabajadorActivoId={trabajadorActivoId}
-            manejarCambioEstado={manejarCambioEstado}
+            procesarAccionItems={procesarAccionItems}
             procesandoLocal={procesandoLocal}
-            ordenPendienteActivo={ordenPendienteActivo}
+            personalCocina={personalCocina}
           />
         ))}
       </div>
     </div>
   );
-};
+};  
 
 export default MonitorCocinaKDS;

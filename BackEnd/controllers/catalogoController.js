@@ -44,25 +44,32 @@ exports.getIngredientes = async (req, res) => {
 };
 
 exports.crearIngrediente = async (req, res) => {
-  const { clasificacion_id, nombre, tipo, precio_extra, permite_extra } = req.body;
-  try {
-    const existe = await db.query('SELECT id FROM catalogo_ingredientes WHERE clasificacion_id = $1 AND LOWER(TRIM(nombre)) = LOWER(TRIM($2))', [clasificacion_id, nombre]);
-    if (existe.rows.length > 0) return res.status(400).json({ error: `El ingrediente "${nombre}" ya está registrado en esta clasificación.` });
-    const pExtra = permite_extra !== undefined ? permite_extra : true;
-    const insertado = await db.query("INSERT INTO catalogo_ingredientes (clasificacion_id, nombre, tipo, precio_extra, permite_extra) VALUES ($1, $2, $3, $4, $5) RETURNING *", [clasificacion_id, nombre, tipo, precio_extra || 0, pExtra]);
-    res.status(201).json(insertado.rows[0]);
-  } catch (e) { res.status(500).json({error: 'Error al crear el ingrediente'}); }
+    const { clasificacion_id, nombre, tipo, precio_extra, permite_extra } = req.body;
+    try {
+        // 👇 FIX: Normalizamos el nombre antes de validar y de guardar. Esto es lo que el
+        // backend usará luego para hacer match exacto al momento de descontar inventario.
+        const nombreNormalizado = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+        const existe = await db.query('SELECT id FROM catalogo_ingredientes WHERE clasificacion_id = $1 AND LOWER(TRIM(nombre)) = LOWER(TRIM($2))', [clasificacion_id, nombreNormalizado]);
+        if (existe.rows.length > 0) return res.status(400).json({ error: `El ingrediente "${nombre}" ya está registrado en esta clasificación.` });
+        const pExtra = permite_extra !== undefined ? permite_extra : true;
+        const insertado = await db.query("INSERT INTO catalogo_ingredientes (clasificacion_id, nombre, tipo, precio_extra, permite_extra) VALUES ($1, $2, $3, $4, $5) RETURNING *", [clasificacion_id, nombreNormalizado, tipo, precio_extra || 0, pExtra]);
+        res.status(201).json(insertado.rows[0]);
+    } catch (e) { res.status(500).json({error: 'Error al crear el ingrediente'}); }
 };
 
 exports.actualizarIngrediente = async (req, res) => {
-  const { id } = req.params; const { nombre, tipo, precio_extra, permite_extra } = req.body;
-  try {
-    const existe = await db.query('SELECT id FROM catalogo_ingredientes WHERE clasificacion_id = (SELECT clasificacion_id FROM catalogo_ingredientes WHERE id = $1) AND LOWER(TRIM(nombre)) = LOWER(TRIM($2)) AND id != $1', [id, nombre]);
-    if (existe.rows.length > 0) return res.status(400).json({ error: `Ya existe otro ingrediente llamado "${nombre}".` });
-    const pExtra = permite_extra !== undefined ? permite_extra : true;
-    const actualizado = await db.query("UPDATE catalogo_ingredientes SET nombre = $1, tipo = $2, precio_extra = $3, permite_extra = $4 WHERE id = $5 RETURNING *", [nombre, tipo, precio_extra || 0, pExtra, id]);
-    res.json(actualizado.rows[0]);
-  } catch (e) { res.status(500).json({error: 'Error al actualizar'}); }
+    const { id } = req.params; const { nombre, tipo, precio_extra, permite_extra } = req.body;
+    try {
+        // 👇 MISMO FIX: Normalización consistente al editar un ingrediente existente.
+        const nombreNormalizado = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+        const existe = await db.query('SELECT id FROM catalogo_ingredientes WHERE clasificacion_id = (SELECT clasificacion_id FROM catalogo_ingredientes WHERE id = $1) AND LOWER(TRIM(nombre)) = LOWER(TRIM($2)) AND id != $1', [id, nombreNormalizado]);
+        if (existe.rows.length > 0) return res.status(400).json({ error: `Ya existe otro ingrediente llamado "${nombre}".` });
+        const pExtra = permite_extra !== undefined ? permite_extra : true;
+        const actualizado = await db.query("UPDATE catalogo_ingredientes SET nombre = $1, tipo = $2, precio_extra = $3, permite_extra = $4 WHERE id = $5 RETURNING *", [nombreNormalizado, tipo, precio_extra || 0, pExtra, id]);
+        res.json(actualizado.rows[0]);
+    } catch (e) { res.status(500).json({error: 'Error al actualizar'}); }
 };
 
 exports.eliminarIngrediente = async (req, res) => {

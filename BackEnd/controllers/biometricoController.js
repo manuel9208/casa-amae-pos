@@ -8,6 +8,23 @@ exports.handshake = async (req, res) => {
 // 2. Recepción: El checador manda las huellas en texto plano, no en JSON.
 exports.recibirDatos = async (req, res) => {
   try {
+
+    // 👇 NUEVO: Interruptor Dinámico. Si ZKTeco no está activo en el panel, ignoramos el proceso silenciosamente.
+    const confAsist = await db.query('SELECT tipo_registro FROM configuracion_asistencia WHERE id = 1');
+    if (confAsist.rows.length === 0) return res.status(200).send("OK: 0");
+
+    let metodosActivos = [];
+    try {
+        metodosActivos = typeof confAsist.rows[0].tipo_registro === 'string' 
+            ? JSON.parse(confAsist.rows[0].tipo_registro) 
+            : confAsist.rows[0].tipo_registro;
+    } catch(e) { metodosActivos = []; }
+
+    if (!Array.isArray(metodosActivos) || !metodosActivos.includes('zkteco')) {
+        return res.status(200).send("OK: 0"); // Respondemos OK para que el checador no se bloquee ni marque error de red.
+    }
+    // ☝️ FIN DEL INTERRUPTOR
+
     const rawData = req.body;
     if (!rawData || typeof rawData !== 'string') {
       return res.status(200).send("OK: 0");

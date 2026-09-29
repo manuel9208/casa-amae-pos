@@ -8,7 +8,6 @@ import CostosEnvio from './configuracion/CostosEnvio';
 import NotificacionesWA from './configuracion/NotificacionesWA';
 import GestorSeguridad from './configuracion/GestorSeguridad';
 import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
-import GestorAsistencias from './configuracion/GestorAsistencias';
 import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';
 import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';
 import GestorCorreos from './configuracion/GestorCorreos';  
@@ -169,7 +168,6 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       <h2 className="text-3xl font-black mb-6 text-slate-800">Configuración del Restaurante</h2>
       <form onSubmit={guardarConfiguracion} className="bg-white p-4 md:p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8">
         <MarcaIdentidad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} logoBlob={logoBlob} setLogoBlob={setLogoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} />
-        <GestorAsistencias configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <GestorSeguridad configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <GestorPoliticasVenta configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <GestorComedorPersonal configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />

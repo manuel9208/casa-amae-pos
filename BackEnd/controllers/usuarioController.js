@@ -248,6 +248,7 @@ exports.registrarAsistencia = async (req, res) => {
 
     const usuario = usuarioRes.rows[0];
 
+    // Buscamos si ya tiene un registro HOY
     const turnoHoy = await db.query(
       'SELECT id, hora_entrada, hora_salida FROM registro_asistencias WHERE usuario_id = $1 AND fecha = CURRENT_DATE',
       [usuario.id]
@@ -255,19 +256,27 @@ exports.registrarAsistencia = async (req, res) => {
 
     if (tipo === 'Entrada') {
       if (turnoHoy.rows.length === 0) {
+        // REGLA 1: No existe, inserta la entrada
         await db.query(
           'INSERT INTO registro_asistencias (usuario_id, hora_entrada, fecha) VALUES ($1, CURRENT_TIMESTAMP, CURRENT_DATE)',
           [usuario.id]
         );
         return res.json({ success: true, mensaje: `¡Entrada registrada con éxito para ${usuario.nombre}!` });
       } else {
+        // REGLA 1 (Excepción): Ya existe entrada, NO la actualizamos para conservar la más temprana
         return res.json({ success: true, mensaje: `¡Tu entrada ya estaba registrada, ${usuario.nombre}!` });
       }
 
     } else if (tipo === 'Salida') {
       if (turnoHoy.rows.length === 0) {
-        return res.status(400).json({ error: `¡${usuario.nombre}, debes registrar tu entrada primero!` });
+        // REGLA 2 (Excepción): No existe entrada previa, creamos el registro SOLO con salida
+        await db.query(
+          'INSERT INTO registro_asistencias (usuario_id, hora_salida, fecha) VALUES ($1, CURRENT_TIMESTAMP, CURRENT_DATE)',
+          [usuario.id]
+        );
+        return res.json({ success: true, mensaje: `¡Salida registrada (sin entrada) para ${usuario.nombre}!` });
       } else {
+        // REGLA 2: Actualiza salida normal
         await db.query(
           'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE id = $1',
           [turnoHoy.rows[0].id]
@@ -279,5 +288,88 @@ exports.registrarAsistencia = async (req, res) => {
   } catch (error) {
     console.error("Error en asistencia:", error);
     res.status(500).json({ error: 'Error al procesar la asistencia en el servidor.' });
+  }
+};
+
+// 👇 NUEVA FUNCIÓN: CEREBRO DEL "TAP & GO" POR NFC
+exports.registrarAsistenciaNFC = async (req, res) => {
+  const { nfc_uid, dispositivo_id } = req.body;
+
+  if (!nfc_uid) {
+    return res.status(400).json({ error: 'No se detectó el chip NFC.' });
+  }
+
+  try {
+    // 1. Soft Migration: Aseguramos que la columna exista en la BD para guardar las tarjetas
+    await db.query('ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nfc_uid VARCHAR(100) UNIQUE');
+
+    // 2. Buscamos al dueño de este Gafete/Pulsera NFC
+    const usuarioRes = await db.query('SELECT id, nombre, rol FROM usuarios WHERE nfc_uid = $1', [nfc_uid]);
+    
+    if (usuarioRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Gafete no reconocido. Debe ser vinculado a un empleado primero.' });
+    }
+
+    const usuario = usuarioRes.rows[0];
+
+    // 3. Regla de Oro: Buscamos si ya tiene un registro HOY
+    const turnoHoy = await db.query(
+      'SELECT id, hora_entrada, hora_salida FROM registro_asistencias WHERE usuario_id = $1 AND fecha = CURRENT_DATE',
+      [usuario.id]
+    );
+
+    if (turnoHoy.rows.length === 0) {
+      // PRIMER TAP DEL DÍA: Registra la Entrada
+      await db.query(
+        'INSERT INTO registro_asistencias (usuario_id, hora_entrada, fecha) VALUES ($1, CURRENT_TIMESTAMP, CURRENT_DATE)',
+        [usuario.id]
+      );
+      return res.json({ success: true, mensaje: `¡Entrada registrada, ${usuario.nombre}! Bienvenido.` });
+    } else {
+      // SEGUNDO TAP (O POSTERIORES): Actualiza la Salida
+      await db.query(
+        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE id = $1',
+        [turnoHoy.rows[0].id]
+      );
+      return res.json({ success: true, mensaje: `¡Salida registrada, ${usuario.nombre}! Hasta pronto.` });
+    }
+  } catch (error) {
+    console.error("Error en asistencia NFC:", error);
+    res.status(500).json({ error: 'Error al procesar el gafete NFC en el servidor.' });
+  }
+};
+
+// 👇 NUEVA FUNCIÓN: Obtener lista de empleados con tarjeta NFC vinculada
+exports.obtenerNFCVinculados = async (req, res) => {
+  try {
+    await db.query('ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS nfc_uid VARCHAR(100) UNIQUE');
+    const result = await db.query(`
+      SELECT id AS usuario_id, nombre, rol, nfc_uid
+      FROM usuarios
+      WHERE nfc_uid IS NOT NULL AND nfc_uid != ''
+      ORDER BY nombre ASC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error al obtener NFCs vinculados:", error);
+    res.status(500).json({ error: 'Error al consultar la lista de gafetes NFC.' });
+  }
+};
+
+// 👇 NUEVA FUNCIÓN: Remover el vínculo NFC de un empleado
+exports.desvincularGafeteNFC = async (req, res) => {
+  const { id } = req.params; // id del usuario
+  try {
+    await db.query('UPDATE usuarios SET nfc_uid = NULL WHERE id = $1', [id]);
+
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('usuario_actualizado', { id: parseInt(id) });
+    }
+
+    res.json({ success: true, message: 'Gafete NFC desvinculado correctamente.' });
+  } catch (error) {
+    console.error("Error al desvincular NFC:", error);
+    res.status(500).json({ error: 'Error al desvincular el gafete NFC.' });
   }
 };

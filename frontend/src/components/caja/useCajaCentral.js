@@ -69,7 +69,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const cargarDataDinamica = useCallback(async () => {
     try {
       const t = new Date().getTime();
-      const [ resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu, resCortes ] = await Promise.all([
+      const [ resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu, resCortes, resConfig ] = await Promise.all([
         fetch(`${apiUrl}/pedidos/hoy?t=${t}`),
         fetch(`${apiUrl}/mesas?t=${t}`),
         fetch(`${apiUrl}/insumos?t=${t}`),
@@ -78,7 +78,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         fetch(`${apiUrl}/clasificaciones?t=${t}`),
         fetch(`${apiUrl}/ingredientes?t=${t}`),
         fetch(`${apiUrl}/usuarios?t=${t}`),
-        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true`) 
+        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true`),
+        fetch(`${apiUrl}/configuracion?t=${t}`)
       ]);
 
       const dataPed = await resPed.json();
@@ -92,6 +93,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
       const dataGastos = await resGastos.json();
       setGastosDia(Array.isArray(dataGastos) ? dataGastos : []);
+
+      if (resConfig && resConfig.ok) {
+          const dataConfig = await resConfig.json();
+          setConfigGlobal(dataConfig);
+      }
 
       const estaDisponiblePorHorario = (item) => {
         if (item.disponible === false || item.disponible === 'false' || item.disponible === 0) return false;
@@ -546,26 +552,41 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, cajero_id: operadorActual?.id };
-      if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
+        const payload = { estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, cajero_id: operadorActual?.id };
+        if (pagosMixtos) payload.pagos_mixtos = pagosMixtos;
 
-      if (puntosUsados > 0) {
-          payload.descuento_puntos = puntosUsados;
-          payload.cliente_id = ordenCobrada.cliente_id;
-          fetch(`${apiUrl}/pedidos/${ordenCobrada.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                  descuento_puntos: puntosUsados, 
-                  cliente_id: ordenCobrada.cliente_id,
-                  metodo_pago: metodoPagoFinal
-              })
-          }).catch(()=>{});
-      }
+        if (puntosUsados > 0) {
+            payload.descuento_puntos = puntosUsados;
+            payload.cliente_id = ordenCobrada.cliente_id;
+            fetch(`${apiUrl}/pedidos/${ordenCobrada.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    descuento_puntos: puntosUsados,
+                    cliente_id: ordenCobrada.cliente_id,
+                    metodo_pago: metodoPagoFinal
+                })
+            }).catch(() => {
+                // 👇 FIX: Avisamos si falla el descuento de puntos, aunque el cobro principal continúe
+                mostrarAlertaCaja('Atención', 'El cobro se realizó, pero no se pudo descontar los puntos del cliente. Revísalo manualmente.', 'error');
+            });
+        }
 
-      fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
+        fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Respuesta no exitosa del servidor');
+        })
+        .catch(() => {
+            // 👇 FIX RAÍZ: Este es el caso más importante — si el cobro no llegó al servidor,
+            // el cajero DEBE saberlo de inmediato, en vez de ver la UI como si todo hubiera salido bien.
+            mostrarAlertaCaja(
+                'Sin Conexión con el Servidor',
+                `No se pudo confirmar el cobro de la orden #${ordenCobrada.numero_pedido} en el servidor. Verifica tu conexión a internet y revisa esta orden en "Todas las Comandas".`,
+                'error'
+            );
+        });
 
       // Impresión Inmediata
       const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(ordenCobrada.estado_preparacion);
@@ -636,13 +657,24 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      let payload = { estado_preparacion: estadoSeguro, ...extraData };
-      if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
-        payload.metodo_pago = 'Por Cobrar';
-      }
-      fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      }).catch(console.error);
+        let payload = { estado_preparacion: estadoSeguro, ...extraData };
+        if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
+            payload.metodo_pago = 'Por Cobrar';
+        }
+        fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Respuesta no exitosa');
+        })
+        .catch(() => {
+            // 👇 FIX: Avisa al cajero si un cambio de estado (aceptar, cancelar, entregar) no se guardó
+            mostrarAlertaCaja(
+                'Sin Conexión con el Servidor',
+                `El cambio de estado a "${estadoSeguro}" no se guardó en el servidor. Verifica tu conexión.`,
+                'error'
+            );
+        });
     } catch (error) {}
   };
 
@@ -662,10 +694,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      fetch(`${apiUrl}/pedidos/${id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
-      }).catch(console.error);  
+        fetch(`${apiUrl}/pedidos/${id}/estado`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Respuesta no exitosa');
+        })
+        .catch(() => {
+            mostrarAlertaCaja('Sin Conexión con el Servidor', `No se pudo confirmar la orden #${id}. Cocina podría no recibir el aviso. Verifica tu conexión.`, 'error');
+        });
     } catch (error) {}
   };
 
@@ -688,10 +726,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
-      }).catch(console.error);  
+        fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('Respuesta no exitosa');
+        })
+        .catch(() => {
+            mostrarAlertaCaja('Sin Conexión con el Servidor', `No se pudo asignar la zona de envío de la orden #${pedidoModificado.numero_pedido}. Verifica tu conexión.`, 'error');
+        });
     } catch (error) {}
   };
 

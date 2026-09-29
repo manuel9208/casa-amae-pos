@@ -143,9 +143,45 @@ exports.crearPedido = async (req, res) => {
 
                 if (!pId || isNaN(parseInt(pId))) continue;  
 
+                // 👇 FIX MÁSTER: Detección exacta leyendo el Ticket visual y los Grupos no seleccionados
+                const ingredientesOmitidos = [];
+                
+                // 1. Omitidos visualmente (Botón "Sin ..." o Sustitución explícita)
+                (item.extras || []).forEach(ex => {
+                    if (ex.tipo === 'base' && String(ex.nombre).startsWith('Sin ')) {
+                        // 👇 FIX: Colapsamos espacios dobles además de bajar a minúsculas, para que
+                        // coincida siempre contra ibase.nombre sin importar cómo se haya escrito.
+                        ingredientesOmitidos.push(String(ex.nombre).replace('Sin ', '').trim().replace(/\s+/g, ' ').toLowerCase());
+                    } else if (ex.tipo === 'sustitucion' && String(ex.nombre).includes(' x ')) {
+                        const parts = String(ex.nombre).replace('🔄 Cambio: ', '').split(' x ');
+                        if (parts.length === 2) {
+                            ingredientesOmitidos.push(parts[0].trim().replace(/\s+/g, ' ').toLowerCase());
+                        }
+                    }
+                });
+
+                // 2. Omitidos por Grupos (Si el ingrediente está en un grupo, pero NO fue seleccionado, se ignora del inventario)
+                const opcionesGrupos = (item.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' || o.tipo === 'grupo_opcional');
+                
+                opcionesGrupos.forEach(opt => {
+                    const nombreOpcionLimpio = String(opt.nombre).trim().toLowerCase();
+                    
+                    // Verificamos si el cliente SÍ eligió esta opción (revisando los extras del ticket)
+                    const fueSeleccionada = (item.extras || []).some(ex => {
+                        const isGroupType = ex.tipo === 'grupo_obligatorio' || ex.tipo === 'grupo_opcional';
+                        return isGroupType && String(ex.nombre).toLowerCase().includes(nombreOpcionLimpio);
+                    });
+                    
+                    // Si la opción existe en el grupo pero NO fue seleccionada por el cliente, la agregamos a omitidos
+                    if (!fueSeleccionada) {
+                        ingredientesOmitidos.push(nombreOpcionLimpio);
+                    }
+                });
+
                 const nombresVariaciones = (item.extras || [])
                     .filter(e => e.tipo === 'variacion')
-                    .map(e => String(e.nombre).trim().toLowerCase());  
+                    .map(e => String(e.nombre).trim().toLowerCase()); 
+                const arrayVariacionesGlobal = nombresVariaciones.length > 0 ? nombresVariaciones : [null]; 
 
                 const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);  
 
@@ -162,21 +198,35 @@ exports.crearPedido = async (req, res) => {
                         if (lotesADescontar > 0) {
                             const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
                             
-                            // 👇 QUERY PLATILLOS CON MÚLTIPLES RESPALDOS
+                            // 👇 QUERY PLATILLOS CON MÚLTIPLES RESPALDOS Y EMPAQUES INTELIGENTES
+                            const esParaLlevar = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
+                            
                             const recursiveQueryPlatillo = `
                                 WITH RECURSIVE Explosion AS (
                                     SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
                                     FROM recetas r
+                                    LEFT JOIN insumos ibase ON r.insumo_id = ibase.id
                                     WHERE r.producto_id = $2
                                     AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                                    -- 👇 FIX MÁSTER: Evita el bug de Postgres al recibir arreglos vacíos o nulos
+                                    AND (
+                                        array_length($5::text[], 1) IS NULL 
+                                        OR ibase.nombre IS NULL 
+                                        OR NOT (REGEXP_REPLACE(LOWER(TRIM(ibase.nombre)), '\\s+', ' ', 'g') = ANY($5::text[]))
+                                    )
                                     UNION ALL
                                     SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
                                     FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
                                     WHERE e.sub_producto_id IS NOT NULL
                                 ),
                                 Requeridos AS (
-                                    SELECT insumo_id, SUM(qty_factor) as total_descontar 
-                                    FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                    SELECT e.insumo_id, SUM(e.qty_factor) as total_descontar 
+                                    FROM Explosion e
+                                    LEFT JOIN insumos i_check ON e.insumo_id = i_check.id
+                                    WHERE e.insumo_id IS NOT NULL 
+                                    -- 👇 REGLA MAGICA: Ignora empaques configurados solo para llevar si el pedido es Local
+                                    AND (i_check.descontar_solo_llevando = false OR (i_check.descontar_solo_llevando = true AND $4 = true))
+                                    GROUP BY e.insumo_id
                                 ),
                                 MapeoSustitutos AS (
                                     SELECT 
@@ -195,19 +245,64 @@ exports.crearPedido = async (req, res) => {
                                 UPDATE insumos i SET stock_actual = i.stock_actual - t.qty
                                 FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
                             `;
-                            await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones]);
+                            // 👇 FIX: Pasamos el arreglo limpio. Postgres lo manejará de forma segura
+                            const arrayOmitidos = ingredientesOmitidos.length > 0 ? ingredientesOmitidos : [];
+                            await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones, esParaLlevar, arrayOmitidos]);
                         }
                     }
 
                     // 👇 QUERY EXTRAS/EMPAQUES OBLIGATORIOS (Aplicando la misma regla de respaldos múltiples)
                     if (item.extras && item.extras.length > 0) {
                         for (const extra of item.extras) {
-                            if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
-                                const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
-                                const ingRes = await client.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
+                            if (['grupo_opcional', 'grupo_obligatorio', 'extra', 'sustitucion'].includes(extra.tipo)) {
+                                // Extraemos el nombre real del ingrediente según el formato visual
+                                let nombreExtraLimpio = '';
+                                if (extra.tipo === 'sustitucion') {
+                                    nombreExtraLimpio = extra.nombre.split(' x ')[1]?.trim(); // "🔄 Cambio: Cebolla x Tomate" -> "Tomate"
+                                } else if (extra.tipo === 'extra') {
+                                    // 👇 FIX: El frontend actual genera "[Agregado] Nombre", no "🔸 Nombre".
+                                    // Mantenemos ambos .replace() por compatibilidad retroactiva con pedidos antiguos ya guardados.
+                                    nombreExtraLimpio = extra.nombre.replace('[Agregado] ', '').replace('🔸 ', '').replace('Extra ', '').trim();
+                                } else if (extra.nombre.includes(': ')) {
+                                    nombreExtraLimpio = extra.nombre.split(': ')[1].trim(); // "🔹 Leches: Entera" -> "Entera"
+                                } else {
+                                    nombreExtraLimpio = extra.nombre.trim();
+                                }
+
+                                if (!nombreExtraLimpio) continue;
+
+                                // 👇 FIX DEFINITIVO: En vez de confiar en "isDefault" (que es solo la preselección visual
+                                // del kiosco y puede NO coincidir con el insumo que el admin hardcodeó en la receta física),
+                                // consultamos directamente si este insumo específico ya está en la receta del producto/tamaño.
+                                if (extra.tipo === 'grupo_obligatorio' || extra.tipo === 'grupo_opcional') {
+                                    const yaEnRecetaBase = await client.query(
+                                        `SELECT 1 FROM recetas r
+                                        JOIN insumos i2 ON r.insumo_id = i2.id
+                                        WHERE r.producto_id = $1
+                                        AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($2::text[]))
+                                        AND LOWER(TRIM(i2.nombre)) = LOWER(TRIM($3))
+                                        LIMIT 1`,
+                                        [pId, arrayVariacionesGlobal, nombreExtraLimpio]
+                                    );
+                                    if (yaEnRecetaBase.rows.length > 0) {
+                                        continue; // Este insumo ya se descontó vía la receta base/tamaño. Evita doble descuento.
+                                    }
+                                }
+
+                                // 👇 FIX MÁSTER: Búsqueda insensible a mayúsculas/minúsculas
+                                const ingRes = await client.query(
+                                    `SELECT ci.id FROM catalogo_ingredientes ci
+                                    JOIN clasificaciones c ON ci.clasificacion_id = c.id
+                                    WHERE LOWER(TRIM(ci.nombre)) = LOWER(TRIM($1))
+                                    AND LOWER(TRIM(c.nombre)) = LOWER(TRIM($2))
+                                    LIMIT 1`,
+                                    [nombreExtraLimpio, item.categoria]
+                                );
                                 
                                 if (ingRes.rows.length > 0) {
                                     const ingredienteId = ingRes.rows[0].id;
+                                    
+                                    const esParaLlevarExtra = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
                                     
                                     const recursiveQueryExtra = `
                                         WITH RECURSIVE Explosion AS (
@@ -219,8 +314,12 @@ exports.crearPedido = async (req, res) => {
                                             WHERE e.sub_producto_id IS NOT NULL
                                         ),
                                         Requeridos AS (
-                                            SELECT insumo_id, SUM(qty_factor) as total_descontar 
-                                            FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+                                            SELECT e.insumo_id, SUM(e.qty_factor) as total_descontar 
+                                            FROM Explosion e
+                                            LEFT JOIN insumos i_check ON e.insumo_id = i_check.id
+                                            WHERE e.insumo_id IS NOT NULL 
+                                            AND (i_check.descontar_solo_llevando = false OR (i_check.descontar_solo_llevando = true AND $3 = true))
+                                            GROUP BY e.insumo_id
                                         ),
                                         MapeoSustitutos AS (
                                             SELECT 
@@ -237,10 +336,49 @@ exports.crearPedido = async (req, res) => {
                                         )
                                         UPDATE insumos i SET stock_actual = i.stock_actual - t.qty FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
                                     `;
-                                    await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId]);
+                                    await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId, esParaLlevarExtra]);
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // 👇 NUEVO MOTOR: DESCUENTO DE EMPAQUES GLOBALES (Portavasos, Bolsas, etc)
+        if (carrito && carrito.length > 0) {
+            const esParaLlevarGlobal = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
+            
+            const empaquesGlobalesRes = await client.query(`
+                SELECT id, regla_empaque_global, stock_actual, insumos_sustitutos 
+                FROM insumos 
+                WHERE es_empaque_global = true AND (descontar_solo_llevando = false OR (descontar_solo_llevando = true AND $1 = true))
+            `, [esParaLlevarGlobal]);
+
+            for (const empG of empaquesGlobalesRes.rows) {
+                const regla = typeof empG.regla_empaque_global === 'string' ? JSON.parse(empG.regla_empaque_global) : (empG.regla_empaque_global || {});
+                const categoriasAplicables = regla.categorias_aplicables || [];
+                const divisor = Number(regla.regla_divisor) || 1;
+
+                if (categoriasAplicables.length > 0) {
+                    // Contamos cuántos artículos del carrito aplican para esta regla
+                    let itemsAplicables = 0;
+                    for (const item of carrito) {
+                        if (categoriasAplicables.includes(item.categoria)) {
+                            itemsAplicables += (parseInt(item.cantidad) || 1);
+                        }
+                    }
+
+                    if (itemsAplicables > 0) {
+                        // Matemática perfecta: 5 cafés / capacidad de 4 = 1.25 -> 2 portavasos
+                        const piezasADescontar = Math.ceil(itemsAplicables / divisor);
+                        
+                        let targetId = empG.id;
+                        if (empG.stock_actual <= 0 && empG.insumos_sustitutos && empG.insumos_sustitutos.length > 0) {
+                            targetId = empG.insumos_sustitutos[0]; // Toma el primer respaldo
+                        }
+
+                        await client.query('UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2', [piezasADescontar, targetId]);
                     }
                 }
             }
@@ -460,11 +598,36 @@ exports.actualizarEstado = async (req, res) => {
 
                     if (!pId || isNaN(parseInt(pId))) continue;
 
-                    // Extraemos las variaciones que el cliente había elegido
+                                        // Extraemos las variaciones que el cliente había elegido
                     const nombresVariaciones = (item.extras || [])
                         .filter(e => e.tipo === 'variacion')
                         .map(e => String(e.nombre).trim().toLowerCase());
                     const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+
+                    // 👇 FIX NUEVO: Reconstruimos la misma lista de "ingredientesOmitidos" calculada al crear
+                    // el pedido. Sin esto, al cancelar se devolvía stock de insumos que el cliente había quitado
+                    // (ej. "Sin Queso") y que por lo tanto NUNCA se habían descontado (fuga de inventario/stock fantasma).
+                    const ingredientesOmitidosRestaurar = [];
+                    (item.extras || []).forEach(ex => {
+                        if (ex.tipo === 'base' && String(ex.nombre).startsWith('Sin ')) {
+                            ingredientesOmitidosRestaurar.push(String(ex.nombre).replace('Sin ', '').trim().replace(/\s+/g, ' ').toLowerCase());
+                        } else if (ex.tipo === 'sustitucion' && String(ex.nombre).includes(' x ')) {
+                            const parts = String(ex.nombre).replace('🔄 Cambio: ', '').split(' x ');
+                            if (parts.length === 2) {
+                                ingredientesOmitidosRestaurar.push(parts[0].trim().replace(/\s+/g, ' ').toLowerCase());
+                            }
+                        }
+                    });
+                    const opcionesGruposRestaurar = (item.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' || o.tipo === 'grupo_opcional');
+                    opcionesGruposRestaurar.forEach(opt => {
+                        const nombreOpcionLimpio = String(opt.nombre).trim().toLowerCase();
+                        const fueSeleccionada = (item.extras || []).some(ex => {
+                            const isGroupType = ex.tipo === 'grupo_obligatorio' || ex.tipo === 'grupo_opcional';
+                            return isGroupType && String(ex.nombre).toLowerCase().includes(nombreOpcionLimpio);
+                        });
+                        if (!fueSeleccionada) ingredientesOmitidosRestaurar.push(nombreOpcionLimpio);
+                    });
+                    const arrayOmitidosRestaurar = ingredientesOmitidosRestaurar.length > 0 ? ingredientesOmitidosRestaurar : [];
 
                     // Procesamos la devolución del Platillo Base y Sabores
                     const prodRes = await db.query('SELECT usa_stock, rendimiento FROM productos WHERE id = $1', [pId]);
@@ -482,8 +645,15 @@ exports.actualizarEstado = async (req, res) => {
                                 WITH RECURSIVE Explosion AS (
                                     SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
                                     FROM recetas r 
+                                    LEFT JOIN insumos ibase ON r.insumo_id = ibase.id
                                     WHERE r.producto_id = $2 
                                     AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                                    -- 👇 FIX: Misma exclusión usada al crear el pedido, para no devolver lo que nunca se descontó
+                                    AND (
+                                        array_length($4::text[], 1) IS NULL 
+                                        OR ibase.nombre IS NULL 
+                                        OR NOT (REGEXP_REPLACE(LOWER(TRIM(ibase.nombre)), '\\s+', ' ', 'g') = ANY($4::text[]))
+                                    )
                                     UNION ALL
                                     SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
                                     FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
@@ -493,17 +663,57 @@ exports.actualizarEstado = async (req, res) => {
                                     SELECT insumo_id, SUM(qty_factor) as total_devolver FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
                                 ) calc WHERE insumos.id = calc.insumo_id;
                             `;
-                            await db.query(recursiveQueryPlatillo, [factorDevolucion, pId, arrayVariaciones]);
+                            await db.query(recursiveQueryPlatillo, [factorDevolucion, pId, arrayVariaciones, arrayOmitidosRestaurar]);
                         }
                     }
 
                     // Procesamos la devolución de los Extras
                     if (item.extras && item.extras.length > 0) {
                         for (const extra of item.extras) {
-                            if (extra.tipo === 'grupo_opcional' || extra.tipo === 'grupo_obligatorio') {
-                                const nombreExtraLimpio = extra.nombre.includes(': ') ? extra.nombre.split(': ')[1].trim() : extra.nombre.trim();
-                                const ingRes = await db.query('SELECT id FROM catalogo_ingredientes WHERE nombre = $1 LIMIT 1', [nombreExtraLimpio]);
-                                
+                            // 👇 FIX: Ahora también revertimos 'extra' (Agregados: Extra Queso, Boba) y 'sustitucion' (Cambios de ingrediente).
+                            // Antes solo se revertían grupo_opcional/grupo_obligatorio, dejando fuga de inventario en cancelaciones.
+                            if (['grupo_opcional', 'grupo_obligatorio', 'extra', 'sustitucion'].includes(extra.tipo)) {
+                                let nombreExtraLimpio = '';
+                                if (extra.tipo === 'sustitucion') {
+                                    nombreExtraLimpio = extra.nombre.split(' x ')[1]?.trim();
+                                } else if (extra.tipo === 'extra') {
+                                    nombreExtraLimpio = extra.nombre.replace('[Agregado] ', '').replace('🔸 ', '').replace('Extra ', '').trim();
+                                } else if (extra.nombre.includes(': ')) {
+                                    nombreExtraLimpio = extra.nombre.split(': ')[1].trim();
+                                } else {
+                                    nombreExtraLimpio = extra.nombre.trim();
+                                }
+
+                                if (!nombreExtraLimpio) continue;
+
+                                // Mismo fix anti-doble-descuento en reversa: si la opción era la "isDefault",
+                                // nunca se descontó por este motor, así que tampoco debe devolverse aquí.
+                                if (extra.tipo === 'grupo_obligatorio' || extra.tipo === 'grupo_opcional') {
+                                    const yaEnRecetaBase = await db.query(
+                                        `SELECT 1 FROM recetas r
+                                        JOIN insumos i2 ON r.insumo_id = i2.id
+                                        WHERE r.producto_id = $1
+                                        AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($2::text[]))
+                                        AND LOWER(TRIM(i2.nombre)) = LOWER(TRIM($3))
+                                        LIMIT 1`,
+                                        [pId, arrayVariaciones, nombreExtraLimpio]
+                                    );
+                                    if (yaEnRecetaBase.rows.length > 0) {
+                                        continue; // Nunca se descontó por este motor, no debe devolverse aquí.
+                                    }
+                                }
+
+                                // 👇 FIX: Igual que en crearPedido, filtramos también por Clasificación para
+                                // evitar colisión entre ingredientes homónimos de distintas categorías.
+                                const ingRes = await db.query(
+                                    `SELECT ci.id FROM catalogo_ingredientes ci
+                                    JOIN clasificaciones c ON ci.clasificacion_id = c.id
+                                    WHERE LOWER(TRIM(ci.nombre)) = LOWER(TRIM($1))
+                                    AND LOWER(TRIM(c.nombre)) = LOWER(TRIM($2))
+                                    LIMIT 1`,
+                                    [nombreExtraLimpio, item.categoria]
+                                );
+
                                 if (ingRes.rows.length > 0) {
                                     const ingredienteId = ingRes.rows[0].id;
                                     const recursiveQueryExtra = `

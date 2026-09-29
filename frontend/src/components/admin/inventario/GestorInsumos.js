@@ -5,12 +5,16 @@ import {
   X, CheckCircle2, CopyPlus // 👈 Cambiamos el ícono para indicar elementos múltiples
 } from 'lucide-react';
 
-const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
+const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [nuevoInsumo, setNuevoInsumo] = useState({
     nombre: '', unidad_medida: 'KL', cantidad_presentacion: '',
     costo_presentacion: '', es_empaque: false, tipo_rendimiento: 'Directo',
     peso_prueba_crudo: '', peso_prueba_limpio: '',
-    insumos_sustitutos: [] // 👈 NUEVO: Estado para múltiples respaldos (Array)
+    insumos_sustitutos: [],
+    // 👇 NUEVAS REGLAS DE EMPAQUE
+    descontar_solo_llevando: false,
+    es_empaque_global: false,
+    regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] }
   });
   const [unidadPrueba, setUnidadPrueba] = useState('GR');
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
@@ -89,7 +93,11 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
       tipo_rendimiento: insumo.tipo_rendimiento || 'Directo',
       peso_prueba_crudo: insumo.peso_prueba_crudo || '',
       peso_prueba_limpio: insumo.peso_prueba_limpio || '',
-      insumos_sustitutos: Array.isArray(insumo.insumos_sustitutos) ? insumo.insumos_sustitutos : [] // 👈 Aseguramos que cargue como Array
+      insumos_sustitutos: Array.isArray(insumo.insumos_sustitutos) ? insumo.insumos_sustitutos : [],
+      // 👇 CARGAR REGLAS DE EMPAQUE AL EDITAR
+      descontar_solo_llevando: insumo.descontar_solo_llevando || false,
+      es_empaque_global: insumo.es_empaque_global || false,
+      regla_empaque_global: insumo.regla_empaque_global || { regla_divisor: 1, categorias_aplicables: [] }
     });
     setUnidadPrueba(insumo.unidad_medida === 'KL' ? 'GR' : (insumo.unidad_medida === 'LT' ? 'ML' : insumo.unidad_medida));
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -100,7 +108,8 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
     setNuevoInsumo({ 
       nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', 
       costo_presentacion: '', es_empaque: false, tipo_rendimiento: 'Directo', 
-      peso_prueba_crudo: '', peso_prueba_limpio: '', insumos_sustitutos: [] // 👈 Limpiamos el array
+      peso_prueba_crudo: '', peso_prueba_limpio: '', insumos_sustitutos: [],
+      descontar_solo_llevando: false, es_empaque_global: false, regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] }
     });
   };
 
@@ -303,58 +312,113 @@ const GestorInsumos = ({ insumosDB, apiUrl, refrescarDatos, showAlert, showConfi
           </div>
         </div>  
         
-        {/* 👇 SECCIÓN DE EMPAQUE (CON MULTIPLES CHECKBOXES DE RESPALDO) */}
-        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-4 flex flex-col lg:flex-row gap-4 lg:items-start">
-          <div className="lg:w-1/3">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input 
-                type="checkbox" 
-                checked={nuevoInsumo.es_empaque} 
-                onChange={e => {
-                  const isChecked = e.target.checked;
-                  setNuevoInsumo({
-                    ...nuevoInsumo, 
-                    es_empaque: isChecked, 
-                    insumos_sustitutos: isChecked ? (nuevoInsumo.insumos_sustitutos || []) : [] 
-                  });
-                }} 
-                className="w-5 h-5 accent-indigo-600" 
-              />
-              <span className="font-black text-indigo-800 flex items-center gap-2"><Box size={18}/> ¿Es un Empaque / Desechable?</span>
-            </label>
-            <p className="text-xs text-indigo-600/80 font-bold ml-8 mt-1">Márcalo si es un domo o vaso. Así aparecerá en las Recetas.</p>
+                {/* 👇 SECCIÓN DE EMPAQUE INTELIGENTE */}
+        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-4 flex flex-col gap-4">
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+            <div className="lg:w-1/3">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={nuevoInsumo.es_empaque} 
+                  onChange={e => {
+                    const isChecked = e.target.checked;
+                    setNuevoInsumo({
+                      ...nuevoInsumo, 
+                      es_empaque: isChecked, 
+                      insumos_sustitutos: isChecked ? (nuevoInsumo.insumos_sustitutos || []) : [],
+                      descontar_solo_llevando: isChecked ? nuevoInsumo.descontar_solo_llevando : false,
+                      es_empaque_global: isChecked ? nuevoInsumo.es_empaque_global : false
+                    });
+                  }} 
+                  className="w-5 h-5 accent-indigo-600" 
+                />
+                <span className="font-black text-indigo-800 flex items-center gap-2"><Box size={18}/> ¿Es Empaque / Desechable?</span>
+              </label>
+              <p className="text-[10px] text-indigo-600/80 font-bold ml-8 mt-1">Habilita configuraciones avanzadas de empaque.</p>
+            </div>
+
+            {nuevoInsumo.es_empaque && (
+              <div className="w-full lg:w-2/3 bg-white p-4 rounded-xl border border-indigo-200 shadow-sm animate-in fade-in flex gap-4 items-center">
+                {/* Switch: Llevar o Local */}
+                <label className="flex items-center cursor-pointer flex-1">
+                  <div className="relative">
+                    <input type="checkbox" className="sr-only" checked={nuevoInsumo.descontar_solo_llevando} onChange={e => setNuevoInsumo({...nuevoInsumo, descontar_solo_llevando: e.target.checked})} />
+                    <div className={`block w-10 h-6 rounded-full transition-colors ${nuevoInsumo.descontar_solo_llevando ? 'bg-indigo-500' : 'bg-slate-300'}`}></div>
+                    <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${nuevoInsumo.descontar_solo_llevando ? 'transform translate-x-4' : ''}`}></div>
+                  </div>
+                  <div className="ml-3">
+                    <div className="text-xs font-black text-slate-700 uppercase">Solo Para Llevar</div>
+                    <div className="text-[9px] font-bold text-slate-400">Si se apaga, se descuenta siempre.</div>
+                  </div>
+                </label>
+
+                <div className="w-px h-10 bg-slate-200 mx-2"></div>
+
+                {/* Switch: Global o por Receta */}
+                <label className="flex items-center cursor-pointer flex-1">
+                  <div className="relative">
+                    <input type="checkbox" className="sr-only" checked={nuevoInsumo.es_empaque_global} onChange={e => setNuevoInsumo({...nuevoInsumo, es_empaque_global: e.target.checked})} />
+                    <div className={`block w-10 h-6 rounded-full transition-colors ${nuevoInsumo.es_empaque_global ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                    <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${nuevoInsumo.es_empaque_global ? 'transform translate-x-4' : ''}`}></div>
+                  </div>
+                  <div className="ml-3">
+                    <div className="text-xs font-black text-slate-700 uppercase">Empaque Global</div>
+                    <div className="text-[9px] font-bold text-slate-400">Ej. Bolsas o Portavasos.</div>
+                  </div>
+                </label>
+              </div>
+            )}
           </div>
 
-          {/* 👇 Panel Dinámico que solo aparece si es Empaque */}
-          {nuevoInsumo.es_empaque && (
-            <div className="w-full lg:w-2/3 bg-white p-4 rounded-xl border border-indigo-200 shadow-sm animate-in fade-in slide-in-from-left-4">
-              <label className="block text-xs font-black text-indigo-600 uppercase mb-2 flex items-center gap-1">
-                <CopyPlus size={14}/> Selecciona los Respaldos (Múltiples)
-              </label>
-              <p className="text-[10px] text-slate-500 mb-3 font-bold leading-tight">
-                Si el stock llega a 0, el sistema descontará todos los empaques que marques aquí.
-              </p>
-              
-              <div className="max-h-36 overflow-y-auto border border-slate-100 rounded-lg p-2 bg-slate-50 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {listaEmpaquesParaRespaldo.length === 0 ? (
-                  <p className="text-xs text-slate-400 p-2 italic">No hay otros empaques registrados.</p>
-                ) : (
-                  listaEmpaquesParaRespaldo.map(emp => (
-                    <label key={emp.id} className={`flex items-center gap-2 text-xs font-bold p-2 rounded-md cursor-pointer transition border ${nuevoInsumo.insumos_sustitutos?.includes(emp.id) ? 'bg-indigo-100 border-indigo-300 text-indigo-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
-                      <input 
-                        type="checkbox" 
-                        className="accent-indigo-600 w-4 h-4"
-                        checked={nuevoInsumo.insumos_sustitutos?.includes(emp.id)} 
-                        onChange={() => toggleSustituto(emp.id)} 
-                      />
-                      <span className="truncate">{emp.nombre}</span>
-                    </label>
-                  ))
-                )}
+          {/* 👇 REGLAS GLOBALES (Aparecen si es_empaque_global es true) */}
+          {nuevoInsumo.es_empaque && nuevoInsumo.es_empaque_global && (
+            <div className="w-full bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-sm animate-in zoom-in-95">
+              <h5 className="text-xs font-black text-emerald-800 uppercase mb-3 flex items-center gap-1"><Package size={14}/> Reglas de Empaque Global</h5>
+              <div className="flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-sm font-bold text-slate-600">1 Empaque cubre hasta</span>
+                  <input type="number" min="1" value={nuevoInsumo.regla_empaque_global.regla_divisor || 1} onChange={e => setNuevoInsumo({...nuevoInsumo, regla_empaque_global: {...nuevoInsumo.regla_empaque_global, regla_divisor: Number(e.target.value)}})} className="w-16 p-2 rounded-lg border border-slate-300 text-center font-black outline-none focus:border-emerald-500" />
+                  <span className="text-sm font-bold text-slate-600">artículos de:</span>
+                </div>
+                
+                <div className="flex-1 w-full bg-white p-2 rounded-lg border border-slate-200 max-h-24 overflow-y-auto custom-scrollbar">
+                  <p className="text-[9px] font-black text-slate-400 mb-1 uppercase tracking-widest pl-1">Selecciona clasificaciones válidas</p>
+                  <div className="flex flex-wrap gap-2">
+                    {clasificaciones.length === 0 ? <span className="text-xs text-slate-400 p-1">No hay clasificaciones cargadas.</span> : clasificaciones.map((c, i) => (
+                      <label key={i} className={`text-[10px] font-bold px-2 py-1 rounded cursor-pointer transition border ${nuevoInsumo.regla_empaque_global.categorias_aplicables?.includes(c.nombre) ? 'bg-emerald-100 border-emerald-300 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-500'}`}>
+                        <input type="checkbox" className="hidden" checked={nuevoInsumo.regla_empaque_global.categorias_aplicables?.includes(c.nombre)} onChange={(e) => {
+                          const actuales = nuevoInsumo.regla_empaque_global.categorias_aplicables || [];
+                          let nuevas = actuales;
+                          if (e.target.checked) nuevas = [...actuales, c.nombre];
+                          else nuevas = actuales.filter(cat => cat !== c.nombre);
+                          setNuevoInsumo({...nuevoInsumo, regla_empaque_global: {...nuevoInsumo.regla_empaque_global, categorias_aplicables: nuevas}});
+                        }} />
+                        {c.nombre}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
-        </div>  
+
+          {/* RESPALDOS NORMALES */}
+          {nuevoInsumo.es_empaque && !nuevoInsumo.es_empaque_global && (
+            <div className="w-full bg-white p-4 rounded-xl border border-indigo-200 shadow-sm animate-in fade-in">
+              <label className="block text-xs font-black text-indigo-600 uppercase mb-2 flex items-center gap-1">
+                <CopyPlus size={14}/> Respaldos por falta de stock
+              </label>
+              <div className="max-h-24 overflow-y-auto border border-slate-100 rounded-lg p-2 bg-slate-50 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {listaEmpaquesParaRespaldo.map(emp => (
+                  <label key={emp.id} className={`flex items-center gap-2 text-xs font-bold p-2 rounded-md cursor-pointer transition border ${nuevoInsumo.insumos_sustitutos?.includes(emp.id) ? 'bg-indigo-100 border-indigo-300 text-indigo-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
+                    <input type="checkbox" className="accent-indigo-600 w-4 h-4" checked={nuevoInsumo.insumos_sustitutos?.includes(emp.id)} onChange={() => toggleSustituto(emp.id)} />
+                    <span className="truncate">{emp.nombre}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div> 
         
         {!nuevoInsumo.es_empaque && (
           <div className="mt-6 border-t border-slate-100 pt-6">

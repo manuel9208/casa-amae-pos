@@ -22,7 +22,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         pantalla_admin: false, pantalla_caja: true, pantalla_cocina: false, pantalla_repartidor: false,
         menu: false, inventario: false, catalogos: false, usuarios: false, configuracion: false, clientes: false, finanzas: false,
         corte_caja: true, cancelar_pedidos: false, compras_rapidas: false, promociones: false, mesas: false,
-        reportar_mermas: false, proveedores: false, distribucion: false // 👈 NUEVO PERMISO AGREGADO
+        reportar_mermas: false, proveedores: false, distribucion: false, asistencia: false
     });
 
     const plantillaVisible = usuariosDB.filter(u => {
@@ -81,7 +81,8 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
         if (nuevoRol === 'admin') {
             perms.pantalla_admin = true; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = true;
             perms.menu = true; perms.inventario = true; perms.catalogos = true; perms.promociones = true; perms.mesas = true;
-            perms.reportar_mermas = true; perms.proveedores = true; perms.distribucion = true; // 👈 NUEVO PERMISO AGREGADO
+            perms.reportar_mermas = true; perms.proveedores = true; perms.distribucion = true; perms.huellas = true;
+            perms.asistencia = true; 
         } else if (nuevoRol === 'gerente') {
             perms.pantalla_admin = false; perms.pantalla_caja = true; perms.pantalla_cocina = true; perms.pantalla_repartidor = false;
             perms.corte_caja = true; perms.cancelar_pedidos = true; perms.compras_rapidas = true; perms.reportar_mermas = true;
@@ -359,6 +360,12 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
                             </label>
                             <label className="flex items-center gap-3 text-sm font-black text-orange-800 cursor-pointer">
                                 <input type="checkbox" checked={uPermisos.huellas === true} onChange={e => setUPermisos({...uPermisos, huellas: e.target.checked})} className="accent-orange-500 w-5 h-5" /> Seguridad y Biometría
+                            </label>
+                            <label className="flex items-center gap-3 text-sm font-black text-emerald-800 cursor-pointer">
+                                <input type="checkbox" checked={uPermisos.asistencia === true} onChange={e => setUPermisos({...uPermisos, asistencia: e.target.checked})} className="accent-emerald-500 w-5 h-5" /> Asistencia GPS / IP
+                            </label>
+                            <label className="flex items-center gap-3 text-sm font-black text-purple-800 cursor-pointer">
+                                <input type="checkbox" checked={uPermisos.ia === true} onChange={e => setUPermisos({...uPermisos, ia: e.target.checked})} className="accent-purple-600 w-5 h-5" /> ✨ Acceso a Copiloto (AdminIA)
                             </label>
                         </div>
                     )}

@@ -44,12 +44,10 @@ const borrarDeCloudinary = async (urlVieja) => {
 
 exports.obtenerConfiguracion = async (req, res) => {
   try {
+    // 👇 AUTO-MIGRACIÓN: Se agregaron los DROP COLUMN para limpiar la tabla en la nube automáticamente
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
-      ADD COLUMN IF NOT EXISTS asistencia_pin_caja BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS asistencia_login BOOLEAN DEFAULT true,
-      ADD COLUMN IF NOT EXISTS asistencia_huella BOOLEAN DEFAULT false,
       ADD COLUMN IF NOT EXISTS politicas_sustitucion JSONB DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS calendario_anual JSONB DEFAULT '{}'::jsonb,
       ADD COLUMN IF NOT EXISTS limite_vacaciones_simultaneas INTEGER DEFAULT 2,
@@ -67,7 +65,10 @@ exports.obtenerConfiguracion = async (req, res) => {
       ADD COLUMN IF NOT EXISTS smtp_email TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS smtp_password TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS smtp_host TEXT DEFAULT '',
-      ADD COLUMN IF NOT EXISTS smtp_port TEXT DEFAULT '';
+      ADD COLUMN IF NOT EXISTS smtp_port TEXT DEFAULT '',
+      DROP COLUMN IF EXISTS asistencia_pin_caja,
+      DROP COLUMN IF EXISTS asistencia_login,
+      DROP COLUMN IF EXISTS asistencia_huella;
     `);
 
     let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
@@ -138,7 +139,6 @@ exports.actualizarConfiguracion = async (req, res) => {
     comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos,
     matriz_limpieza, matriz_observaciones,
     cocina_en_caja_activa, horarios_semana,
-    asistencia_pin_caja, asistencia_login, asistencia_huella,
     politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
     gps_ciudad_estado, gps_direccion_local, gps_api_key,
     kiosco_pin_maestro,
@@ -169,9 +169,6 @@ exports.actualizarConfiguracion = async (req, res) => {
   const isCanjeActivo = puntos_canje_activo === undefined ? true : (puntos_canje_activo === 'true' || puntos_canje_activo === true);
   const isBloqueoCajaActivo = bloqueo_caja_activo === 'true' || bloqueo_caja_activo === true;
   const isCocinaCajaActiva = cocina_en_caja_activa === 'true' || cocina_en_caja_activa === true;
-  const isAsistenciaPin = asistencia_pin_caja === undefined ? true : (asistencia_pin_caja === 'true' || asistencia_pin_caja === true);
-  const isAsistenciaLogin = asistencia_login === undefined ? true : (asistencia_login === 'true' || asistencia_login === true);
-  const isAsistenciaHuella = asistencia_huella === 'true' || asistencia_huella === true;
 
   const segundosSeguros = bloqueo_caja_segundos !== undefined ? Number(bloqueo_caja_segundos) : 30;
   const limiteComedorSeguro = comedor_limite || 'ambos';
@@ -202,6 +199,7 @@ exports.actualizarConfiguracion = async (req, res) => {
   } catch (e) {}
 
   try {
+    // 👇 Comodines SQL reajustados ($63) para compensar las columnas eliminadas
     await db.query(`
       INSERT INTO configuracion (
         id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
@@ -217,8 +215,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         bloqueo_caja_activo, bloqueo_caja_segundos,
         comedor_limite, comedor_clasif_bebidas, comedor_clasif_platillos, matriz_limpieza,
         cocina_en_caja_activa, horarios_semana,
-        asistencia_pin_caja, asistencia_login, asistencia_huella, politicas_sustitucion,
-        calendario_anual, limite_vacaciones_simultaneas,
+        politicas_sustitucion, calendario_anual, limite_vacaciones_simultaneas,
         ticket_impresora_ip, ticket_impresora_puerto,
         gps_ciudad_estado, gps_direccion_local, gps_api_key,
         matriz_observaciones,
@@ -238,13 +235,12 @@ exports.actualizarConfiguracion = async (req, res) => {
         $42, $43,
         $44, $45, $46, $47,
         $48, $49,
-        $50, $51, $52, $53,
-        $54, $55,
-        $56, $57,
-        $58, $59, $60,
-        $61,
-        $62,
-        $63, $64, $65, $66
+        $50, $51, $52,
+        $53, $54,
+        $55, $56, $57,
+        $58,
+        $59,
+        $60, $61, $62, $63
       ) ON CONFLICT (id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
@@ -295,9 +291,6 @@ exports.actualizarConfiguracion = async (req, res) => {
         matriz_limpieza = EXCLUDED.matriz_limpieza::jsonb,
         cocina_en_caja_activa = EXCLUDED.cocina_en_caja_activa,
         horarios_semana = EXCLUDED.horarios_semana::jsonb,
-        asistencia_pin_caja = EXCLUDED.asistencia_pin_caja,
-        asistencia_login = EXCLUDED.asistencia_login,
-        asistencia_huella = EXCLUDED.asistencia_huella,
         politicas_sustitucion = EXCLUDED.politicas_sustitucion::jsonb,
         calendario_anual = EXCLUDED.calendario_anual::jsonb,
         limite_vacaciones_simultaneas = EXCLUDED.limite_vacaciones_simultaneas,
@@ -325,8 +318,7 @@ exports.actualizarConfiguracion = async (req, res) => {
       porcentajeSeguro, valorPesoSeguro, isPuntosActivos, isCanjeActivo,
       isBloqueoCajaActivo, segundosSeguros, limiteComedorSeguro, bebidasParsed, platillosParsed, matrizParsed,
       isCocinaCajaActiva, horariosParsed,
-      isAsistenciaPin, isAsistenciaLogin, isAsistenciaHuella, politicasParsed,
-      calendarioParsed, limiteVacSeguro,
+      politicasParsed, calendarioParsed, limiteVacSeguro,
       ticket_impresora_ip || '192.168.1.100', ticket_impresora_puerto || '9100',
       gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
       matrizObsParsed,

@@ -64,7 +64,7 @@ const AsistentePersonalizacion = ({
         setPasoPersonalizacion(0);
         
         // 👇 AQUÍ ESTÁ LA SOLUCIÓN: Carga la receta base original y la inyecta como activa
-        const bOriginales = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
+      const bOriginales = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
         setIngredientesBase(bOriginales);
         
         setIngredientesSustituidos({});
@@ -156,69 +156,81 @@ const AsistentePersonalizacion = ({
   })();
 
   const handleTerminarPersonalizacion = () => {
-    const extrasFinales = [];
+    const extrasFinales = [];  
 
+    // 1. Procesamos Variaciones (Tamaños y Sabores)
     if (opcionSeleccionada) extrasFinales.push({ nombre: opcionSeleccionada.nombre, precioExtra: getPrecioDeltaVisual(opcionSeleccionada, productoEnEspera, isSubItem), tipo: 'variacion' });
-    if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: getPrecioDeltaVisual(saborSeleccionado, productoEnEspera, isSubItem), tipo: 'variacion' });
+    if (saborSeleccionado) extrasFinales.push({ nombre: saborSeleccionado.nombre, precioExtra: getPrecioDeltaVisual(saborSeleccionado, productoEnEspera, isSubItem), tipo: 'variacion' });  
 
-    Object.values(gruposSeleccionados).forEach(g => extrasFinales.push({ nombre: `🔸 ${g.categoria || g.category || 'Opción'}: ${g.nombre}`, precioExtra: getPrecioDeltaVisual(g, productoEnEspera, isSubItem), tipo: 'grupo_obligatorio' }));
-    Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria || 'Extra'}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' }));
-    Object.entries(ingredientesSustituidos).forEach(([base, data]) => extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado || 0, tipo: 'sustitucion' }));
-    
-    const recetaOriginal = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
-    recetaOriginal.forEach(ingredienteOriginal => {
-        const loDejoElCliente = ingredientesBase.includes(ingredienteOriginal);
-        const loSustituyoElCliente = ingredientesSustituidos[ingredienteOriginal] !== undefined;
-        
-        if (!loDejoElCliente && !loSustituyoElCliente) {
-            extrasFinales.push({ nombre: `Sin ${ingredienteOriginal}`, precioExtra: 0, tipo: 'base' });
-        }
+    // 👇 FIX MÁSTER: Mandamos TODOS los grupos seleccionados al ticket para que el backend descuente su inventario exacto.
+    // 2. Procesamos Grupos (Leches, Aderezos, etc)
+    Object.values(gruposSeleccionados).forEach(g => {
+        extrasFinales.push({ nombre: `[Grupo] ${g.categoria || g.category || 'Opción'}: ${g.nombre}`, precioExtra: getPrecioDeltaVisual(g, productoEnEspera, isSubItem), tipo: 'grupo_obligatorio' });
+    });
+    Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => {
+        extrasFinales.push({ nombre: `[Extra] ${g.categoria || 'Extra'}: ${g.nombre}`, precioExtra: g.precioExtra || 0, tipo: 'grupo_opcional' });
     });
 
-    extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `🔸 ${ex.nombre}`, precioExtra: ex.precioExtra || 0, tipo: 'extra' }));
-    if (notaProducto.trim()) extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });
+    // 3. Sustituciones Manuales (Pestaña "Receta")
+    Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
+        extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado || 0, tipo: 'sustitucion' });
+    });  
 
+    // 4. Omisiones y Eliminaciones manuales de la Base
+    const recetaOriginal = (productoEnEspera.opciones || []).filter(o => o.tipo === 'base').map(o => o.nombre);
+    recetaOriginal.forEach(ingredienteOriginal => {
+      const loDejoElCliente = ingredientesBase.includes(ingredienteOriginal);
+      const loSustituyoManualmente = ingredientesSustituidos[ingredienteOriginal] !== undefined;  
+      
+      if (!loDejoElCliente && !loSustituyoManualmente) {
+        extrasFinales.push({ nombre: `Sin ${ingredienteOriginal}`, precioExtra: 0, tipo: 'base' });
+      }
+    });  
+
+    // 5. Extras Sueltos y Notas
+    extrasSeleccionados.forEach(ex => extrasFinales.push({ nombre: `[Agregado] ${ex.nombre}`, precioExtra: ex.precioExtra || 0, tipo: 'extra' }));
+    if (notaProducto.trim()) extrasFinales.push({ nombre: `📝 ${notaProducto}`, precioExtra: 0, tipo: 'nota' });  
     if (productoEnEspera._esPromo) {
       extrasFinales.push({ nombre: `⭐ Promo: ${productoEnEspera._nombrePromo}`, precioExtra: 0, tipo: 'nota' });
-    }
+      const hashRef = Math.random().toString(36).substr(2, 4).toUpperCase();
+      extrasFinales.push({ nombre: `🔗 Ref: ${hashRef}`, precioExtra: 0, tipo: 'nota' });
+    }  
 
-    let baseCalculada = Number(productoEnEspera.precio_base || 0);
-
+    let baseCalculada = Number(productoEnEspera.precio_base || 0);  
     if (isSubItem) {
       baseCalculada = 0;
     } else if (productoEnEspera._esComboBuilder || productoEnEspera._esCombo) {
       let configData = productoEnEspera._configuracionCombo?.configuracion_grupos;
       if (typeof configData === 'string') {
-          try { configData = JSON.parse(configData); } catch(e){}
+        try { configData = JSON.parse(configData); } catch(e){}
       }
       if (configData && configData.precio_combo !== undefined) {
-          baseCalculada = Number(configData.precio_combo);
+        baseCalculada = Number(configData.precio_combo);
       }
-      } else if (productoEnEspera._esPromo) {
-        // 👇 FIX: Tomar el precio exacto que calculó el modal Upselling
-        baseCalculada = productoEnEspera._precioDescontadoAplicado !== undefined 
-            ? productoEnEspera._precioDescontadoAplicado 
-            : calcularPrecioBaseConPromo(productoEnEspera, promociones);
-      }
+    } else if (productoEnEspera._esPromo) {
+      baseCalculada = productoEnEspera._precioDescontadoAplicado !== undefined 
+          ? productoEnEspera._precioDescontadoAplicado 
+          : calcularPrecioBaseConPromo(productoEnEspera, promociones);
+    }  
 
-    const precioIndividualCalculado = baseCalculada + 
-      getPrecioDeltaVisual(opcionSeleccionada, productoEnEspera, isSubItem) + 
-      getPrecioDeltaVisual(saborSeleccionado, productoEnEspera, isSubItem) + 
-      Object.values(gruposSeleccionados).reduce((s, g) => s + getPrecioDeltaVisual(g, productoEnEspera, isSubItem), 0) + 
-      Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) + 
-      Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) + 
-      extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);
+    const precioIndividualCalculado = baseCalculada +
+      getPrecioDeltaVisual(opcionSeleccionada, productoEnEspera, isSubItem) +
+      getPrecioDeltaVisual(saborSeleccionado, productoEnEspera, isSubItem) +
+      Object.values(gruposSeleccionados).reduce((s, g) => s + getPrecioDeltaVisual(g, productoEnEspera, isSubItem), 0) +
+      Object.values(gruposOpcionalesSeleccionados).flat().reduce((s, g) => s + Number(g.precioExtra), 0) +
+      Object.values(ingredientesSustituidos).reduce((s, isust) => s + Number(isust.precioCalculado || 0), 0) +
+      extrasSeleccionados.reduce((s, e) => s + Number(e.precioExtra), 0);  
 
     let nombreCompleto = `[${productoEnEspera.categoria || 'General'}] ${productoEnEspera.nombre}`;
-    if (opcionSeleccionada && getPrecioDeltaVisual(opcionSeleccionada, productoEnEspera, isSubItem) === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;
+    if (opcionSeleccionada && getPrecioDeltaVisual(opcionSeleccionada, productoEnEspera, isSubItem) === 0) nombreCompleto += ` (${opcionSeleccionada.nombre})`;  
 
     const clasifObj = (clasificaciones || []).find(c => c.nombre === productoEnEspera.categoria);
-    const destinoReal = clasifObj?.destino || 'Cocina';
+    const destinoReal = clasifObj?.destino || 'Cocina';  
 
     const configuracionOriginal = {
       opcionSeleccionada, saborSeleccionado, gruposSeleccionados, gruposOpcionalesSeleccionados,
       ingredientesBase, ingredientesSustituidos, extrasSeleccionados, notaProducto
-    };
+    };  
 
     const nuevoItem = {
       idTicket: itemEditando ? itemEditando.idTicket : Date.now().toString() + Math.random().toString(36).substr(2, 4),
@@ -242,13 +254,13 @@ const AsistentePersonalizacion = ({
       _isCustomizedChild: isSubItem,
       _variacionesBaseComboHijo: productoEnEspera._variacionesBaseComboHijo,
       _comboGroupId: productoEnEspera._comboGroupId
-    };
+    };  
 
     if (productoEnEspera._esComboBuilder || productoEnEspera._esCombo) {
       nuevoItem.nombre = productoEnEspera._configuracionCombo?.nombre || productoEnEspera.nombre;
       nuevoItem._esCombo = true;
       nuevoItem._comboId = productoEnEspera._configuracionCombo?.id || productoEnEspera._comboId;
-    }
+    }  
 
     onTerminarPersonalizacion(nuevoItem);
   };

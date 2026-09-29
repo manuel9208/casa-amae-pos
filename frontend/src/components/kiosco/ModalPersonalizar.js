@@ -66,6 +66,20 @@ const ModalPersonalizar = ({
       (itemAEditar.extras || []).forEach(e => { 
         if (e.nombre.startsWith('Sin ')) removidosTemp.push(e.nombre.replace('Sin ', '')); 
         else if (e.nombre.startsWith('📝 Nota: ')) notaTemp = e.nombre.replace('📝 Nota: ', ''); 
+        // 👇 FIX RAÍZ (complemento): Reconstrucción del NUEVO formato (tipo: 'variacion', nombre
+        // limpio sin prefijo). Como ya no llevamos la categoría incrustada en el texto, la
+        // resolvemos buscando en el catálogo vigente del producto (currentItem.opciones) la
+        // opción de tipo 'variacion' cuyo nombre coincida con el guardado en el ticket.
+        else if (e.tipo === 'variacion') {
+          const opcionOriginal = (currentItem.opciones || []).find(op => 
+            op.tipo === 'variacion' && String(op.nombre).trim().toLowerCase() === String(e.nombre).trim().toLowerCase()
+          );
+          const categoriaResuelta = opcionOriginal?.categoria || 'Variacion';
+          variacionesTemp[categoriaResuelta] = { nombre: e.nombre, precioExtra: e.precioExtra, categoria: categoriaResuelta };
+        }
+        // 👇 Compatibilidad retroactiva: pedidos ya guardados en BD ANTES de este fix,
+        // que todavía tienen el formato viejo "🔸 Categoria: Nombre". Sin esta rama,
+        // esos pedidos históricos dejarían de poder editarse correctamente.
         else if (e.nombre.startsWith('🔸')) { 
           const parts = e.nombre.replace('🔸 ', '').split(': '); 
           if(parts.length === 2) variacionesTemp[parts[0]] = { nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] }; 
@@ -235,30 +249,38 @@ const ModalPersonalizar = ({
     }
 
     if (isSubItemCombo || currentItem._esPromo) {
-      const opcionesMismoTipo = (currentItem.opciones || []).filter(o => o.categoria === opcionObj.categoria);
-      
-      if (opcionesMismoTipo.length > 0) {
-        let vb = null;
+        const opcionesMismoTipo = (currentItem.opciones || []).filter(o => o.categoria === opcionObj.categoria);
 
-        if (currentItem._variacionBasePromo) {
-          const varPromoEfectiva = String(currentItem._variacionBasePromo).trim().toLowerCase();
-          vb = opcionesMismoTipo.find(o => String(o.nombre).trim().toLowerCase() === varPromoEfectiva);
-        }
+        if (opcionesMismoTipo.length > 0) {
+            let vb = null;
 
-        if (!vb) {
-          vb = opcionesMismoTipo.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesMismoTipo[0]);
-        }
+            if (currentItem._variacionBasePromo) {
+                const varPromoEfectiva = String(currentItem._variacionBasePromo).trim().toLowerCase();
+                vb = opcionesMismoTipo.find(o => String(o.nombre).trim().toLowerCase() === varPromoEfectiva);
+            }
 
-        if (vb) {
-          const precioVariacionBase = Number(vb.precioExtra || 0);
-          const delta = precioOpcion - precioVariacionBase;
-          return delta > 0 ? delta : 0;
+            if (!vb) {
+                vb = opcionesMismoTipo.reduce((min, o) => Number(o.precioExtra || 0) < Number(min.precioExtra || 0) ? o : min, opcionesMismoTipo[0]);
+            }
+
+            if (vb) {
+                const precioVariacionBase = Number(vb.precioExtra || 0);
+                const delta = precioOpcion - precioVariacionBase;
+                return delta > 0 ? delta : 0;
+            }
         }
-      }
+    }
+
+    // 👇 FIX RAÍZ: Caso normal (producto sin combo/promo). Antes caía directo al
+    // "return precioOpcion" de abajo sin restar el precio base, provocando el cobro
+    // doble (ej. Shakespeare $98 base + $98 sabor = $196 en vez de $98).
+    if (!currentItem._esPromo) {
+        const baseReal = Number(currentItem.precio_base || 0);
+        return precioOpcion - baseReal;
     }
 
     return precioOpcion;
-  };
+    };
 
   const seleccionarVariacion = (categoria, opcion) => { 
     setVariacionesSeleccionadas(prev => ({ ...prev, [categoria]: opcion })); 
@@ -733,7 +755,11 @@ const ModalPersonalizar = ({
                 Object.values(variacionesSeleccionadas).forEach(v => {
                     const esVarPrincipal = v.categoria === 'Tamaño' || v.categoria === 'Sabor';
                     if (esVarPrincipal && !variacionObjSeleccionada) variacionObjSeleccionada = v;
-                    extrasFinales.push({ nombre: `🔸 ${v.category || v.categoria}: ${v.nombre}`, precioExtra: getPrecioDeltaVisual(v), tipo: 'grupo_obligatorio' });
+                    // 👇 FIX RAÍZ: Igualamos el formato de Caja (tipo: 'variacion', nombre limpio sin prefijo)
+                    // para que pedidoController.js reconozca esta selección al resolver "sabor_nombre" y
+                    // descuente correctamente los insumos exclusivos del Tamaño/Sabor (ej. leche extra en "Jumbo").
+                    // Antes se etiquetaba como 'grupo_obligatorio', formato que el backend nunca lee para variaciones.
+                    extrasFinales.push({ nombre: v.nombre, precioExtra: getPrecioDeltaVisual(v), tipo: 'variacion' });
                 });
 
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));

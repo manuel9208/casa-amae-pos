@@ -35,6 +35,7 @@ const AdminInventario = ({
             refrescarDatos={refrescarDatos}
             showAlert={showAlert}
             showConfirm={showConfirm}
+            clasificaciones={clasificaciones}
          />
       ) : (
          <GestorRecetas 

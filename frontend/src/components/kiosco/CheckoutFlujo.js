@@ -25,6 +25,9 @@ const CheckoutFlujo = ({
   const [mesaSeleccionadaInterna, setMesaSeleccionadaInterna] = useState(null);  
   
   const [idCreadoLocal, setIdCreadoLocal] = useState(null);
+  // 👇 FIX RAÍZ: Almacena temporalmente los datos del pago por Transferencia mientras
+  // el cliente ve la pantalla de instrucciones bancarias, SIN haber tocado la BD todavía.
+  const [datosPagoDiferido, setDatosPagoDiferido] = useState(null);
   const idRealEdicion = idCreadoLocal || pedidoEditandoId;
   
   const esPersonalInterno = user && user.rol && (user.rol === 'admin' || user.rol === 'cajero' || user.usuario === 'kiosco');  
@@ -196,11 +199,10 @@ const CheckoutFlujo = ({
       }
     });  
     
+    // 👇 FIX RAÍZ: Ya no existe el estado 'Borrador'. Como ahora guardarPedidoEnBD para
+    // Transferencia solo se ejecuta hasta la confirmación final, el pedido nace directamente
+    // con su estado operativo real, igual que cualquier otro método de pago.
     let estadoInicial = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
-    
-    if (metodoSeleccionado === 'Transferencia' && !ordenExterna) {
-        estadoInicial = 'Borrador';
-    }
 
     const mesaFinal = mesaQR || mesaBypass || mesaSeleccionadaInterna || (ordenExterna ? ordenExterna.mesa : null);  
     
@@ -279,20 +281,6 @@ const CheckoutFlujo = ({
           }).catch(() => {});
         }  
 
-        // 👇 FIX: Rescate del pedido "Fantasma".
-        // Si el cliente modificó una orden que ya existía en BD (Por ejemplo, le dio "Atrás" a la transferencia)
-        // forzamos a que el sistema asiente el nuevo estado y el nuevo método de pago usando la ruta dedicada.
-        if (idRealEdicion) {
-            fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    estado_preparacion: estadoInicial,
-                    metodo_pago: metodoRealBD
-                })
-            }).catch(() => {});
-        }
-
         setNumeroPedidoReal(data.numero_pedido);
         return true;
       } else {
@@ -306,26 +294,40 @@ const CheckoutFlujo = ({
     }
   };  
   
-  const seleccionarPago = async (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
+const seleccionarPago = async (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
     if (isSubmitting) return;
-    setIsSubmitting(true);  
+    setIsSubmitting(true);
     let dirModificada = direccionEntrega;
-    const tipoReal = tipoBypass || tipoConsumo;  
-    
+    const tipoReal = tipoBypass || tipoConsumo;
+
     if (metodo === 'Efectivo' && tipoReal === 'Domicilio' && montoEfectivo) {
-      dirModificada = `${direccionEntrega} | (Llevar cambio para: ${montoEfectivo})`;
-    }  
-    
-    const ok = await guardarPedidoEnBD(metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass);  
-    
+        dirModificada = `${direccionEntrega} | (Llevar cambio para: ${montoEfectivo})`;
+    }
+
+    // 👇 FIX RAÍZ ANTI-FANTASMA: Para Transferencia SIN pedido existente, NO tocamos la BD todavía.
+    // Solo guardamos los datos en memoria y avanzamos a la pantalla de instrucciones bancarias.
+    // El pedido real se crea únicamente cuando el cliente confirme "Ya envié mi comprobante"
+    // (ver función procesarTransferencia), garantizando que nunca exista un registro huérfano.
+    if (metodo === 'Transferencia' && !idRealEdicion) {
+        setMetodoPagoFinal('Transferencia');
+        setDireccionEntrega(dirModificada);
+        setDatosPagoDiferido({ metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass });
+        setPasoTelefono(false);
+        setPantallaActual('detalles_transferencia');
+        setIsSubmitting(false);
+        return true;
+    }
+
+    const ok = await guardarPedidoEnBD(metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass);
+
     if (ok) {
-      setPasoTelefono(false);
-      if (metodo === 'Transferencia') setPantallaActual('detalles_transferencia');
-      else { setContador(15); setPantallaActual('finalizado'); }
+        setPasoTelefono(false);
+        setContador(15);
+        setPantallaActual('finalizado');
     }
     setIsSubmitting(false);
     return ok;
-  };  
+};
 
   const seleccionarPagoRegistro = (metodo, montoEfectivo = null, tipoBypass = null, mesaBypass = null, nuevoClienteIdBypass = null) => {
     const agil = esPersonalInterno || isTerminalFisica;
@@ -342,45 +344,72 @@ const CheckoutFlujo = ({
     }
   };
   
-  const procesarTransferencia = async () => { 
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+  const procesarTransferencia = async () => {
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+      setErrorTransaccion('');
 
-    if (isOffline) {
-        try {
-            let pedidosOffline = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
-            const idx = pedidosOffline.findIndex(p => p.numero_pedido_offline === numeroPedidoReal);
-            if (idx !== -1) {
-                pedidosOffline[idx].estado_preparacion = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
-                pedidosOffline[idx].metodo_pago = 'Pendiente';
-                localStorage.setItem('pedidos_offline', JSON.stringify(pedidosOffline));
-            }
-            setContador(15);
-            setPantallaActual('finalizado');
-        } catch (e) {
-            setErrorTransaccion('Error local al procesar transferencia.');
-        }
-        setIsSubmitting(false);
-        return;
-    }
+      // 👇 FIX RAÍZ: Si YA existía el pedido (edición de una orden previa), mantenemos
+      // el comportamiento original: solo actualizamos su estado/método de pago.
+      if (idRealEdicion) {
+          if (isOffline) {
+              try {
+                  let pedidosOffline = JSON.parse(localStorage.getItem('pedidos_offline') || '[]');
+                  const idx = pedidosOffline.findIndex(p => p.numero_pedido_offline === numeroPedidoReal);
+                  if (idx !== -1) {
+                      pedidosOffline[idx].estado_preparacion = ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente';
+                      pedidosOffline[idx].metodo_pago = 'Pendiente';
+                      localStorage.setItem('pedidos_offline', JSON.stringify(pedidosOffline));
+                  }
+                  setContador(15);
+                  setPantallaActual('finalizado');
+              } catch (e) {
+                  setErrorTransaccion('Error local al procesar transferencia.');
+              }
+              setIsSubmitting(false);
+              return;
+          }
 
-    try {
-        if (idRealEdicion) {
-            await fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    estado_preparacion: ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente',
-                    metodo_pago: 'Pendiente' 
-                })
-            });
-        }
-        setContador(15);
-        setPantallaActual('finalizado');
-    } catch (error) {
-        setErrorTransaccion('Error al confirmar la transferencia.');
-    }
-    setIsSubmitting(false);
+          try {
+              await fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                      estado_preparacion: ordenExterna ? ordenExterna.estado_preparacion : 'Pendiente',
+                      metodo_pago: 'Pendiente'
+                  })
+              });
+              setContador(15);
+              setPantallaActual('finalizado');
+          } catch (error) {
+              setErrorTransaccion('Error al confirmar la transferencia.');
+          }
+          setIsSubmitting(false);
+          return;
+      }
+
+      // 👇 FIX RAÍZ: Este es el ÚNICO punto donde se crea en la BD un pedido nuevo de
+      // Transferencia. Si la conexión falla aquí, NO se genera ningún registro huérfano —
+      // el cliente simplemente ve el error y puede reintentar sin haber "ensuciado" la BD.
+      if (!datosPagoDiferido) {
+          setErrorTransaccion('No se encontraron los datos de tu pedido. Vuelve a intentarlo.');
+          setIsSubmitting(false);
+          return;
+      }
+
+      const { metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass } = datosPagoDiferido;
+      const ok = await guardarPedidoEnBD(metodo, dirModificada, tipoReal, mesaBypass, nuevoClienteIdBypass);
+
+      if (ok) {
+          setDatosPagoDiferido(null);
+          setContador(15);
+          setPantallaActual('finalizado');
+      } else {
+          // 👇 El cliente se queda en la misma pantalla de datos bancarios, ve el error,
+          // y puede presionar "Ya envié mi comprobante" de nuevo sin ningún pedido fantasma previo.
+          setErrorTransaccion('No se pudo registrar tu pedido. Verifica tu conexión e inténtalo de nuevo.');
+      }
+      setIsSubmitting(false);
   };  
   
   const getBackRuta = () => {

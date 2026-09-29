@@ -39,6 +39,7 @@ const asistenciaConfigCtrl = require('../controllers/asistenciaConfigController'
 // 👇 NUEVOS: Controladores MDM y Huellas
 const equipoCtrl = require('../controllers/equipoController');
 const huellasCtrl = require('../controllers/huellasController'); // <-- Nombre corregido
+const iaCtrl = require('../controllers/iaController');
 
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
@@ -49,6 +50,8 @@ huellasCtrl.inicializarTablas();
 insumoCtrl.inicializarTablasAuditoria();
 insumoCtrl.inicializarInsumos();
 asistenciaConfigCtrl.inicializarTablas();
+iaCtrl.inicializarTablaIA();
+recetaCtrl.inicializarTablasRecetas();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -154,6 +157,9 @@ router.put('/usuarios/:id/prestaciones', usuarioCtrl.actualizarPrestaciones);
 router.put('/usuarios/:id/horario', usuarioCtrl.actualizarHorario);
 router.post('/usuarios/corte-nomina', nominaCtrl.guardarNomina);
 router.post('/usuarios/asistencia', usuarioCtrl.registrarAsistencia);
+router.post('/usuarios/asistencia-nfc', usuarioCtrl.registrarAsistenciaNFC);
+router.get('/usuarios/nfc-vinculados', usuarioCtrl.obtenerNFCVinculados);
+router.delete('/usuarios/nfc-vinculados/:id', usuarioCtrl.desvincularGafeteNFC); 
 router.post('/usuarios/:id/forzar-logout', authCtrl.forzarLogout);  
 
 // ==========================================
@@ -237,6 +243,11 @@ router.put('/insumos/auditoria/:id/resolver', insumoCtrl.resolverAuditoria); // 
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
+// 👇 NUEVAS RUTAS: CRUD de Sub-Recetas (Preparaciones Base)
+router.get('/sub-recetas', recetaCtrl.obtenerSubRecetas);
+router.post('/sub-recetas', recetaCtrl.crearSubReceta);
+router.put('/sub-recetas/:id', recetaCtrl.actualizarSubReceta);
+router.delete('/sub-recetas/:id', recetaCtrl.eliminarSubReceta);
 
 // ==========================================
 // 🚚 PROVEEDORES Y CONTROL DE GASTOS
@@ -371,6 +382,24 @@ router.post('/asistencia/ips', asistenciaConfigCtrl.agregarIP);
 router.delete('/asistencia/ips/:id', asistenciaConfigCtrl.eliminarIP);
 router.post('/asistencia/ubicaciones', asistenciaConfigCtrl.agregarUbicacion);
 router.delete('/asistencia/ubicaciones/:id', asistenciaConfigCtrl.eliminarUbicacion);
+
+// ==========================================
+// VÍNCULO DE DISPOSITIVOS DE EMPLEADOS (ANTI-TRAMPAS)
+// ==========================================
+router.post('/usuarios/vincular-dispositivo', authCtrl.vincularDispositivo);
+router.get('/usuarios/dispositivos-vinculados', authCtrl.obtenerDispositivosVinculados);
+router.delete('/usuarios/dispositivos-vinculados/:id', authCtrl.desvincularDispositivo);
+
+// ==========================================
+// 🧠 MÓDULO AISLADO: ADMIN IA (Copiloto)
+// ==========================================
+router.get('/ia/configuracion', iaCtrl.obtenerConfiguracionIA);
+router.put('/ia/configuracion', iaCtrl.actualizarConfiguracionIA);
+router.post('/ia/ventas', iaCtrl.analizarVentas);
+router.post('/ia/empleados', iaCtrl.analizarEmpleados);
+router.post('/ia/chat', iaCtrl.chatLibre);
+router.post('/ia/imagen', iaCtrl.generarImagen);
+
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)

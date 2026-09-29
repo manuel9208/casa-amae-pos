@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertTriangle, Edit2, Utensils, BoxSelect } from 'lucide-react';  
 
 const SelectorPlatillo = ({
-  clasificaciones, productos, recetaCategoriaFiltro, setRecetaCategoriaFiltro,
+  clasificaciones, productos, subRecetasDB = [], recetaCategoriaFiltro, setRecetaCategoriaFiltro,
   recetaActivaId, setRecetaActivaId, iniciarCreacionBase, iniciarEdicionBase, tamanosConfigurados,
   rendimientoCalculadora, setRendimientoCalculadora, unidadRendimiento, setUnidadRendimiento,
   modoCosteo = 'platillos', setModoCosteo,
@@ -10,22 +10,19 @@ const SelectorPlatillo = ({
   saboresConfigurados = [], saborActivo = 'Base', setSaborActivo
 }) => {  
 
-  const prodActivo = productos?.find(p => String(p.id) === String(recetaActivaId));
-  
-  // 👇 BLINDAJE: Ahora detecta que es una Base buscando la palabra oculta en la base de datos
-  const esBaseActiva = prodActivo && prodActivo.nombre.toLowerCase().includes('(base)');  
+  // 👇 NUEVA REGLA: Detectar si seleccionó una sub-receta pura (Bases)
+  const subRecetaActiva = subRecetasDB?.find(s => String(s.id) === String(recetaActivaId));
+  const esBaseActiva = !!subRecetaActiva;
 
-  const productosFiltrados = (productos || []).filter(p => !recetaCategoriaFiltro || p.categoria === recetaCategoriaFiltro);  
+  // 👇 NUEVA REGLA: Los platillos son 100% productos reales filtrados
+  const platillos = (productos || [])
+    .filter(p => !recetaCategoriaFiltro || p.categoria === recetaCategoriaFiltro)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-  // 👇 BLINDAJE: Separa los platillos normales ocultando los que digan (Base)
-  const platillos = productosFiltrados
-    .filter(p => !p.nombre.toLowerCase().includes('(base)'))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
-
-  // 👇 BLINDAJE: Separa las Bases asegurándose que sí digan (Base)
-  const bases = productosFiltrados
-    .filter(p => p.nombre.toLowerCase().includes('(base)'))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));  
+  // 👇 NUEVA REGLA: Las bases vienen de su propia tabla, no de productos
+  const bases = (subRecetasDB || [])
+    .filter(s => !recetaCategoriaFiltro || s.categoria === recetaCategoriaFiltro)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
   const clasificacionesOrdenadas = (clasificaciones || [])
     .slice()

@@ -1,5 +1,31 @@
 const db = require('../config/db');
 
+// =========================================================
+// AUTO-MIGRACIÓN DE BASE DE DATOS (Sub-Recetas)
+// =========================================================
+exports.inicializarTablasRecetas = async () => {
+  try {
+    // 1. Creamos la tabla independiente para las preparaciones base
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS sub_recetas (
+        id SERIAL PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        categoria VARCHAR(100) DEFAULT 'Base',
+        rendimiento DECIMAL(10,3) DEFAULT 1,
+        unidad_rendimiento VARCHAR(20) DEFAULT 'PZ',
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    
+    // 2. Preparamos la tabla puente 'recetas' para que apunte a esta nueva tabla
+    await db.query(`ALTER TABLE recetas ADD COLUMN IF NOT EXISTS sub_receta_id INTEGER;`).catch(()=>null);
+    
+    console.log("✅ Tabla de 'sub_recetas' y relaciones verificadas/creadas en la BD.");
+  } catch (error) {
+    console.error("❌ Error al inicializar sub-recetas:", error);
+  }
+};
+
 exports.obtenerReceta = async (req, res) => {
     const { producto_id } = req.params; // Puede ser un producto_id o un ingrediente_id dependiendo del modo
     const modo = req.query.modo || 'platillos';
@@ -151,5 +177,71 @@ exports.actualizarOpcionesProducto = async (req, res) => {
     } catch (error) {
         console.error("Error al actualizar opciones del producto:", error);
         res.status(500).json({ error: 'Error al actualizar especificaciones' });
+    }
+};
+
+// =========================================================
+// CRUD DE SUB-RECETAS (Bases, Masas, Salsas, Preparaciones)
+// =========================================================
+
+exports.obtenerSubRecetas = async (req, res) => {
+    try {
+        const result = await db.query("SELECT * FROM sub_recetas ORDER BY nombre ASC");
+        res.json(result.rows);
+    } catch (error) {
+        console.error("Error al obtener sub-recetas:", error);
+        res.status(500).json({ error: 'Error al obtener sub-recetas' });
+    }
+};
+
+exports.crearSubReceta = async (req, res) => {
+    const { nombre, categoria, rendimiento, unidad_rendimiento } = req.body;
+    try {
+        const result = await db.query(
+            "INSERT INTO sub_recetas (nombre, categoria, rendimiento, unidad_rendimiento) VALUES ($1, $2, $3, $4) RETURNING *",
+            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ']
+        );
+        
+        const io = req.app.get('io');
+        if (io) io.emit('catalogo_actualizado');
+        
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error("Error al crear sub-receta:", error);
+        res.status(500).json({ error: 'Error al crear la sub-receta' });
+    }
+};
+
+exports.actualizarSubReceta = async (req, res) => {
+    const { id } = req.params;
+    const { nombre, categoria, rendimiento, unidad_rendimiento } = req.body;
+    try {
+        const result = await db.query(
+            "UPDATE sub_recetas SET nombre = $1, categoria = $2, rendimiento = $3, unidad_rendimiento = $4 WHERE id = $5 RETURNING *",
+            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ', id]
+        );
+        
+        const io = req.app.get('io');
+        if (io) io.emit('catalogo_actualizado');
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("Error al actualizar sub-receta:", error);
+        res.status(500).json({ error: 'Error al actualizar sub-receta' });
+    }
+};
+
+exports.eliminarSubReceta = async (req, res) => {
+    const { id } = req.params;
+    try {
+        await db.query("DELETE FROM sub_recetas WHERE id = $1", [id]);
+        
+        const io = req.app.get('io');
+        if (io) io.emit('catalogo_actualizado');
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Error al eliminar sub-receta:", error);
+        res.status(500).json({ error: 'Error al eliminar la sub-receta' });
     }
 };

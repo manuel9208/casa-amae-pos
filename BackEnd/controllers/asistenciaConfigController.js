@@ -6,26 +6,44 @@ const db = require('../config/db');
 exports.inicializarTablas = async () => {
     try {
         await db.query(`
-            -- Tabla 1: Configuración general de cómo se checa asistencia
             CREATE TABLE IF NOT EXISTS configuracion_asistencia (
                 id SERIAL PRIMARY KEY,
-                tipo_registro VARCHAR(50) DEFAULT 'botones', -- 'botones', 'huella', 'ambos'
-                validacion_activa VARCHAR(50) DEFAULT 'ninguna', -- 'ninguna', 'ip', 'ubicacion', 'ambas'
-                rango_metros INT DEFAULT 50 -- Radio en metros para la geocerca GPS
+                tipo_registro JSONB DEFAULT '["portal"]'::jsonb,
+                validacion_activa VARCHAR(50) DEFAULT 'ninguna',
+                rango_metros INT DEFAULT 50
             );
+        `);
 
-            -- Insertar la configuración por defecto si no existe
-            INSERT INTO configuracion_asistencia (id, tipo_registro, validacion_activa, rango_metros)
-            VALUES (1, 'botones', 'ninguna', 50) ON CONFLICT (id) DO NOTHING;
+        await db.query(`
+            ALTER TABLE configuracion_asistencia 
+            ADD COLUMN IF NOT EXISTS metodo_portal VARCHAR(50) DEFAULT 'ambos';
+        `);
 
-            -- Tabla 2: IPs permitidas para checar
+        await db.query(`
+            INSERT INTO configuracion_asistencia (id, tipo_registro, metodo_portal, validacion_activa, rango_metros)
+            VALUES (1, '["portal"]'::jsonb, 'ambos', 'ninguna', 50) 
+            ON CONFLICT (id) DO NOTHING;
+        `);
+
+        try {
+            await db.query(`
+                ALTER TABLE configuracion_asistencia 
+                ALTER COLUMN tipo_registro TYPE JSONB 
+                USING CASE 
+                    WHEN tipo_registro IS NULL THEN '["portal"]'::jsonb 
+                    WHEN tipo_registro::text = '' THEN '["portal"]'::jsonb 
+                    ELSE ('["' || tipo_registro::text || '"]')::jsonb 
+                END;
+            `);
+        } catch(e) {}
+
+        await db.query(`
             CREATE TABLE IF NOT EXISTS asistencia_ips (
                 id SERIAL PRIMARY KEY,
                 ip VARCHAR(50) UNIQUE NOT NULL,
                 descripcion VARCHAR(150)
             );
 
-            -- Tabla 3: Ubicaciones (GPS) permitidas para checar
             CREATE TABLE IF NOT EXISTS asistencia_ubicaciones (
                 id SERIAL PRIMARY KEY,
                 latitud DECIMAL(10, 8) NOT NULL,
@@ -33,7 +51,7 @@ exports.inicializarTablas = async () => {
                 descripcion VARCHAR(150)
             );
         `);
-        console.log('✅ Módulo de Asistencia (IPs y GPS) inicializado correctamente.');
+        console.log('✅ Módulo de Asistencia (IPs, GPS y Métodos) inicializado correctamente.');
     } catch (error) {
         console.error('🚨 Error inicializando tablas de asistencia:', error);
     }
@@ -48,8 +66,15 @@ exports.obtenerConfiguracionCompleta = async (req, res) => {
         const ipsRes = await db.query('SELECT * FROM asistencia_ips ORDER BY id DESC');
         const ubicacionesRes = await db.query('SELECT * FROM asistencia_ubicaciones ORDER BY id DESC');
 
+        let generalData = configRes.rows[0] || {};
+        
+        // Garantizar que tipo_registro siempre se responda como Array
+        if (typeof generalData.tipo_registro === 'string') {
+            try { generalData.tipo_registro = JSON.parse(generalData.tipo_registro); } catch(e) { generalData.tipo_registro = ['portal']; }
+        }
+
         res.json({
-            general: configRes.rows[0],
+            general: generalData,
             ips: ipsRes.rows,
             ubicaciones: ubicacionesRes.rows
         });
@@ -63,13 +88,27 @@ exports.obtenerConfiguracionCompleta = async (req, res) => {
 // 3. ACTUALIZAR CONFIGURACIÓN GENERAL (Métodos y Reglas)
 // =========================================================================
 exports.actualizarConfiguracionGeneral = async (req, res) => {
-    const { tipo_registro, validacion_activa, rango_metros } = req.body;
+    const { tipo_registro, metodo_portal, validacion_activa, rango_metros } = req.body;
+    
+    let tipoRegistroJSON = '["portal"]';
+    if (Array.isArray(tipo_registro)) {
+        tipoRegistroJSON = JSON.stringify(tipo_registro);
+    } else if (typeof tipo_registro === 'string') {
+        tipoRegistroJSON = tipo_registro;
+    }
+
     try {
         const result = await db.query(`
             UPDATE configuracion_asistencia 
-            SET tipo_registro = $1, validacion_activa = $2, rango_metros = $3 
+            SET tipo_registro = $1::jsonb, metodo_portal = $2, validacion_activa = $3, rango_metros = $4 
             WHERE id = 1 RETURNING *
-        `, [tipo_registro, validacion_activa, rango_metros]);
+        `, [tipoRegistroJSON, metodo_portal || 'ambos', validacion_activa || 'ninguna', rango_metros || 50]);
+
+        // Notificar cambio en vivo a través de Sockets
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('config_asistencia_actualizada', result.rows[0]);
+        }
 
         res.json({ success: true, data: result.rows[0] });
     } catch (error) {

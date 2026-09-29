@@ -1,14 +1,14 @@
 import React from 'react';
 import { 
   ShoppingCart, Fingerprint, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
-  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase 
+  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase, MapPin, Sparkles 
 } from 'lucide-react';
 
 const TopNavAdmin = ({
   user, onLogout, onGoToKiosco, seccion, setSeccion,
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
   canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
-  canViewProveedores, canViewDistribucion, canViewHuellas
+  canViewProveedores, canViewDistribucion, canViewHuellas, canViewAsistencia, canViewIA
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -113,10 +113,23 @@ const TopNavAdmin = ({
               </button>
             )}
 
+            {/* 👇 NUEVO BOTÓN: AdminIA (Destacado visualmente) */}
+            {canViewIA && (
+               <button onClick={() => setSeccion('ia')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-sm transition whitespace-nowrap select-none border ${seccion === 'ia' ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-transparent shadow-lg shadow-purple-500/30': 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100'}`}>
+               <Sparkles size={18} className={seccion === 'ia' ? 'animate-pulse' : ''} /> AdminIA
+               </button>
+            )}
+
             {canViewUsuarios && (
               <button onClick={() => setSeccion('usuarios')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'usuarios' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                  <Users size={18}/> Empleados
               </button>
+            )}
+
+            {canViewAsistencia && (
+               <button onClick={() => setSeccion('asistencia')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'asistencia' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+                  <MapPin size={18}/> Asistencia (GPS/IP)
+               </button>
             )}
             
             {canViewConfig && (
@@ -134,6 +147,7 @@ const TopNavAdmin = ({
                <Fingerprint size={18}/> Biometría
             </button>
             )}
+
          </div>
       </div>
     </div>

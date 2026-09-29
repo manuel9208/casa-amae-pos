@@ -28,11 +28,43 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
 
   const handleWhatsApp = () => {
     if (hasValidPhone) {
-      const texto = `Hola ${stripEmojis(ticketImprimir.cliente_nombre) || ''}, te comparto la confirmación de tu orden #${ticketImprimir.numero_pedido} por un total de *$${Number(ticketImprimir.total).toFixed(2)}*. ¡Gracias por tu preferencia!`;
+      // 1. Extraemos y parseamos el carrito tal como lo hace tu tabla de impresión
+      const carrito = typeof ticketImprimir.carrito === 'string' 
+        ? JSON.parse(ticketImprimir.carrito) 
+        : ticketImprimir.carrito;
+
+      // 2. Construimos el texto del detalle de los productos
+      let detallesPedido = '';
+      carrito.forEach(item => {
+        const cantidad = item.cantidad || 1;
+        const precioTotalItem = (Number(item.precioFinal) * cantidad).toFixed(2);
+        detallesPedido += `\n▪️ ${cantidad}x ${stripEmojis(item.nombre)} - $${precioTotalItem}`;
+        
+        // Si el producto tiene extras, los agregamos debajo
+        if (item.extras && item.extras.length > 0) {
+          const textoExtras = item.extras.map(e => stripEmojis(e.nombre)).join(', ');
+          detallesPedido += `\n   └ Extras: ${textoExtras}`;
+        }
+      });
+
+      // 3. Armamos el mensaje completo
+      let texto = `Hola ${stripEmojis(ticketImprimir.cliente_nombre) || ''}, te comparto el detalle de tu orden #${ticketImprimir.numero_pedido}:\n${detallesPedido}\n`;
+
+      // 4. Agregamos desglose financiero si aplica
+      if (Number(ticketImprimir.costo_envio) > 0) {
+        texto += `\n🛵 Envío: +$${Number(ticketImprimir.costo_envio).toFixed(2)}`;
+      }
+      if (Number(ticketImprimir.descuento_puntos) > 0) {
+        texto += `\n⭐ Desc. Puntos: -$${Number(ticketImprimir.descuento_puntos).toFixed(2)}`;
+      }
+
+      texto += `\n\n*Total a pagar:* *$${Number(ticketImprimir.total).toFixed(2)}*\n\n¡Gracias por tu preferencia!`;
+
+      // 5. Enviamos a WhatsApp
       const url = `https://wa.me/52${cleanPhone}?text=${encodeURIComponent(texto)}`;
       window.open(url, '_blank');
     }
-  };  
+  }; 
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[10000] flex flex-col items-center justify-center p-4 print:bg-transparent print:backdrop-blur-none print:p-0 print:static print:block animate-in fade-in duration-200">  

@@ -4,12 +4,27 @@ const db = require('../config/db');
 // AUTO-MIGRACIÓN DE BASE DE DATOS (Solo al arrancar)
 // =========================================================
 exports.inicializarInsumos = async () => {
-  try {
-    await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumos_sustitutos JSONB DEFAULT '[]'::jsonb;`);
-    console.log("✅ Columna de sustitutos múltiples verificada/creada en la BD.");
-  } catch (error) {
-    console.error("❌ Error al inicializar columna de insumos_sustitutos:", error);
-  }
+    try {
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumos_sustitutos JSONB DEFAULT '[]'::jsonb;`);
+        // 👇 AUTO-MIGRACIÓN PARA EMPAQUES INTELIGENTES
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS descontar_solo_llevando BOOLEAN DEFAULT false;`);
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS es_empaque_global BOOLEAN DEFAULT false;`);
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS regla_empaque_global JSONB DEFAULT '{}'::jsonb;`);
+        console.log("✅ Columnas de empaques inteligentes y sustitutos creadas en la BD.");  
+
+        // 👇 AUTO-INYECCIÓN: Crea el Insumo Fantasma si no existe en la BD
+        const checkRepartidor = await db.query("SELECT id FROM insumos WHERE LOWER(nombre) = 'repartidor externo'");
+        if (checkRepartidor.rows.length === 0) {
+            await db.query(`
+                INSERT INTO insumos 
+                (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, factor_rendimiento) 
+                VALUES ('Repartidor Externo', 'Viaje', 1, 0, 0, false, 'Directo', 1)
+            `);
+            console.log("✅ Insumo fantasma 'Repartidor Externo' creado automáticamente para cuadre de caja.");
+        }
+    } catch (error) {
+        console.error("❌ Error al inicializar insumos:", error);
+    }
 };
 
 exports.obtenerInsumos = async (req, res) => {
@@ -22,8 +37,12 @@ exports.obtenerInsumos = async (req, res) => {
       cantidad_presentacion: isNaN(parseFloat(ins.cantidad_presentacion)) || parseFloat(ins.cantidad_presentacion) <= 0 ? 1 : parseFloat(ins.cantidad_presentacion),
       factor_rendimiento: isNaN(parseFloat(ins.factor_rendimiento)) ? 1 : parseFloat(ins.factor_rendimiento),
       es_empaque: ins.es_empaque === true || ins.es_empaque === 'true',
-      insumo_sustituto_id: ins.insumo_sustituto_id || '' // 👈 NUEVO: Campo de Respaldo
-    }));
+      insumo_sustituto_id: ins.insumo_sustituto_id || '',
+      // 👇 NUEVOS CAMPOS DE EMPAQUES MAPEAADOS
+      descontar_solo_llevando: ins.descontar_solo_llevando === true,
+      es_empaque_global: ins.es_empaque_global === true,
+      regla_empaque_global: typeof ins.regla_empaque_global === 'string' ? JSON.parse(ins.regla_empaque_global) : (ins.regla_empaque_global || {})
+      }));
     res.json(insumosLimpios);
   } catch(e) {
     res.status(500).json({error: 'Error al obtener insumos'});
@@ -31,21 +50,22 @@ exports.obtenerInsumos = async (req, res) => {
 };  
 
 exports.crearInsumo = async (req, res) => {
-  const { 
-    nombre, unidad_medida, cantidad_presentacion, costo_presentacion, 
-    es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
-    insumo_sustituto_id // 👈 NUEVO
-  } = req.body;
+  const {
+      nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
+      es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
+      insumo_sustituto_id,
+      descontar_solo_llevando, es_empaque_global, regla_empaque_global // 👈 NUEVOS CAMPOS
+  } = req.body;  
 
   try {
     // 👇 AUTO-MIGRACIÓN: Crea la columna en PostgreSQL automáticamente si no existe
     await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumo_sustituto_id INTEGER;`).catch(()=>null);
 
-    const nombreLimpio = String(nombre).trim();
-    const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1)', [nombreLimpio]);
-    if (check.rows.length > 0) {
-      return res.status(400).json({ error: 'Ya existe un insumo o empaque con ese nombre exacto.' });
-    }
+    const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1)', [nombreLimpio]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ error: 'Ya existe un insumo o empaque con ese nombre exacto.' });
+        }
 
     let factor_rendimiento = 1.0000;
     const tipo = tipo_rendimiento || 'Directo';
@@ -59,9 +79,9 @@ exports.crearInsumo = async (req, res) => {
 
     const result = await db.query(
       `INSERT INTO insumos
-      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id)
-      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal]
+      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id, descontar_solo_llevando, es_empaque_global, regla_empaque_global)
+      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {})]
     );
     res.status(201).json(result.rows[0]);
   } catch(e) {
@@ -72,20 +92,21 @@ exports.crearInsumo = async (req, res) => {
 
 exports.actualizarInsumo = async (req, res) => {
   const { id } = req.params;
-  const { 
-    nombre, unidad_medida, cantidad_presentacion, costo_presentacion, 
+  const {
+    nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
     es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
-    insumo_sustituto_id // 👈 NUEVO
-  } = req.body;
+    insumo_sustituto_id,
+    descontar_solo_llevando, es_empaque_global, regla_empaque_global // 👈 NUEVOS CAMPOS
+  } = req.body;  
 
   try {
     await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumo_sustituto_id INTEGER;`).catch(()=>null);
 
-    const nombreLimpio = String(nombre).trim();
-    const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND id != $2', [nombreLimpio, id]);
-    if (check.rows.length > 0) {
-      return res.status(400).json({ error: 'Ya existe OTRO insumo con ese nombre.' });
-    }
+    const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND id != $2', [nombreLimpio, id]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ error: 'Ya existe OTRO insumo con ese nombre.' });
+        }
 
     let factor_rendimiento = 1.0000;
     const tipo = tipo_rendimiento || 'Directo';
@@ -100,9 +121,10 @@ exports.actualizarInsumo = async (req, res) => {
     const result = await db.query(
       `UPDATE insumos SET
       nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4, es_empaque=$5,
-      tipo_rendimiento=$6, peso_prueba_crudo=$7, peso_prueba_limpio=$8, factor_rendimiento=$9, insumo_sustituto_id=$10
-      WHERE id=$11 RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, id]
+      tipo_rendimiento=$6, peso_prueba_crudo=$7, peso_prueba_limpio=$8, factor_rendimiento=$9, insumo_sustituto_id=$10,
+      descontar_solo_llevando=$11, es_empaque_global=$12, regla_empaque_global=$13
+      WHERE id=$14 RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), id]
     );
     res.json(result.rows[0]);
   } catch (error) {

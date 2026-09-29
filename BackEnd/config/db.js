@@ -16,23 +16,28 @@ try {
 }
 
 const pool = new Pool({
-  connectionString: dbUrl,
-  // Aplicamos el SSL de forma limpia para silenciar la advertencia de seguridad
-  ssl: dbUrl ? { rejectUnauthorized: false } : false,
-  //ssl: false,
-  // 2. SOLUCIÓN AL DEPRECATION WARNING (Letras Amarillas):
-  // Antes usábamos pool.on('connect') para la zona horaria, lo que causaba un "choque"
-  // de consultas concurrentes. Pasarlo por 'options' lo configura desde el milisegundo 0.
-  options: '-c timezone=America/Mazatlan'
+    connectionString: dbUrl,
+    ssl: dbUrl ? { rejectUnauthorized: false } : false,
+    options: '-c timezone=America/Mazatlan',
+    // 👇 NUEVO: Sin esto, un corte de red puede tardar 30-60+ segundos en fallar
+    connectionTimeoutMillis: 8000,
+    statement_timeout: 10000,
+    idleTimeoutMillis: 30000,
+    max: 20
+});
+
+// 👇 NUEVO: Evita que un error de conexión tumbe todo el proceso de Node
+pool.on('error', (err) => {
+    console.error('⚠️ Error inesperado en el Pool de PostgreSQL:', err.message);
 });
 
 // Probamos la conexión inicial
 pool.connect((err, client, release) => {
-  if (err) {
-    return console.error('❌ Error adquiriendo cliente PostgreSQL:', err.message);
-  }
-  console.log('✅ Conectado a PostgreSQL exitosamente (Motor Optimizado y Sin Advertencias)');
-  release();
+    if (err) {
+        return console.error('❌ Error adquiriendo cliente PostgreSQL:', err.message);
+    }
+    console.log('✅ Conectado a PostgreSQL exitosamente (Motor Optimizado y Sin Advertencias)');
+    release();
 });
 
 module.exports = pool;

@@ -14,6 +14,8 @@ import AdminMesas from './admin/AdminMesas';
 import AdminProveedores from './admin/AdminProveedores';
 import AdminDistribucion from './admin/AdminDistribucion'; // 👈 RUTA CORREGIDA
 import AdminBiometria from './admin/AdminBiometria';
+import AdminAsistencia from './admin/AdminAsistencia';
+import AdminIA from './admin/AdminIA';
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -51,6 +53,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewProveedores = isGlobalAdmin || user?.permisos?.proveedores === true;
   const canViewDistribucion = isGlobalAdmin || user?.permisos?.distribucion === true; // 👈 NUEVO PERMISO B2B
   const canViewHuellas = isGlobalAdmin || user?.permisos?.huellas === true;
+  const canViewAsistencia = isGlobalAdmin || user?.permisos?.asistencia === true;
+  const canViewIA = isGlobalAdmin || user?.permisos?.ia === true;
 
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
@@ -108,6 +112,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     socket.on('pedido_actualizado', actualizarPantalla);
     socket.on('pedido_eliminado', actualizarPantalla);
     socket.on('catalogo_actualizado', actualizarPantalla);
+    socket.on('config_actualizada', actualizarPantalla);
 
     socket.on('alerta_admin', (data) => {
         showAlert(data.titulo, data.mensaje, 'info');
@@ -174,6 +179,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           canViewProveedores={canViewProveedores}
           canViewDistribucion={canViewDistribucion} // 👈 NUEVO PROP
           canViewHuellas={canViewHuellas}
+          canViewAsistencia={canViewAsistencia}
+          canViewIA={canViewIA}
         />  
       </div>
 
@@ -225,6 +232,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         <AdminBiometria {...commonProps} user={user} />
         )}
 
+        {seccion === 'asistencia' && canViewAsistencia && (
+            <AdminAsistencia {...commonProps} configGlobal={configGlobal} />
+        )}
+
         {seccion === 'configuracion' && canViewConfig && (
           <AdminConfiguracion
             {...commonProps}
@@ -250,6 +261,10 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             apiUrl={apiUrl}
             showAlert={showAlert}
           />
+        )}
+        {/* 👇 NUEVO ESPACIO: COMPONENTE ADMIN IA */}
+        {seccion === 'ia' && canViewIA && (
+          <AdminIA {...commonProps} user={user} />
         )}  
         {seccion === 'promociones' && canViewPromociones && (
           <AdminPromociones
