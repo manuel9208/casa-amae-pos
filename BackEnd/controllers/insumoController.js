@@ -10,7 +10,25 @@ exports.inicializarInsumos = async () => {
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS descontar_solo_llevando BOOLEAN DEFAULT false;`);
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS es_empaque_global BOOLEAN DEFAULT false;`);
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS regla_empaque_global JSONB DEFAULT '{}'::jsonb;`);
+        // 👇 NUEVO: AUTO-MIGRACIÓN PARA ALERTAS PUSH DE STOCK BAJO POR INSUMO
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_stock_activa BOOLEAN DEFAULT false;`);
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_stock_minimo NUMERIC DEFAULT 0;`);
+        await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_ya_enviada BOOLEAN DEFAULT false;`);
         console.log("✅ Columnas de empaques inteligentes y sustitutos creadas en la BD.");  
+
+                // 👇 NUEVO: Tabla singleton para el borrador del botón "Surtir"
+        await db.query(`
+            CREATE TABLE IF NOT EXISTS surtidos_borrador (
+                id SERIAL PRIMARY KEY,
+                datos JSONB DEFAULT '{}',
+                fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        const checkBorrador = await db.query('SELECT id FROM surtidos_borrador WHERE id = 1');
+        if (checkBorrador.rows.length === 0) {
+            await db.query(`INSERT INTO surtidos_borrador (id, datos) VALUES (1, '{}')`);
+        }
+        console.log("✅ Tabla de 'surtidos_borrador' verificada/creada en la BD.");
 
         // 👇 AUTO-INYECCIÓN: Crea el Insumo Fantasma si no existe en la BD
         const checkRepartidor = await db.query("SELECT id FROM insumos WHERE LOWER(nombre) = 'repartidor externo'");
@@ -41,7 +59,10 @@ exports.obtenerInsumos = async (req, res) => {
       // 👇 NUEVOS CAMPOS DE EMPAQUES MAPEAADOS
       descontar_solo_llevando: ins.descontar_solo_llevando === true,
       es_empaque_global: ins.es_empaque_global === true,
-      regla_empaque_global: typeof ins.regla_empaque_global === 'string' ? JSON.parse(ins.regla_empaque_global) : (ins.regla_empaque_global || {})
+      regla_empaque_global: typeof ins.regla_empaque_global === 'string' ? JSON.parse(ins.regla_empaque_global) : (ins.regla_empaque_global || {}),
+      // 👇 NUEVO: Campos de alerta de stock bajo por insumo
+      alerta_stock_activa: ins.alerta_stock_activa === true,
+      alerta_stock_minimo: isNaN(parseFloat(ins.alerta_stock_minimo)) ? 0 : parseFloat(ins.alerta_stock_minimo)
       }));
     res.json(insumosLimpios);
   } catch(e) {
@@ -54,7 +75,8 @@ exports.crearInsumo = async (req, res) => {
       nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
       es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
       insumo_sustituto_id,
-      descontar_solo_llevando, es_empaque_global, regla_empaque_global // 👈 NUEVOS CAMPOS
+      descontar_solo_llevando, es_empaque_global, regla_empaque_global,
+      alerta_stock_activa, alerta_stock_minimo // 👈 NUEVO: alerta de stock bajo desde el Alta
   } = req.body;  
 
   try {
@@ -79,9 +101,9 @@ exports.crearInsumo = async (req, res) => {
 
     const result = await db.query(
       `INSERT INTO insumos
-      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id, descontar_solo_llevando, es_empaque_global, regla_empaque_global)
-      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {})]
+      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id, descontar_solo_llevando, es_empaque_global, regla_empaque_global, alerta_stock_activa, alerta_stock_minimo)
+      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0]
     );
     res.status(201).json(result.rows[0]);
   } catch(e) {
@@ -96,7 +118,8 @@ exports.actualizarInsumo = async (req, res) => {
     nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
     es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
     insumo_sustituto_id,
-    descontar_solo_llevando, es_empaque_global, regla_empaque_global // 👈 NUEVOS CAMPOS
+    descontar_solo_llevando, es_empaque_global, regla_empaque_global,
+    alerta_stock_activa, alerta_stock_minimo // 👈 NUEVO: alerta de stock bajo desde el formulario de edición
   } = req.body;  
 
   try {
@@ -122,9 +145,9 @@ exports.actualizarInsumo = async (req, res) => {
       `UPDATE insumos SET
       nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4, es_empaque=$5,
       tipo_rendimiento=$6, peso_prueba_crudo=$7, peso_prueba_limpio=$8, factor_rendimiento=$9, insumo_sustituto_id=$10,
-      descontar_solo_llevando=$11, es_empaque_global=$12, regla_empaque_global=$13
-      WHERE id=$14 RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), id]
+      descontar_solo_llevando=$11, es_empaque_global=$12, regla_empaque_global=$13, alerta_stock_activa=$14, alerta_stock_minimo=$15
+      WHERE id=$16 RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -343,5 +366,143 @@ exports.eliminarInsumo = async (req, res) => {
     res.json({success: true});
   } catch(e) {
     res.status(500).json({error: 'Error al eliminar insumo'});
+  }
+};
+
+// =========================================================
+// ALERTAS PUSH DE STOCK BAJO POR INSUMO (independiente del Admin/Edición general)
+// =========================================================
+exports.actualizarAlertaStock = async (req, res) => {
+  const { id } = req.params;
+  const { alerta_stock_activa, alerta_stock_minimo } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE insumos SET alerta_stock_activa = $1, alerta_stock_minimo = $2, alerta_ya_enviada = false WHERE id = $3 RETURNING *`,
+      [Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id]
+    );
+    res.json(result.rows[0]);
+  } catch (e) {
+    console.error("Error al actualizar alerta de stock:", e);
+    res.status(500).json({ error: 'Error al guardar la alerta de stock.' });
+  }
+};
+
+// =========================================================
+// VERIFICADOR PERIÓDICO (se engancha al cron de api.js, cada 60s)
+// =========================================================
+exports.verificarAlertasStockPersonalizado = async (io) => {
+  try {
+    const result = await db.query(`
+      SELECT id, nombre, stock_actual, unidad_medida, alerta_stock_minimo, alerta_ya_enviada
+      FROM insumos
+      WHERE alerta_stock_activa = true
+    `);
+
+    for (const ins of result.rows) {
+      const stockActual = parseFloat(ins.stock_actual) || 0;
+      const minimo = parseFloat(ins.alerta_stock_minimo) || 0;
+      const yaEnviada = ins.alerta_ya_enviada === true;
+
+      if (stockActual <= minimo && !yaEnviada) {
+        // 👇 Dispara el push UNA SOLA VEZ y marca el candado
+        await notificarStaff(
+          null,
+          '⚠️ Stock Bajo',
+          `${ins.nombre} está en ${stockActual} ${ins.unidad_medida} (mínimo configurado: ${minimo}).`
+        );
+        await db.query(`UPDATE insumos SET alerta_ya_enviada = true WHERE id = $1`, [ins.id]);
+        if (io) io.emit('alerta_stock_insumo', { id: ins.id, nombre: ins.nombre });
+      } else if (stockActual > minimo && yaEnviada) {
+        // 👇 Se reabasteció: rearma el candado para la próxima caída
+        await db.query(`UPDATE insumos SET alerta_ya_enviada = false WHERE id = $1`, [ins.id]);
+      }
+    }
+  } catch (e) {
+    console.error("❌ Error al verificar alertas de stock por insumo:", e);
+  }
+};
+
+// =========================================================
+// NOTIFICAR STAFF (duplicado intencional de pedidoController.js, Opción B
+// confirmada: evita tocar ese archivo y el riesgo de romper el flujo de pedidos)
+// =========================================================
+const webpush = require('web-push');
+const notificarStaff = async (rolesArray, titulo, cuerpo) => {
+    try {
+        let query = "SELECT s.suscripcion FROM suscripciones_push s JOIN usuarios u ON s.usuario_id = u.id";
+        let subs;
+        if (rolesArray && rolesArray.length > 0) {
+            const placeholders = rolesArray.map((_, i) => `$${i+1}`).join(',');
+            query += ` WHERE u.rol IN (${placeholders})`;
+            subs = await db.query(query, rolesArray);
+        } else {
+            subs = await db.query(query);
+        }
+        const payload = JSON.stringify({ title: titulo, body: cuerpo });
+        for(let row of subs.rows) {
+            const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
+            await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (staff):", e.message));
+        }
+    } catch(e) { console.error("Error al notificar staff (insumos):", e.message); }
+};
+
+// =========================================================
+// SURTIDO DIARIO (Botón "Surtir") — Borrador único + aplicación en bloque
+// =========================================================
+exports.obtenerBorradorSurtido = async (req, res) => {
+  try {
+    const result = await db.query('SELECT datos FROM surtidos_borrador WHERE id = 1');
+    const datos = result.rows.length > 0 ? result.rows[0].datos : {};
+    res.json({ success: true, datos: datos || {} });
+  } catch (e) {
+    console.error("Error al obtener borrador de surtido:", e);
+    res.status(500).json({ error: 'Error al obtener el borrador de surtido.' });
+  }
+};
+
+exports.guardarBorradorSurtido = async (req, res) => {
+  const { datos } = req.body;
+  try {
+    await db.query(
+      `UPDATE surtidos_borrador SET datos = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = 1`,
+      [JSON.stringify(datos || {})]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error("Error al guardar borrador de surtido:", e);
+    res.status(500).json({ error: 'Error al guardar el borrador de surtido.' });
+  }
+};
+
+exports.aplicarSurtido = async (req, res) => {
+  const { datos } = req.body;
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const entradas = Object.entries(datos || {}).filter(([, cantidad]) => parseFloat(cantidad) > 0);
+
+    for (const [insumoId, cantidad] of entradas) {
+      await client.query(
+        'UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2',
+        [parseFloat(cantidad), insumoId]
+      );
+    }
+
+    // Vaciamos el borrador: el surtido ya quedó aplicado de golpe
+    await client.query(`UPDATE surtidos_borrador SET datos = '{}', fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = 1`);
+
+    await client.query('COMMIT');
+
+    const io = req.app.get('io');
+    if (io) io.emit('catalogo_actualizado');
+
+    res.json({ success: true, insumosActualizados: entradas.length });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error("Error al aplicar surtido:", e);
+    res.status(500).json({ error: 'Error al aplicar el surtido.' });
+  } finally {
+    client.release();
   }
 };

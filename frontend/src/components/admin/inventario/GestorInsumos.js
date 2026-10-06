@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Package, ShoppingBag, RotateCcw, Edit, Trash2, 
   AlertTriangle, Box, Percent, Search, ClipboardList, 
-  X, CheckCircle2, CopyPlus // 👈 Cambiamos el ícono para indicar elementos múltiples
+  X, CheckCircle2, CopyPlus, Bell, Truck, PauseCircle // 👈 NUEVO: íconos para el botón "Surtir"
 } from 'lucide-react';
 
 const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos, showAlert, showConfirm }) => {
@@ -14,10 +14,14 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     // 👇 NUEVAS REGLAS DE EMPAQUE
     descontar_solo_llevando: false,
     es_empaque_global: false,
-    regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] }
+    regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] },
+    // 👇 NUEVO: Alerta de stock bajo, disponible también desde el Alta
+    alerta_stock_activa: false,
+    alerta_stock_minimo: ''
   });
   const [unidadPrueba, setUnidadPrueba] = useState('GR');
   const [editandoInsumoId, setEditandoInsumoId] = useState(null);
+  const formTopRef = useRef(null); // 👈 NUEVO: para hacer scroll real al editar (el scroll vive en el <main>, no en window)
   
   // Modales de Compra
   const [modalCompra, setModalCompra] = useState(null);
@@ -27,6 +31,8 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   // ESTADOS DE AUDITORÍA DIRECTA (Ajuste Admin)
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [busquedaAuditoria, setBusquedaAuditoria] = useState('');
+  const [busquedaInsumos, setBusquedaInsumos] = useState(''); // 👈 NUEVO: buscador de la tabla principal
+  const [minimosLocales, setMinimosLocales] = useState({}); // 👈 NUEVO: valor temporal del input "stock mínimo" mientras se escribe, por insumo
   const [insumoAuditoria, setInsumoAuditoria] = useState(null);
   const [cantidadAuditoria, setCantidadAuditoria] = useState('');
   const [unidadAuditoria, setUnidadAuditoria] = useState('');
@@ -34,6 +40,14 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   // ESTADOS DE AUDITORÍA REMOTA (Solicitud a Caja)
   const [auditoriaActiva, setAuditoriaActiva] = useState(null);
   const [modalRevision, setModalRevision] = useState(false);
+
+  // 👇 NUEVO: ESTADOS DEL BOTÓN "SURTIR" (llevar insumos de bodega al mostrador)
+  const [modalSurtido, setModalSurtido] = useState(false);
+  const [busquedaSurtido, setBusquedaSurtido] = useState('');
+  const [cantidadesSurtido, setCantidadesSurtido] = useState({});
+  const [unidadesSurtido, setUnidadesSurtido] = useState({}); // 👈 NUEVO: unidad elegida por insumo (GR/KL, ML/LT)
+  const [cargandoSurtido, setCargandoSurtido] = useState(false);
+  const [guardandoSurtido, setGuardandoSurtido] = useState(false);
 
   // Escuchar si hay una auditoría activa en curso
   useEffect(() => {
@@ -97,10 +111,16 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
       // 👇 CARGAR REGLAS DE EMPAQUE AL EDITAR
       descontar_solo_llevando: insumo.descontar_solo_llevando || false,
       es_empaque_global: insumo.es_empaque_global || false,
-      regla_empaque_global: insumo.regla_empaque_global || { regla_divisor: 1, categorias_aplicables: [] }
+      regla_empaque_global: insumo.regla_empaque_global || { regla_divisor: 1, categorias_aplicables: [] },
+      // 👇 NUEVO: Cargar la alerta de stock bajo ya configurada
+      alerta_stock_activa: insumo.alerta_stock_activa || false,
+      alerta_stock_minimo: insumo.alerta_stock_minimo || ''
     });
     setUnidadPrueba(insumo.unidad_medida === 'KL' ? 'GR' : (insumo.unidad_medida === 'LT' ? 'ML' : insumo.unidad_medida));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // 👇 FIX: window.scrollTo no servía porque el scroll real vive en el <main> de
+    // AdminPanel.js (overflow-y-auto), no en la ventana. scrollIntoView sí encuentra
+    // y desplaza el contenedor correcto, sin importar cuál sea.
+    formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const cancelarEdicionInsumo = () => {
@@ -109,7 +129,8 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
       nombre: '', unidad_medida: 'KL', cantidad_presentacion: '', 
       costo_presentacion: '', es_empaque: false, tipo_rendimiento: 'Directo', 
       peso_prueba_crudo: '', peso_prueba_limpio: '', insumos_sustitutos: [],
-      descontar_solo_llevando: false, es_empaque_global: false, regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] }
+      descontar_solo_llevando: false, es_empaque_global: false, regla_empaque_global: { regla_divisor: 1, categorias_aplicables: [] },
+      alerta_stock_activa: false, alerta_stock_minimo: ''
     });
   };
 
@@ -181,6 +202,156 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     });
   };
 
+  // 👇 NUEVO: Abre el modal de Surtir y recupera el borrador guardado (si quedó pausado)
+  const abrirModalSurtido = async () => {
+    setModalSurtido(true);
+    setCargandoSurtido(true);
+    try {
+      const res = await fetch(`${apiUrl}/insumos/surtido/borrador`);
+      const data = await res.json();
+      if (data.success) {
+        setCantidadesSurtido(data.datos || {});
+      }
+      // 👇 NUEVO: Precarga la unidad "grande" por default (KL/LT) para cada insumo que la maneje
+      const unidadesIniciales = {};
+      (insumosDB || []).forEach(ins => {
+        if (ins.unidad_medida === 'KL') unidadesIniciales[ins.id] = 'GR';
+        else if (ins.unidad_medida === 'LT') unidadesIniciales[ins.id] = 'ML';
+        else unidadesIniciales[ins.id] = ins.unidad_medida;
+      });
+      setUnidadesSurtido(unidadesIniciales);
+    } catch (e) {
+      showAlert("Error", "No se pudo cargar el borrador de surtido guardado.", "error");
+    } finally {
+      setCargandoSurtido(false);
+    }
+  };
+
+  // 👇 NUEVO: Actualiza en memoria la cantidad a llevar de un insumo específico.
+  // Si la unidad elegida es GR/ML (unidad "chica"), convierte a KL/LT (unidad base del
+  // insumo) antes de guardar, igual que ya hace la Auditoría/Ajuste Rápido.
+  const handleCantidadSurtido = (insumo, valorMostrado) => {
+    const unidadElegida = unidadesSurtido[insumo.id] || insumo.unidad_medida;
+
+    setCantidadesSurtido(prev => {
+      const copia = { ...prev };
+      if (valorMostrado === '' || parseFloat(valorMostrado) === 0 || isNaN(parseFloat(valorMostrado))) {
+        delete copia[insumo.id];
+        return copia;
+      }
+
+      let valorReal = parseFloat(valorMostrado);
+      if (insumo.unidad_medida === 'KL' && unidadElegida === 'GR') valorReal = valorReal / 1000;
+      else if (insumo.unidad_medida === 'LT' && unidadElegida === 'ML') valorReal = valorReal / 1000;
+
+      copia[insumo.id] = valorReal;
+      return copia;
+    });
+  };
+
+  // 👇 NUEVO: Cambia la unidad elegida (GR<->KL, ML<->LT) y reconvierte el valor ya
+  // capturado para que el número que ve el usuario tenga sentido en la nueva unidad.
+  const handleCambiarUnidadSurtido = (insumo, nuevaUnidad) => {
+    setUnidadesSurtido(prev => ({ ...prev, [insumo.id]: nuevaUnidad }));
+    setCantidadesSurtido(prev => {
+      if (prev[insumo.id] === undefined) return prev;
+      // El valor guardado siempre está en la unidad BASE del insumo (KL/LT/GR/ML/PZ),
+      // así que no hace falta recalcular aquí: solo se re-renderiza con getValorMostrado.
+      return prev;
+    });
+  };
+
+  // 👇 NUEVO: Calcula qué número mostrar en el input, según la unidad elegida
+  const getValorMostradoSurtido = (insumo) => {
+    const valorBase = cantidadesSurtido[insumo.id];
+    if (valorBase === undefined) return '';
+    const unidadElegida = unidadesSurtido[insumo.id] || insumo.unidad_medida;
+    if (insumo.unidad_medida === 'KL' && unidadElegida === 'GR') return (parseFloat(valorBase) * 1000).toString();
+    if (insumo.unidad_medida === 'LT' && unidadElegida === 'ML') return (parseFloat(valorBase) * 1000).toString();
+    return valorBase.toString();
+  };
+
+  // 👇 NUEVO: Botón "Pausar y Guardar" — guarda el avance SIN tocar el stock todavía
+  const pausarYGuardarSurtido = async () => {
+    setGuardandoSurtido(true);
+    try {
+      const res = await fetch(`${apiUrl}/insumos/surtido/guardar`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ datos: cantidadesSurtido })
+      });
+      if (res.ok) {
+        showAlert("Progreso Guardado", "Tu avance de surtido quedó guardado. Puedes continuar más tarde.", "success");
+        setModalSurtido(false);
+      } else {
+        showAlert("Error", "No se pudo guardar el progreso.", "error");
+      }
+    } catch (e) {
+      showAlert("Error", "Problema de conexión al guardar el progreso.", "error");
+    } finally {
+      setGuardandoSurtido(false);
+    }
+  };
+
+  // 👇 NUEVO: Botón final — aplica TODO el surtido de golpe al stock real
+  const confirmarSurtido = () => {
+    const totalInsumos = Object.keys(cantidadesSurtido).length;
+    if (totalInsumos === 0) {
+      showAlert("Nada que surtir", "No has capturado ninguna cantidad todavía.", "info");
+      return;
+    }
+    showConfirm(
+      "¿Confirmar Surtido?",
+      `Se sumará al inventario la cantidad capturada en ${totalInsumos} insumo(s). Esta acción no se puede deshacer.`,
+      async () => {
+        setGuardandoSurtido(true);
+        try {
+          const res = await fetch(`${apiUrl}/insumos/surtido/aplicar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ datos: cantidadesSurtido })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showAlert("¡Surtido Aplicado!", `Se actualizó el inventario de ${data.insumosActualizados} insumo(s) correctamente.`, "success");
+            setCantidadesSurtido({});
+            setModalSurtido(false);
+            refrescarDatos();
+          } else {
+            showAlert("Error", data.error || "No se pudo aplicar el surtido.", "error");
+          }
+        } catch (e) {
+          showAlert("Error", "Problema de conexión al aplicar el surtido.", "error");
+        } finally {
+          setGuardandoSurtido(false);
+        }
+      }
+    );
+  };
+
+  // 👇 NUEVO: Guarda la alerta de stock bajo de un insumo (switch y/o mínimo configurado)
+  const actualizarAlertaInsumo = async (insumo, alerta_stock_activa, alerta_stock_minimo) => {
+    try {
+      const res = await fetch(`${apiUrl}/insumos/${insumo.id}/alerta-stock`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alerta_stock_activa, alerta_stock_minimo })
+      });
+      if (res.ok) {
+        setMinimosLocales(prev => {
+          const copia = { ...prev };
+          delete copia[insumo.id];
+          return copia;
+        });
+        refrescarDatos();
+      } else {
+        showAlert("Error", "No se pudo guardar la alerta de stock.", "error");
+      }
+    } catch (e) {
+      showAlert("Error", "Problema de conexión al guardar la alerta.", "error");
+    }
+  };
+
   const procesarAuditoriaDirecta = async (e) => {
     e.preventDefault();
     if (!insumoAuditoria || cantidadAuditoria === '') return;
@@ -246,7 +417,12 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     }
   };
 
-  const insumosCriticos = (insumosDB || []).filter(ins => (Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion))) < 1);
+  // 👇 AJUSTADO: Ahora SOLO muestra insumos con el switch de alerta activado
+  // que ya cruzaron su stock mínimo configurado. Si no activaste ningún switch,
+  // este arreglo queda vacío y el banner no se muestra (igual que la notificación push).
+  const insumosCriticos = (insumosDB || []).filter(ins => 
+    ins.alerta_stock_activa && Number(ins.stock_actual) <= Number(ins.alerta_stock_minimo)
+  );
   const totalCalculadoModalCompra = (parseFloat(compraPaquetes) || 0) * (parseFloat(compraCosto) || 0);
   
   let porcentajeRendimientoCalculado = 100;
@@ -257,7 +433,17 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   }
 
   const insumosFiltradosAuditoria = (insumosDB || []).filter(ins =>
-    ins.nombre.toLowerCase().includes(busquedaAuditoria.toLowerCase())
+  ins.nombre.toLowerCase().includes(busquedaAuditoria.toLowerCase())
+  );
+
+  // 👇 NUEVO: Buscador de la tabla principal de insumos (independiente del de Auditoría)
+  const insumosFiltrados = (insumosDB || []).filter(ins =>
+    ins.nombre.toLowerCase().includes(busquedaInsumos.toLowerCase())
+  );
+
+  // 👇 NUEVO: Buscador del modal de Surtido
+  const insumosFiltradosSurtido = (insumosDB || []).filter(ins =>
+    ins.nombre.toLowerCase().includes(busquedaSurtido.toLowerCase())
   );
 
   // Filtrar lista de empaques para el Respaldo (Ocultando el insumo actual si estamos editando)
@@ -268,21 +454,22 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 relative">
       
-      {/* ALERTA DE INSUMOS CRÍTICOS */}
+      {/* ALERTA DE INSUMOS CRÍTICOS — ahora solo aparece si activaste el switch
+          de un insumo y su stock ya cruzó el mínimo configurado. Vacío por defecto. */}
       {insumosCriticos.length > 0 && (
         <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl flex flex-col md:flex-row items-start gap-4 shadow-sm animate-in fade-in">
           <AlertTriangle className="text-red-500 w-10 h-10 flex-shrink-0" />
           <div>
             <h4 className="text-red-700 font-black text-lg uppercase tracking-widest mb-1">¡Alerta de Inventario Crítico!</h4>
             <p className="text-red-600 font-bold text-sm leading-relaxed">
-              Tienes insumos con menos de 1 paquete de existencia: <span className="font-black">{insumosCriticos.map(i => i.nombre).join(', ')}</span>
+              Tienes insumos por debajo de su stock mínimo configurado: <span className="font-black">{insumosCriticos.map(i => i.nombre).join(', ')}</span>
             </p>
           </div>
         </div>
       )}
 
       {/* FORMULARIO ALTA/EDICIÓN */}
-      <form onSubmit={guardarInsumo} className="bg-white p-4 md:p-8 rounded-[30px] shadow-sm border border-slate-200">
+      <form ref={formTopRef} onSubmit={guardarInsumo} className="bg-white p-4 md:p-8 rounded-[30px] shadow-sm border border-slate-200">
         <h3 className="text-xl font-bold mb-6 text-slate-800 flex items-center gap-2">
           {editandoInsumoId ? <Edit className="text-blue-500"/> : <Package className="text-emerald-500"/>}
           {editandoInsumoId ? 'Editando Insumo' : 'Alta Rápida de Insumo / Empaque'}
@@ -300,6 +487,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
               <option value="GR">Gramos (GR)</option>
               <option value="ML">Mililitros (ML)</option>
               <option value="PZ">Piezas (PZ)</option>
+              <option value="OZ">Onzas (OZ)</option>
             </select>
           </div>
           <div>
@@ -311,7 +499,34 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
             <input required type="number" step="any" placeholder="Ej. 50.00" value={nuevoInsumo.costo_presentacion} onChange={e => setNuevoInsumo({...nuevoInsumo, costo_presentacion: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-black text-slate-700 text-xl" />
           </div>
         </div>  
-        
+
+        {/* 👇 NUEVO: Alerta de Stock Bajo, disponible desde el Alta y la Edición */}
+        <div className="bg-amber-50 border border-amber-100 p-4 rounded-xl mt-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <label className="flex items-center gap-3 cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={nuevoInsumo.alerta_stock_activa}
+              onChange={e => setNuevoInsumo({...nuevoInsumo, alerta_stock_activa: e.target.checked})}
+              className="w-5 h-5 accent-amber-600"
+            />
+            <span className="font-black text-amber-800 flex items-center gap-2"><Bell size={18}/> ¿Avisarme cuando el stock esté bajo?</span>
+          </label>
+          {nuevoInsumo.alerta_stock_activa && (
+            <div className="flex items-center gap-2 animate-in fade-in">
+              <span className="text-xs font-bold text-amber-700 uppercase tracking-widest">Mínimo:</span>
+              <input
+                type="number"
+                step="any"
+                placeholder="Ej. 5"
+                value={nuevoInsumo.alerta_stock_minimo}
+                onChange={e => setNuevoInsumo({...nuevoInsumo, alerta_stock_minimo: e.target.value})}
+                className="w-24 p-2 bg-white border border-amber-300 rounded-lg outline-none focus:border-amber-500 font-bold text-center"
+              />
+              <span className="text-xs font-bold text-amber-600">{nuevoInsumo.unidad_medida}</span>
+            </div>
+          )}
+        </div>
+
                 {/* 👇 SECCIÓN DE EMPAQUE INTELIGENTE */}
         <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-4 flex flex-col gap-4">
           <div className="flex flex-col lg:flex-row gap-4 items-start">
@@ -483,7 +698,19 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
         {/* ENCABEZADO Y CONTROLES DE AUDITORÍA */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 gap-4 border-b border-slate-100 pb-4">
           <h3 className="text-xl font-bold text-slate-800">Catálogo y Existencias</h3>
-          
+
+          {/* 👇 NUEVO: Buscador rápido de la tabla principal de insumos */}
+          <div className="relative w-full xl:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text"
+              value={busquedaInsumos}
+              onChange={(e) => setBusquedaInsumos(e.target.value)}
+              placeholder="Buscar insumo por nombre..."
+              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 font-medium text-slate-700 transition-all placeholder:text-slate-400"
+            />
+          </div>
+
           <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto">
             {!auditoriaActiva ? (
               <button onClick={solicitarInventario} className="flex-1 sm:flex-none bg-slate-800 text-white px-5 py-3 rounded-xl font-black flex justify-center items-center gap-2 hover:bg-slate-900 transition shadow-lg">
@@ -502,6 +729,11 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
             <button onClick={() => setModalAuditoria(true)} className="flex-1 sm:flex-none bg-indigo-600 text-white px-5 py-3 rounded-xl font-black flex justify-center items-center gap-2 hover:bg-indigo-700 transition active:scale-95 shadow-lg shadow-indigo-500/30">
               <ClipboardList size={18} /> Ajuste Admin
             </button>
+
+            {/* 👇 NUEVO: Botón "Surtir" — lleva insumos de bodega al mostrador, aplicando todo de golpe */}
+            <button onClick={abrirModalSurtido} className="flex-1 sm:flex-none bg-teal-600 text-white px-5 py-3 rounded-xl font-black flex justify-center items-center gap-2 hover:bg-teal-700 transition active:scale-95 shadow-lg shadow-teal-500/30">
+              <Truck size={18} /> Surtir
+            </button>
           </div>
         </div>
 
@@ -518,11 +750,12 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
                   <th className="p-4">Insumo / Presentación</th>
                   <th className="p-4">Stock Actual</th>
                   <th className="p-4 hidden sm:table-cell">Costo Ult. Compra</th>
+                  <th className="p-4 text-center">Alerta Stock</th>
                   <th className="p-4 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {insumosDB.map(ins => {
+                {insumosFiltrados.map(ins => {
                   const stock_paquetes = Number(ins.stock_actual) / Math.max(1, Number(ins.cantidad_presentacion));
                   let colorClases = 'bg-red-100 text-red-700 border-red-200';
                   if (stock_paquetes >= 3) colorClases = 'bg-emerald-100 text-emerald-700 border-emerald-200';
@@ -554,6 +787,31 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
                         </span>
                       </td>
                       <td className="p-4 font-black text-slate-600 hidden sm:table-cell">${ins.costo_presentacion}</td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              className="sr-only peer"
+                              checked={ins.alerta_stock_activa}
+                              onChange={(e) => actualizarAlertaInsumo(ins, e.target.checked, ins.alerta_stock_minimo)}
+                            />
+                            <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                          </label>
+                          {ins.alerta_stock_activa && (
+                            <input
+                              type="number"
+                              step="any"
+                              placeholder="Mín."
+                              value={minimosLocales[ins.id] !== undefined ? minimosLocales[ins.id] : ins.alerta_stock_minimo}
+                              onChange={(e) => setMinimosLocales(prev => ({ ...prev, [ins.id]: e.target.value }))}
+                              onBlur={(e) => actualizarAlertaInsumo(ins, true, parseFloat(e.target.value) || 0)}
+                              className="w-16 p-2 bg-amber-50 border border-amber-200 rounded-lg outline-none focus:border-amber-500 font-bold text-center text-sm text-amber-700 animate-in fade-in"
+                              title={`Stock mínimo en ${ins.unidad_medida} para notificar`}
+                            />
+                          )}
+                        </div>
+                      </td>
                       <td className="p-4 flex justify-center gap-2">
                         <button onClick={() => {setModalCompra(ins); setCompraCosto(ins.costo_presentacion);}} className="bg-emerald-100 text-emerald-700 hover:bg-emerald-600 hover:text-white px-3 py-2 rounded-xl font-bold text-sm transition flex items-center gap-2" title="Sumar inventario por compra"><ShoppingBag size={16}/> <span className="hidden md:inline">Comprar</span></button>
                         <button onClick={() => reiniciarStockInsumo(ins)} className="bg-orange-100 text-orange-600 hover:bg-orange-500 hover:text-white p-2 rounded-xl transition" title="Reiniciar a 0 (Merma)"><RotateCcw size={18}/></button>
@@ -715,6 +973,93 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
               </button>
               <button onClick={() => resolverInventario('aprobar')} className="flex-1 py-4 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-500/30 transition active:scale-95 text-lg">
                 ✅ Autorizar y Actualizar Stock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 👇 NUEVO: MODAL DE SURTIDO (lleva insumos de bodega al mostrador) */}
+      {modalSurtido && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in">
+          <div className="bg-white rounded-[30px] p-6 max-w-2xl w-full shadow-2xl flex flex-col h-[85vh] max-h-[700px] relative overflow-hidden">
+
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+                <Truck className="text-teal-600"/> Surtir Mostrador
+              </h3>
+              <button onClick={() => setModalSurtido(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full transition"><X size={20}/></button>
+            </div>
+            <p className="text-slate-500 font-medium text-sm mb-4 shrink-0">
+              Captura cuánto vas a llevar de cada insumo. Se sumará a tu existencia actual al confirmar.
+            </p>
+
+            <div className="relative mb-4 shrink-0">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+              <input 
+                type="text" placeholder="Buscar insumo..." 
+                value={busquedaSurtido} onChange={e => setBusquedaSurtido(e.target.value)} 
+                className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-teal-500 font-bold text-slate-700" 
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+              {cargandoSurtido ? (
+                <p className="text-center text-slate-400 font-bold text-sm mt-10">Cargando borrador guardado...</p>
+              ) : insumosFiltradosSurtido.length === 0 ? (
+                <p className="text-center text-slate-400 font-bold text-sm mt-10">No se encontraron insumos.</p>
+              ) : (
+                insumosFiltradosSurtido.map(ins => {
+                  const necesitaSelectorUnidad = ins.unidad_medida === 'KL' || ins.unidad_medida === 'LT';
+                  const unidadActual = unidadesSurtido[ins.id] || ins.unidad_medida;
+                  return (
+                    <div key={ins.id} className={`flex items-center justify-between gap-3 p-4 rounded-2xl border transition ${cantidadesSurtido[ins.id] !== undefined ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-100'}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-slate-800 truncate">{ins.nombre}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Existencia actual: {Number(ins.stock_actual).toFixed(2)} {ins.unidad_medida}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={getValorMostradoSurtido(ins)}
+                          onChange={(e) => handleCantidadSurtido(ins, e.target.value)}
+                          className="w-20 p-3 bg-white border-2 border-slate-200 focus:border-teal-500 rounded-xl outline-none font-black text-center text-slate-800"
+                        />
+                        {necesitaSelectorUnidad ? (
+                          <select
+                            value={unidadActual}
+                            onChange={(e) => handleCambiarUnidadSurtido(ins, e.target.value)}
+                            className="p-3 bg-teal-600 text-white border-2 border-teal-600 rounded-xl outline-none font-black text-xs cursor-pointer"
+                          >
+                            {ins.unidad_medida === 'KL' && <><option value="GR">GR</option><option value="KL">KL</option></>}
+                            {ins.unidad_medida === 'LT' && <><option value="ML">ML</option><option value="LT">LT</option></>}
+                          </select>
+                        ) : (
+                          <span className="px-3 py-3 bg-slate-100 text-slate-500 rounded-xl font-black text-xs">{ins.unidad_medida}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-4 pt-4 border-t border-slate-100 shrink-0">
+              <button 
+                onClick={pausarYGuardarSurtido} 
+                disabled={guardandoSurtido}
+                className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-xl hover:bg-slate-200 transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <PauseCircle size={20}/> Pausar y Guardar
+              </button>
+              <button 
+                onClick={confirmarSurtido} 
+                disabled={guardandoSurtido}
+                className="flex-1 py-4 bg-teal-600 text-white font-black rounded-xl hover:bg-teal-700 shadow-lg shadow-teal-500/30 transition active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <CheckCircle2 size={20}/> Confirmar y Surtir Todo
               </button>
             </div>
           </div>

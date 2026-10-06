@@ -16,6 +16,48 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
       .catch(console.error);
   }, [apiUrl]);
 
+  // 💡 MÓDULO AISLADO: Factor Luz/Agua configurable (antes hardcodeado al 15%)
+  const [porcentajeLuzAgua, setPorcentajeLuzAgua] = useState(15);
+  const [inputLuzAgua, setInputLuzAgua] = useState('15');
+
+  useEffect(() => {
+    fetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.success) {
+          setPorcentajeLuzAgua(Number(data.porcentaje));
+          setInputLuzAgua(String(data.porcentaje));
+        }
+      })
+      .catch(console.error);
+  }, [apiUrl]);
+
+  // 👇 Se dispara con onBlur (al quitar el foco del input). Actualiza BD y
+  // sincroniza el mismo valor hacia PanelTamanosFijos vía props.
+  const actualizarPorcentajeLuzAgua = async (nuevoValor) => {
+    const valorNumerico = Number(nuevoValor);
+    if (isNaN(valorNumerico) || valorNumerico < 0) {
+      setInputLuzAgua(String(porcentajeLuzAgua));
+      return;
+    }
+    try {
+      const res = await fetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ porcentaje: valorNumerico })
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setPorcentajeLuzAgua(Number(data.porcentaje));
+        setInputLuzAgua(String(data.porcentaje));
+        if (typeof showAlert !== 'undefined') showAlert("¡Guardado!", "El porcentaje de Luz/Agua se actualizó correctamente.", "success");
+      }
+    } catch (e) {
+      if (typeof showAlert !== 'undefined') showAlert("Error", "No se pudo actualizar el porcentaje de Luz/Agua.", "error");
+      setInputLuzAgua(String(porcentajeLuzAgua));
+    }
+  };
+
   // ==========================================
   // ESTADOS DE UI Y SELECCIÓN
   // ==========================================
@@ -440,8 +482,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   // Cálculos Globales (Menú)
   const costoInsumoBase = costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora);
   const costoTotalSimuladoBase = costoInsumoBase + costoEmpaquesUnicoTotal;
-  const luzAguaBase = costoTotalSimuladoBase * 0.15;
-  const costoTotalRealBase = costoTotalSimuladoBase * 1.15;
+  const luzAguaBase = costoTotalSimuladoBase * (porcentajeLuzAgua / 100);
+  const costoTotalRealBase = costoTotalSimuladoBase * (1 + (porcentajeLuzAgua / 100));
   const precioSugeridoBase = costoTotalRealBase * 3;
   const costoPorPorcionBase = costoTotalRecetaCalculado / Math.max(1, rendimientoCalculadora);
   const precioVentaRealUnico = Number(productoSeleccionado?.precio_base) || 0;
@@ -550,7 +592,23 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
                 {!esSubReceta ? (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
                     <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200"><p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Costo Platillo</p><p className="text-xl font-black text-slate-700">${costoPorPorcionBase.toFixed(2)}</p></div>
-                    <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200"><p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1">+15% Luz/Agua</p><p className="text-xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p></div>
+                    <div className="text-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                      <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1 flex items-center justify-center gap-1">
+                        +
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={inputLuzAgua}
+                          onChange={e => setInputLuzAgua(e.target.value)}
+                          onBlur={e => actualizarPorcentajeLuzAgua(e.target.value)}
+                          className="w-12 text-center bg-white border border-red-200 rounded-md outline-none font-black text-red-600 focus:ring-2 focus:ring-red-400"
+                          title="Editar % de Luz/Agua (se guarda al salir del campo)"
+                        />
+                        % Luz/Agua
+                      </p>
+                      <p className="text-xl font-black text-red-600">${luzAguaBase.toFixed(2)}</p>
+                    </div>
                     <div className="text-center bg-amber-50 p-4 rounded-2xl border border-amber-200 shadow-sm"><p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Costo Real Final</p><p className="text-2xl font-black text-amber-600">${costoTotalRealBase.toFixed(2)}</p></div>
                     <div className="text-center bg-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-sm"><p className="text-[10px] font-black text-emerald-700 uppercase tracking-widest mb-1">Precio Sugerido</p><p className="text-2xl font-black text-emerald-600">${precioSugeridoBase.toFixed(2)}</p></div>
                   </div>
@@ -598,6 +656,8 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
           empaquesDisponibles={empaquesDisponibles} costoTotalRecetaCalculado={costoTotalRecetaCalculado}
           guardarRendimientosTamanos={guardarRendimientosTamanos} actualizarEmpaqueTamanio={actualizarEmpaqueTamanio}
           eliminarEmpaqueTamanio={eliminarEmpaqueTamanio} agregarEmpaqueTamanio={agregarEmpaqueTamanio} esSubReceta={esSubReceta}
+          porcentajeLuzAgua={porcentajeLuzAgua}
+          onActualizarPorcentajeLuzAgua={actualizarPorcentajeLuzAgua}
         />
       )}
 

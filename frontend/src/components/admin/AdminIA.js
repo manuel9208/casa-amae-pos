@@ -54,7 +54,7 @@ const AdminIA = ({ apiUrl, user, showAlert }) => {
       </div>
 
       {/* ÁREA DE CONTENIDO FLUIDA */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative transform-gpu">
         
         {pestaña === 'chat' && (
           <div className="h-full animate-fade-in">

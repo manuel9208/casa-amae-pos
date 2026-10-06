@@ -21,6 +21,11 @@ export const useValidadorAsistencia = (apiUrl) => {
 
     const validarAcceso = useCallback(async () => {
         setValidandoGPS(true);
+        // 👇 FIX: Capturamos lat/lon obtenidas del GPS para poder mandarlas también
+        // al backend (usuarioController.registrarAsistencia) y que el SERVIDOR
+        // también valide la ubicación, no solo el navegador.
+        let latObtenida = null;
+        let lonObtenida = null;
         try {
             // 1. Obtener reglas de la base de datos
             const resConfig = await fetch(`${apiUrl}/asistencia/configuracion`);
@@ -37,7 +42,7 @@ export const useValidadorAsistencia = (apiUrl) => {
             // 2. Si el Admin desactivó la seguridad, pasamos directo
             if (modoValidacion === 'ninguna') {
                 setValidandoGPS(false);
-                return { success: true };
+                return { success: true, lat: latObtenida, lon: lonObtenida };
             }
 
             // 3. Validación de IP (Red Wi-Fi)
@@ -74,6 +79,9 @@ export const useValidadorAsistencia = (apiUrl) => {
                     const pos = await obtenerPosicionGPS();
                     const latActual = pos.coords.latitude;
                     const lonActual = pos.coords.longitude;
+                    // 👇 FIX: Guardamos las coordenadas para exponerlas en el return final
+                    latObtenida = latActual;
+                    lonObtenida = lonActual;
 
                     let dentroDelRango = false;
                     for (let geocerca of ubicacionesPermitidas) {
@@ -96,7 +104,8 @@ export const useValidadorAsistencia = (apiUrl) => {
 
             // 5. Pasó todas las barreras de seguridad exitosamente
             setValidandoGPS(false);
-            return { success: true };
+            // 👇 FIX: Ahora el return incluye lat/lon (serán null si el modo era 'ip' o 'ninguna')
+            return { success: true, lat: latObtenida, lon: lonObtenida };
 
         } catch (error) {
             setValidandoGPS(false);

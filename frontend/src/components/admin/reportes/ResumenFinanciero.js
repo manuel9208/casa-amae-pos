@@ -1,9 +1,51 @@
 import React from 'react';
-import { DollarSign, PackageOpen, TrendingUp, Tag, Wallet, ShoppingBag } from 'lucide-react';
+import { DollarSign, PackageOpen, TrendingUp, TrendingDown, Tag, Wallet, ShoppingBag, Minus } from 'lucide-react';
 
-const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
+const ResumenFinanciero = ({ resumen, formaterMoneda, comparativas }) => {
     // Si no hay datos, ocultamos el componente para que no marque error
     if (!resumen) return null;
+
+    // 💡 MEJORA #2: Indicador visual ↑/↓ de tendencia.
+    // Mismo criterio que "proyecciones" en reporteController.js: comparativas[0]
+    // es siempre el periodo ACTUAL (Hoy/Esta Semana/etc.), así que la base de
+    // comparación es el primer periodo HISTÓRICO inmediato -> comparativas[1].
+    const baseHistorica = Array.isArray(comparativas) && comparativas.length > 1 ? comparativas[1] : null;
+
+    // 💡 Cálculo APROXIMADO de variación % (no reconstruye descuentos prorrateados
+    // del periodo histórico, solo compara volumen bruto vs bruto, o costo vs costo).
+    const calcularVariacion = (valorActual, valorHistorico) => {
+    if (!baseHistorica || valorHistorico === undefined || valorHistorico === null) return null;
+    const actual = Number(valorActual) || 0;
+    const historico = Number(valorHistorico) || 0;
+
+    if (historico === 0) {
+        if (actual === 0) return null;
+        return { esNuevo: true };
+    }
+    const variacion = ((actual - historico) / Math.abs(historico)) * 100;
+    return { variacion, esPositivo: variacion > 0, esNeutro: variacion === 0 };
+    };
+
+    // 💡 Badge reutilizable (claro u oscuro, para la tarjeta verde de Ganancia Neta)
+    const BadgeTendencia = ({ data, oscuro = false }) => {
+    if (!data) return null;
+    if (data.esNuevo) {
+        return (
+        <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${oscuro ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-600'} print:bg-slate-100 print:text-slate-600`}>
+            <TrendingUp size={11} /> Nuevo
+        </span>
+        );
+    }
+    const { variacion, esPositivo, esNeutro } = data;
+    const colorClaro = esNeutro ? 'bg-slate-100 text-slate-500' : esPositivo ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500';
+    const colorOscuro = 'bg-white/20 text-white';
+    return (
+        <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${oscuro ? colorOscuro : colorClaro} print:bg-slate-100 print:text-slate-600`}>
+        {esNeutro ? <Minus size={11} /> : esPositivo ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+        {Math.abs(variacion).toFixed(1)}%
+        </span>
+    );
+    };
 
     return (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 print:grid-cols-6 print:gap-2 animate-in fade-in slide-in-from-top-4 mb-8">
@@ -17,6 +59,7 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
                 <span className="text-xl md:text-2xl font-black text-slate-800 mt-1">
                     {formaterMoneda(resumen.ventas_totales)}
                 </span>
+                <BadgeTendencia data={calcularVariacion(resumen.ventas_totales, baseHistorica?.totalVentas)} />
             </div>
 
             {/* 2. DESCUENTOS Y PROMOCIONES */}
@@ -40,6 +83,7 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
                 <span className="text-xl md:text-2xl font-black text-emerald-700 mt-1">
                     {formaterMoneda(resumen.ingreso_neto_real)}
                 </span>
+                <BadgeTendencia data={calcularVariacion(resumen.ingreso_neto_real, baseHistorica?.totalVentas)} />
             </div>
 
             {/* 4. COSTO DE INVERSIÓN (Receta) */}
@@ -51,6 +95,7 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
                 <span className="text-xl md:text-2xl font-black text-red-500 mt-1">
                     -{formaterMoneda(resumen.inversion_total)}
                 </span>
+                <BadgeTendencia data={calcularVariacion(resumen.inversion_total, baseHistorica?.totalInversion)} />
             </div>
 
             {/* 5. GANANCIA NETA FINAL */}
@@ -62,6 +107,7 @@ const ResumenFinanciero = ({ resumen, formaterMoneda }) => {
                 <span className="text-2xl md:text-3xl font-black text-white mt-1 print:text-emerald-600 drop-shadow-sm">
                     {formaterMoneda(resumen.ganancia_total)}
                 </span>
+                <BadgeTendencia data={calcularVariacion(resumen.ganancia_total, baseHistorica?.totalGanancia)} oscuro />
             </div>
 
             {/* 6. ARTÍCULOS VENDIDOS */}

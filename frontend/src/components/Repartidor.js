@@ -89,17 +89,23 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
     const finalizarEntregaDirecta = async (pedidoId) => {
         setIsSubmitting(true);
         try {
-            // 👇 FIX LÓGICO 1: Si es un pago online (Tarjeta), lo liquidamos directo sin molestar al cajero
-            await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, { 
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ estado_preparacion: 'Liquidado' })
-            });
-
+            // 🛡️ FIX DE ORDEN (100% frontend, sin tocar backend):
+            // El endpoint /reparto/entregar SIEMPRE deja el pedido en 'Entregado' por diseño.
+            // Por eso ahora lo llamamos PRIMERO (registra la entrega física: distancia/tiempo),
+            // y DESPUÉS, al final, llamamos a /pedidos/:id/estado para fijar 'Liquidado'.
+            // Así la ÚLTIMA escritura es la que persiste, y 'Liquidado' ya no se pierde.
             const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
+            });
+
+            // 👇 Como este pedido ya venía pagado antes de despachar, lo cerramos como
+            // 'Liquidado' (no se le debe nada a Caja). Esta llamada va al final a propósito.
+            await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, { 
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ estado_preparacion: 'Liquidado' })
             });
             
             if (res.ok) {
@@ -118,7 +124,8 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
 
     // 👇 NUEVO: Controlador que decide si pide el modal de cobro o finaliza directo
     const handleAbrirCobro = (viaje) => {
-        const esDeuda = ['Pendiente', 'Por Cobrar', 'Transferencia', 'Efectivo'].includes(viaje.metodo_pago);
+        //const esDeuda = ['Pendiente', 'Por Cobrar', 'Transferencia', 'Efectivo'].includes(viaje.metodo_pago);
+        const esDeuda = ['Pendiente', 'Por Cobrar'].includes(viaje.metodo_pago);
         if (esDeuda) {
             setModalCobro(viaje);
             // Autoseleccionamos según la etiqueta inyectada
@@ -140,7 +147,9 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
 
         setIsSubmitting(true);
         try {
-            // 👇 FIX LÓGICO 2: Si es transferencia pura, brinca directo a "Liquidado"
+            // 👇 FIX LÓGICO: Si es transferencia pura, el destino final es "Liquidado"
+            // (nunca pasó efectivo físico por la mano del repartidor). Si es Efectivo o
+            // Mixto, el destino final es "Entregado" (SÍ hay deuda en efectivo con Caja).
             let payloadEstado = { 
                 estado_preparacion: tipoCobro === 'transferencia' ? 'Liquidado' : 'Entregado' 
             };
@@ -164,18 +173,22 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                 payloadEstado.metodo_pago = 'Efectivo';
             }
 
-            // 1. Actualizamos el método de pago real con el que se topó el repartidor
-            await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payloadEstado)
-            });
-
-            // 2. Ejecutamos la entrega oficial en logística
+            // 🛡️ FIX DE ORDEN (mismo criterio que finalizarEntregaDirecta):
+            // 1º ejecutamos la entrega oficial en logística (que siempre deja 'Entregado').
+            // 2º AL FINAL fijamos el método de pago real y el estado definitivo, que puede
+            // ser 'Liquidado' (si fue Transferencia pura). Esta llamada va al final a
+            // propósito para que su resultado sea el que prevalezca.
             await fetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
+            });
+
+            // Actualizamos el método de pago real con el que se topó el repartidor
+            await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payloadEstado)
             });
 
             await cargarDatosLogistica();
@@ -361,8 +374,10 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
                         {misViajes.map(viaje => {
                             // 👇 FIX VISUAL: Filtros de pago inteligente para la ruta
                             const tagTransferencia = String(viaje.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || viaje.metodo_pago === 'Transferencia';
-                            const esCobroMixtoOPuroEfectivo = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(viaje.metodo_pago) && !tagTransferencia;
-                            const esDeudaActiva = ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia'].includes(viaje.metodo_pago);
+                            // 🛡️ FIX: 'Efectivo' aquí SIEMPRE significa que caja ya cobró antes de despachar.
+                            // El repartidor solo debe cobrar si sigue 'Pendiente'/'Por Cobrar'.
+                            const esCobroMixtoOPuroEfectivo = ['Pendiente', 'Por Cobrar'].includes(viaje.metodo_pago) && !tagTransferencia;
+                            const esDeudaActiva = ['Pendiente', 'Por Cobrar'].includes(viaje.metodo_pago);
 
                             return (
                                 <div key={viaje.id} className="bg-slate-900 border-2 border-emerald-600 rounded-[36px] p-6 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200 mb-6">

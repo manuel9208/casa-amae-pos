@@ -12,7 +12,7 @@ const LiquidacionRepartidoresPrincipal = ({
     liquidarPedidoRepartidor,
     actualizarEstadoPedido,
     apiUrl,
-    user // 👈 Prop necesaria para extraer el ID del cajero
+    user
 }) => {  
     const [modoTab, setModoTab] = useState('restaurante');
     const [configDist, setConfigDist] = useState({ activa: false, nombre: 'Mayoreo' });
@@ -21,7 +21,6 @@ const LiquidacionRepartidoresPrincipal = ({
 
     const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
 
-    // 1. Cargar Configuración de Distribución
     useEffect(() => {
         fetch(`${apiBase}/distribucion/configuracion`)
             .then(res => res.json())
@@ -29,27 +28,25 @@ const LiquidacionRepartidoresPrincipal = ({
                 if (!data.error) {
                     setConfigDist({
                         activa: data.distribucion_activa === true || String(data.distribucion_activa) === 'true',
-                        nombre: 'Mayoreo' // 👈 Lo fijamos a "Mayoreo" como solicitaste
+                        nombre: 'Mayoreo'
                     });
                 }
             })
             .catch(() => {});
     }, [apiBase]);
 
-    // 2. Cargar Pedidos de Mayoreo Por Liquidar
     const cargarPedidosMayoreo = useCallback(() => {
         setCargandoMayoreo(true);
         fetch(`${apiBase}/distribucion/ventas`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
-                    // Filtramos los pedidos que están pendientes de liquidar (En ruta o Entregados sin pagar)
+                    // Traemos 'En Camino' y 'Entregado' porque TarjetaRepartidor ya filtra
+                    // internamente solo 'Entregado' como deuda real; 'En Camino' simplemente
+                    // no generará tarjeta visible (aún no hay nada que cobrar).
                     const porLiquidar = data.filter(p => 
                         p.tipo_consumo === 'Domicilio' &&
-                        (
-                            p.estado_preparacion === 'En Camino' ||
-                            (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago))
-                        )
+                        ['En Camino', 'Entregado'].includes(p.estado_preparacion)
                     );
                     setPedidosMayoreo(porLiquidar);
                 }
@@ -66,9 +63,6 @@ const LiquidacionRepartidoresPrincipal = ({
         }
     }, [configDist.activa, modoTab, cargarPedidosMayoreo]);
 
-    // =========================================================
-    // 💰 FUNCIONES EXCLUSIVAS PARA LIQUIDAR B2B
-    // =========================================================
     const liquidarPedidoMayoreo = async (pedidoIds) => {
         const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
         try {
@@ -79,7 +73,7 @@ const LiquidacionRepartidoresPrincipal = ({
                     body: JSON.stringify({ 
                         estado_preparacion: 'Liquidado', 
                         metodo_pago: 'Efectivo', 
-                        cajero_id: user?.id // 👈 AQUÍ GUARDAMOS AL CAJERO QUE COBRÓ
+                        cajero_id: user?.id
                     })
                 })
             );
@@ -104,9 +98,6 @@ const LiquidacionRepartidoresPrincipal = ({
         }
     };
 
-    // =========================================================
-    // 🔄 ENRUTADORES DINÁMICOS SEGÚN PESTAÑA ACTIVA
-    // =========================================================
     const ordenesAMostrar = modoTab === 'restaurante' ? pedidosEnReparto : pedidosMayoreo;
     const funcLiquidar = modoTab === 'restaurante' ? liquidarPedidoRepartidor : liquidarPedidoMayoreo;
     const funcActualizarEstado = modoTab === 'restaurante' ? actualizarEstadoPedido : actualizarEstadoMayoreo;
@@ -131,16 +122,13 @@ const LiquidacionRepartidoresPrincipal = ({
 
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;  
 
-    // 👇 FIX: Reconocemos los nuevos métodos del repartidor para el cálculo de deuda
-    const pedidosEfectivoGlobal = ordenesAMostrar.filter(p => {
-        const esTransferencia = String(p.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || p.metodo_pago === 'Transferencia';
-        return ['Entregado', 'En Camino'].includes(p.estado_preparacion) &&
-        (['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(p.metodo_pago)) &&
-        !esTransferencia;
-    });  
+    // 🛡️ REGLA ÚNICA (alineada 1:1 con necesitaAtencionCaja de TarjetaRepartidor.js):
+    // Solo 'Entregado' representa dinero físico que el repartidor debe entregar a Caja.
+    // 'En Camino' aún no se ha cobrado/entregado; 'Liquidado' ya se cerró. Así, "Flotilla
+    // Acumulada" siempre sumará exactamente lo mismo que las tarjetas por repartidor.
+    const pedidosEfectivoGlobal = ordenesAMostrar.filter(p => p.estado_preparacion === 'Entregado');
 
     const deudaPedidosEfectivoGlobal = pedidosEfectivoGlobal.reduce((sum, p) => {
-        // Si es mixto, extraemos solo la parte en efectivo que debe entregar
         if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
             let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch(e){}
             const ef = pm.find(x => x.metodo === 'Efectivo');
@@ -155,7 +143,6 @@ const LiquidacionRepartidoresPrincipal = ({
     return (
         <div className="w-full h-full bg-slate-50 text-slate-800 p-4 md:p-6 overflow-y-auto custom-scrollbar">
             
-            {/* ENCABEZADO Y SELECTOR */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 animate-in fade-in pb-5 border-b border-slate-200">
                 <div className="flex flex-col">
                     <div>

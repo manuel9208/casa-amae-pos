@@ -25,7 +25,10 @@ const App = () => {
 
   // 👇 2. AGREGAR ESTO (Estado MDM y Configuración del Lector)
   const [pantallasPermitidasMDM, setPantallasPermitidasMDM] = useState(null);
-  const [politicaMDM, setPoliticaMDM] = useState({ activo: false, restringidas: [] });
+  // 👇 CAMBIO: "restringidas" (lista negra global de pantallas) queda reemplazada
+  // por "rolesRestringidos" (array de objetos {rol, pantallas_excepcion}), que
+  // ahora resuelve el acceso por ROL cuando el equipo es foráneo (no oficial).
+  const [politicaMDM, setPoliticaMDM] = useState({ activo: false, rolesRestringidos: [] });
 
   const customShowAlert = (title, message, type) => {
       setError(`${title}: ${message}`);
@@ -241,17 +244,18 @@ const App = () => {
 
     cargarConfig();
 
-    // 👇 3. REEMPLAZA EL CARGAR MDM POR ESTE
+    // 👇 3. CARGAR MDM (ahora trae roles_restringidos con excepciones de pantalla)
     const cargarMDM = async () => {
       try {
         const confRes = await fetch(`${apiUrl}/biometria/configuracion`);
         const configMdm = await confRes.json();
         
         if (configMdm.control_dispositivos_activo) {
-          // Guardamos las pantallas que el dueño decidió bloquear al exterior
+          // 👇 CAMBIO: guardamos roles_restringidos (array de {rol, pantallas_excepcion})
+          // en vez de la vieja lista negra global "pantallas_restringidas".
           setPoliticaMDM({
              activo: true,
-             restringidas: configMdm.pantallas_restringidas || ['caja', 'cocina', 'admin']
+             rolesRestringidos: Array.isArray(configMdm.roles_restringidos) ? configMdm.roles_restringidos : []
           });
           
           const devRes = await fetch(`${apiUrl}/biometria/equipos`);
@@ -265,7 +269,7 @@ const App = () => {
             setPantallasPermitidasMDM(null); // Null significa "Es un equipo foráneo"
           }
         } else {
-          setPoliticaMDM({ activo: false, restringidas: [] });
+          setPoliticaMDM({ activo: false, rolesRestringidos: [] });
         }
       } catch (err) {}
     };
@@ -501,19 +505,42 @@ const App = () => {
     } catch (err) { setError('Error de conexión.'); }
   };
 
+  // 👇 FIX: Captura la ubicación de forma "best effort" (sin bloquear el login).
+  // Alimenta al backend para el auto-checado de asistencia por Login con password,
+  // igual que ya hace useBiometria.js para el login con huella.
+  const obtenerUbicacionSilenciosaLogin = () => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({ lat: null, lon: null });
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => resolve({ lat: null, lon: null }),
+        { enableHighAccuracy: true, timeout: 4000 }
+      );
+    });
+  };
+
   const handleLoginEmpleado = async (e) => {
     e.preventDefault(); setError('');
     const dispositivo_id = localStorage.getItem('pos_device_id');
+    // 👇 FIX: Capturamos lat/lon para que authController.login pueda validar
+    // la geocerca/IP del auto-checado de asistencia (sin bloquear el login).
+    const { lat, lon } = await obtenerUbicacionSilenciosaLogin();
     try {
       const res = await fetch(`${apiUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id })
+        body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id, lat, lon })
       });
       const data = await res.json();
       if (res.ok) {
         setEmpleadoFase2(null);
         setPassword('');
+        // 👇 FIX: Si el backend no pudo registrar la asistencia por ubicación,
+        // avisamos suavemente sin bloquear el login (que ya fue exitoso).
+        if (data.aviso_asistencia) {
+          setError(''); // Limpiamos cualquier error previo
+          // Nota: usamos el mismo estado 'error' solo como aviso visual temporal si se desea mostrar
+        }
         iniciarSesionPersistente('empleado', data.usuario || data.data || data, data.segunda_sesion || false);
       }
       else { setError(data.error || 'Contraseña incorrecta.'); }
@@ -662,7 +689,9 @@ const App = () => {
       const opcionesMenu = [];
       const perms = usuarioActivo.permisos || {};  
       
-      // 👇 5. REEMPLAZA LA FUNCIÓN CHECKMDM POR ESTA:
+      // 👇 5. CHECKMDM: Equipo Oficial manda siempre su propia lista verde;
+      // Equipo Foráneo ya NO bloquea el login, solo limita pantallas según
+      // el "Bloqueo estricto" por ROL configurado en ModalConfigSeguridad.js.
       const checkMDM = (pantalla) => {
         if (usuarioActivo.usuario === 'admin') return true; // El Admin Global es inmune
         if (!politicaMDM.activo) return true; // Si MDM está apagado, todo es libre
@@ -672,8 +701,16 @@ const App = () => {
           return pantallasPermitidasMDM.includes(pantalla);
         }
 
-        // Si el equipo NO ESTÁ registrado, bloqueamos SOLO las pantallas que el dueño configuró
-        return !politicaMDM.restringidas.includes(pantalla);
+        // Equipo FORÁNEO: buscamos si el ROL del usuario está marcado en el
+        // bloqueo estricto. Si no está marcado -> acceso libre total.
+        const reglaRol = politicaMDM.rolesRestringidos.find(r => r && r.rol === usuarioActivo.rol);
+        if (!reglaRol) return true;
+
+        // Si está marcado, solo se habilitan sus pantallas de excepción
+        // (Portal del Empleado es innegociable y siempre cuenta como permitido).
+        if (pantalla === 'empleado') return true;
+        const pantallasExcepcion = Array.isArray(reglaRol.pantallas_excepcion) ? reglaRol.pantallas_excepcion : [];
+        return pantallasExcepcion.includes(pantalla);
       };
 
       if (['admin', 'gerente'].includes(usuarioActivo.rol) && perms.pantalla_admin === true) {

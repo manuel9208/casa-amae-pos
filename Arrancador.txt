@@ -1,11 +1,9 @@
 -- =========================================================================
--- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V3.5)
+-- SCRIPT MAESTRO DE INICIALIZACIÓN COMPLETO - SISTEMA POS (V4.0 - FUSIONADO)
 -- =========================================================================
-
 -- -------------------------------------------------------------------------
 -- 0. CONFIGURACIÓN DE ENTORNO Y SERVIDOR
 -- -------------------------------------------------------------------------
--- Establece la zona horaria para que coincida con el servidor local
 ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
 
 -- -------------------------------------------------------------------------
@@ -13,7 +11,7 @@ ALTER ROLE CURRENT_USER SET timezone TO 'America/Mazatlan';
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS configuracion (
     id INTEGER PRIMARY KEY DEFAULT 1,
-    
+
     -- Información del Negocio
     nombre_negocio VARCHAR(100) DEFAULT 'Mi Restaurante',
     logo_url TEXT,
@@ -50,7 +48,7 @@ CREATE TABLE IF NOT EXISTS configuracion (
     tv_imagen_1 VARCHAR(255),
     tv_imagen_2 VARCHAR(255),
     tv_imagen_3 VARCHAR(255),
-    tv_video VARCHAR(255),
+    tv_video VARCHAR(255), -- Ruta del video de 10s
 
     -- Apertura, Cierre, Limpieza y Horarios del Negocio
     negocio_abierto BOOLEAN DEFAULT TRUE,
@@ -120,24 +118,30 @@ CREATE TABLE IF NOT EXISTS usuarios (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     usuario VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
+    password TEXT NOT NULL,
+    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'gerente', 'jefe', 'cajero', 'cocinero', 'cocina', 'tv', 'ayudante_cocina', 'repartidor')),
+    permisos JSONB DEFAULT '{"ventas": false, "inventario": false, "usuarios": false}'::jsonb,
+    telefono BIGINT UNIQUE CHECK (telefono IS NULL OR (telefono >= 1000000000 AND telefono <= 9999999999)),
+
+    -- Módulo de Seguridad y Accesos
+    pin VARCHAR(4) DEFAULT NULL,
     pin_seguridad VARCHAR(10) DEFAULT '0000',
-    rol VARCHAR(20) NOT NULL CHECK (rol IN ('admin', 'cajero', 'cocinero', 'ayudante_cocina', 'repartidor')),
-    permisos JSONB DEFAULT '{}',
-    telefono BIGINT DEFAULT NULL,
-    
+    dispositivo_id VARCHAR(100),
+    ultimo_acceso TIMESTAMP,
+
     -- Módulo de Recursos Humanos y Rendimiento
     sueldo_diario DECIMAL(10,2) DEFAULT 0,
     tipo_empleado VARCHAR(50) DEFAULT 'Base',
     fecha_ingreso DATE DEFAULT CURRENT_DATE,
     estado_empleado VARCHAR(20) DEFAULT 'Activo' CHECK (estado_empleado IN ('Activo', 'Inactivo', 'Vacaciones', 'Incapacidad')),
     horario_asignado JSONB DEFAULT '{}'::jsonb,
-    prestaciones JSONB DEFAULT '{}'::jsonb,
+    horario_semanal JSONB DEFAULT '{}'::jsonb,
+    prestaciones JSONB DEFAULT '{"sueldo": 0, "tipo_sueldo": "Mensual", "vacaciones_dias": 0, "bebidas_dia": 0, "platillos_dia": 0, "otros_beneficios": []}'::jsonb,
     es_repartidor_moto BOOLEAN DEFAULT false,
     puntos_rendimiento INTEGER DEFAULT 0,
     rango_rendimiento VARCHAR(50) DEFAULT 'Novato',
     notas_desempeno TEXT DEFAULT '',
-    
+
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -204,7 +208,14 @@ CREATE TABLE IF NOT EXISTS clasificaciones (
     emoji VARCHAR(20),
     imagen_url TEXT,
     genera_puntos BOOLEAN DEFAULT true,
-    permite_canje BOOLEAN DEFAULT true
+    permite_canje BOOLEAN DEFAULT true,
+    disponible BOOLEAN DEFAULT true,
+
+    -- Control Automático por Horario (para Cron Job de disponibilidad)
+    usa_horario BOOLEAN DEFAULT false,
+    dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]',
+    hora_inicio TIME DEFAULT '00:00:00',
+    hora_fin TIME DEFAULT '23:59:00'
 );
 
 CREATE TABLE IF NOT EXISTS productos (
@@ -223,6 +234,13 @@ CREATE TABLE IF NOT EXISTS productos (
     disponible BOOLEAN DEFAULT TRUE,
     genera_puntos BOOLEAN DEFAULT true,
     permite_canje BOOLEAN DEFAULT true,
+
+    -- Control Automático por Horario (para Cron Job de disponibilidad)
+    usa_horario BOOLEAN DEFAULT false,
+    dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]',
+    hora_inicio TIME DEFAULT '00:00:00',
+    hora_fin TIME DEFAULT '23:59:00',
+
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -242,11 +260,11 @@ CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     unidad_medida VARCHAR(10) NOT NULL,
-    cantidad_presentacion DECIMAL(10,2) NOT NULL,
-    costo_presentacion DECIMAL(10,2) NOT NULL,
+    cantidad_presentacion NUMERIC(14,6) NOT NULL,
+    costo_presentacion NUMERIC(14,6) NOT NULL,
     stock_actual DECIMAL(10,2) DEFAULT 0,
     es_empaque BOOLEAN DEFAULT false,
-    
+
     -- Sistema de Rendimiento y Merma
     tipo_rendimiento VARCHAR(20) DEFAULT 'Directo',
     peso_prueba_crudo DECIMAL(10,2) DEFAULT NULL,
@@ -269,7 +287,7 @@ CREATE TABLE IF NOT EXISTS recetas (
     producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,
     insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE NULL,
     sub_producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE NULL,
-    cantidad_usada DECIMAL(10,2) NOT NULL
+    cantidad_usada NUMERIC(14,6) NOT NULL
 );
 
 -- -------------------------------------------------------------------------
@@ -286,11 +304,11 @@ CREATE TABLE IF NOT EXISTS pedidos (
     direccion_entrega TEXT,
     metodo_pago VARCHAR(20),
     total DECIMAL(10,2),
-    
+
     -- Costos y Tiempos
     costo_envio DECIMAL(10,2) DEFAULT 0,
     descuento_puntos INTEGER DEFAULT 0,
-    
+
     -- Soporte para pagos mixtos y cupones
     cupon_codigo VARCHAR(50),
     pagos_mixtos JSONB,
@@ -305,7 +323,6 @@ CREATE TABLE IF NOT EXISTS pedidos (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ÍNDICE DE VELOCIDAD PARA LA TABLA PEDIDOS
 CREATE INDEX IF NOT EXISTS idx_pedidos_fecha ON pedidos(fecha_creacion);
 
 CREATE TABLE IF NOT EXISTS detalle_pedidos (
@@ -339,7 +356,6 @@ CREATE TABLE IF NOT EXISTS historico_cortes (
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Índice relacional para acelerar reportes por Día, Mes o Año
 CREATE INDEX IF NOT EXISTS idx_cortes_fecha ON historico_cortes(fecha_corte);
 
 -- -------------------------------------------------------------------------
@@ -390,26 +406,21 @@ CREATE TABLE IF NOT EXISTS promociones (
 -- =========================================================================
 -- DATOS INICIALES (SEMILLAS)
 -- =========================================================================
-
--- Iniciar configuración única (Fila ID 1)
-INSERT INTO configuracion (id, nombre_negocio) 
-VALUES (1, 'Mi Restaurante') 
+INSERT INTO configuracion (id, nombre_negocio)
+VALUES (1, 'Mi Restaurante')
 ON CONFLICT (id) DO NOTHING;
 
--- Admin por defecto (Recuerda actualizar el password después de iniciar)
-INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono) 
+INSERT INTO usuarios (nombre, usuario, password, rol, permisos, telefono)
 VALUES ('Administrador Global', 'admin', 'admin123', 'admin', '{"ventas": true, "inventario": true, "usuarios": true}'::jsonb, 6721190608)
 ON CONFLICT (usuario) DO NOTHING;
 
--- Clasificaciones base para arranque
-INSERT INTO clasificaciones (nombre, destino, emoji) VALUES 
+INSERT INTO clasificaciones (nombre, destino, emoji) VALUES
 ('Bebidas', 'Barra', '🥤'),
 ('Sushis', 'Cocina', '🍣'),
 ('Postres', 'Barra', '🍰')
 ON CONFLICT (nombre) DO NOTHING;
 
--- DATOS INICIALES DE CLIENTES
-INSERT INTO clientes (nombre, apellido, telefono, direccion, puntos) VALUES 
+INSERT INTO clientes (nombre, apellido, telefono, direccion, puntos) VALUES
 ('ADRIANA', 'VIZCARRA', 6721395459, 'ORTOPEDIA VISA  FTE COLEGIO DOLORES', 39),
 ('ABRIL', 'GONZALES', 6721177260, 'Col. Los angeles, calle Fortino Cuellar #584 casa color beige', 0),
 ('Maria', 'Barrón', 6721214565, 'Forja', 29),

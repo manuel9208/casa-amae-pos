@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import { esPedidoPagado } from './pedidoEstadoUtils';
 
 const getMazatlanDateStr = () => {
     const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -506,34 +507,33 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };
 
   // 🔥 OPTIMIZACIÓN: Interfaz Optimista aplicada a Cobros
-  const procesarPago = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosUsados = 0) => {
+  const procesarPago = async (estadoRechazo = null, pagosMixtos = null, puntosUsados = 0) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
-
-    // 👇 FIX MÁSTER: Si viene directamente de "Cobrar Ahora", anulamos la bandera que bloquea la impresión
-    if (modalPago._esCobroDirecto) {
-      esPostPago = false;
-    }
 
     let estadoFinal;
     let metodoPagoFinal = pagosMixtos ? 'Mixto' : modalPago.metodo_pago;
 
     if (estadoRechazo) {
       estadoFinal = estadoRechazo;
-    } else if (esPostPago) {
-      estadoFinal = 'Pagado';
-      metodoPagoFinal = 'Por Cobrar';
     } else {
-      if (['Entregado', 'Listo', 'En Camino'].includes(modalPago.estado_preparacion)) {
+      const estadoActual = modalPago.estado_preparacion;
+      // 🛡️ FIX: Un Domicilio cobrado ("Solo Cobrar") ANTES de asignar repartidor
+      // no debe saltar a 'Finalizado'. Sigue pendiente de despacho.
+      const esDomicilioSinDespachar = modalPago.tipo_consumo === 'Domicilio' && estadoActual === 'Listo';
+      if (esDomicilioSinDespachar) {
+        estadoFinal = 'Listo';
+      } else if (['Entregado', 'Listo', 'En Camino'].includes(estadoActual)) {
         if (modalPago.tipo_consumo === 'Local' && modalPago.mesa) {
           estadoFinal = 'Entregado';
         } else {
           estadoFinal = 'Finalizado';
         }
-      } else if (['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion)) {
-        estadoFinal = 'Pagado';
+      } else if (['Pendiente', 'Por Confirmar'].includes(estadoActual)) {
+        // 🛡️ FIX: vocabulario unificado — ya no usamos 'Pagado' como estado de preparación.
+        estadoFinal = 'Preparando';
       } else {
-        estadoFinal = modalPago.estado_preparacion;
+        estadoFinal = estadoActual;
       }
     }
 
@@ -572,27 +572,28 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
             });
         }
 
-        fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
+    // 🛡️ FIX: Ahora SÍ esperamos (await) la confirmación real del servidor antes de continuar.
+    // Esto cierra la ventana de carrera donde un refresco (cargarDataDinamica) disparado por
+    // otro evento de socket (ej. al registrar el gasto del repartidor externo) podía pisar
+    // el estado 'Finalizado' recién calculado, trayendo de vuelta el estado viejo ('Listo').
+    try {
+        const res = await fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-        })
-        .then(res => {
-            if (!res.ok) throw new Error('Respuesta no exitosa del servidor');
-        })
-        .catch(() => {
-            // 👇 FIX RAÍZ: Este es el caso más importante — si el cobro no llegó al servidor,
-            // el cajero DEBE saberlo de inmediato, en vez de ver la UI como si todo hubiera salido bien.
-            mostrarAlertaCaja(
-                'Sin Conexión con el Servidor',
-                `No se pudo confirmar el cobro de la orden #${ordenCobrada.numero_pedido} en el servidor. Verifica tu conexión a internet y revisa esta orden en "Todas las Comandas".`,
-                'error'
-            );
         });
+        if (!res.ok) throw new Error('Respuesta no exitosa del servidor');
+    } catch (e) {
+        mostrarAlertaCaja(
+            'Sin Conexión con el Servidor',
+            `No se pudo confirmar el cobro de la orden #${ordenCobrada.numero_pedido} en el servidor. Verifica tu conexión a internet y revisa esta orden en "Todas las Comandas".`,
+            'error'
+        );
+    }
 
-      // Impresión Inmediata
-      const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(ordenCobrada.estado_preparacion);
+    // Impresión Inmediata
+    const yaCocinada = !['Pendiente', 'Por Confirmar'].includes(ordenCobrada.estado_preparacion);
       
       // 👇 FIX MÁSTER: Agregamos "ordenCobrada._esCobroDirecto" como condición válida para imprimir
-      if ((ordenCobrada._esCobroDirecto || (!estadoRechazo && !esPostPago && !yaCocinada)) && configGlobal?.ticket_impresion_activa) {
+      if ((ordenCobrada._esCobroDirecto || (!estadoRechazo && !yaCocinada)) && configGlobal?.ticket_impresion_activa) {
           const ordenActualizada = { ...ordenCobrada, estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, descuento_puntos: puntosUsados > 0 ? puntosUsados : ordenCobrada.descuento_puntos };
           lanzarImpresion(ordenActualizada);
       }
@@ -648,8 +649,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     const pedidoFull = typeof pedidoOId === 'object' ? pedidoOId : pedidos.find(p => p.id === idReal);
     let estadoSeguro = nuevoEstado;  
 
-    if (estadoSeguro === 'Entregado' && pedidoFull?.tipo_consumo === 'Local' && !pedidoFull?.mesa) {
-      estadoSeguro = 'Finalizado';
+    // 🛡️ FIX: Solo se auto-finaliza si el pedido YA está pagado. Antes se Finalizaba
+    // de inmediato aunque siguiera "Por Cobrar", dejándolo invisible en Cuentas por Cobrar.
+    // Se extiende también a "Para llevar"/"Recoger" (antes solo aplicaba a "Local").
+    const tiposAutoFinalizables = ['Local', 'Para llevar', 'Recoger en Local', 'Recoger'];
+    const pagadoYa = esPedidoPagado({ metodo_pago: extraData.metodo_pago || pedidoFull?.metodo_pago });
+    if (estadoSeguro === 'Entregado' && tiposAutoFinalizables.includes(pedidoFull?.tipo_consumo) && !pedidoFull?.mesa) {
+      estadoSeguro = pagadoYa ? 'Finalizado' : 'Entregado';
     }  
 
     // 1. CAMBIO VISUAL INMEDIATO
@@ -992,12 +998,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const pedidosPorConfirmar = pedidos.filter(p => p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja');
 
   const pendientesDePago = pedidos.filter(p => {
-    if (['Cancelado', 'Finalizado'].includes(p.estado_preparacion)) return false;
-    if (p.tipo_consumo === 'Domicilio' && ['Listo', 'En Camino', 'Entregado'].includes(p.estado_preparacion)) return false;
+    // 🛡️ FIX: Única fuente de verdad = metodo_pago. Ya no se excluye ciegamente por
+    // tipo_consumo ni por 'Finalizado' — si no está pagado, aparece aquí, sin excepción.
+    if (p.estado_preparacion === 'Cancelado') return false;
     if (p.estado_preparacion === 'Pendiente' && p.origen !== 'Caja') return false;
-    const noPagado = ['Por Cobrar', 'Pendiente'].includes(p.metodo_pago);
-    if (!noPagado) return false;
-    return true;
+    return !esPedidoPagado(p);
   });
 
   const listosParaEntregar = pedidos.filter(p => p.estado_preparacion === 'Listo');
@@ -1011,11 +1016,15 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   );
 
   const pedidosPorLiquidar = pedidos.filter(p =>
+    // 🛡️ FIX: "En Camino" solo es deuda si sigue sin cobrarse. Si ya se pagó en caja
+    // antes de despachar, no hay nada que liquidar — no se muestra.
+    // "Entregado" sigue mostrando Efectivo/Mixto porque esa combinación ya SOLO
+    // ocurre cuando el repartidor acaba de cobrar al entregar (dinero aún en su poder).
     p.tipo_consumo === 'Domicilio' &&
     (
-      p.estado_preparacion === 'En Camino' ||
-      (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar', 'Efectivo', 'Transferencia', 'Mixto'].includes(p.metodo_pago))
-     )
+      (p.estado_preparacion === 'En Camino' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) ||
+      (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(p.metodo_pago))
+    )
   );
 
   const pedidosConAlerta = pedidos.filter(p => p.alerta_cocina && !['Entregado', 'Cancelado'].includes(p.estado_preparacion));

@@ -185,7 +185,8 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
     let payload = {};  
 
     if (isCancelado) {
-      payload.estado_preparacion = 'Pagado';  
+      // 🛡️ FIX: vocabulario unificado — reactivar ya no marca falsamente 'Pagado'.
+      payload.estado_preparacion = 'Preparando';  
       let carritoLimpio = [];
       try {
         const arr = typeof modalEditarPedido.carrito === 'string' ? JSON.parse(modalEditarPedido.carrito) : (modalEditarPedido.carrito || []);

@@ -2,10 +2,17 @@ const db = require('../config/db');
 
 exports.obtenerConfiguracion = async (req, res) => {
     try {
-        // Auto-migración para añadir las columnas si no existen
+        // Auto-migración para añadir las columnas si no existen.
+        // 👇 CAMBIO: roles_restringidos ahora es un array de OBJETOS
+        // [{ rol: 'cajero', pantallas_excepcion: ['empleado'] }], en vez de
+        // un array plano de strings. Esto permite que cada rol bloqueado
+        // conserve excepciones de pantalla (ej. seguir viendo "Portal del
+        // Empleado") en lugar de quedar con el login totalmente denegado.
+        // pantallas_restringidas se mantiene solo por compatibilidad retro,
+        // pero ya no se usa en la nueva lógica de validación de App.js/authController.js.
         await db.query(`
             ALTER TABLE configuracion_biometria 
-            ADD COLUMN IF NOT EXISTS roles_restringidos JSONB DEFAULT '["cajero", "cocina", "repartidor"]',
+            ADD COLUMN IF NOT EXISTS roles_restringidos JSONB DEFAULT '[]',
             ADD COLUMN IF NOT EXISTS pantallas_restringidas JSONB DEFAULT '["caja", "cocina", "admin"]'
         `).catch(() => {});
 

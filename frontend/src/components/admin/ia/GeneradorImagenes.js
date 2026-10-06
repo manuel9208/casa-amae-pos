@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Image as ImageIcon, Sparkles, Download, Wand2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Image as ImageIcon, Sparkles, Download, Wand2, Zap } from 'lucide-react';
 import { useMotorIA } from './useMotorIA';
 
 const GeneradorImagenes = ({ apiUrl, showAlert }) => {
@@ -7,11 +7,51 @@ const GeneradorImagenes = ({ apiUrl, showAlert }) => {
   const [prompt, setPrompt] = useState('');
   const [imagenUrl, setImagenUrl] = useState(null);
 
+  // 👇 NUEVO: Selector de proveedor de IMAGEN elegido por el USUARIO (Gemini/DALL-E),
+  // igual criterio que en ChatCopiloto.js: el Admin solo habilita qué existe
+  // (configIA.imagen_proveedor), y aquí se arma la lista de opciones disponibles.
+  const [proveedoresImgDisponibles, setProveedoresImgDisponibles] = useState([]);
+  const [proveedorImgElegido, setProveedorImgElegido] = useState('gemini');
+  const [cargandoProveedores, setCargandoProveedores] = useState(true);
+
+  // 👇 NUEVO: Carga, una sola vez al abrir el Studio Mágico, qué proveedores de
+  // imagen están habilitados por el Admin Global (imagen_proveedor: gemini/openai/ambos/ninguno).
+  useEffect(() => {
+    const cargarProveedoresImg = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/ia/configuracion`);
+        const data = await res.json();
+        if (data.success) {
+          const modo = data.imagen_proveedor || 'gemini';
+          const lista = [];
+          if (modo === 'gemini' || modo === 'ambos') lista.push({ valor: 'gemini', label: 'Gemini (Gratis)', icono: <Zap size={13} /> });
+          if (modo === 'openai' || modo === 'ambos') lista.push({ valor: 'openai', label: 'DALL-E 3 (Premium)', icono: <Sparkles size={13} /> });
+
+          setProveedoresImgDisponibles(lista);
+          setProveedorImgElegido(prev => (lista.some(p => p.valor === prev) ? prev : (lista[0]?.valor || 'gemini')));
+        }
+      } catch (error) {
+        console.error('No se pudo cargar la configuración de imágenes de IA:', error);
+      } finally {
+        setCargandoProveedores(false);
+      }
+    };
+    cargarProveedoresImg();
+  }, [apiUrl]);
+
   const generarImagen = async (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
+
+    // 👇 NUEVO: Si el Admin no habilitó ningún proveedor de imagen, bloqueamos antes de intentar
+    if (proveedoresImgDisponibles.length === 0) {
+      showAlert('Sin proveedores de imagen', 'El Administrador Global no ha habilitado ningún proveedor de imágenes en Ajustes de IA.', 'error');
+      return;
+    }
+
     try {
-      const data = await consultarIA('/ia/imagen', prompt);
+      // 👇 Se manda el proveedor elegido por el usuario (Gemini o DALL-E)
+      const data = await consultarIA('/ia/imagen', prompt, proveedorImgElegido);
       setImagenUrl(data.url);
     } catch (error) {
       showAlert('Error en Generación', error.message, 'error');
@@ -28,9 +68,32 @@ const GeneradorImagenes = ({ apiUrl, showAlert }) => {
             <ImageIcon size={24} />
           </div>
           <h3 className="text-lg font-black text-slate-800 mb-1">Studio Mágico</h3>
-          <p className="text-sm text-slate-500 mb-6">
+          <p className="text-sm text-slate-500 mb-4">
             Describe el platillo o escenario que deseas crear. La IA generará una fotografía comercial de alta calidad.
           </p>
+
+          {/* 👇 NUEVO: Selector de proveedor de imagen (solo las opciones habilitadas por el Admin) */}
+          {!cargandoProveedores && (
+            <div className="mb-6">
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Motor de Imagen</label>
+              {proveedoresImgDisponibles.length === 0 ? (
+                <p className="text-[11px] font-bold text-amber-600 bg-amber-50 border border-amber-200 rounded-xl p-2.5">⚠️ Ningún proveedor de imagen habilitado por el Administrador.</p>
+              ) : (
+                <div className="flex gap-2">
+                  {proveedoresImgDisponibles.map(p => (
+                    <button
+                      key={p.valor}
+                      type="button"
+                      onClick={() => setProveedorImgElegido(p.valor)}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${proveedorImgElegido === p.valor ? 'bg-pink-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      {p.icono} {p.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <form onSubmit={generarImagen} className="flex flex-col gap-4">
             <div>
@@ -47,7 +110,7 @@ const GeneradorImagenes = ({ apiUrl, showAlert }) => {
             
             <button
               type="submit"
-              disabled={!prompt.trim() || isLoading}
+              disabled={!prompt.trim() || isLoading || proveedoresImgDisponibles.length === 0}
               className="w-full bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 shadow-lg shadow-pink-500/30 active:scale-95"
             >
               {isLoading ? (
@@ -56,7 +119,10 @@ const GeneradorImagenes = ({ apiUrl, showAlert }) => {
                 <><Wand2 size={18} /> Generar Fotografía</>
               )}
             </button>
-            <p className="text-[11px] text-center text-slate-400 font-medium">Límite de uso justo: 1 imagen por día.</p>
+            {/* 👇 El límite de 1/día solo aplica a DALL-E (tiene costo real); Gemini es gratuito y sin ese candado */}
+            <p className="text-[11px] text-center text-slate-400 font-medium">
+              {proveedorImgElegido === 'openai' ? 'Límite de uso justo: 1 imagen con DALL-E por día.' : 'Gemini: generación gratuita, sin límite diario.'}
+            </p>
           </form>
         </div>
       </div>

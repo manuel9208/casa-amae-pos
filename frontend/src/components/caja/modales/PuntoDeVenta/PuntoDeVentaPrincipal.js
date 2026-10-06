@@ -721,12 +721,16 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
           else if (detallesCuentaAbierta.metodo) stringDireccion = `[PAGO PENDIENTE CON: ${detallesCuentaAbierta.metodo.toUpperCase()}] ${stringDireccion}`;
         }  
         let estadoInicial = 'Pendiente';
-        if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
-          estadoInicial = 'Pagado';
+        if (ordenEditandoRapida) {
+          // 🛡️ FIX: Al editar, SIEMPRE se respeta el estado real de cocina/entrega.
+          // Nunca se retrocede un pedido que ya avanzó (Preparando/Listo/En Camino/Entregado).
+          estadoInicial = ordenEditandoRapida.estado_preparacion;
+        } else if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
+          // 🛡️ FIX: vocabulario unificado. El estado logístico es 'Preparando';
+          // el estado financiero real lo determina exclusivamente metodo_pago.
+          estadoInicial = 'Preparando';
         } else if (metodoAcelerado === 'Cobrar Ahora') {
           estadoInicial = 'Pendiente';
-        } else if (ordenEditandoRapida) {
-          estadoInicial = ordenEditandoRapida.estado_preparacion;
         }
         const valorPeso = Number(configGlobal?.puntos_valor_peso) || 1;
         const puntosEfectivosAUsar = descuentoPuntosDinero > 0 ? Math.ceil(descuentoPuntosDinero / valorPeso) : 0;

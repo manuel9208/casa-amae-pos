@@ -41,6 +41,9 @@ const equipoCtrl = require('../controllers/equipoController');
 const huellasCtrl = require('../controllers/huellasController'); // <-- Nombre corregido
 const iaCtrl = require('../controllers/iaController');
 
+// 💡 MÓDULO AISLADO: Configuración Financiera (Factor Luz/Agua y futuros Gastos Fijos)
+const configFinancieraCtrl = require('../controllers/configFinancieraController');
+
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
 distribucionCtrl.inicializarTablas();
@@ -52,6 +55,7 @@ insumoCtrl.inicializarInsumos();
 asistenciaConfigCtrl.inicializarTablas();
 iaCtrl.inicializarTablaIA();
 recetaCtrl.inicializarTablasRecetas();
+configFinancieraCtrl.inicializarTablaConfigFinanciera();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -240,6 +244,10 @@ router.get('/insumos/auditoria/activa', insumoCtrl.obtenerAuditoriaActiva); // �
 router.post('/insumos/auditoria/solicitar', insumoCtrl.solicitarAuditoria); // 👈 NUEVA
 router.put('/insumos/auditoria/:id/guardar', insumoCtrl.guardarProgresoAuditoria); // 👈 NUEVA
 router.put('/insumos/auditoria/:id/resolver', insumoCtrl.resolverAuditoria); // 👈 NUEVA
+router.put('/insumos/:id/alerta-stock', insumoCtrl.actualizarAlertaStock);
+router.get('/insumos/surtido/borrador', insumoCtrl.obtenerBorradorSurtido); // 👈 NUEVA
+router.put('/insumos/surtido/guardar', insumoCtrl.guardarBorradorSurtido); // 👈 NUEVA
+router.post('/insumos/surtido/aplicar', insumoCtrl.aplicarSurtido); // 👈 NUEVA
 router.get('/recetas/:producto_id', recetaCtrl.obtenerReceta);
 router.post('/recetas', recetaCtrl.agregarInsumoReceta);
 router.delete('/recetas/:id', recetaCtrl.eliminarInsumoReceta);  
@@ -309,7 +317,13 @@ router.get('/mermas', mermaCtrl.obtenerMermas);
 // ==========================================
 router.get('/reportes/ventas', reporteCtrl.obtenerReporteVentas);
 router.get('/reportes/combustible', reporteCtrl.obtenerReporteCombustible);
-router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla);  
+router.post('/reportes/combustible/config', reporteCtrl.guardarConfigFlotilla); 
+
+// ==========================================
+// 💡 MÓDULO AISLADO: CONFIGURACIÓN FINANCIERA (Factor Luz/Agua y futuros Gastos Fijos)
+// ==========================================
+router.get('/configuracion-financiera/factor-luz-agua', configFinancieraCtrl.obtenerFactorLuzAgua);
+router.put('/configuracion-financiera/factor-luz-agua', configFinancieraCtrl.actualizarFactorLuzAgua);
 
 // ==========================================
 // GESTIÓN DE MESAS (MAPEO Y QR)
@@ -399,6 +413,8 @@ router.post('/ia/ventas', iaCtrl.analizarVentas);
 router.post('/ia/empleados', iaCtrl.analizarEmpleados);
 router.post('/ia/chat', iaCtrl.chatLibre);
 router.post('/ia/imagen', iaCtrl.generarImagen);
+router.get('/ia/historial', iaCtrl.obtenerHistorialChat);
+router.post('/ia/historial', iaCtrl.guardarHistorialChat);
 
 
 // ==========================================
@@ -504,6 +520,11 @@ setInterval(async () => {
 
     if (proveedorCtrl.verificarAlertasStock) {
         await proveedorCtrl.verificarAlertasStock(globalIo);
+    }
+
+    // 👇 NUEVO: Alertas push de stock bajo configuradas por insumo (independientes de Proveedores)
+    if (insumoCtrl.verificarAlertasStockPersonalizado) {
+      await insumoCtrl.verificarAlertasStockPersonalizado(globalIo);
     }
 
   } catch (error) {

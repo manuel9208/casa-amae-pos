@@ -135,7 +135,7 @@ const TarjetaPedidoCobrar = ({
               <Trash2 size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Eliminar</span>
             </button>
-            <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Pagado', { metodo_pago: 'Por Cobrar' })} className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-orange-200 group shadow-sm" title="Mandar a Cocina">
+            <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Preparando', { metodo_pago: 'Por Cobrar' })} className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-orange-200 group shadow-sm" title="Mandar a Cocina">
               <ChefHat size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Cocinar</span>
             </button>

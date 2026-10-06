@@ -12,6 +12,17 @@ const { Server } = require('socket.io'); // 🆕 Motor WebSockets de alto rendim
 const apiRoutes = require('./routes/api');
 
 const app = express();
+
+// 👇 FIX CRÍTICO: Render (y la mayoría de los hostings en la nube) entregan
+// el tráfico HTTP a través de un proxy/balanceador interno. Sin esta línea,
+// Express NUNCA ve la IP pública real del empleado en "req.ip" (ve la IP
+// interna del proxy de Render, siempre la misma), lo que provocaba que
+// validarUbicacionServidor() en asistenciaHelper.js SIEMPRE rechazara la
+// checada por "Red no autorizada", incluso con la IP correctamente
+// registrada en la lista blanca. Con "trust proxy" activo, Express lee el
+// header "X-Forwarded-For" que reenvía Render con la IP real del cliente.
+app.set('trust proxy', 1);
+
 const server = http.createServer(app); // 🆕 Envoltura HTTP nativa sobre express
 
 // 🆕 Configuración e inicialización blindada de Socket.io

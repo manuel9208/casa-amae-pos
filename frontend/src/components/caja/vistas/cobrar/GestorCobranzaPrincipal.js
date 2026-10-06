@@ -14,6 +14,13 @@ const GestorCobranzaPrincipal = ({
   renderBotonEditar,
   renderBotonAgregarExtra
 }) => {
+  // 🛡️ FIX: Excluimos pedidos a Domicilio que ya tienen repartidor asignado y van
+  // "En Camino". Esos pedidos ya no deben solicitarse aquí en Cobranza; su cobro/entrega
+  // se gestiona en la vista de Liquidación de Repartidores.
+  const ordenesFiltradas = (ordenesEnCaja || []).filter(p =>
+    !(p.tipo_consumo === 'Domicilio' && (p.repartidor_id || p.estado_preparacion === 'En Camino'))
+  );
+
   return (
     // 👇 FIX: Separación de contenedores para evitar el scroll fantasma
     <div className="w-full h-full bg-slate-50 text-slate-800 flex flex-col overflow-hidden">  
@@ -33,9 +40,9 @@ const GestorCobranzaPrincipal = ({
         </div>  
 
         {/* GRID DE CUENTAS PENDIENTES O ESTADO VACÍO */}
-        {ordenesEnCaja && ordenesEnCaja.length > 0 ? (
+        {ordenesFiltradas.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 pb-20">
-            {ordenesEnCaja.map(pedido => (
+            {ordenesFiltradas.map(pedido => (
               <TarjetaPedidoCobrar
                 key={pedido.id}
                 pedido={pedido}

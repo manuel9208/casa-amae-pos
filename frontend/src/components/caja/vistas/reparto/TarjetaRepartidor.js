@@ -1,26 +1,49 @@
 import React, { useState } from 'react';
-import { Bike, MapPin, CheckCircle2, DollarSign, AlertTriangle, PackageCheck, Receipt } from 'lucide-react';
+import { Bike, MapPin, CheckCircle2, DollarSign } from 'lucide-react';
 
 const TarjetaRepartidor = ({
     repartidorId,
     listaPedidos,
     getNombreRepartidor,
     liquidarPedidoRepartidor,
-    actualizarEstadoPedido,
+    actualizarEstadoPedido, // Se conserva en la firma por compatibilidad con el padre, aunque ya no se usa aquí.
     fondoRepartidor,
     actualizarFondoRepartidor
 }) => {
     const [pedidoAConfirmar, setPedidoAConfirmar] = useState(null);
     const [modalLiquidarTodo, setModalLiquidarTodo] = useState(false);
 
-    const pedidosEfectivo = listaPedidos.filter(p => {
-        const esTransferencia = String(p.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || p.metodo_pago === 'Transferencia';
-        return ['Entregado', 'En Camino'].includes(p.estado_preparacion) &&
-            (['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(p.metodo_pago)) &&
-            !esTransferencia;
-    });
+    // 🛡️ REGLA ÚNICA Y DEFINITIVA (alineada 1:1 con el flujo real de Repartidor.js):
+    // 1) Pedido a domicilio YA PAGADO antes de despachar → al entregarlo, Repartidor.js lo
+    //    manda directo a 'Liquidado'. Caja nunca debe verlo.
+    // 2) Pedido a domicilio NO PAGADO que el repartidor cobra en la puerta (Efectivo/Mixto)
+    //    → Repartidor.js lo deja en 'Entregado'. Ese es el dinero físico que el repartidor
+    //    trae y le debe a Caja.
+    // 3) Si el repartidor cobra por Transferencia pura → también se manda directo a 'Liquidado'
+    //    (nunca hay dinero físico de por medio).
+    // CONCLUSIÓN: el ÚNICO criterio de "deuda pendiente con Caja" es que el pedido siga en
+    // estado 'Entregado'. No se necesita mirar metodo_pago, tipo de pago ni si está "En Camino".
+    // 🛡️ FIX: Debe reflejar EXACTAMENTE el mismo criterio que pedidosPorLiquidar en
+    // useCajaCentral.js (fuente única de verdad), para que el badge "Por Liquidar" y las
+    // tarjetas mostradas aquí SIEMPRE coincidan en cantidad.
+    // - "En Camino" + sigue sin cobrarse: informativo (aún no hay efectivo físico, el
+    //   repartidor todavía no lo entrega).
+    // - "Entregado" + Efectivo/Mixto/Pendiente/Por Cobrar: deuda real y accionable.
+    const necesitaAtencionCaja = (p) =>
+        (p.estado_preparacion === 'En Camino' && ['Pendiente', 'Por Cobrar'].includes(p.metodo_pago)) ||
+        (p.estado_preparacion === 'Entregado' && ['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(p.metodo_pago));
 
-    const totalDeudaRepartidor = pedidosEfectivo.reduce((sum, p) => {
+    // Lista final que SÍ se muestra en pantalla (ya filtrada).
+    const pedidosVisibles = listaPedidos.filter(necesitaAtencionCaja);
+
+    // Si este repartidor no tiene ningún pedido relevante, no mostramos su tarjeta.
+    if (pedidosVisibles.length === 0) return null;
+
+    // Solo lo "Entregado" es efectivo físico que el repartidor ya trae en la mano.
+    // Lo "En Camino" es solo informativo y no debe sumar a la deuda cobrable.
+    const pedidosCobrables = pedidosVisibles.filter(p => p.estado_preparacion === 'Entregado');
+
+    const totalDeudaRepartidor = pedidosCobrables.reduce((sum, p) => {
         if (p.metodo_pago === 'Mixto' && p.pagos_mixtos) {
             let pm = []; try { pm = typeof p.pagos_mixtos === 'string' ? JSON.parse(p.pagos_mixtos) : p.pagos_mixtos; } catch (e) { }
             const ef = pm.find(x => x.metodo === 'Efectivo');
@@ -31,10 +54,10 @@ const TarjetaRepartidor = ({
     const totalEfectivoFisico = totalDeudaRepartidor + Number(fondoRepartidor || 0);
 
     const handleLiquidarTodo = () => {
-        const idsALiquidar = pedidosEfectivo.map(p => p.id);
+        const idsALiquidar = pedidosCobrables.map(p => p.id);
         if (idsALiquidar.length > 0) {
             liquidarPedidoRepartidor(idsALiquidar);
-            actualizarFondoRepartidor(repartidorId, 0); 
+            actualizarFondoRepartidor(repartidorId, 0);
             setModalLiquidarTodo(false);
         }
     };
@@ -56,7 +79,7 @@ const TarjetaRepartidor = ({
                                 ${totalDeudaRepartidor.toFixed(2)}
                             </p>
                         </div>
-                        {pedidosEfectivo.length > 0 && (
+                        {pedidosCobrables.length > 0 && (
                             <button
                                 onClick={() => setModalLiquidarTodo(true)}
                                 className="bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs md:text-sm uppercase tracking-widest px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95 flex items-center gap-2"
@@ -68,14 +91,7 @@ const TarjetaRepartidor = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 mt-4">
-                    {listaPedidos.map(p => {
-                        const esTransferencia = String(p.direccion_entrega || '').toUpperCase().includes('TRANSFERENCIA') || p.metodo_pago === 'Transferencia';
-                        const esDeudaEfectivo = (['Pendiente', 'Por Cobrar', 'Efectivo', 'Mixto'].includes(p.metodo_pago)) && !esTransferencia;
-                        const esDeudaTransferencia = (['Pendiente', 'Por Cobrar', 'Transferencia'].includes(p.metodo_pago)) && esTransferencia;
-                        const esDeudaGeneral = esDeudaEfectivo || esDeudaTransferencia;
-                        const estaEnRuta = p.estado_preparacion === 'En Camino';
-
-                        // 👇 FIX: EXTRAER CANTIDADES EXACTAS SI EL PAGO ES MIXTO
+                    {pedidosVisibles.map(p => {
                         let montoEfePuro = Number(p.total);
                         let montoTraPuro = 0;
                         let esPagoMixto = p.metodo_pago === 'Mixto' && p.pagos_mixtos;
@@ -96,8 +112,10 @@ const TarjetaRepartidor = ({
                             }
                         }
 
+                        const estaEnRuta = p.estado_preparacion === 'En Camino';
+
                         return (
-                            <div key={p.id} className={`p-5 rounded-2xl border flex flex-col justify-between transition-all duration-200 group ${estaEnRuta ? 'bg-slate-50 border-slate-200 opacity-90' : 'bg-slate-50/60 border-slate-200 hover:border-pink-300 hover:shadow-sm'}`}>
+                            <div key={p.id} className={`p-5 rounded-2xl border flex flex-col justify-between transition-all duration-200 group ${estaEnRuta ? 'bg-slate-50 border-slate-200 opacity-80' : 'bg-slate-50/60 border-slate-200 hover:border-pink-300 hover:shadow-sm'}`}>
                                 <div className="flex justify-between items-start pb-3 border-b border-slate-100 mb-3">
                                     <div className="pr-2">
                                         <span className="text-xl font-black text-slate-800 group-hover:text-pink-600 transition-colors">
@@ -108,23 +126,18 @@ const TarjetaRepartidor = ({
                                             {clienteExtraido}
                                         </p>
                                     </div>
-                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest shrink-0 ${esPagoMixto ? 'bg-purple-100 text-purple-700 border border-purple-200' :
-                                            esDeudaEfectivo ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                                                esDeudaTransferencia ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' :
-                                                    'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                                        }`}>
-                                        {esPagoMixto ? 'Pago Mixto' : esDeudaEfectivo ? 'Efectivo (Cobrar)' : esDeudaTransferencia ? 'Transferencia (Validar)' : 'Pagado Online/Caja'}
+                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest shrink-0 ${estaEnRuta ? 'bg-blue-100 text-blue-700 border border-blue-200' : esPagoMixto ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
+                                        {estaEnRuta ? 'En Ruta (Sin Cobrar)' : esPagoMixto ? 'Pago Mixto' : 'Efectivo (Cobrado en Ruta)'}
                                     </span>
                                 </div>
 
                                 <div className="flex justify-between items-center mb-4">
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Monto:</span>
                                     <div className="flex flex-col items-end">
-                                        {/* 👇 FIX: MUESTRA EL DESGLOSE VISUAL DEL PAGO MIXTO */}
-                                        <span className={`text-xl md:text-2xl font-black ${esDeudaGeneral ? 'text-pink-600' : 'text-emerald-500'}`}>
+                                        <span className={`text-xl md:text-2xl font-black ${estaEnRuta ? 'text-slate-400' : 'text-pink-600'}`}>
                                             ${p.total}
                                         </span>
-                                        {esPagoMixto && (
+                                        {esPagoMixto && !estaEnRuta && (
                                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
                                                 EFE: ${montoEfePuro.toFixed(2)} | TRA: ${montoTraPuro.toFixed(2)}
                                             </span>
@@ -132,51 +145,17 @@ const TarjetaRepartidor = ({
                                     </div>
                                 </div>
 
-                                {/* 👇 FIX: EL BOTÓN AHORA COBRA SOLO LA DEUDA DE EFECTIVO DEL TICKET */}
-                                {esDeudaEfectivo ? (
-                                    estaEnRuta ? (
-                                        <button
-                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: true, tipoCobro: 'Efectivo', montoEfectivoPuro: montoEfePuro })}
-                                            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/30"
-                                        >
-                                            <CheckCircle2 size={16} /> Liquidar Anticipado
-                                        </button>
-                                    ) : (
-                                        <button
-                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: false, tipoCobro: 'Efectivo', montoEfectivoPuro: montoEfePuro })}
-                                            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30"
-                                        >
-                                            <CheckCircle2 size={16} /> Recibir Efectivo (${montoEfePuro.toFixed(2)})
-                                        </button>
-                                    )
-                                ) : esDeudaTransferencia ? (
-                                    <div className="flex gap-2 w-full">
-                                        <button
-                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: estaEnRuta, tipoCobro: 'Transferencia' })}
-                                            className="flex-1 bg-indigo-500 hover:bg-indigo-600 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center shadow-lg shadow-indigo-500/30"
-                                        >
-                                            <Receipt size={14} className="mr-1" /> Validar
-                                        </button>
-                                        <button
-                                            onClick={() => setPedidoAConfirmar({ ...p, enRuta: estaEnRuta, tipoCobro: 'Efectivo', montoEfectivoPuro: montoEfePuro })}
-                                            className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center shadow-lg shadow-orange-500/30"
-                                        >
-                                            <DollarSign size={14} className="mr-1" /> Efectivo
-                                        </button>
+                                {estaEnRuta ? (
+                                    <div className="w-full bg-slate-100 text-slate-400 font-black py-3 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center gap-1.5 border border-slate-200 cursor-not-allowed">
+                                        <Bike size={16} /> Aún en Ruta — Sin Cobrar
                                     </div>
                                 ) : (
-                                    estaEnRuta ? (
-                                        <button
-                                            onClick={() => actualizarEstadoPedido(p.id, 'Entregado')}
-                                            className="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-slate-800/30"
-                                        >
-                                            <PackageCheck size={16} /> Forzar Entrega (Ya Pagado)
-                                        </button>
-                                    ) : (
-                                        <div className="w-full bg-slate-100 text-slate-400 font-black py-3 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center gap-1.5 border border-slate-200/60">
-                                            <CheckCircle2 size={16} /> Completado
-                                        </div>
-                                    )
+                                    <button
+                                        onClick={() => setPedidoAConfirmar({ ...p, montoEfectivoPuro: montoEfePuro })}
+                                        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3 rounded-xl text-xs uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30"
+                                    >
+                                        <CheckCircle2 size={16} /> Recibir Efectivo (${montoEfePuro.toFixed(2)})
+                                    </button>
                                 )}
                             </div>
                         );
@@ -192,7 +171,7 @@ const TarjetaRepartidor = ({
                         </div>
                         <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Cierre de Ruta Efectivo</h3>
                         <p className="text-slate-500 font-medium mb-6 px-4">
-                            Recauda y cierra {pedidosEfectivo.length} pedidos en efectivo de una sola vez. (Las transferencias no se incluyen aquí).
+                            Recauda y cierra {pedidosVisibles.length} pedidos entregados y cobrados en efectivo de una sola vez.
                         </p>
 
                         <div className="bg-slate-50 w-full p-4 rounded-2xl border border-slate-200 mb-6 space-y-3">
@@ -229,29 +208,17 @@ const TarjetaRepartidor = ({
                 </div>
             )}
 
-            {/* MODAL DE LIQUIDACIÓN INDIVIDUAL */}
             {pedidoAConfirmar && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
                     <div className="bg-white rounded-[40px] p-6 md:p-8 max-w-md w-full shadow-2xl flex flex-col items-center text-center animate-in zoom-in-95 duration-200 border border-slate-100">
-                        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner ${pedidoAConfirmar.tipoCobro === 'Transferencia' ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                            {pedidoAConfirmar.tipoCobro === 'Transferencia' ? <Receipt size={40} /> : <DollarSign size={40} />}
+                        <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-inner bg-emerald-100 text-emerald-600">
+                            <DollarSign size={40} />
                         </div>
-                        <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Confirmar {pedidoAConfirmar.tipoCobro === 'Transferencia' ? 'Comprobante' : 'Cobro'}</h3>
-                        
-                        {/* 👇 FIX: EN EL MODAL SE MUESTRA SOLO LA CANTIDAD DE EFECTIVO PURO QUE SE ESTÁ COBRANDO */}
-                        <p className="text-slate-500 font-medium mb-6">
-                            ¿Confirmas liquidar y registrar <strong className="text-slate-800 text-lg">${pedidoAConfirmar.montoEfectivoPuro !== undefined ? pedidoAConfirmar.montoEfectivoPuro.toFixed(2) : pedidoAConfirmar.total}</strong> en {pedidoAConfirmar.tipoCobro === 'Transferencia' ? 'TRANSFERENCIA' : 'EFECTIVO'} de la orden <strong className="text-slate-800">#{pedidoAConfirmar.numero_pedido}</strong>?
-                        </p>
+                        <h3 className="text-2xl font-black text-slate-800 mb-2 tracking-tight">Confirmar Cobro</h3>
 
-                        {pedidoAConfirmar.enRuta && (
-                            <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl mb-8 flex items-start gap-3 w-full text-left">
-                                <AlertTriangle size={24} className="text-orange-500 shrink-0 mt-0.5" />
-                                <p className="text-[11px] md:text-xs font-bold text-orange-800 leading-snug">
-                                    Nota: Esta orden figura como <strong>En Camino</strong>. Se forzará su cierre asumiendo que el repartidor ya validó la entrega.
-                                </p>
-                            </div>
-                        )}
-                        {!pedidoAConfirmar.enRuta && <div className="mb-8"></div>}
+                        <p className="text-slate-500 font-medium mb-8">
+                            ¿Confirmas que el repartidor te entregó <strong className="text-slate-800 text-lg">${pedidoAConfirmar.montoEfectivoPuro.toFixed(2)}</strong> en EFECTIVO de la orden <strong className="text-slate-800">#{pedidoAConfirmar.numero_pedido}</strong>?
+                        </p>
 
                         <div className="flex w-full gap-3">
                             <button
@@ -262,15 +229,10 @@ const TarjetaRepartidor = ({
                             </button>
                             <button
                                 onClick={() => {
-                                    if (pedidoAConfirmar.tipoCobro === 'Transferencia') {
-                                        actualizarEstadoPedido(pedidoAConfirmar.id, 'Liquidado', { metodo_pago: 'Transferencia' });
-                                    } else {
-                                        liquidarPedidoRepartidor(pedidoAConfirmar.id);
-                                    }
+                                    liquidarPedidoRepartidor(pedidoAConfirmar.id);
                                     setPedidoAConfirmar(null);
                                 }}
-                                className={`flex-1 py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 ${pedidoAConfirmar.tipoCobro === 'Transferencia' ? 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-500/30' : 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30'
-                                    }`}
+                                className="flex-1 py-4 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 flex justify-center items-center gap-2 bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/30"
                             >
                                 <CheckCircle2 size={20} />
                                 Confirmar

@@ -1,5 +1,6 @@
 import React from 'react';
-import { History, Clock } from 'lucide-react';
+import { History, Clock, AlertTriangle } from 'lucide-react';
+import GraficaHorariosCombinada from './GraficaHorariosCombinada';
 
 const TendenciasVentas = ({ comparativas }) => {
   if (!comparativas || comparativas.length === 0) return null;
@@ -9,6 +10,12 @@ const TendenciasVentas = ({ comparativas }) => {
       <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-2">
         <History className="text-blue-600" size={24} /> Análisis de Horarios y Tendencias
       </h3>
+
+      {/* 👇 NUEVO: Gráfica combinada — una sola vista con las 3 series superpuestas */}
+      <div className="mb-8 pb-6 border-b border-slate-100 print:hidden">
+        <GraficaHorariosCombinada comparativas={comparativas} />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {comparativas.map((comp, idx) => (
           <div key={idx} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition">
@@ -37,6 +44,16 @@ const TendenciasVentas = ({ comparativas }) => {
                   </span>
                   <span className="text-xs font-bold text-red-500 text-right">{comp.peorHora}</span>
                 </div>
+
+                {/* 👇 NUEVO: Solo aparece si de verdad hubo ventas fuera del horario actual */}
+                {comp.ventasFueraHorario && (
+                  <div className="mt-2 pt-2 border-t border-dashed border-amber-200 bg-amber-50 -mx-5 -mb-5 px-5 py-3 rounded-b-2xl">
+                    <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest flex items-center gap-1 mb-1">
+                      <AlertTriangle size={12}/> Fuera de Horario ({comp.ventasFueraHorario.total})
+                    </span>
+                    <p className="text-[10px] font-bold text-amber-600 leading-relaxed">{comp.ventasFueraHorario.detalle}</p>
+                  </div>
+                )}
             </div>
           </div>
         ))}

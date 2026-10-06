@@ -12,6 +12,8 @@ import ReporteMermas from './reportes/ReporteMermas';
 // 👇 FIX: Importamos 'CalendarDays' para que el sistema reconozca el icono
 import { BarChart3, History, Fuel, ShoppingCart, Trash2, CalendarDays } from 'lucide-react';
 import io from 'socket.io-client';
+// 💡 MEJORA #3: Exportación profesional de PDF (con logo) y CSV
+import { generarPDFReporte, generarCSVReporte } from './reportes/utils/exportadorReportes';
 
 const AdminReportes = ({ apiUrl, showAlert }) => {
   const [reporte, setReporte] = useState(null);
@@ -91,7 +93,30 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     }
   };
 
-  const handleImprimir = () => window.print();
+  // 💡 MEJORA #3: Reemplaza el window.print() por un PDF real generado en el navegador
+  const [exportandoPDF, setExportandoPDF] = useState(false);
+
+  const handleExportarPDF = async () => {
+    if (!reporte) return;
+    setExportandoPDF(true);
+    try {
+      await generarPDFReporte({
+        reporte,
+        filtros: { filtroActivo, fechaCustom, fechaFin, filtroClasificacion, filtroConsumo },
+        apiUrl,
+        formaterMoneda
+      });
+    } catch (error) {
+      showAlert("Error", "No se pudo generar el PDF del reporte.", "error");
+    } finally {
+      setExportandoPDF(false);
+    }
+  };
+
+  const handleExportarCSV = () => {
+    if (!reporte || !reporte.detalles || reporte.detalles.length === 0) return;
+    generarCSVReporte(reporte.detalles);
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-in fade-in pb-12 print:bg-white print:p-0">
@@ -127,7 +152,9 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
             clasificaciones={clasificaciones}
             filtroClasificacion={filtroClasificacion} setFiltroClasificacion={setFiltroClasificacion}
             filtroConsumo={filtroConsumo} setFiltroConsumo={setFiltroConsumo}
-            cargando={cargando} reporte={reporte} handleImprimir={handleImprimir}
+            cargando={cargando} reporte={reporte}
+            handleExportarPDF={handleExportarPDF} exportandoPDF={exportandoPDF}
+            handleExportarCSV={handleExportarCSV}
             setReporte={setReporte} 
             cargarReporte={cargarReporte} 
           />
@@ -147,7 +174,7 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
               <ProyeccionesVentas proyecciones={reporte.proyecciones} />
               <InsightsVentas insights={reporte.insights} filtroActivo={filtroActivo} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
               <TendenciasVentas comparativas={reporte.comparativas} />
-              <ResumenFinanciero resumen={reporte.resumen} formaterMoneda={formaterMoneda} />
+              <ResumenFinanciero resumen={reporte.resumen} formaterMoneda={formaterMoneda} comparativas={reporte.comparativas} />
               <TablaDesgloseVentas detalles={reporte.detalles} formaterMoneda={formaterMoneda} />
             </div>
           ) : null}

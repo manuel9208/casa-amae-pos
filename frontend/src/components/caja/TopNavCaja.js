@@ -18,6 +18,15 @@ const TopNavCaja = ({
 }) => {
 
   const apiUrlLocal = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:4000/api' : '/api');
+
+  // 🛡️ FIX: Debe reflejar EXACTAMENTE el mismo criterio que GestorCobranzaPrincipal.js
+  // (fuente única de verdad), para que el badge "Cuentas / Cobrar" y la vista SIEMPRE
+  // coincidan en cantidad. Excluimos pedidos a Domicilio que ya tienen repartidor
+  // asignado y van "En Camino" — esos ya no se cobran aquí, se liquidan en la vista
+  // de Logística/Reparto.
+  const pendientesDePagoFiltrados = (pendientesDePago || []).filter(p =>
+    !(p.tipo_consumo === 'Domicilio' && (p.repartidor_id || p.estado_preparacion === 'En Camino'))
+  );
   
   // 👇 CEREBRO DE ASISTENCIA NFC
   const { isListening, nfcData, startNFC, stopNFC } = useNFC();
@@ -331,7 +340,7 @@ const TopNavCaja = ({
                 <Phone size={16} className="md:w-4 md:h-4"/> Por Confirmar {pedidosPorConfirmar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pedidosPorConfirmar.length}</span>}
             </button>  
             <button onClick={() => setVistaActiva('cobrar')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'cobrar' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
-                <ShoppingBag size={16} className="md:w-4 md:h-4"/> Cuentas / Cobrar {pendientesDePago.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pendientesDePago.length}</span>}
+                <ShoppingBag size={16} className="md:w-4 md:h-4"/> Cuentas / Cobrar {pendientesDePagoFiltrados.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pendientesDePagoFiltrados.length}</span>}
             </button>  
             <button onClick={() => setVistaActiva('entregas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'entregas' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <Monitor size={16} className="md:w-4 md:h-4"/> Entregas {listosParaEntregar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{listosParaEntregar.length}</span>}

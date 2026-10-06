@@ -17,6 +17,9 @@ const VistaAsistencia = ({ apiUrl, user }) => {
     const [equipoVinculado, setEquipoVinculado] = useState(false);
     const [verificandoEquipo, setVerificandoEquipo] = useState(true);
 
+    // 👇 NUEVO: Estado de vinculación de HUELLA (para bloquear el botón si ya tiene una)
+    const [huellaVinculada, setHuellaVinculada] = useState(user?.tiene_huella === true || user?.tiene_huella === 'true');
+
     const { validarAcceso, validandoGPS } = useValidadorAsistencia(apiUrl);
 
     // ESTADOS PARA MODAL DE VÍNCULO CELULAR
@@ -30,6 +33,11 @@ const VistaAsistencia = ({ apiUrl, user }) => {
     };
 
     const { iniciarSesionConHuella, registrarHuella } = useBiometria(apiUrl, customShowAlert);
+
+    // 👇 NUEVO: Mantiene sincronizado el estado local si el prop "user" se actualiza (ej. al recargar el Portal)
+    useEffect(() => {
+        setHuellaVinculada(user?.tiene_huella === true || user?.tiene_huella === 'true');
+    }, [user?.tiene_huella]);
 
     // 1. VERIFICAR VINCULACIÓN Y SINCRONIZAR ID LOCAL CON LA BD
     const verificarVinculacionDispositivo = useCallback(async () => {
@@ -161,11 +169,18 @@ const VistaAsistencia = ({ apiUrl, user }) => {
     // VINCULAR HUELLA / FACE ID DEL DISPOSITIVO
     // =========================================================
     const handleVincularHuella = async () => {
+        // 👇 FIX: Bloqueo defensivo por si el botón llegara a activarse aunque ya tenga huella
+        if (huellaVinculada) {
+            customShowAlert('YA VINCULADA', 'Ya cuentas con tu huella dada de alta. Si necesitas reemplazarla, solicítalo al administrador.', 'error');
+            return;
+        }
         setIsSubmitting(true);
         // Le pasamos user.id (empleado) y null (cliente) al motor biométrico
         const exito = await registrarHuella(user.id, null); 
         if (exito) {
             customShowAlert('¡HUELLA VINCULADA!', 'Tu huella o Face ID se ha guardado correctamente. Ya puedes usarla para checar asistencia.', 'success');
+            // 👇 FIX: Reflejamos el bloqueo del botón de inmediato, sin esperar a un refresh completo del usuario
+            setHuellaVinculada(true);
         } else {
             customShowAlert('ERROR', 'No se pudo vincular la huella. Intenta de nuevo.', 'error');
         }
@@ -176,6 +191,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
     const handleAsistenciaHuella = async () => {
         setIsSubmitting(true);
 
+        // Respeta el modo de validación configurado (IP / Ubicación / Ambas) — idéntico al flujo de PIN
         const validacion = await validarAcceso();
         if (!validacion.success) {
             customShowAlert('ACCESO DENEGADO', validacion.error, 'error');
@@ -194,10 +210,13 @@ const VistaAsistencia = ({ apiUrl, user }) => {
             }
 
             try {
+                // 👇 FIX: Ahora se envían lat/lon (validados por el GPS) y el dispositivo_id
+                // para que el BACKEND también valide ubicación y el candado anti-suplantación.
+                const dispositivo_id = localStorage.getItem('pos_device_id');
                 const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pin: userPin, tipo: accion })
+                    body: JSON.stringify({ pin: userPin, tipo: accion, lat: validacion.lat, lon: validacion.lon, dispositivo_id })
                 });
                 const resultado = await res.json();
 
@@ -227,6 +246,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                     return;
                 }
 
+                // Respeta el modo de validación configurado (IP / Ubicación / Ambas) — idéntico al flujo de Huella
                 const validacion = await validarAcceso();
                 if (!validacion.success) {
                     customShowAlert('ACCESO DENEGADO', validacion.error, 'error');
@@ -235,10 +255,13 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                 }
 
                 try {
+                    // 👇 FIX: Ahora se envían lat/lon (validados por el GPS) y el dispositivo_id
+                    // para que el BACKEND también valide ubicación y el candado anti-suplantación.
+                    const dispositivo_id = localStorage.getItem('pos_device_id');
                     const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ pin: pinInput, tipo: accion })
+                        body: JSON.stringify({ pin: pinInput, tipo: accion, lat: validacion.lat, lon: validacion.lon, dispositivo_id })
                     });
                     const data = await res.json();
 
@@ -354,14 +377,23 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                                     <ShieldCheck size={16} /> Este celular ya se encuentra verificado
                                 </div>
                             </div>
-                            {/* 👇 FIX: Botón de huella reubicado para que siempre esté disponible */}
-                                <button
-                                    onClick={handleVincularHuella}
-                                    disabled={isSubmitting}
-                                    className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-black py-3.5 rounded-xl transition-all active:scale-95 text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-indigo-200 shadow-sm disabled:opacity-50"
-                                >
-                                    <Fingerprint size={16} /> Vincular mi Huella / Face ID
-                                </button>
+
+                            {/* 👇 FIX: Si ya tiene huella vinculada, se bloquea el botón y se muestra un aviso informativo */}
+                            <div className="mt-4">
+                                {huellaVinculada ? (
+                                    <div className="w-full bg-emerald-50 text-emerald-700 font-black py-3.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-200 shadow-sm cursor-default select-none">
+                                        <CheckCircle2 size={16} /> Ya cuentas con tu Huella / Face ID
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={handleVincularHuella}
+                                        disabled={isSubmitting}
+                                        className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-black py-3.5 rounded-xl transition-all active:scale-95 text-xs uppercase tracking-wider flex items-center justify-center gap-2 border border-indigo-200 shadow-sm disabled:opacity-50"
+                                    >
+                                        <Fingerprint size={16} /> Vincular mi Huella / Face ID
+                                    </button>
+                                )}
+                            </div>
                         </>
                     )}
                 </div>

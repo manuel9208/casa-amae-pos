@@ -1,12 +1,50 @@
 const db = require('../config/db');
 
+// 💡 MEJORA #4: Caché en memoria para periodos históricos CERRADOS del reporte de
+// Ventas (Hace 1 Semana, Hace 1 Mes, Año Anterior, etc.). Mismo patrón que
+// "respuestasCache" en iaController.js: Map en memoria + expiración por timestamp.
+// El periodo ACTUAL (Hoy/Esta Semana/Este Mes/Este Año) NUNCA se cachea, porque
+// cambia con cada pedido nuevo en tiempo real.
+const comparativasCache = new Map();
+
 exports.obtenerReporteVentas = async (req, res) => {
   const { tipo, fecha, fechaFin, clasificacion, tipo_consumo } = req.query; 
   
   try {
-    const configRes = await db.query('SELECT hora_apertura, hora_cierre FROM configuracion WHERE id = 1');
-    const horaAperturaDB = Number(configRes.rows[0]?.hora_apertura !== undefined ? configRes.rows[0].hora_apertura : 17);
-    const horaCierreDB = Number(configRes.rows[0]?.hora_cierre !== undefined ? configRes.rows[0].hora_cierre : 23);
+    // 👇 FIX RAÍZ: hora_apertura/hora_cierre eran columnas huérfanas, nunca conectadas
+    // al horario real que se configura en "Horario Operativo Semanal" (horarios_semana).
+    // Ahora calculamos la ventana operativa real como la unión de la apertura más
+    // temprana y el cierre más tardío entre los días activos de la semana.
+    const configRes = await db.query('SELECT horarios_semana FROM configuracion WHERE id = 1');
+    let horariosSemana = {};
+    try {
+        const raw = configRes.rows[0]?.horarios_semana;
+        horariosSemana = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {});
+    } catch (e) { horariosSemana = {}; }
+
+    let horaAperturaDB = 8;
+    let horaCierreDB = 22;
+    const aperturas = [];
+    const cierres = [];
+    Object.values(horariosSemana).forEach(dia => {
+        if (dia && dia.activo !== false && dia.apertura && dia.cierre) {
+            const hA = parseInt(String(dia.apertura).split(':')[0], 10);
+            const hC = parseInt(String(dia.cierre).split(':')[0], 10);
+            if (!isNaN(hA)) aperturas.push(hA);
+            if (!isNaN(hC)) cierres.push(hC);
+        }
+    });
+    if (aperturas.length > 0) horaAperturaDB = Math.min(...aperturas);
+    if (cierres.length > 0) horaCierreDB = Math.max(...cierres);
+
+    // 💡 MÓDULO AISLADO: Factor Luz/Agua configurable (antes hardcodeado como * 1.15)
+    let porcentajeLuzAgua = 15;
+    try {
+        const factorRes = await db.query(`SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1`);
+        if (factorRes.rows.length > 0 && factorRes.rows[0].porcentaje !== null) {
+            porcentajeLuzAgua = Number(factorRes.rows[0].porcentaje);
+        }
+    } catch (e) { /* Si la tabla aún no existe, se mantiene el 15% por defecto */ }
 
     const costosRes = await db.query(`
       WITH RECURSIVE EmpaquesCosto AS (
@@ -63,7 +101,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     const costoMap = new Map();
     costosRes.rows.forEach(r => {
         const costoBase = Number(r.costo_base_crudo) || 0;
-        const costoRealFinal = costoBase * 1.15; 
+        const costoRealFinal = costoBase * (1 + (porcentajeLuzAgua / 100)); 
         costoMap.set(Number(r.producto_id), Number(costoRealFinal));
     });
 
@@ -467,71 +505,213 @@ exports.obtenerReporteVentas = async (req, res) => {
         }
     }
 
+    // 👇 NUEVO: Mapa de día ISODOW -> nombre, para resolver el horario EXACTO
+    // del día de la semana que le corresponde a cada fecha puntual (Hoy, Hace 1
+    // Semana, etc.), en vez de usar un rango "global" (min apertura/max cierre
+    // de TODA la semana) que distorsiona días que cierran más temprano.
+    const diasMapaHorario = { '1':'Lunes','2':'Martes','3':'Miércoles','4':'Jueves','5':'Viernes','6':'Sábado','7':'Domingo' };
+
+    const obtenerHorarioDelDia = async (fechaSqlExpr) => {
+        try {
+            const r = await db.query(`SELECT EXTRACT(ISODOW FROM (${fechaSqlExpr})) as dow`, [fecha || 'NOW()']);
+            const dow = r.rows[0]?.dow?.toString();
+            const diaNombre = diasMapaHorario[dow];
+            const diaConf = horariosSemana[diaNombre];
+            if (diaConf && diaConf.activo !== false && diaConf.apertura && diaConf.cierre) {
+                const hA = parseInt(String(diaConf.apertura).split(':')[0], 10);
+                const hC = parseInt(String(diaConf.cierre).split(':')[0], 10);
+                return {
+                    apertura: !isNaN(hA) ? hA : horaAperturaDB,
+                    cierre: !isNaN(hC) ? hC : horaCierreDB
+                };
+            }
+        } catch (e) {}
+        return { apertura: horaAperturaDB, cierre: horaCierreDB };
+    };
+
     let comparativas = [];
     try {
-        const processRange = async (label, inicioSql, finSql, esUnSoloDia = false) => {
+        const processRange = async (label, inicioSql, finSql, esUnSoloDia = false, esHistorico = false) => {
+            // 💡 MEJORA #4: Si es un periodo histórico cerrado (ej. "Hace 1 Semana"),
+            // revisamos primero el caché antes de pegarle a la BD y recalcular todo.
+            const cacheKeyStr = `comparativa_${tipo}_${fecha || 'NOW'}_${label}`;
+            if (esHistorico && comparativasCache.has(cacheKeyStr)) {
+                const cacheado = comparativasCache.get(cacheKeyStr);
+                if (Date.now() - cacheado.timestamp < 1800000) { // 30 minutos, mismo TTL que iaController.js
+                    console.log(`⚡ Sirviendo comparativa desde Caché: ${cacheKeyStr}`);
+                    return cacheado.data;
+                } else {
+                    comparativasCache.delete(cacheKeyStr);
+                }
+            }
+
             const boundsRes = await db.query(`SELECT TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio, TO_CHAR((${finSql}) - INTERVAL '1 second', 'DD/MM/YYYY') as fecha_fin`, [fecha || 'NOW()']);
             
-            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql})`, [fecha || 'NOW()']);
+            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, p.costo_envio, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql})`, [fecha || 'NOW()']);
 
             let totalPlatillos = 0; let horas = Array(24).fill(0);
-            let minHoraDelRango = horaAperturaDB; let maxHoraDelRango = horaCierreDB;
+            // 💡 MEJORA #2: Acumuladores monetarios aproximados para el indicador
+            // de tendencia ↑/↓ en ResumenFinanciero.js (Ingresos Brutos, Inversión,
+            // Ganancia). Reutilizan el mismo costoMap ya calculado al inicio de
+            // esta función, sin pegarle de nuevo a la base de datos.
+            let totalVentasPeriodo = 0; let totalInversionPeriodo = 0;
+            // 👇 FIX RAÍZ: Si es un solo día (Hoy, Hace 1 Semana, Hace 1 Mes, Hace 1
+            // Año en modo "dia"), usamos el horario EXACTO configurado para ESE día
+            // de la semana puntual, no el máximo/mínimo de toda la semana combinada.
+            let minHoraDelRango = horaAperturaDB;
+            let maxHoraDelRango = horaCierreDB;
+            if (esUnSoloDia) {
+                const horarioEspecifico = await obtenerHorarioDelDia(inicioSql);
+                minHoraDelRango = horarioEspecifico.apertura;
+                maxHoraDelRango = horarioEspecifico.cierre;
+            }
+            // 👇 FIX RAÍZ: Cada franja se etiqueta como "hora i a hora i+1", así que
+            // la ÚLTIMA franja válida debe EMPEZAR una hora antes del cierre real
+            // (ej. si cierras a las 10 PM, la última franja debe ser "9 PM a 10 PM",
+            // no "10 PM a 11 PM"). Por eso restamos 1 al tope superior del rango.
+            maxHoraDelRango = Math.max(minHoraDelRango, maxHoraDelRango - 1);
+
+            // 👇 NUEVO: Acumula aparte las ventas que caen FUERA del horario
+            // actual (ej. un pedido a la 1 AM), sin que contaminen "Hora Muerta".
+            let totalPlatillosFueraHorario = 0;
+            const horasFueraDetalle = {};
 
             res.rows.forEach(p => {
                 const hora = Number(p.hora_local);
-                if (hora < minHoraDelRango) minHoraDelRango = hora;
-                if (hora > maxHoraDelRango) maxHoraDelRango = hora;
 
                 let carrito = []; try { carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : p.carrito; } catch(e){}
                 if(!Array.isArray(carrito)) carrito = [];
 
+                // 💡 MEJORA #2: Ingreso bruto aproximado del envío de esta orden
+                totalVentasPeriodo += parseMoney(p.costo_envio);
+
                 carrito.forEach(item => {
                     const cat = item.categoria || item.clasificacion || '';
+                    const qty = parseMoney(item.cantidad) || 1;
+
+                    // 💡 MEJORA #2: Ingreso bruto aproximado (incluye Platillos, Extras y
+                    // Envíos, mismo criterio que "Ingresos Brutos" del periodo actual)
+                    const rawPrice = parseMoney(item.precioFinal || item.precio_base || item.precio);
+                    totalVentasPeriodo += rawPrice * qty;
+
                     if (cat !== 'Extras' && cat !== 'Envíos') {
-                        const qty = parseMoney(item.cantidad) || 1;
-                        totalPlatillos += qty; horas[hora] += qty;
+                        totalPlatillos += qty;
+
+                        // 💡 MEJORA #2: Inversión aproximada usando el costoMap ya calculado
+                        const pId = Number(item.id) || 0;
+                        totalInversionPeriodo += (costoMap.get(pId) || 0) * qty;
+
+                        if (hora >= minHoraDelRango && hora <= maxHoraDelRango) {
+                            horas[hora] += qty;
+                        } else {
+                            // Venta real, pero fuera del horario operativo actual
+                            totalPlatillosFueraHorario += qty;
+                            horasFueraDetalle[hora] = (horasFueraDetalle[hora] || 0) + qty;
+                        }
                     }
                 });
             });
 
-            let mejorHora = -1; let maxItems = -1; let minItems = Infinity;
-            let horasMuertasArray = []; let huboVentasEnElRango = false;
+            let mejorHora = -1; let maxItems = -1;
+            let horasMuertasArray = []; let minItems = 0;
 
+            // 1. Buscamos la Hora Pico normalmente
             for(let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
-                huboVentasEnElRango = true;
                 if(horas[i] > maxItems) { maxItems = horas[i]; mejorHora = i; }
-                if(horas[i] < minItems) { minItems = horas[i]; horasMuertasArray = [i]; } 
-                else if (horas[i] === minItems) { horasMuertasArray.push(i); }
             }
 
-            if (!huboVentasEnElRango) { mejorHora = -1; horasMuertasArray = []; }
+            // 2. Hora Muerta: primero priorizamos horas EN CERO absoluto (sin ninguna venta).
+            // Si no existe ninguna hora en 0 (hubo ventas en todo el horario), entonces sí
+            // tomamos la hora con el valor mínimo, aunque sea 1, 2, etc.
+            const horasEnCero = [];
+            for (let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
+                if (horas[i] === 0) horasEnCero.push(i);
+            }
+
+            if (horasEnCero.length > 0) {
+                horasMuertasArray = horasEnCero;
+                minItems = 0;
+            } else {
+                let minTemp = Infinity;
+                for (let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
+                    if (horas[i] < minTemp) { minTemp = horas[i]; horasMuertasArray = [i]; }
+                    else if (horas[i] === minTemp) { horasMuertasArray.push(i); }
+                }
+                minItems = minTemp;
+            }
+
+            const totalPlatillosDentroHorario = horas.reduce((s, n) => s + n, 0);
+            if (totalPlatillosDentroHorario === 0) { mejorHora = -1; horasMuertasArray = []; }
 
             const formatHora = (h) => h === -1 ? 'N/A' : `${h % 12 || 12}:00 ${h >= 12 ? 'PM' : 'AM'}`;
-            return {
+
+            const serieHoras = [];
+            for (let i = minHoraDelRango; i <= maxHoraDelRango; i++) {
+                serieHoras.push({ hora: formatHora(i), cantidad: horas[i] });
+            }
+
+            // 👇 NUEVO: Solo se arma este bloque si de verdad hubo ventas fuera de
+            // horario; si no existen, queda null y el frontend simplemente no lo muestra.
+            let ventasFueraHorario = null;
+            if (totalPlatillosFueraHorario > 0) {
+                const detalleTexto = Object.entries(horasFueraDetalle)
+                    .sort((a, b) => Number(a[0]) - Number(b[0]))
+                    .map(([h, qty]) => `${formatHora(Number(h))} a ${formatHora(Number(h) + 1)} (${qty} platillos)`)
+                    .join(', ');
+                ventasFueraHorario = { total: totalPlatillosFueraHorario, detalle: detalleTexto };
+            }
+
+            const resultadoFinal = {
                 label, subtitulo: esUnSoloDia ? boundsRes.rows[0].fecha_inicio : `${boundsRes.rows[0].fecha_inicio} al ${boundsRes.rows[0].fecha_fin}`, totalPlatillos,
                 mejorHora: mejorHora !== -1 ? `${formatHora(mejorHora)} a ${formatHora(mejorHora + 1)} (${maxItems} platillos)` : 'Sin ventas',
-                peorHora: horasMuertasArray.length > 0 ? `${horasMuertasArray.map(h => `${formatHora(h)} a ${formatHora(h + 1)}`).join(', ')} (${minItems} platillos)` : 'Sin ventas'
+                peorHora: horasMuertasArray.length > 0 ? `${horasMuertasArray.map(h => `${formatHora(h)} a ${formatHora(h + 1)}`).join(', ')} (${minItems} platillos)` : 'Sin ventas',
+                serieHoras,
+                ventasFueraHorario,
+                // 💡 MEJORA #2: Totales monetarios aproximados para el indicador ↑/↓ de ResumenFinanciero.js
+                totalVentas: totalVentasPeriodo,
+                totalInversion: totalInversionPeriodo,
+                totalGanancia: totalVentasPeriodo - totalInversionPeriodo
             };
+
+            // 💡 MEJORA #4: Solo se guardan en caché los periodos HISTÓRICOS (cerrados).
+            // El periodo actual nunca se guarda, para que siempre refleje datos en vivo.
+            if (esHistorico) {
+                comparativasCache.set(cacheKeyStr, { data: resultadoFinal, timestamp: Date.now() });
+            }
+
+            return resultadoFinal;
         };
 
         let promesas = [];
         if (tipo === 'dia' || tipo === 'historico') {
             const fRef = `$1::DATE`;
-            promesas.push(processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true));
-            promesas.push(processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`, true));
-            promesas.push(processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`, true));
+            // 👇 Periodo actual (Hoy) al frente del arreglo: NUNCA se cachea (último parámetro = false)
+            promesas.push(processRange("Hoy", `${fRef}`, `${fRef} + INTERVAL '1 day'`, true, false));
+            // 💡 MEJORA #4: Estos 3 son periodos CERRADOS (el pasado no cambia) -> sí se cachean
+            promesas.push(processRange("Hace 1 Semana", `${fRef} - INTERVAL '1 week'`, `${fRef} - INTERVAL '1 week' + INTERVAL '1 day'`, true, true));
+            promesas.push(processRange("Hace 1 Mes", `${fRef} - INTERVAL '1 month'`, `${fRef} - INTERVAL '1 month' + INTERVAL '1 day'`, true, true));
+            promesas.push(processRange("Hace 1 Año", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 day'`, true, true));
         } else if (tipo === 'semana') {
             const fRef = `DATE_TRUNC('week', $1::TIMESTAMP)`;
-            promesas.push(processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`, false));
-            promesas.push(processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`, false));
-            promesas.push(processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`, false));
+            // 👇 Semana actual al frente del arreglo: NUNCA se cachea
+            promesas.push(processRange("Esta Semana", `${fRef}`, `${fRef} + INTERVAL '1 week'`, false, false));
+            // 💡 MEJORA #4: Semanas ya cerradas -> sí se cachean
+            promesas.push(processRange("Semana Pasada", `${fRef} - INTERVAL '1 week'`, `${fRef}`, false, true));
+            promesas.push(processRange("Misma Semana (Mes Pasado)", `${fRef} - INTERVAL '4 weeks'`, `${fRef} - INTERVAL '3 weeks'`, false, true));
+            promesas.push(processRange("Misma Semana (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 week'`, false, true));
         } else if (tipo === 'mes') {
             const fRef = `DATE_TRUNC('month', $1::TIMESTAMP)`;
-            promesas.push(processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`, false));
-            promesas.push(processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`, false));
+            // 👇 Mes actual al frente del arreglo: NUNCA se cachea
+            promesas.push(processRange("Este Mes", `${fRef}`, `${fRef} + INTERVAL '1 month'`, false, false));
+            // 💡 MEJORA #4: Meses ya cerrados -> sí se cachean
+            promesas.push(processRange("Mes Pasado", `${fRef} - INTERVAL '1 month'`, `${fRef}`, false, true));
+            promesas.push(processRange("Mismo Mes (Año Pasado)", `${fRef} - INTERVAL '1 year'`, `${fRef} - INTERVAL '1 year' + INTERVAL '1 month'`, false, true));
         } else if (tipo === 'anio') {
             const fRef = `DATE_TRUNC('year', $1::TIMESTAMP)`;
-            promesas.push(processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false));
+            // 👇 Año actual al frente del arreglo: NUNCA se cachea
+            promesas.push(processRange("Este Año", `${fRef}`, `${fRef} + INTERVAL '1 year'`, false, false));
+            // 💡 MEJORA #4: Año ya cerrado -> sí se cachea
+            promesas.push(processRange("Año Anterior", `${fRef} - INTERVAL '1 year'`, `${fRef}`, false, true));
         }
         const resultadosPromesas = await Promise.all(promesas);
         comparativas = resultadosPromesas.filter(c => c !== null);
@@ -539,8 +719,12 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     let proyecciones = null;
     try {
-        if (comparativas.length > 0) {
-            const baseInmediata = comparativas[0];
+        // 👇 FIX: Como ahora comparativas[0] es el periodo ACTUAL (Hoy/Esta Semana/etc.),
+        // las proyecciones deben seguir comparándose contra el primer periodo HISTÓRICO
+        // (el que antes ocupaba la posición 0), no contra sí mismo.
+        const comparativasHistoricas = comparativas.slice(1);
+        if (comparativasHistoricas.length > 0) {
+            const baseInmediata = comparativasHistoricas[0];
             const metaPlatillos = Math.ceil(baseInmediata.totalPlatillos * 1.05);
             const actuales = totales.productos_vendidos;
 

@@ -251,10 +251,10 @@ const ModalPago = ({
         if (tar > 0) pagosMix.push({ metodo: 'Tarjeta', monto: tar });
         if (tra > 0) pagosMix.push({ metodo: 'Transferencia', monto: tra });
 
-        procesar_Pago_Local('Pagado', false, pagosMix);
+        procesar_Pago_Local('Pagado', pagosMix);
     };
 
-    const procesar_Pago_Local = async (estadoRechazo = null, esPostPago = false, pagosMixtos = null, puntosOverride = null) => {
+    const procesar_Pago_Local = async (estadoRechazo = null, pagosMixtos = null, puntosOverride = null) => {
         const ordenYaCocinada = !['Pendiente', 'Por Confirmar'].includes(modalPago.estado_preparacion);
         const ordenBloqueadaExplicitamente = modalPago._evitarImpresion === true;
         const yaFueImpreso = ordenBloqueadaExplicitamente || ordenYaCocinada;  
@@ -268,20 +268,26 @@ const ModalPago = ({
         
         if (!estadoRechazo || estadoRechazo === 'Pagado') {
             const estadoActual = modalPago.estado_preparacion;
-            if (estadoActual === 'Listo') estadoFinal = 'Finalizado'; 
+            // 🛡️ FIX: "Cobrar + Externo" (_esExterno) SIEMPRE debe finalizar al confirmar el gasto,
+            // porque el repartidor externo ya se está llevando el pedido en ese instante.
+            // La regla de "no despachado" solo aplica a "Solo Cobrar" (el pedido se queda esperando
+            // repartidor), nunca al flujo externo.
+            const esDomicilioSinDespachar = modalPago.tipo_consumo === 'Domicilio' && estadoActual === 'Listo' && !modalPago._esExterno;
+            if (esDomicilioSinDespachar) estadoFinal = 'Listo';
+            else if (estadoActual === 'Listo') estadoFinal = 'Finalizado'; 
             else if (estadoActual === 'Entregado' || estadoActual === 'Liquidado') estadoFinal = 'Finalizado';
             else if (['Preparando', 'En Camino'].includes(estadoActual)) estadoFinal = estadoActual;
-            else estadoFinal = 'Pagado'; 
+            else estadoFinal = 'Preparando';
         }
 
         // 🛡️ INTERCEPCIÓN DE FLUJO CORREGIDA 🛡️
         // Si es Externo, RETENEMOS EL PAGO y abrimos el modal SIN avisar al Padre (Caja).
         if (estadoFinal !== 'Cancelado' && modalPago._esExterno) {
-            setDatosPagoPendiente({ estadoFinal, esPostPago, pagosMixtos, puntosFinales });
+            setDatosPagoPendiente({ estadoFinal, pagosMixtos, puntosFinales });
             setPasoExterno(true);
         } else {
             // Si es pedido normal, se cobra directo
-            await procesarPago(estadoFinal, esPostPago, pagosMixtos, puntosFinales);
+            await procesarPago(estadoFinal, pagosMixtos, puntosFinales);
         }
     };  
 
@@ -310,7 +316,7 @@ const ModalPago = ({
                     setPuntosAplicados(Number(puntosAUsar));
                     setModalPago({ ...modalPago, metodo_pago: 'Pendiente' });
                 } else {
-                    procesar_Pago_Local(null, false, null, Number(puntosAUsar));
+                    procesar_Pago_Local(null, null, Number(puntosAUsar));
                 }
             } else {
                 setErrorNip('NIP Incorrecto. Inténtalo de nuevo.');
@@ -325,7 +331,6 @@ const ModalPago = ({
         if (datosPagoPendiente) {
             await procesarPago(
                 datosPagoPendiente.estadoFinal,
-                datosPagoPendiente.esPostPago,
                 datosPagoPendiente.pagosMixtos,
                 datosPagoPendiente.puntosFinales
             );
@@ -337,8 +342,13 @@ const ModalPago = ({
         e.preventDefault();
         if (guardandoGasto) return;
         setGuardandoGasto(true);
-        
+
         try {
+            // 🛡️ FIX: Primero FINALIZAMOS el pago (estado_preparacion = 'Finalizado' en firme).
+            // Antes se registraba el gasto del insumo primero, y ese registro disparaba un
+            // refresco de pedidos que podía pisar el estado recién calculado antes de guardarse.
+            await forzarLiberacionPago();
+
             const monto = parseFloat(costoExterno) || 0;
             let faltaInsumo = false;
 
@@ -355,27 +365,25 @@ const ModalPago = ({
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            paquetes_comprados: 1, 
-                            nuevo_costo_paquete: monto, 
+                            paquetes_comprados: 1,
+                            nuevo_costo_paquete: monto,
                             origen: 'Caja'
                         })
                     });
                 }
             }
 
-            // 🛡️ REGLA CUSTOM UI: Activamos el modal bonito en lugar del alert nativo
             if (faltaInsumo) {
-                setAlertaRepartidor("Para descontar automáticamente del Corte de Caja, necesitas crear un Insumo llamado 'Repartidor Externo' en el Inventario.");
+                setAlertaRepartidor("El pedido ya se finalizó correctamente, pero para descontar automáticamente el gasto del Corte de Caja, necesitas crear un Insumo llamado 'Repartidor Externo' en el Inventario.");
                 setGuardandoGasto(false);
-                return; // Pausamos el flujo hasta que den clic en Entendido
+                return;
             }
 
-            // 🚀 LIBERAMOS EL PAGO
-            await forzarLiberacionPago();
+            setGuardandoGasto(false);
 
         } catch (error) {
             console.error("Error de red al registrar gasto del viaje:", error);
-            setAlertaRepartidor("Error de conexión al intentar guardar el gasto.");
+            setAlertaRepartidor("Error de conexión al intentar guardar el gasto. El pago ya quedó registrado, pero debes capturar el gasto del repartidor manualmente.");
             setGuardandoGasto(false);
         }
     };

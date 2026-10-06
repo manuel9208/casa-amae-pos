@@ -1,12 +1,13 @@
 import React from 'react';
-import { TrendingUp, Printer, Calendar, Filter, PackageOpen, Search } from 'lucide-react';
+import { TrendingUp, FileDown, FileSpreadsheet, Calendar, Filter, PackageOpen, Search, Loader2 } from 'lucide-react';
 
 const FiltrosVentas = ({
   filtroActivo, setFiltroActivo, 
   fechaCustom, setFechaCustom,
   fechaFin, setFechaFin, 
   clasificaciones, filtroClasificacion, setFiltroClasificacion,
-  filtroConsumo, setFiltroConsumo, cargando, reporte, handleImprimir,
+  filtroConsumo, setFiltroConsumo, cargando, reporte,
+  handleExportarPDF, exportandoPDF, handleExportarCSV, // 💡 MEJORA #3: Exportación profesional
   setReporte, cargarReporte // 👈 Funciones clave inyectadas
 }) => {
   return (
@@ -43,11 +44,22 @@ const FiltrosVentas = ({
           ))}
 
           <button
-            disabled={cargando || (reporte && reporte.detalles.length === 0)}
-            onClick={handleImprimir}
+            disabled={cargando || exportandoPDF || (reporte && reporte.detalles.length === 0)}
+            onClick={handleExportarPDF}
             className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-sm font-bold shadow-md hover:bg-slate-700 transition ml-2 disabled:opacity-50"
+            title="Genera un PDF profesional con logo, resumen financiero y tabla detallada"
           >
-            <Printer size={16} /> Imprimir PDF
+            {exportandoPDF ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+            {exportandoPDF ? 'Generando...' : 'Exportar PDF'}
+          </button>
+
+          <button
+            disabled={cargando || (reporte && reporte.detalles.length === 0)}
+            onClick={handleExportarCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-emerald-500 transition disabled:opacity-50"
+            title="Descarga la tabla de desglose en formato CSV (Excel)"
+          >
+            <FileSpreadsheet size={16} /> Exportar CSV
           </button>
         </div>
       </div>

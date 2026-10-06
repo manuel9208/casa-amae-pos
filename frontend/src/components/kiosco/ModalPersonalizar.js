@@ -86,11 +86,16 @@ const ModalPersonalizar = ({
         } 
         else if (e.nombre.startsWith('🔹')) { 
           const parts = e.nombre.replace('🔹 ', '').split(': '); 
-          if(parts.length === 2) {
-             if(!gruposOpcTemp[parts[0]]) gruposOpcTemp[parts[0]] = [];
-             gruposOpcTemp[parts[0]].push({ nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] });
+          if (parts.length === 2) {
+            if (e.tipo === 'grupo_obligatorio') {
+                // 👇 Reconstrucción del grupo obligatorio personalizado (ej. Leche, Hielo)
+                variacionesTemp[parts[0]] = { nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] };
+            } else {
+                if(!gruposOpcTemp[parts[0]]) gruposOpcTemp[parts[0]] = [];
+                gruposOpcTemp[parts[0]].push({ nombre: parts[1], precioExtra: e.precioExtra, categoria: parts[0] });
+            }
           }
-        } 
+        }  
         else if (e.nombre.startsWith('🔄 Cambio: ')) {
           const parts = e.nombre.replace('🔄 Cambio: ', '').split(' x ');
           if (parts.length === 2) sustTemp[parts[0]] = { nuevoNombre: parts[1], precioCalculado: e.precioExtra };
@@ -754,12 +759,18 @@ const ModalPersonalizar = ({
                 let variacionObjSeleccionada = null;
                 Object.values(variacionesSeleccionadas).forEach(v => {
                     const esVarPrincipal = v.categoria === 'Tamaño' || v.categoria === 'Sabor';
-                    if (esVarPrincipal && !variacionObjSeleccionada) variacionObjSeleccionada = v;
-                    // 👇 FIX RAÍZ: Igualamos el formato de Caja (tipo: 'variacion', nombre limpio sin prefijo)
-                    // para que pedidoController.js reconozca esta selección al resolver "sabor_nombre" y
-                    // descuente correctamente los insumos exclusivos del Tamaño/Sabor (ej. leche extra en "Jumbo").
-                    // Antes se etiquetaba como 'grupo_obligatorio', formato que el backend nunca lee para variaciones.
-                    extrasFinales.push({ nombre: v.nombre, precioExtra: getPrecioDeltaVisual(v), tipo: 'variacion' });
+                    if (esVarPrincipal) {
+                        // Tamaño/Sabor: formato limpio, tipo 'variacion' (igual que Caja).
+                        if (!variacionObjSeleccionada) variacionObjSeleccionada = v;
+                        extrasFinales.push({ nombre: v.nombre, precioExtra: getPrecioDeltaVisual(v), tipo: 'variacion' });
+                    } else {
+                        // 👇 FIX RAÍZ: Categorías obligatorias personalizadas (Leche, Hielo, etc.) deben
+                        // viajar como 'grupo_obligatorio' con el nombre "Categoria: Opción", igual que
+                        // hace Caja (AsistentePersonalizacion.js). Sin esto, el backend nunca las
+                        // reconoce como "seleccionadas" y descarta TODAS las opciones del grupo del
+                        // descuento de inventario (ver ingredientesOmitidos en pedidoController.js).
+                        extrasFinales.push({ nombre: `🔹 ${v.categoria}: ${v.nombre}`, precioExtra: getPrecioDeltaVisual(v), tipo: 'grupo_obligatorio' });
+                    }
                 });
 
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));

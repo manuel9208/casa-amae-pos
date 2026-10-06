@@ -511,6 +511,12 @@ exports.actualizarPedido = async (req, res) => {
             await db.query('UPDATE cupones SET usos_actuales = COALESCE(usos_actuales, 0) + 1 WHERE codigo = $1', [cupon_codigo]);
         }
 
+        // 👇 FIX: Sincronización Total — faltaba emitir el evento de actualización.
+        // Sin esto, al editar un pedido (carrito, total, dirección, estado) ninguna otra
+        // pantalla (Cocina/KDS, otra Caja, Kiosco del cliente) se enteraba en tiempo real.
+        const io = req.app.get('io');
+        if (io) io.emit('pedido_actualizado');
+
         res.json(result.rows[0]);
     } catch (error) {
         console.error("Error al actualizar pedido:", error);
@@ -534,7 +540,12 @@ exports.actualizarEstado = async (req, res) => {
         
         const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto', 'Puntos'].includes(metodoPagoAct);
 
-        if (estadoReal === 'Entregado' && pedidoPrevio.tipo_consumo === 'Local' && !pedidoPrevio.mesa && isPagadoDinero) {
+        // 👇 FIX: Antes solo aplicaba a "Local" sin mesa. Esto dejaba pedidos de
+        // "Para llevar" y "Recoger en Local" atascados para siempre en 'Entregado',
+        // nunca llegaban a 'Finalizado'. Domicilio queda EXCLUIDO a propósito: su cierre
+        // real depende del despacho/liquidación del repartidor, no solo de "Entregado"+pagado.
+        const tiposAutoFinalizables = ['Local', 'Para llevar', 'Recoger en Local', 'Recoger'];
+        if (estadoReal === 'Entregado' && tiposAutoFinalizables.includes(pedidoPrevio.tipo_consumo) && !pedidoPrevio.mesa && isPagadoDinero) {
             estadoReal = 'Finalizado'; 
         }
 
@@ -739,8 +750,12 @@ exports.actualizarEstado = async (req, res) => {
         }
 
         if (pedidoActual.cliente_id && estadoReal !== 'Cancelado') {
-            const yaEstabaPagado = (pedidoPrevio.estado_preparacion === 'Pagado' || pedidoPrevio.estado_preparacion === 'Entregado' || pedidoPrevio.estado_preparacion === 'Finalizado');
-            const ahoraEstaPagado = (estadoReal === 'Pagado' || estadoReal === 'Entregado' || estadoReal === 'Finalizado');
+            // 👇 FIX CRÍTICO: Los puntos de lealtad SOLO se otorgan cuando el dinero
+            // realmente entró (metodo_pago real), nunca por inferencia del estado_preparacion.
+            // Antes, una mesa "Entregada" sin cobrar (cuenta abierta) ya generaba puntos,
+            // aunque el cliente todavía no hubiera pagado nada.
+            const yaEstabaPagado = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto', 'Puntos'].includes(pedidoPrevio.metodo_pago);
+            const ahoraEstaPagado = isPagadoDinero;
             
             if (!yaEstabaPagado && ahoraEstaPagado) {
                 try {

@@ -1,4 +1,3 @@
-// src/components/admin/inventario/recetas/PanelTamanosFijos.js
 import React from 'react';
 import { AlertTriangle, Box, Trash2, Package } from 'lucide-react';
 
@@ -6,8 +5,15 @@ const PanelTamanosFijos = ({
   tamanosConfigurados, productoSeleccionado, configTamanos, setConfigTamanos,
   insumosDB, empaquesDisponibles, costoTotalRecetaCalculado,
   guardarRendimientosTamanos, actualizarEmpaqueTamanio, eliminarEmpaqueTamanio, agregarEmpaqueTamanio,
-  esSubReceta
+  esSubReceta, porcentajeLuzAgua, onActualizarPorcentajeLuzAgua
 }) => {
+  // 💡 Estado local SOLO para que el input sea editable mientras escribes.
+  // El valor real sincronizado vive en GestorRecetas.js (fuente de verdad).
+  const [inputLocalLuzAgua, setInputLocalLuzAgua] = React.useState(String(porcentajeLuzAgua ?? 15));
+
+  React.useEffect(() => {
+    setInputLocalLuzAgua(String(porcentajeLuzAgua ?? 15));
+  }, [porcentajeLuzAgua]);
   return (
     <div className="bg-orange-50 border border-orange-200 p-6 rounded-3xl mt-8 animate-in fade-in">
         <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-orange-100 shadow-sm mb-6">
@@ -54,8 +60,9 @@ const PanelTamanosFijos = ({
                 const costoInsumoSimulado = costoTotalRecetaCalculado / Math.max(1, rendSimulado);
                 const costoTotalSimulado = costoInsumoSimulado + costoEmpaqueTotal; 
                 
-                const luzAguaSimulado = costoTotalSimulado * 0.15;
-                const costoRealSimulado = costoTotalSimulado * 1.15;
+                const factorLuzAgua = Number(porcentajeLuzAgua ?? 15);
+                const luzAguaSimulado = costoTotalSimulado * (factorLuzAgua / 100);
+                const costoRealSimulado = costoTotalSimulado * (1 + (factorLuzAgua / 100));
                 const sugeridoSimulado = costoRealSimulado * 3; 
                 
                 const utilidadReal = precioVentaReal - costoRealSimulado;
@@ -112,7 +119,23 @@ const PanelTamanosFijos = ({
                         ) : (
                             <div className="w-full xl:w-1/4 grid grid-cols-1 gap-2 bg-slate-100/50 p-4 rounded-xl border border-slate-100 text-xs font-bold self-start">
                                 <p className="text-slate-500 flex justify-between">Base + Empaque: <span className="text-slate-700 font-black">${costoTotalSimulado.toFixed(2)}</span></p>
-                                <p className="text-red-500 flex justify-between">Luz/Agua (15%): <span className="font-black">${luzAguaSimulado.toFixed(2)}</span></p>
+                                <p className="text-red-500 flex justify-between items-center">
+                                  <span className="flex items-center gap-1">
+                                    Luz/Agua (
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={inputLocalLuzAgua}
+                                      onChange={e => setInputLocalLuzAgua(e.target.value)}
+                                      onBlur={e => onActualizarPorcentajeLuzAgua && onActualizarPorcentajeLuzAgua(e.target.value)}
+                                      className="w-10 text-center bg-white border border-red-200 rounded-md outline-none font-black text-red-600 focus:ring-2 focus:ring-red-400"
+                                      title="Editar % de Luz/Agua (se guarda al salir del campo)"
+                                    />
+                                    %):
+                                  </span>
+                                  <span className="font-black">${luzAguaSimulado.toFixed(2)}</span>
+                                </p>
                                 <p className="text-amber-600 flex justify-between">Costo Real: <span className="font-black">${costoRealSimulado.toFixed(2)}</span></p>
                                 <p className="text-emerald-600 flex justify-between bg-emerald-50 px-2 py-1 -mx-2 rounded">Sugerido (*3): <span className="font-black">${sugeridoSimulado.toFixed(2)}</span></p>
                                 <p className="text-slate-700 border-t border-dashed border-slate-300 pt-2 mt-1 font-black text-[13px] text-center">

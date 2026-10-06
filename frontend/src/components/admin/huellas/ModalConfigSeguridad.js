@@ -1,11 +1,33 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Settings, XCircle, Smartphone, Mail, Save, Users, Monitor } from 'lucide-react';
+import { Settings, XCircle, Smartphone, Mail, Save, Users, Lock, ChevronDown } from 'lucide-react';
+
+// 👇 FIX WARNING ESLint: Se saca PANTALLAS_POR_ROL fuera del componente porque
+// es un objeto estático (no depende de props/state). Al vivir a nivel de módulo,
+// su referencia nunca cambia entre renders, por lo que no necesita declararse
+// como dependencia de cargarConfiguracion (evita además recrear el callback
+// en cada render innecesariamente).
+const PANTALLAS_POR_ROL = {
+    admin: ['admin', 'caja', 'cocina', 'repartidor', 'empleado'],
+    gerente: ['admin', 'caja', 'cocina', 'empleado'],
+    jefe: ['caja', 'cocina', 'empleado'],
+    cajero: ['caja', 'empleado'],
+    cocina: ['cocina', 'empleado'],
+    repartidor: ['repartidor', 'empleado'],
+    ayudante_cocina: ['empleado'],
+};
 
 const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [configuracion, setConfiguracion] = useState({
         control_dispositivos_activo: false,
-        roles_restringidos: ['cajero', 'cocina', 'repartidor'],
+        // 👇 CAMBIO: roles_restringidos ahora es un array de OBJETOS
+        // [{ rol: 'cajero', pantallas_excepcion: ['empleado'] }] en vez de un
+        // array plano de strings. Cada rol bloqueado conserva qué pantallas
+        // SÍ puede seguir abriendo fuera del equipo oficial (mínimo: Portal).
+        roles_restringidos: [],
+        // pantallas_restringidas se conserva solo por compatibilidad hacia atrás
+        // (ya no se edita desde esta pantalla, quedó reemplazada por las
+        // excepciones de pantalla por rol de abajo).
         pantallas_restringidas: ['caja', 'cocina', 'admin'],
         smtp_host: '', smtp_port: '', smtp_user: '', smtp_pass: '', correo_remitente: ''
     });
@@ -20,25 +42,44 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
         { id: 'admin', label: 'Administradores' }
     ];
 
-    const PANTALLAS_DISPONIBLES = [
-        { id: 'caja', label: 'Caja Principal (POS)' },
-        { id: 'cocina', label: 'Cocina (KDS)' },
-        { id: 'kiosco', label: 'Kiosco / Punto de Venta' },
-        { id: 'admin', label: 'Panel de Administración' },
-        { id: 'repartidor', label: 'Logística de Reparto' }
-    ];
+    const PANTALLAS_LABELS = {
+        admin: 'Panel Admin',
+        caja: 'Caja (POS)',
+        cocina: 'Cocina (KDS)',
+        repartidor: 'Logística Reparto',
+        empleado: 'Portal del Empleado'
+    };
 
     const cargarConfiguracion = useCallback(async () => {
         try {
             const res = await fetch(`${apiUrl}/biometria/configuracion`);
             if (res.ok) {
                 const data = await res.json();
-                if (data) setConfiguracion(prev => ({ 
-                    ...prev, ...data, 
-                    roles_restringidos: data.roles_restringidos || [],
-                    pantallas_restringidas: data.pantallas_restringidas || [],
-                    smtp_pass: '' 
-                }));
+                if (data) {
+                    // 👇 NUEVO: Migración suave en memoria. Si la BD todavía trae el
+                    // formato viejo (array de strings, ej. ['cajero','cocina']),
+                    // lo convertimos aquí mismo al nuevo formato de objetos para
+                    // no romper la pantalla mientras se vuelve a guardar.
+                    const rolesCrudos = Array.isArray(data.roles_restringidos) ? data.roles_restringidos : [];
+                    const rolesNormalizados = rolesCrudos.map(item => {
+                        if (typeof item === 'string') {
+                            return { rol: item, pantallas_excepcion: ['empleado'] };
+                        }
+                        const pantallasRol = PANTALLAS_POR_ROL[item.rol] || ['empleado'];
+                        const excepcion = Array.isArray(item.pantallas_excepcion) ? item.pantallas_excepcion : ['empleado'];
+                        return {
+                            rol: item.rol,
+                            pantallas_excepcion: Array.from(new Set(['empleado', ...excepcion])).filter(p => pantallasRol.includes(p))
+                        };
+                    });
+
+                    setConfiguracion(prev => ({ 
+                        ...prev, ...data, 
+                        roles_restringidos: rolesNormalizados,
+                        pantallas_restringidas: data.pantallas_restringidas || [],
+                        smtp_pass: '' 
+                    }));
+                }
             }
         } catch (error) { console.error("Error al cargar configuración", error); }
     }, [apiUrl]);
@@ -62,14 +103,39 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
         setIsSubmitting(false);
     };
 
-    const toggleArray = (campo, valor) => {
+    // 👇 NUEVO: Reemplaza a la antigua toggleArray() para roles_restringidos.
+    // Marcar un rol lo agrega con su excepción mínima ('empleado' obligatoria).
+    // Desmarcarlo lo retira por completo (acceso libre total fuera del equipo).
+    const toggleRolRestringido = (rolId) => {
         setConfiguracion(prev => {
-            const arr = prev[campo] || [];
+            const existe = prev.roles_restringidos.some(r => r.rol === rolId);
+            if (existe) {
+                return { ...prev, roles_restringidos: prev.roles_restringidos.filter(r => r.rol !== rolId) };
+            }
             return {
                 ...prev,
-                [campo]: arr.includes(valor) ? arr.filter(item => item !== valor) : [...arr, valor]
+                roles_restringidos: [...prev.roles_restringidos, { rol: rolId, pantallas_excepcion: ['empleado'] }]
             };
         });
+    };
+
+    // 👇 NUEVO: Alterna una pantalla de excepción dentro de un rol ya marcado.
+    // 'empleado' (Portal del Empleado) es innegociable y nunca se puede quitar.
+    const togglePantallaExcepcion = (rolId, pantallaId) => {
+        if (pantallaId === 'empleado') return;
+        setConfiguracion(prev => ({
+            ...prev,
+            roles_restringidos: prev.roles_restringidos.map(r => {
+                if (r.rol !== rolId) return r;
+                const tiene = r.pantallas_excepcion.includes(pantallaId);
+                return {
+                    ...r,
+                    pantallas_excepcion: tiene
+                        ? r.pantallas_excepcion.filter(p => p !== pantallaId)
+                        : [...r.pantallas_excepcion, pantallaId]
+                };
+            })
+        }));
     };
 
     return (
@@ -118,37 +184,55 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
                     {configuracion.control_dispositivos_activo && (
                         <div className="space-y-6 animate-in slide-in-from-top-4 duration-300">
                             
-                            {/* BLOQUEO TOTAL DE LOGIN */}
+                            {/* BLOQUEO ESTRICTO FUERA DEL EQUIPO OFICIAL (por Rol + Excepciones de Pantalla) */}
                             <div className="bg-white p-6 rounded-3xl border-2 border-orange-100 shadow-sm relative overflow-hidden">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
                                 <h4 className="font-black text-slate-800 mb-2 flex items-center gap-2">
-                                    <Users className="text-orange-500" size={18}/> Bloqueo estricto de inicio de sesión
+                                    <Users className="text-orange-500" size={18}/> Bloqueo estricto fuera del equipo oficial
                                 </h4>
-                                <p className="text-xs font-bold text-slate-500 mb-4">Los roles que selecciones aquí <strong className="text-red-500">NO PODRÁN</strong> ni siquiera iniciar sesión si no están físicamente en un equipo registrado de la empresa.</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {ROLES_DISPONIBLES.map(rol => (
-                                        <label key={rol.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100 transition-colors">
-                                            <input type="checkbox" checked={configuracion.roles_restringidos.includes(rol.id)} onChange={() => toggleArray('roles_restringidos', rol.id)} className="w-4 h-4 text-orange-500 rounded focus:ring-orange-500" />
-                                            <span className="text-sm font-bold text-slate-700">{rol.label}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
+                                <p className="text-xs font-bold text-slate-500 mb-4">
+                                    Los roles que marques aquí <strong className="text-orange-600">solo podrán abrir las pantallas que selecciones</strong> cuando NO estén en un equipo registrado de la empresa (esto no afecta la matriz de "Equipos Autorizados", que siempre manda primero).
+                                </p>
+                                <div className="space-y-2">
+                                    {ROLES_DISPONIBLES.map(rol => {
+                                        const reglaRol = configuracion.roles_restringidos.find(r => r.rol === rol.id);
+                                        const marcado = !!reglaRol;
+                                        const pantallasDelRol = PANTALLAS_POR_ROL[rol.id] || ['empleado'];
+                                        return (
+                                            <div key={rol.id} className={`rounded-2xl border transition-colors ${marcado ? 'border-orange-200 bg-orange-50/50' : 'border-transparent hover:border-slate-100 hover:bg-slate-50'}`}>
+                                                <label className="flex items-center gap-2 p-3 cursor-pointer">
+                                                    <input type="checkbox" checked={marcado} onChange={() => toggleRolRestringido(rol.id)} className="w-4 h-4 text-orange-500 rounded focus:ring-orange-500" />
+                                                    <span className="text-sm font-bold text-slate-700 flex-1">{rol.label}</span>
+                                                    {marcado && <ChevronDown size={16} className="text-orange-400" />}
+                                                </label>
 
-                            {/* BLOQUEO VISUAL DE PANTALLAS */}
-                            <div className="bg-white p-6 rounded-3xl border-2 border-blue-100 shadow-sm relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                                <h4 className="font-black text-slate-800 mb-2 flex items-center gap-2">
-                                    <Monitor className="text-blue-500" size={18}/> Ocultar pantallas (Candado 🔒)
-                                </h4>
-                                <p className="text-xs font-bold text-slate-500 mb-4">Si un empleado sí logra iniciar sesión desde su celular (porque su rol no está bloqueado arriba), el sistema le prohibirá abrir estas pantallas:</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    {PANTALLAS_DISPONIBLES.map(pantalla => (
-                                        <label key={pantalla.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-100 transition-colors">
-                                            <input type="checkbox" checked={configuracion.pantallas_restringidas.includes(pantalla.id)} onChange={() => toggleArray('pantallas_restringidas', pantalla.id)} className="w-4 h-4 text-blue-500 rounded focus:ring-blue-500" />
-                                            <span className="text-sm font-bold text-slate-700">{pantalla.label}</span>
-                                        </label>
-                                    ))}
+                                                {marcado && (
+                                                    <div className="px-4 pb-4 pt-1 animate-in slide-in-from-top-2 duration-200">
+                                                        <p className="text-[10px] font-black text-orange-700 uppercase tracking-widest mb-2">Pantallas que SÍ puede abrir fuera de la empresa:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {pantallasDelRol.map(pantallaId => {
+                                                                const esFija = pantallaId === 'empleado';
+                                                                const activa = esFija || reglaRol.pantallas_excepcion.includes(pantallaId);
+                                                                return (
+                                                                    <button
+                                                                        key={pantallaId}
+                                                                        type="button"
+                                                                        disabled={esFija}
+                                                                        onClick={() => togglePantallaExcepcion(rol.id, pantallaId)}
+                                                                        className={`px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 border-2 ${
+                                                                            activa ? 'bg-emerald-100 text-emerald-700 border-emerald-400' : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                                                                        } ${esFija ? 'opacity-90 cursor-default' : 'cursor-pointer'}`}
+                                                                    >
+                                                                        {esFija && <Lock size={11} />} {PANTALLAS_LABELS[pantallaId] || pantallaId}
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>

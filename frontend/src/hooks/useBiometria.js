@@ -55,48 +55,71 @@ export const useBiometria = (apiUrl, showAlert) => {
         }
     };
 
-    // 👇 2. NUEVA FUNCIÓN: PARA HACER LOGIN (Autenticar)
+  // 👇 FIX: Captura la ubicación del dispositivo de forma "best effort" (sin bloquear).
+  // Si el usuario niega el permiso o el GPS tarda, el login CONTINÚA igual — esto solo
+  // alimenta al backend para que pueda validar la geocerca/IP del auto-checado de
+  // asistencia por Login, sin nunca impedir que el empleado inicie sesión.
+  const obtenerUbicacionSilenciosa = () => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({ lat: null, lon: null });
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => resolve({ lat: null, lon: null }),
+        { enableHighAccuracy: true, timeout: 4000 }
+      );
+    });
+  };
+
+    // 2. FUNCIÓN PARA HACER LOGIN (Autenticar)
     const iniciarSesionConHuella = async () => {
         try {
-            // A. Pedimos el reto criptográfico genérico para login
-            const resOpt = await fetch(`${apiUrl}/huellas/generar-login`, { method: 'POST' });
-            const options = await resOpt.json();
+        // A. Pedimos el reto criptográfico genérico para login
+        const resOpt = await fetch(`${apiUrl}/huellas/generar-login`, { method: 'POST' });
+        const options = await resOpt.json();
 
-            if (options.error) {
-                showAlert('Error', options.error, 'error');
-                return null;
-            }
-
-            // B. El navegador prende el lector de huellas
-            let credencial;
-            try {
-                // Sintaxis actualizada para @simplewebauthn/browser v10
-                credencial = await startAuthentication({ optionsJSON: options });
-            } catch (err) {
-                if (err.name === 'NotAllowedError') return null; // El usuario canceló o quitó el dedo
-                throw err;
-            }
-
-            // C. Enviamos la huella leída al backend para que nos diga quién es
-            const dispositivo_id = localStorage.getItem('pos_device_id');
-            const resVer = await fetch(`${apiUrl}/huellas/verificar-login`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ credencial, dispositivo_id })
-            });
-
-            const data = await resVer.json();
-            
-            if (data.success) {
-                return data; // Devuelve los datos del empleado y su sesión
-            } else {
-                showAlert('Huella no reconocida', data.error || 'No estás registrado en esta tablet.', 'error');
-                return null;
-            }
-        } catch (error) {
-            console.error("Error al leer huella:", error);
-            showAlert('Lector Ocupado', 'Intenta de nuevo.', 'error');
+        if (options.error) {
+            showAlert('Error', options.error, 'error');
             return null;
+        }
+
+        // B. El navegador prende el lector de huellas
+        let credencial;
+        try {
+            // Sintaxis actualizada para @simplewebauthn/browser v10
+            credencial = await startAuthentication({ optionsJSON: options });
+        } catch (err) {
+            if (err.name === 'NotAllowedError') return null; // El usuario canceló o quitó el dedo
+            throw err;
+        }
+
+        // C. Enviamos la huella leída al backend para que nos diga quién es
+        const dispositivo_id = localStorage.getItem('pos_device_id');
+        // 👇 FIX: Capturamos lat/lon (best effort) para el auto-checado de asistencia
+        const { lat, lon } = await obtenerUbicacionSilenciosa();
+
+        const resVer = await fetch(`${apiUrl}/huellas/verificar-login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credencial, dispositivo_id, lat, lon })
+        });
+
+        const data = await resVer.json();
+
+        if (data.success) {
+            // 👇 FIX: Si el backend no pudo registrar la asistencia por ubicación,
+            // avisamos suavemente sin bloquear el login (que ya fue exitoso).
+            if (data.aviso_asistencia) {
+            showAlert('Aviso de Asistencia', data.aviso_asistencia, 'info');
+            }
+            return data; // Devuelve los datos del empleado y su sesión
+        } else {
+            showAlert('Huella no reconocida', data.error || 'No estás registrado en esta tablet.', 'error');
+            return null;
+        }
+        } catch (error) {
+        console.error("Error al leer huella:", error);
+        showAlert('Lector Ocupado', 'Intenta de nuevo.', 'error');
+        return null;
         }
     };
 

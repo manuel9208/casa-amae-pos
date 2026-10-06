@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Filter, RefreshCw, Clock, ArrowUpRight, User, Layers, Search, ChevronDown, Check } from 'lucide-react';
+import { Filter, RefreshCw, Clock, ArrowUpRight, User, Layers, Search, ChevronDown, Check, MapPin, ExternalLink } from 'lucide-react';
 import io from 'socket.io-client';
 
 const ROLES_DISPONIBLES = [
@@ -15,6 +15,10 @@ const ReporteAsistencias = ({ apiUrl }) => {
     const [asistenciasHistorial, setAsistenciasHistorial] = useState([]);
     const [usuariosLista, setUsuariosLista] = useState([]);
     const [cargandoReporte, setCargandoReporte] = useState(false);
+
+    // 👇 NUEVO: Geocercas oficiales para comparar contra la ubicación de cada checada
+    const [geocercas, setGeocercas] = useState([]);
+    const [rangoMetros, setRangoMetros] = useState(50);
 
     // FILTROS DE REPORTE
     const [periodoFiltro, setPeriodoFiltro] = useState('dia'); // 'dia' | 'semana' | 'mes' | 'anio' | 'rango'
@@ -41,9 +45,10 @@ const ReporteAsistencias = ({ apiUrl }) => {
         setCargandoReporte(true);
         try {
             // Solicitamos SIEMPRE 'Todos' al backend y filtramos dinámicamente en el front
-            const [resReporte, resUsuarios] = await Promise.all([
+            const [resReporte, resUsuarios, resGeo] = await Promise.all([
                 fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodoFiltro}&fecha=${fechaInicio}&usuario_id=Todos`),
-                fetch(`${apiUrl}/usuarios`)
+                fetch(`${apiUrl}/usuarios`),
+                fetch(`${apiUrl}/asistencia/configuracion`)
             ]);
             
             if (resReporte.ok) {
@@ -53,6 +58,12 @@ const ReporteAsistencias = ({ apiUrl }) => {
             if (resUsuarios.ok) {
                 const usu = await resUsuarios.json();
                 setUsuariosLista(Array.isArray(usu) ? usu : []);
+            }
+            // 👇 NUEVO: Guardamos las geocercas oficiales y su tolerancia para comparar en la tabla
+            if (resGeo.ok) {
+                const dataGeo = await resGeo.json();
+                setGeocercas(Array.isArray(dataGeo.ubicaciones) ? dataGeo.ubicaciones : []);
+                setRangoMetros((dataGeo.general && dataGeo.general.rango_metros) || 50);
             }
         } catch (error) { console.error("Error al consultar reporte:", error); } 
         finally { setCargandoReporte(false); }
@@ -127,6 +138,37 @@ const ReporteAsistencias = ({ apiUrl }) => {
 
     const formatF = (str) => str ? new Date(str).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '---';
     const formatH = (str) => str ? new Date(str).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true }) : 'En turno...';
+
+    // 👇 NUEVO: Fórmula de Haversine (idéntica a la del backend/asistenciaHelper.js) para
+    // calcular la distancia real en metros entre la checada y la geocerca más cercana.
+    const calcularDistanciaMetros = (lat1, lon1, lat2, lon2) => {
+        const R = 6371e3;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    };
+
+    // 👇 NUEVO: Devuelve null si la checada no trae coordenadas (ej. checador ZKTeco),
+    // para que la columna de Ubicación se muestre completamente vacía en esos casos.
+    const obtenerInfoUbicacion = (a) => {
+        if (a.lat_registro === undefined || a.lat_registro === null || a.lon_registro === undefined || a.lon_registro === null) {
+            return null;
+        }
+        if (geocercas.length === 0) {
+            return { distancia: null, dentro: null, lat: a.lat_registro, lon: a.lon_registro };
+        }
+        let distanciaMin = Infinity;
+        geocercas.forEach(g => {
+            const d = calcularDistanciaMetros(Number(a.lat_registro), Number(a.lon_registro), Number(g.latitud), Number(g.longitud));
+            if (d < distanciaMin) distanciaMin = d;
+        });
+        return { distancia: distanciaMin, dentro: distanciaMin <= rangoMetros, lat: a.lat_registro, lon: a.lon_registro };
+    };
 
     return (
         <div className="space-y-6 animate-in fade-in relative">
@@ -256,19 +298,46 @@ const ReporteAsistencias = ({ apiUrl }) => {
             <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm relative z-0">
                 <div className="overflow-x-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
-                        <thead><tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="p-4 pl-6">Empleado</th><th className="p-4">Fecha</th><th className="p-4">Hora Entrada</th><th className="p-4">Hora Salida</th><th className="p-4 text-right pr-6">Horas Trab.</th></tr></thead>
+                        <thead><tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="p-4 pl-6">Empleado</th><th className="p-4">Fecha</th><th className="p-4">Hora Entrada</th><th className="p-4">Hora Salida</th><th className="p-4">Ubicación</th><th className="p-4 text-right pr-6">Horas Trab.</th></tr></thead>
                         <tbody className="divide-y divide-slate-50">
-                            {cargandoReporte ? <tr><td colSpan="5" className="text-center py-12"><Clock className="animate-spin mx-auto mb-3 text-blue-500" size={32}/><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Consultando registros...</p></td></tr> : asistenciasFiltradas.map((a, i) => (
+                            {cargandoReporte ? <tr><td colSpan="6" className="text-center py-12"><Clock className="animate-spin mx-auto mb-3 text-blue-500" size={32}/><p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Consultando registros...</p></td></tr> : asistenciasFiltradas.map((a, i) => {
+                                const infoUbicacion = obtenerInfoUbicacion(a);
+                                return (
                                 <tr key={i} className="hover:bg-slate-50/60 transition">
                                     <td className="p-4 pl-6 font-black text-sm text-slate-800">{a.nombre} <span className="block text-[10px] font-bold text-slate-400 uppercase mt-0.5">{a.rol}</span></td>
                                     <td className="p-4 font-bold text-xs text-slate-500">{formatF(a.fecha)}</td>
                                     <td className="p-4 font-black text-xs text-emerald-600">{formatH(a.hora_entrada)}</td>
                                     <td className="p-4 font-black text-xs text-rose-600">{!a.hora_salida ? <span className="inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-md animate-pulse">● En Turno</span> : formatH(a.hora_salida)}</td>
+                                    {/* 👇 NUEVO: Columna Ubicación. Se queda vacía si no hay coordenadas (ej. checador ZKTeco físico) */}
+                                    <td className="p-4">
+                                        {infoUbicacion ? (
+                                            <a
+                                                href={`https://www.google.com/maps?q=${infoUbicacion.lat},${infoUbicacion.lon}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className={`inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-lg border transition hover:opacity-80 ${
+                                                    infoUbicacion.dentro === false
+                                                        ? 'bg-red-50 text-red-700 border-red-200'
+                                                        : infoUbicacion.dentro === true
+                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200'
+                                                }`}
+                                                title="Ver ubicación exacta en Google Maps"
+                                            >
+                                                <MapPin size={12} />
+                                                {infoUbicacion.distancia !== null
+                                                    ? `${Math.round(infoUbicacion.distancia)} m`
+                                                    : 'Ver mapa'}
+                                                <ExternalLink size={10} />
+                                            </a>
+                                        ) : null}
+                                    </td>
                                     <td className="p-4 text-right pr-6 font-black text-sm text-slate-800">{a.horas_trabajadas ? `${a.horas_trabajadas} hrs` : (!a.hora_salida ? 'Calculando...' : '0 hrs')}</td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                             {!cargandoReporte && asistenciasFiltradas.length === 0 && (
-                                <tr><td colSpan="5" className="text-center py-16 text-slate-400 font-bold text-xs">No se encontraron registros con los filtros seleccionados.</td></tr>
+                                <tr><td colSpan="6" className="text-center py-16 text-slate-400 font-bold text-xs">No se encontraron registros con los filtros seleccionados.</td></tr>
                             )}
                         </tbody>
                     </table>
