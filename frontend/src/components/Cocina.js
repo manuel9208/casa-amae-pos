@@ -20,6 +20,7 @@ const Cocina = ({ user, onLogout }) => {
 
     const [trabajadoresActivos, setTrabajadoresActivos] = useState([]);  
     const [ayudanteSeleccionado, setAyudanteSeleccionado] = useState(user?.id || '');  
+    const [produccionEnVivo, setProduccionEnVivo] = useState({});
     const [filtroTab, setFiltroTab] = useState('Todo');
     const [ahora, setAhora] = useState(Date.now());
     const [isSubmitting, setIsSubmitting] = useState(false);  
@@ -63,40 +64,16 @@ const Cocina = ({ user, onLogout }) => {
 
     const cargarTrabajadoresActivos = useCallback(async () => {
         try {
-            const hoy = new Date();
-            const year = hoy.getFullYear();
-            const month = String(hoy.getMonth() + 1).padStart(2, '0');
-            const day = String(hoy.getDate()).padStart(2, '0');
-            const hoyStr = `${year}-${month}-${day}`;  
+            const res = await fetch(`${apiUrl}/cocina/personal-presente?t=${Date.now()}`);
+            if (!res.ok) return;
+            const presentes = await res.json();
 
-            const [resUsu, resRend] = await Promise.all([
-                fetch(`${apiUrl}/usuarios`),
-                fetch(`${apiUrl}/usuarios/rendimiento?periodo=dia&fecha=${hoyStr}`)
-            ]);  
-
-            if (!resUsu.ok || !resRend.ok) return;  
-
-            const usuarios = await resUsu.json();
-            const rendimiento = await resRend.json();  
-            const historial = rendimiento.historialAsistencias || [];
-            const asistenciasHoy = rendimiento.asistenciasHoy || [];  
-
-            const activos = usuarios.filter(u => {
-                if (String(u.id) === String(user?.id)) return true;  
-                const rolLimpio = String(u.rol).trim().toLowerCase();
-                if (rolLimpio === 'ayudante_cocina' || rolLimpio === 'cocina') {  
-                    const asisPorId = historial.find(a => String(a.usuario_id) === String(u.id) && a.hora_entrada);
-                    const asisPorNombre = asistenciasHoy.find(a => String(a.nombre).trim().toLowerCase() === String(u.nombre).trim().toLowerCase() && a.hora_entrada);  
-                    if (asisPorId || asisPorNombre) return true;
-                }
-                return false;
-            });  
-
+            let activos = Array.isArray(presentes) ? presentes : [];
             if (!activos.some(a => String(a.id) === String(user?.id)) && user) {
-                activos.unshift(user);
-            }  
+                activos = [user, ...activos];
+            }
 
-            setTrabajadoresActivos(activos);  
+            setTrabajadoresActivos(activos);
             if (!ayudanteSeleccionado && activos.length > 0) {
                 setAyudanteSeleccionado(activos[0].id);
             }
@@ -107,7 +84,21 @@ const Cocina = ({ user, onLogout }) => {
         cargarTrabajadoresActivos();
         const interval = setInterval(cargarTrabajadoresActivos, 60000);
         return () => clearInterval(interval);
-    }, [cargarTrabajadoresActivos]);  
+    }, [cargarTrabajadoresActivos]);
+
+    // 🏭 FASE 5: Producción en vivo por Estación (alimenta el cálculo de tiempo real)
+    const fetchProduccionEnVivo = useCallback(async () => {
+        try {
+            const res = await fetch(`${apiUrl}/cocina/produccion-en-vivo?t=${Date.now()}`);
+            if (res.ok) setProduccionEnVivo(await res.json());
+        } catch (e) { console.error("Error cargando producción en vivo:", e); }
+    }, [apiUrl]);
+
+    useEffect(() => {
+        fetchProduccionEnVivo();
+        const interval = setInterval(fetchProduccionEnVivo, 20000);
+        return () => clearInterval(interval);
+    }, [fetchProduccionEnVivo]); 
 
     useEffect(() => {
         if (alertaCaja) {
@@ -226,7 +217,8 @@ const Cocina = ({ user, onLogout }) => {
             body: JSON.stringify({
                 estado_preparacion: nuevoEstadoGlobal,
                 chef_id: mainChefId,
-                carrito: carritoActualizado
+                carrito: carritoActualizado,
+                log_evento: { indices: indicesAfectados, accion, usuario_id: trabajadorId }
             })
         }).catch(error => console.error("Error al actualizar platillos:", error));
         
@@ -355,7 +347,8 @@ const Cocina = ({ user, onLogout }) => {
                     trabajadorActivoId={user?.id}
                     obtenerNombreTrabajadorActivo={obtenerNombreTrabajadorActivo}
                     ayudanteSeleccionado={ayudanteSeleccionado}
-                    procesarAccionItems={procesarAccionItems} 
+                    procesarAccionItems={procesarAccionItems}
+                    produccionEnVivo={produccionEnVivo}
                 />
             </main>  
 

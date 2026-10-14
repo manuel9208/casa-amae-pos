@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { esPedidoPagado } from './pedidoEstadoUtils';
+import { useConfigOperativa } from '../../hooks/useConfigOperativa'; // 👈 NUEVO
 
 const getMazatlanDateStr = () => {
     const formatter = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -53,6 +54,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const [alertaCaja, setAlertaCaja] = useState(null);
   const [modalAgregarExtra, setModalAgregarExtra] = useState(null);
   const [alertaCobroExtra, setAlertaCobroExtra] = useState(null);
+  // 🍽️ NUEVO: Agregar Platillo a un pedido ya existente (Escenario 1)
+  const [modalAgregarPlatillo, setModalAgregarPlatillo] = useState(null);
+  const [modalCobrarDiferencia, setModalCobrarDiferencia] = useState(null);
   const [modalAsistencia, setModalAsistencia] = useState(null);
   const [modalIdentificar, setModalIdentificar] = useState(false);
   const [pasoIdentificar, setPasoIdentificar] = useState(1);
@@ -66,6 +70,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
   const hoyStr = getMazatlanDateStr(); 
+
+  // 🍳 BANDERA: Flujo sin Cocina (tabla independiente configuracion_operativa)
+  const { usaCocina, actualizarUsaCocina, mesaObligatoria } = useConfigOperativa(apiUrl);
 
   const cargarDataDinamica = useCallback(async () => {
     try {
@@ -529,6 +536,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         } else {
           estadoFinal = 'Finalizado';
         }
+      } else if (!usaCocina && ['Pendiente', 'Por Confirmar'].includes(estadoActual)) {
+        // 🍳 BANDERA: Flujo sin Cocina. Al cobrar, nunca pasa por 'Preparando'.
+        // Mostrador (Local/Para llevar/Recoger) ya pagado -> Finalizado directo.
+        // Domicilio -> 'Listo', pendiente de asignar repartidor.
+        estadoFinal = (modalPago.tipo_consumo === 'Domicilio') ? 'Listo' : 'Finalizado';
       } else if (['Pendiente', 'Por Confirmar'].includes(estadoActual)) {
         // 🛡️ FIX: vocabulario unificado — ya no usamos 'Pagado' como estado de preparación.
         estadoFinal = 'Preparando';
@@ -686,23 +698,28 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Entregar/Completar en Mesa
   const confirmarPedidoRecoger = async (id) => {
+    // 🍳 BANDERA: Flujo sin Cocina -> en vez de 'Preparando', va directo a 'Listo'
+    // (cae automáticamente en Entregas/Cobrar sin pasar por el KDS). Si usaCocina=true,
+    // sigue siendo exactamente 'Preparando' como hoy.
+    const estadoDestino = usaCocina ? 'Preparando' : 'Listo';
+
     // 1. CAMBIO VISUAL INMEDIATO
     const pedidoConfirmado = pedidosPorConfirmar.find(p => p.id === id);  
     const pedidoRecoger = pedidos.find(p => p.id === id);
     let metodoPagoAjustado = pedidoRecoger?.metodo_pago;  
     if (metodoPagoAjustado === 'Efectivo') metodoPagoAjustado = 'Por Cobrar';  
 
-    setPedidos(prev => prev.map(p => p.id === id ? { ...p, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado } : p));
+    setPedidos(prev => prev.map(p => p.id === id ? { ...p, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado } : p));
 
     if (pedidoConfirmado && configGlobal?.ticket_impresion_activa) {
-        lanzarImpresion({ ...pedidoConfirmado, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado });
+        lanzarImpresion({ ...pedidoConfirmado, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado });
     }
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
         fetch(`${apiUrl}/pedidos/${id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
+            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
         })
         .then(res => {
             if (!res.ok) throw new Error('Respuesta no exitosa');
@@ -715,6 +732,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Mandar a Repartir
   const confirmarPedidoDomicilio = async (pedidoModificado) => {
+    // 🍳 BANDERA: Flujo sin Cocina -> en vez de 'Preparando', va directo a 'Listo'
+    // (cae automáticamente en Entregas, listo para asignar repartidor). Si usaCocina=true,
+    // sigue siendo exactamente 'Preparando' como hoy.
+    const estadoDestino = usaCocina ? 'Preparando' : 'Listo';
+
     const { costo_envio } = pedidoModificado;
     const t = Number(pedidoModificado.total) + Number(costo_envio);  
     let metodoPagoAjustado = pedidoModificado.metodo_pago;  
@@ -722,11 +744,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 1. CAMBIO VISUAL INMEDIATO
     setPedidos(prev => prev.map(p => p.id === pedidoModificado.id ? { 
-        ...p, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t 
+        ...p, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t 
     } : p));
 
     if (modalZonaEnvio && configGlobal?.ticket_impresion_activa) {
-        lanzarImpresion({ ...modalZonaEnvio, estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t });
+        lanzarImpresion({ ...modalZonaEnvio, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t });
     }  
     setModalZonaEnvio(null);
 
@@ -734,7 +756,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
         fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estado_preparacion: 'Preparando', metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
+            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
         })
         .then(res => {
             if (!res.ok) throw new Error('Respuesta no exitosa');
@@ -855,6 +877,89 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }).catch(console.error);
     } catch(e) {}
     
+    setTimeout(() => setIsSubmitting(false), 200);
+  };
+
+  // =========================================================
+  // 🍽️ NUEVO MOTOR: AGREGAR PLATILLO A PEDIDO EXISTENTE (Escenario 1)
+  // Reutiliza el endpoint agregarItemsAPedido (backend ya implementado).
+  // Flujo: abrir modal -> seleccionar platillos -> si ya estaba pagado,
+  // pedir método de pago de la diferencia -> enviar al servidor.
+  // =========================================================
+
+  // 🛡️ Mismo criterio de bloqueo acordado: auditado / Cancelado / Liquidado /
+  // Finalizado-sin-mesa (ese caso exige "Nuevo Pedido", no agregar).
+  const puedeAgregarPlatillo = (pedido) => {
+    if (!pedido) return false;
+    if (pedidosAuditados.has(pedido.id)) return false;
+    if (['Cancelado', 'Liquidado'].includes(pedido.estado_preparacion)) return false;
+    if (pedido.estado_preparacion === 'Finalizado' && pedido.tipo_consumo !== 'Local') return false;
+    return true;
+  };
+
+  const abrirModalAgregarPlatillo = (pedido) => {
+    if (!puedeAgregarPlatillo(pedido)) {
+      mostrarAlertaCaja('No disponible', 'Esta orden ya fue cerrada. Si el cliente quiere más productos, levanta un Nuevo Pedido.', 'error');
+      return;
+    }
+    setModalAgregarPlatillo(pedido);
+  };
+
+  // Llamado por ModalAgregarPlatillo cuando el cajero termina de armar los platillos nuevos.
+  const confirmarItemsAgregarPlatillo = (itemsNuevos) => {
+    const pedidoObjetivo = modalAgregarPlatillo;
+    if (!pedidoObjetivo || !itemsNuevos || itemsNuevos.length === 0) return;
+
+    const yaEstabaPagado = esPedidoPagado(pedidoObjetivo);
+    setModalAgregarPlatillo(null);
+
+    if (yaEstabaPagado) {
+      // 🛡️ Si ya pagó, se exige elegir método de pago para la diferencia (matriz A-I acordada)
+      setModalCobrarDiferencia({ pedido: pedidoObjetivo, itemsNuevos });
+    } else {
+      // No estaba pagado: se suma directo al total, sin preguntar nada
+      agregarPlatilloAPedido(pedidoObjetivo.id, itemsNuevos, null);
+    }
+  };
+
+  // Llamado por ModalCobrarDiferencia cuando el cajero elige el método de pago de la diferencia.
+  const confirmarCobroDiferenciaPlatillo = (metodoPagoDiferencia) => {
+    if (!modalCobrarDiferencia) return;
+    const { pedido, itemsNuevos } = modalCobrarDiferencia;
+    setModalCobrarDiferencia(null);
+    agregarPlatilloAPedido(pedido.id, itemsNuevos, metodoPagoDiferencia);
+  };
+
+  const agregarPlatilloAPedido = async (pedidoId, itemsNuevos, metodoPagoDiferencia = null) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const payload = { items: itemsNuevos };
+      if (metodoPagoDiferencia) payload.metodo_pago_diferencia = metodoPagoDiferencia;
+
+      const res = await fetch(`${apiUrl}/pedidos/${pedidoId}/agregar-items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // 🛡️ Refrescamos de la BD (no optimista): el total/carrito/estado los recalcula
+        // el servidor (inventario, mixto, reapertura a Preparando, etc.) — más seguro que adivinar aquí.
+        await cargarDataDinamica();
+        mostrarAlertaCaja('Platillo Agregado', `Se agregó${(data.items_agregados || itemsNuevos.length) > 1 ? 'n' : ''} ${data.items_agregados || itemsNuevos.length} platillo(s) a la orden #${data.pedido?.numero_pedido || ''}.`, 'success');
+      } else {
+        const errData = await res.json();
+        mostrarAlertaCaja(
+          errData.requiere_nuevo_pedido ? 'Orden Cerrada' : 'Error',
+          errData.error || 'No se pudo agregar el platillo a la orden.',
+          'error'
+        );
+      }
+    } catch (error) {
+      mostrarAlertaCaja('Sin Conexión', 'No se pudo conectar con el servidor para agregar el platillo. Verifica tu conexión.', 'error');
+    }
     setTimeout(() => setIsSubmitting(false), 200);
   };
 
@@ -1062,6 +1167,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         modalAsistencia, setModalAsistencia,
         pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
         pedidosPorLiquidar, mesasPagadas, pedidosConAlerta,
+        usaCocina, actualizarUsaCocina, mesaObligatoria,
         buscarClienteParaPedido, registrarClienteParaPedido,
         toggleEstadoNegocio, cerrarCajaYSalir, iniciarTurno,
         lanzarImpresion, procesarPago, confirmarPedidoRecoger,
@@ -1070,6 +1176,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
         onGoToKiosco: onGoToKioscoLocal,
         forzarLiberacionMesas,
-        pedidosAuditados, combosActivos
+        pedidosAuditados, combosActivos,
+        // 🍽️ NUEVO: Agregar Platillo a pedido existente
+        modalAgregarPlatillo, setModalAgregarPlatillo,
+        modalCobrarDiferencia, setModalCobrarDiferencia,
+        abrirModalAgregarPlatillo, confirmarItemsAgregarPlatillo, confirmarCobroDiferenciaPlatillo,
+        agregarPlatilloAPedido, puedeAgregarPlatillo
     };
 };

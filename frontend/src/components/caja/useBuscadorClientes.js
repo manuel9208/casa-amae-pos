@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react';
 
-// 🚀 CACHÉ GLOBAL EN MEMORIA (Singleton)
-let cacheBuscador = {
-  clientes: null,
-  historial: null,
-  ultimaCarga: 0
-};
-
-// 👇 NUEVO: Función para quitar acentos (tildes) y pasar a minúsculas
+// Función para quitar acentos (tildes) y pasar a minúsculas (sin cambios respecto a la versión anterior)
 const normalizarTexto = (texto) => {
   if (!texto) return '';
   return String(texto).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -18,12 +11,12 @@ export const useBuscadorClientes = (terminoBusqueda, apiUrl) => {
   const [buscando, setBuscando] = useState(false);
 
   useEffect(() => {
-    const buscar = async () => {
-      // Normalizamos la búsqueda quitando acentos y espacios extra
-      const termOriginal = terminoBusqueda?.trim() || '';
-      const term = normalizarTexto(termOriginal);
+    const controller = new AbortController();
 
-      if (term.length < 2 || !apiUrl) {
+    const buscar = async () => {
+      const termOriginal = terminoBusqueda?.trim() || '';
+
+      if (termOriginal.length < 2 || !apiUrl) {
         setSugerencias([]);
         setBuscando(false);
         return;
@@ -31,58 +24,34 @@ export const useBuscadorClientes = (terminoBusqueda, apiUrl) => {
 
       setBuscando(true);
       try {
-        const ahora = Date.now();
-        const cacheVencido = (ahora - cacheBuscador.ultimaCarga) > 300000;
+        // 🚀 FIX DEFINITIVO: Ya no se descarga toda la tabla de clientes ni 3000 pedidos.
+        // La búsqueda ahora ocurre en el servidor (SQL); solo viajan resultados filtrados y ligeros.
+        const res = await fetch(`${apiUrl}/clientes/buscar?q=${encodeURIComponent(termOriginal)}`, { signal: controller.signal });
+        if (!res.ok) throw new Error('Error en la búsqueda');
+        const data = await res.json();
 
-        if (!cacheBuscador.clientes || !cacheBuscador.historial || cacheVencido) {
-            const [resClientes, resHistorial] = await Promise.all([
-                fetch(`${apiUrl}/clientes`),
-                fetch(`${apiUrl}/pedidos/historial?periodo=anio`)
-            ]);
-
-            if (resClientes.ok) cacheBuscador.clientes = await resClientes.json();
-            if (resHistorial.ok) cacheBuscador.historial = await resHistorial.json();
-            
-            cacheBuscador.ultimaCarga = ahora;
-        }
-
-        // Aseguramos que siempre sean arreglos para evitar crashes
-        const clientesDB = Array.isArray(cacheBuscador.clientes) ? cacheBuscador.clientes : [];
-        const pedidosHistorial = Array.isArray(cacheBuscador.historial) ? cacheBuscador.historial : [];
+        const registrados = Array.isArray(data.registrados) ? data.registrados : [];
+        const invitados = Array.isArray(data.invitados) ? data.invitados : [];
 
         const mapSugerencias = new Map();
-        
-        // 👇 NUEVO: Dividimos la búsqueda en palabras (Ej: "juan per" -> ["juan", "per"])
-        const terminos = term.split(/\s+/);
+        const terminos = normalizarTexto(termOriginal).split(/\s+/);
 
-        // ==========================================
-        // 2. PROCESAR CLIENTES REGISTRADOS (Tienen Prioridad 🥇)
-        // ==========================================
-        clientesDB.forEach(c => {
+        // 1. CLIENTES REGISTRADOS (Prioridad 🥇) — el servidor ya filtró, solo mapeamos
+        registrados.forEach(c => {
           const nombreCompleto = `${c.nombre || ''} ${c.apellido || ''}`.trim();
-          const nomSearch = normalizarTexto(nombreCompleto); // Quitamos acentos de la DB
-          const tel = normalizarTexto(c.telefono);
-
-          // 👇 NUEVO: Verifica que TODAS las palabras escritas coincidan (No importa el orden)
-          const coincide = terminos.every(t => nomSearch.includes(t) || tel.includes(t));
-
-          if (coincide) {
-            const keyUnica = c.telefono || nombreCompleto;
-            mapSugerencias.set(keyUnica, {
-              cliente_id: c.id,
-              cliente_nombre: nombreCompleto,
-              cliente_telefono: c.telefono || '',
-              direccion_entrega: c.direccion || '',
-              puntos: c.puntos || 0,
-              tipo: 'registrado'
-            });
-          }
+          const keyUnica = c.telefono || nombreCompleto;
+          mapSugerencias.set(keyUnica, {
+            cliente_id: c.id,
+            cliente_nombre: nombreCompleto,
+            cliente_telefono: c.telefono || '',
+            direccion_entrega: c.direccion || '',
+            puntos: c.puntos || 0,
+            tipo: 'registrado'
+          });
         });
 
-        // ==========================================
-        // 3. PROCESAR HISTORIAL DE INVITADOS (Secundarios 🕒)
-        // ==========================================
-        pedidosHistorial.forEach(p => {
+        // 2. HISTORIAL DE INVITADOS (Secundarios 🕒) — MISMA lógica de parseo de siempre
+        invitados.forEach(p => {
           let nom = (p.cliente_nombre || '').trim();
           let dir = p.direccion_entrega || '';
           let tel = p.cliente_telefono || '';
@@ -107,15 +76,13 @@ export const useBuscadorClientes = (terminoBusqueda, apiUrl) => {
           dir = dir.replace(/A NOMBRE DE:\s*[^|]+\s*\|?/i, '').replace(/\[.*?\]/g, '').replace(/\|$/, '').trim();
           const telLimpio = String(tel).replace(/\D/g, '');
           const dirEvaluable = normalizarTexto(dir);
-          const nomLower = normalizarTexto(nom); // Quitamos acentos de la DB
+          const nomLower = normalizarTexto(nom);
 
-          // 👇 NUEVO: Aplica la misma regla robusta de búsqueda por palabras
           const coincide = terminos.every(t => nomLower.includes(t) || telLimpio.includes(t));
 
           if (coincide && nom.toLowerCase() !== 'invitado') {
             if (telLimpio.length >= 10 || (dir.length > 5 && dirEvaluable !== 'pendiente de direccion')) {
               const keyUnica = telLimpio || nomLower;
-
               if (!mapSugerencias.has(keyUnica)) {
                 mapSugerencias.set(keyUnica, {
                   cliente_id: null,
@@ -134,13 +101,15 @@ export const useBuscadorClientes = (terminoBusqueda, apiUrl) => {
         setSugerencias(resultadosFinales);
 
       } catch (error) {
-        console.error("Error en useBuscadorClientes:", error);
+        if (error.name !== 'AbortError') {
+          console.error("Error en useBuscadorClientes:", error);
+        }
       }
       setBuscando(false);
     };
 
     const timer = setTimeout(buscar, 400);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); controller.abort(); };
 
   }, [terminoBusqueda, apiUrl]);
 

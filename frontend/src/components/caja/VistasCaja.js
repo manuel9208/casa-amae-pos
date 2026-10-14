@@ -16,7 +16,7 @@ const VistasCaja = (props) => {
   const {
     vistaActiva, setVistaActiva, pedidosEnReparto, pedidos, user, isSubmitting, empleadosPOS,
     fondosRepartidores, actualizarFondoRepartidor, fondoRepartidorGlobal, liquidarPedidoRepartidor,
-    pedidosPorConfirmar, pedidosAuditados, apiUrl
+    pedidosPorConfirmar, pedidosAuditados, apiUrl, abrirModalAgregarPlatillo, puedeAgregarPlatillo
   } = props;
 
   const [limpiandoMesas, setLimpiandoMesas] = useState(false);
@@ -88,6 +88,20 @@ const VistasCaja = (props) => {
         <PlusCircle size={18} className="text-slate-300 group-hover:text-emerald-500 transition" />
       </button>
     ));
+  };
+
+  // 🍽️ NUEVO: Botón "Agregar Platillo" — reutilizable en Cobrar, Entregas y Mesas
+  const renderBotonAgregarPlatillo = (pedido) => {
+    if (!puedeAgregarPlatillo(pedido)) return null;
+    return (
+      <button
+        onClick={() => abrirModalAgregarPlatillo(pedido)}
+        className="w-full text-left p-3 hover:bg-emerald-50 rounded-xl transition group flex items-center justify-between border border-dashed border-emerald-200 mb-1"
+      >
+        <span className="font-bold text-emerald-700 text-sm">+ Agregar Platillo</span>
+        <PlusCircle size={18} className="text-emerald-400 group-hover:text-emerald-600 transition" />
+      </button>
+    );
   };
 
   const renderBotonEditar = (pedido) => (
@@ -318,15 +332,18 @@ const VistasCaja = (props) => {
         )}
 
         {vistaActiva === 'mesas' && (
-          <VistaMesas 
-            mesas={props.mesas} 
-            pedidos={pedidos} 
-            isSubmitting={isSubmitting} 
-            limpiandoMesas={limpiandoMesas} 
-            setLimpiandoMesas={setLimpiandoMesas} 
-            setModalPago={props.setModalPago} 
-            liberarMesaMagicamente={liberarMesaMagicamente} 
-            forzarLiberacionMesas={props.forzarLiberacionMesas} 
+          <VistaMesas
+            mesas={props.mesas}
+            pedidos={pedidos}
+            isSubmitting={isSubmitting}
+            limpiandoMesas={limpiandoMesas}
+            setLimpiandoMesas={setLimpiandoMesas}
+            setModalPago={props.setModalPago}
+            setModalVerDetalle={props.setModalVerDetalle}
+            liberarMesaMagicamente={liberarMesaMagicamente}
+            forzarLiberacionMesas={props.forzarLiberacionMesas}
+            abrirModalAgregarPlatillo={abrirModalAgregarPlatillo}
+            puedeAgregarPlatillo={puedeAgregarPlatillo}
           />
         )}
         
@@ -346,19 +363,21 @@ const VistasCaja = (props) => {
         )}
         
         {vistaActiva === 'cobrar' && (
-          <VistaCobrar 
-            user={user} 
-            ordenesEnCaja={ordenesEnCaja} 
-            isSubmitting={isSubmitting} 
-            limpiandoMesas={limpiandoMesas} 
-            setModalPago={props.setModalPago} 
-            setMontoRecibido={props.setMontoRecibido} 
-            actualizarEstadoPedido={props.actualizarEstadoPedido} 
-            getIconoPago={getIconoPago} 
-            getTelefonoExtraido={getTelefonoExtraido} 
-            renderBotonVerDetalle={renderBotonVerDetalle} 
-            renderBotonEditar={renderBotonEditar} 
-            renderBotonAgregarExtra={renderBotonAgregarExtra} 
+          <VistaCobrar
+            user={user}
+            ordenesEnCaja={ordenesEnCaja}
+            isSubmitting={isSubmitting}
+            limpiandoMesas={limpiandoMesas}
+            setModalPago={props.setModalPago}
+            setMontoRecibido={props.setMontoRecibido}
+            actualizarEstadoPedido={props.actualizarEstadoPedido}
+            getIconoPago={getIconoPago}
+            getTelefonoExtraido={getTelefonoExtraido}
+            renderBotonVerDetalle={renderBotonVerDetalle}
+            renderBotonEditar={renderBotonEditar}
+            renderBotonAgregarExtra={renderBotonAgregarExtra}
+            renderBotonAgregarPlatillo={renderBotonAgregarPlatillo}
+            usaCocina={props.usaCocina}
           />
         )}
         
@@ -380,17 +399,18 @@ const VistasCaja = (props) => {
         )}
         
         {vistaActiva === 'entregas' && (
-          <VistaEntregas 
-            listosParaEntregar={props.listosParaEntregar} 
-            isSubmitting={isSubmitting} 
-            limpiandoMesas={limpiandoMesas} 
-            actualizarEstadoPedido={props.actualizarEstadoPedido} 
-            setModalPago={props.setModalPago} 
-            setMontoRecibido={props.setMontoRecibido} 
-            getTelefonoExtraido={getTelefonoExtraido} 
-            renderBotonVerDetalle={renderBotonVerDetalle} 
-            renderBotonAgregarExtra={renderBotonAgregarExtra} 
-            empleadosPOS={empleadosPOS} 
+          <VistaEntregas
+            listosParaEntregar={props.listosParaEntregar}
+            isSubmitting={isSubmitting}
+            limpiandoMesas={limpiandoMesas}
+            actualizarEstadoPedido={props.actualizarEstadoPedido}
+            setModalPago={props.setModalPago}
+            setMontoRecibido={props.setMontoRecibido}
+            getTelefonoExtraido={getTelefonoExtraido}
+            renderBotonVerDetalle={renderBotonVerDetalle}
+            renderBotonAgregarExtra={renderBotonAgregarExtra}
+            renderBotonAgregarPlatillo={renderBotonAgregarPlatillo}
+            empleadosPOS={empleadosPOS}
           />
         )}
         

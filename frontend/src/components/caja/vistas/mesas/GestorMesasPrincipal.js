@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Map, Trash2, LayoutGrid, AlertTriangle } from 'lucide-react';
+import { Map, Trash2, LayoutGrid, AlertTriangle, Eye, DollarSign, ClipboardList, CheckCircle2, PlusCircle } from 'lucide-react';
 import CuadriculaMesas from './CuadriculaMesas';
 import PlanoMesas from './PlanoMesas';
 
-const GestorMesasPrincipal = ({ mesas, pedidos, isSubmitting, limpiandoMesas, setLimpiandoMesas, setModalPago, liberarMesaMagicamente }) => {
-  const [vistaMapa, setVistaMapa] = useState('plano'); 
+const GestorMesasPrincipal = ({ mesas, pedidos, isSubmitting, limpiandoMesas, setLimpiandoMesas, setModalPago, setModalVerDetalle, liberarMesaMagicamente, abrirModalAgregarPlatillo, puedeAgregarPlatillo }) => {
+  const [vistaMapa, setVistaMapa] = useState('plano');
   const [zonaPlanoActiva, setZonaPlanoActiva] = useState('');
   const [modalLiberarMesa, setModalLiberarMesa] = useState(null);
+  // 🪑 NUEVO: Guarda temporalmente el pedido de la mesa clickeada, para preguntar
+  // "¿Ver Platillos o Cobrar?" antes de decidir qué modal abrir.
+  const [pedidoSeleccionMesa, setPedidoSeleccionMesa] = useState(null);
+
 
   // Lógica intacta: Auto-selección de zona
   useEffect(() => {
@@ -104,9 +108,9 @@ const GestorMesasPrincipal = ({ mesas, pedidos, isSubmitting, limpiandoMesas, se
               </p>
            </div>
         ) : vistaMapa === 'cuadricula' ? (
-            <CuadriculaMesas mesas={mesas} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} pedidos={pedidos} setModalPago={setModalPago} setModalLiberarMesa={setModalLiberarMesa} />
+          <CuadriculaMesas mesas={mesas} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} pedidos={pedidos} onSeleccionarPedidoMesa={setPedidoSeleccionMesa} setModalLiberarMesa={setModalLiberarMesa} />
         ) : (
-            <PlanoMesas mesas={mesas} zonaPlanoActiva={zonaPlanoActiva} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} pedidos={pedidos} setModalPago={setModalPago} setModalLiberarMesa={setModalLiberarMesa} />
+          <PlanoMesas mesas={mesas} zonaPlanoActiva={zonaPlanoActiva} isSubmitting={isSubmitting} limpiandoMesas={limpiandoMesas} pedidos={pedidos} onSeleccionarPedidoMesa={setPedidoSeleccionMesa} setModalLiberarMesa={setModalLiberarMesa} />
         )}
 
         {/* MODAL DE LIBERACIÓN (Intacto) */}
@@ -128,15 +132,84 @@ const GestorMesasPrincipal = ({ mesas, pedidos, isSubmitting, limpiandoMesas, se
                 <button disabled={limpiandoMesas} onClick={() => setModalLiberarMesa(null)} className="flex-1 py-3 md:py-4 bg-slate-100 text-slate-600 font-black text-sm md:text-base rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">
                   Cancelar
                 </button>
-                <button disabled={limpiandoMesas} onClick={confirmarLiberacionMesa} className="flex-[2] py-3 md:py-4 bg-red-500 text-white font-black text-sm md:text-lg rounded-2xl hover:bg-red-600 shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50">
-                  {limpiandoMesas ? 'Limpiando...' : 'Sí, Forzar'}
+                            <button disabled={limpiandoMesas} onClick={confirmarLiberacionMesa} className="flex-[2] py-3 md:py-4 bg-red-500 text-white font-black text-sm md:text-lg rounded-2xl hover:bg-red-600 shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50">
+              {limpiandoMesas ? 'Limpiando...' : 'Sí, Forzar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* 🪑 MODAL INTELIGENTE: Ver Platillos + (Cobrar o Liberar, según corresponda) */}
+    {pedidoSeleccionMesa && (() => {
+      // 🛡️ Misma regla que TarjetaMesaPagada.js: si el método de pago ya es
+      // dinero real, la mesa está pagada y lo que procede es LIBERARLA, no volver a cobrar.
+      const faltaPagarMesa = ['Pendiente', 'Por Cobrar'].includes(pedidoSeleccionMesa.metodo_pago);
+
+      return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
+          <div className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-sm text-center animate-in zoom-in duration-200">
+            <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-inner ${faltaPagarMesa ? 'bg-indigo-100 text-indigo-600' : 'bg-emerald-100 text-emerald-600'}`}>
+              {faltaPagarMesa ? <ClipboardList size={32} /> : <CheckCircle2 size={32} />}
+            </div>
+            <h2 className="text-xl md:text-2xl font-black text-slate-800 mb-1">
+              Mesa {pedidoSeleccionMesa.mesa} · Orden #{pedidoSeleccionMesa.numero_pedido}
+            </h2>
+            <p className="text-slate-500 text-sm font-medium mb-6">
+              {faltaPagarMesa ? '¿Qué deseas hacer con esta orden?' : 'Esta cuenta ya está pagada.'}
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { setModalVerDetalle(pedidoSeleccionMesa); setPedidoSeleccionMesa(null); }}
+                className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl hover:bg-slate-200 transition active:scale-95 flex items-center justify-center gap-2"
+              >
+                <Eye size={20}/> Ver Platillos
+              </button>
+
+              {/* 🍽️ NUEVO: Agregar Platillo — solo visible si la orden lo permite */}
+              {puedeAgregarPlatillo && puedeAgregarPlatillo(pedidoSeleccionMesa) && (
+                <button
+                  onClick={() => { abrirModalAgregarPlatillo(pedidoSeleccionMesa); setPedidoSeleccionMesa(null); }}
+                  className="w-full py-4 bg-white border-2 border-dashed border-emerald-300 text-emerald-700 font-black rounded-2xl hover:bg-emerald-50 transition active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <PlusCircle size={20}/> Agregar Platillo
                 </button>
-              </div>
+              )}
+
+              {faltaPagarMesa ? (
+                <button
+                  onClick={() => { setModalPago(pedidoSeleccionMesa); setPedidoSeleccionMesa(null); }}
+                  className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <DollarSign size={20}/> Cobrar Orden
+                </button>
+              ) : (
+                <button
+                  disabled={limpiandoMesas}
+                  onClick={async () => {
+                    const pedidoParaLiberar = pedidoSeleccionMesa;
+                    setPedidoSeleccionMesa(null);
+                    await liberarMesaMagicamente(pedidoParaLiberar.mesa, pedidoParaLiberar.id);
+                  }}
+                  className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <CheckCircle2 size={20}/> {limpiandoMesas ? 'Liberando...' : 'Limpiar y Liberar Mesa'}
+                </button>
+              )}
+
+              <button
+                onClick={() => setPedidoSeleccionMesa(null)}
+                className="w-full py-3 text-slate-400 font-bold text-sm hover:text-slate-600 transition"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
-        )}
-    </div>
-  );
+        </div>
+      );
+    })()}
+  </div>
+);
 };
 
 export default GestorMesasPrincipal;

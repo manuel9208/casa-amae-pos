@@ -10,6 +10,7 @@ const TarjetaPedidoEntrega = ({
     getTelefonoExtraido,
     renderBotonVerDetalle,
     renderBotonAgregarExtra,
+    renderBotonAgregarPlatillo,
     empleadosPOS,
     esB2B, 
     apiUrl 
@@ -197,6 +198,7 @@ const TarjetaPedidoEntrega = ({
                         <div className="grid grid-cols-2 gap-2 mb-2">
                             {renderBotonVerDetalle && renderBotonVerDetalle(pedido)}
                             {renderBotonAgregarExtra && renderBotonAgregarExtra(pedido)}
+                            {renderBotonAgregarPlatillo && renderBotonAgregarPlatillo(pedido)}
                         </div>
                     )}
 

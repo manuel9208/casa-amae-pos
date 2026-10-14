@@ -1,7 +1,7 @@
 import React from 'react';
 import { MapPin } from 'lucide-react';
 
-const CuadriculaMesas = ({ mesas, isSubmitting, limpiandoMesas, pedidos, setModalPago, setModalLiberarMesa }) => {
+const CuadriculaMesas = ({ mesas, isSubmitting, limpiandoMesas, pedidos, onSeleccionarPedidoMesa, setModalLiberarMesa }) => {
   return (
     <div className="space-y-8 animate-in fade-in">
       {Object.entries(
@@ -31,16 +31,17 @@ const CuadriculaMesas = ({ mesas, isSubmitting, limpiandoMesas, pedidos, setModa
                    <button
                      key={mesa.id}
                      disabled={isLibre || isSubmitting || limpiandoMesas}
-                     onClick={() => {
-                        if (!isLibre) {
-                           const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
-                           if (pedidoVinculado) {
-                               setModalPago(pedidoVinculado);
-                           } else {
-                               setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
-                           }
+                      onClick={() => {
+                      if (!isLibre) {
+                        const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
+                        if (pedidoVinculado) {
+                          // 🪑 NUEVO: en vez de abrir el cobro directo, preguntamos primero
+                          onSeleccionarPedidoMesa(pedidoVinculado);
+                        } else {
+                          setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
                         }
-                     }}
+                      }
+                    }}
                      className={`p-4 md:p-6 rounded-[24px] border-2 flex flex-col items-center justify-center text-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer' : 'cursor-default opacity-80'}`}
                    >
                      <span className={`text-2xl md:text-3xl font-black mb-2 ${textClass}`}>{mesa.numero_mesa}</span>

@@ -15,7 +15,9 @@ import PuntoDeVentaMayoreo from './distribucion/PuntoDeVentaMayoreo';
 const PuntoDeVentaPrincipal = ({
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
     productos, clasificaciones, catalogoIngredientes, apiUrl, lanzarImpresion,
-    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas, combosActivos = []
+    setModalPago, refrescarDatosCaja, onClose, empleadosPOS, mesas, combosActivos = [],
+    usaCocina = true, // 🍳 BANDERA: Flujo sin Cocina (default true = comportamiento actual intacto)
+    mesaObligatoria = false // 🪑 BANDERA: Mesa Obligatoria en consumo Local (default false = comportamiento actual intacto)
 }) => {
     const [pasoFlujoCaja, setPasoFlujoCaja] = useState(1);
     const [modoVenta, setModoVenta] = useState('menu'); 
@@ -680,6 +682,11 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
         }
         }
 
+        // 🪑 BANDERA: Mesa Obligatoria en consumo Local
+        if (tipoConsumo === 'Local' && mesaObligatoria && !mesaSeleccionada) {
+            return setAlertaUI({ titulo: 'Mesa Requerida', mensaje: 'La configuración del negocio exige asignar una mesa para órdenes de consumo Local.', tipo: 'error' });
+        }
+
         if (esEdicion && !skipConfirmacion) {
         const totalOriginalPagado = Number(ordenEditandoRapida.total || 0);
         const diferencia = totalConEnvio - totalOriginalPagado;
@@ -726,9 +733,12 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
           // Nunca se retrocede un pedido que ya avanzó (Preparando/Listo/En Camino/Entregado).
           estadoInicial = ordenEditandoRapida.estado_preparacion;
         } else if (metodoAcelerado === 'Mandar a Cocina' || metodoAcelerado === 'Cuenta Abierta') {
+          // 🍳 BANDERA: Flujo sin Cocina -> en vez de 'Preparando', va directo a 'Listo'
+          // (cae automáticamente en Entregas/Cobrar, sin abrir comanda en el KDS).
+          // Si usaCocina=true, sigue siendo exactamente 'Preparando' como hoy.
           // 🛡️ FIX: vocabulario unificado. El estado logístico es 'Preparando';
           // el estado financiero real lo determina exclusivamente metodo_pago.
-          estadoInicial = 'Preparando';
+          estadoInicial = usaCocina ? 'Preparando' : 'Listo';
         } else if (metodoAcelerado === 'Cobrar Ahora') {
           estadoInicial = 'Pendiente';
         }
@@ -851,7 +861,8 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
     const isFormIncompleto = carrito.length === 0 || isSubmitting || !nombreOrden.trim() ||
     (tipoConsumo === 'Domicilio' && (!notaOpcional.trim() || zonaEnvioCosto === '' || (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10))) ||
     (tipoConsumo === 'Recoger' && (telefonoCliente.length !== 10 && telefonoOrdenRapida.length !== 10)) ||
-    (tipoConsumo === 'Para llevar' && ((telefonoCliente.length > 0 && telefonoCliente.length < 10) || (telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10)));
+    (tipoConsumo === 'Para llevar' && ((telefonoCliente.length > 0 && telefonoCliente.length < 10) || (telefonoOrdenRapida.length > 0 && telefonoOrdenRapida.length < 10))) ||
+    (tipoConsumo === 'Local' && mesaObligatoria && !mesaSeleccionada); // 🪑 BANDERA: Mesa Obligatoria
 
     if (!modalPuntoVenta) return null;
 
@@ -1085,7 +1096,7 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
                                             <span className="text-xl">🔍</span> <span className="hidden sm:inline">Buscar Cliente</span>
                                         </button>
                                     </div>
-                                    {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} />}
+                                    {tipoConsumo === 'Local' && <FormularioConsumoLocal mesas={mesas} mesaSeleccionada={mesaSeleccionada} setMesaSeleccionada={setMesaSeleccionada} ordenEditandoRapida={ordenEditandoRapida} obligatoria={mesaObligatoria} />}
                                     {tipoConsumo === 'Para llevar' && <FormularioConsumoLlevar telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} />}
                                     {tipoConsumo === 'Domicilio' && <FormularioConsumoDomicilio telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} zonaEnvioCosto={zonaEnvioCosto} setZonaEnvioCosto={setZonaEnvioCosto} tarifasEnvio={tarifasEnvio} />}
                                     {tipoConsumo === 'Recoger' && <FormularioConsumoRecoger telefonoOrdenRapida={telefonoOrdenRapida} setTelefonoOrdenRapida={setTelefonoOrdenRapida} notaOpcional={notaOpcional} setNotaOpcional={setNotaOpcional} />}

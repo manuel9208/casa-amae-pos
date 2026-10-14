@@ -1,14 +1,15 @@
 import React from 'react';
-import { 
-  ShoppingCart, Fingerprint, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings, 
-  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase, MapPin, Sparkles 
+import {
+  ShoppingCart, Fingerprint, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings,
+  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase, MapPin, Sparkles, Workflow
 } from 'lucide-react';
 
 const TopNavAdmin = ({
   user, onLogout, onGoToKiosco, seccion, setSeccion,
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
   canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
-  canViewProveedores, canViewDistribucion, canViewHuellas, canViewAsistencia, canViewIA
+  canViewProveedores, canViewDistribucion, canViewHuellas, canViewAsistencia, canViewIA,
+  canViewConfigOperativa
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -146,6 +147,13 @@ const TopNavAdmin = ({
             >
                <Fingerprint size={18}/> Biometría
             </button>
+            )}
+
+            {/* 🍳 NUEVO BOTÓN: Configuración Operativa (Flujo Cocina Sí/No) */}
+            {canViewConfigOperativa && (
+               <button onClick={() => setSeccion('config_operativa')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'config_operativa' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-orange-600 border border-orange-200 hover:bg-orange-50'}`}>
+                  <Workflow size={18}/> Flujo Operativo
+               </button>
             )}
 
          </div>

@@ -81,6 +81,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           // 👇 PROPS NUEVOS PASADOS AL NAVBAR
           auditoriaActiva={auditoriaActiva}
           setModalInventarioCaja={setModalInventarioCaja}
+          usaCocina={c.usaCocina}
         />  
         <main className="flex-1 overflow-y-auto">
           <VistasCaja
@@ -123,6 +124,9 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             forzarLiberacionMesas={c.forzarLiberacionMesas}
             pedidosAuditados={c.pedidosAuditados}
             apiUrl={c.apiUrl}
+            usaCocina={c.usaCocina}
+            abrirModalAgregarPlatillo={c.abrirModalAgregarPlatillo}
+            puedeAgregarPlatillo={c.puedeAgregarPlatillo}
           />
         </main>  
         <ModalesCaja
@@ -137,6 +141,13 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           lanzarImpresion={c.lanzarImpresion}
           empleadosPOS={c.empleadosPOS}
           mesas={c.mesas}
+          mesaObligatoria={c.mesaObligatoria}
+          modalCobrarDiferencia={c.modalCobrarDiferencia}
+          setModalCobrarDiferencia={c.setModalCobrarDiferencia}
+          confirmarCobroDiferenciaPlatillo={c.confirmarCobroDiferenciaPlatillo}
+          modalAgregarPlatillo={c.modalAgregarPlatillo}
+          setModalAgregarPlatillo={c.setModalAgregarPlatillo}
+          confirmarItemsAgregarPlatillo={c.confirmarItemsAgregarPlatillo}
           fondoCaja={c.fondoCaja}
           iniciarTurno={c.iniciarTurno}
           inputFondo={c.inputFondo}

@@ -13,7 +13,7 @@ const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
   vistaActiva, setVistaActiva, pedidosPorConfirmar, pendientesDePago, listosParaEntregar,
   mesasPagadas, setModalCompraRapida, abrirIdentificador, pedidosEnReparto,
-  setModalComedor, setModalMermas,
+  setModalComedor, setModalMermas, usaCocina = true,
   auditoriaActiva, setModalInventarioCaja
 }) => {
 
@@ -333,9 +333,11 @@ const TopNavCaja = ({
             <button onClick={() => setVistaActiva('comandas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'comandas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <ClipboardList size={16} className="md:w-4 md:h-4"/> Comandas
             </button>  
-            <button onClick={() => setVistaActiva('historial')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'historial' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            {usaCocina && (
+              <button onClick={() => setVistaActiva('historial')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'historial' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <List size={16} className="md:w-4 md:h-4"/> Ver Todos
-            </button>  
+              </button>
+            )}  
             <button onClick={() => setVistaActiva('confirmar')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'confirmar' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <Phone size={16} className="md:w-4 md:h-4"/> Por Confirmar {pedidosPorConfirmar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{pedidosPorConfirmar.length}</span>}
             </button>  
@@ -345,10 +347,10 @@ const TopNavCaja = ({
             <button onClick={() => setVistaActiva('entregas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'entregas' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <Monitor size={16} className="md:w-4 md:h-4"/> Entregas {listosParaEntregar.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{listosParaEntregar.length}</span>}
             </button>  
-            {canVerCocina && (
-                <button onClick={() => setVistaActiva('cocina_mini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 border ${vistaActiva === 'cocina_mini' ? 'bg-orange-100 text-orange-700 border-orange-300 shadow-inner' : 'bg-white text-orange-500 border-orange-200 hover:bg-orange-50'}`}>
+            {canVerCocina && usaCocina && (
+              <button onClick={() => setVistaActiva('cocina_mini')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 border ${vistaActiva === 'cocina_mini' ? 'bg-orange-100 text-orange-700 border-orange-300 shadow-inner' : 'bg-white text-orange-500 border-orange-200 hover:bg-orange-50'}`}>
                 <ChefHat size={16} className="md:w-4 md:h-4"/> KDS Cocina
-                </button>
+              </button>
             )}  
             <button onClick={() => setVistaActiva('liquidacion_reparto')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'liquidacion_reparto' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-pink-600 border border-pink-200 hover:bg-pink-50'}`}>
                 <Bike size={16} className="md:w-4 md:h-4"/> Por Liquidar {pedidosEnReparto && pedidosEnReparto.length > 0 && <span className="bg-pink-500 text-white px-1.5 rounded-md shadow-sm text-[10px] md:text-xs">{pedidosEnReparto.length}</span>}
@@ -358,12 +360,16 @@ const TopNavCaja = ({
                 <FileText size={16} className="md:w-4 md:h-4"/> Corte Caja
                 </button>
             )}  
-            <button onClick={() => setVistaActiva('mesas_pagadas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+            {usaCocina && (
+              <button onClick={() => setVistaActiva('mesas_pagadas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas_pagadas' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <Utensils size={16} className="md:w-4 md:h-4"/> Mesas en Servicio {mesasPagadas.length > 0 && <span className="bg-white/30 px-1.5 rounded-md text-[10px] md:text-xs">{mesasPagadas.length}</span>}
-            </button>  
-            <button onClick={() => setVistaActiva('mesas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
+              </button>
+            )}
+            {usaCocina && (
+              <button onClick={() => setVistaActiva('mesas')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs md:text-sm transition-all whitespace-nowrap select-none active:scale-95 ${vistaActiva === 'mesas' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>
                 <Map size={16} className="md:w-4 md:h-4"/> Mapa Mesas
-            </button>  
+              </button>
+            )}  
             </div>
         </div>
         </div>

@@ -6,7 +6,7 @@ const GridPedidos = ({
     pedidosVisibles, filtroTab, ahora, isSubmitting,
     setModalAlerta, limpiarAlerta, getCarrito,
     trabajadorActivoId, obtenerNombreTrabajadorActivo, ayudanteSeleccionado,
-    procesarAccionItems
+    procesarAccionItems, produccionEnVivo
 }) => {  
     // 1. Filtramos los pedidos para mostrar SOLO aquellos que tengan platillos
     // de mi área y que esos platillos aún no estén "Listos".
@@ -32,10 +32,11 @@ const GridPedidos = ({
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {pedidosParaMiArea.map(p => (
+            {pedidosParaMiArea.map((p, index) => (
                 <TarjetaComandaCocina
                     key={p.id}
                     pedido={p}
+                    index={index}
                     getCarrito={getCarrito}
                     filtroTab={filtroTab}
                     ahora={ahora}
@@ -45,6 +46,7 @@ const GridPedidos = ({
                     ayudanteSeleccionado={ayudanteSeleccionado}
                     obtenerNombreTrabajadorActivo={obtenerNombreTrabajadorActivo}
                     procesarAccionItems={procesarAccionItems}
+                    produccionEnVivo={produccionEnVivo}
                 />
             ))}
         </div>

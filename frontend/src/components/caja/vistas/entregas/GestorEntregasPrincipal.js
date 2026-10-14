@@ -4,17 +4,18 @@ import TarjetaPedidoEntrega from './TarjetaPedidoEntrega';
 import TarjetaPedidoEntregaMayoreo from './TarjetaPedidoEntregaMayoreo'; // 👈 NUEVO: Tarjeta exclusiva B2B
 
 const GestorEntregasPrincipal = ({
-    listosParaEntregar,
-    isSubmitting,
-    limpiandoMesas,
-    actualizarEstadoPedido,
-    setModalPago,
-    getTelefonoExtraido,
-    renderBotonVerDetalle,
-    renderBotonAgregarExtra,
-    empleadosPOS,
-    apiUrl
-}) => {  
+  listosParaEntregar,
+  isSubmitting,
+  limpiandoMesas,
+  actualizarEstadoPedido,
+  setModalPago,
+  getTelefonoExtraido,
+  renderBotonVerDetalle,
+  renderBotonAgregarExtra,
+  renderBotonAgregarPlatillo,
+  empleadosPOS,
+  apiUrl
+}) => { 
     const [modoTab, setModoTab] = useState('restaurante');
     const [configDist, setConfigDist] = useState({ activa: false, nombre: 'Distribución' });
     const [pedidosB2B, setPedidosB2B] = useState([]);
@@ -121,11 +122,12 @@ const GestorEntregasPrincipal = ({
                                 pedido={pedido}
                                 isSubmitting={isSubmitting}
                                 limpiandoMesas={limpiandoMesas}
-                                actualizarEstadoPedido={actualizarEstadoPedido} 
+                                actualizarEstadoPedido={actualizarEstadoPedido}
                                 setModalPago={setModalPago}
                                 getTelefonoExtraido={getTelefonoExtraido}
                                 renderBotonVerDetalle={renderBotonVerDetalle}
                                 renderBotonAgregarExtra={renderBotonAgregarExtra}
+                                renderBotonAgregarPlatillo={renderBotonAgregarPlatillo}
                                 empleadosPOS={empleadosPOS}
                             />
                         )

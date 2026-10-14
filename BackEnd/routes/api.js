@@ -44,6 +44,9 @@ const iaCtrl = require('../controllers/iaController');
 // 💡 MÓDULO AISLADO: Configuración Financiera (Factor Luz/Agua y futuros Gastos Fijos)
 const configFinancieraCtrl = require('../controllers/configFinancieraController');
 
+const configOperativaCtrl = require('../controllers/configOperativaCtrl');
+const cocinaOperativaCtrl = require('../controllers/cocinaOperativaController');
+
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
 comboCtrl.inicializarTablaCombos();
 distribucionCtrl.inicializarTablas();
@@ -56,6 +59,8 @@ asistenciaConfigCtrl.inicializarTablas();
 iaCtrl.inicializarTablaIA();
 recetaCtrl.inicializarTablasRecetas();
 configFinancieraCtrl.inicializarTablaConfigFinanciera();
+configOperativaCtrl.inicializarTablaConfigOperativa();
+cocinaOperativaCtrl.inicializarTablaCocinaOperativa();
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -146,7 +151,9 @@ router.post('/clientes/cambiar-correo-codigo', clienteCtrl.cambiarCorreoConCodig
 router.post('/clientes/recuperar-nip', clienteCtrl.recuperarNip);
 router.get('/clientes', clienteCtrl.obtenerClientes);
 router.put('/clientes/:id', clienteCtrl.actualizarCliente);
-router.get('/clientes/reportes', clienteCtrl.obtenerReportes);  
+router.get('/clientes/buscar', clienteCtrl.buscarClientes); // 🔍 NUEVO: Búsqueda optimizada en servidor (SQL)
+router.get('/clientes/reportes', clienteCtrl.obtenerReportes);
+router.get('/clientes/:id', clienteCtrl.obtenerClientePorId); // 🆕 FIX 404: Obtener un cliente puntual por ID
 
 // ==========================================
 // USUARIOS (EMPLEADOS) Y RECURSOS HUMANOS
@@ -215,6 +222,7 @@ router.put('/pedidos/:id', pedidoCtrl.actualizarPedido);
 router.put('/pedidos/:id/estado', pedidoCtrl.actualizarEstado);
 router.put('/pedidos/:id/alerta', pedidoCtrl.actualizarAlerta);
 router.get('/clientes/:cliente_id/pedidos', pedidoCtrl.obtenerPedidosCliente);  
+router.post('/pedidos/:id/agregar-items', pedidoCtrl.agregarItemsAPedido);
 
 // ==========================================
 // 🛵 MÓDULO DE REPARTO Y LOGÍSTICA
@@ -416,6 +424,18 @@ router.post('/ia/imagen', iaCtrl.generarImagen);
 router.get('/ia/historial', iaCtrl.obtenerHistorialChat);
 router.post('/ia/historial', iaCtrl.guardarHistorialChat);
 
+// ==========================================
+// 🧠 MÓDULO AISLADO: CONFIGURACION OPERATIVA
+// ==========================================
+router.get('/configuracion-operativa', configOperativaCtrl.obtenerConfigOperativa);
+router.put('/configuracion-operativa', configOperativaCtrl.actualizarConfigOperativa);
+router.get('/cocina/personal-presente', cocinaOperativaCtrl.obtenerPersonalPresente);
+router.get('/cocina/produccion-en-vivo', cocinaOperativaCtrl.obtenerProduccionEnVivo);
+router.get('/cocina/estaciones', cocinaOperativaCtrl.obtenerEstaciones);
+router.post('/cocina/estaciones', cocinaOperativaCtrl.crearEstacion);
+router.put('/cocina/estaciones/:id', cocinaOperativaCtrl.actualizarEstacion);
+router.put('/cocina/estaciones/:id/asignar-clasificacion', cocinaOperativaCtrl.asignarClasificacion);
+router.delete('/cocina/estaciones/:id', cocinaOperativaCtrl.eliminarEstacion);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)

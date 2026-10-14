@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle, Banknote, ChefHat, DollarSign } from 'lucide-react';  
+import { User, Phone, MapPin, Store, Utensils, Bike, Trash2, AlertTriangle, Banknote, ChefHat, DollarSign, PackageCheck } from 'lucide-react';  
 
 const TarjetaPedidoCobrar = ({
   pedido,
@@ -11,7 +11,9 @@ const TarjetaPedidoCobrar = ({
   getTelefonoExtraido,
   renderBotonVerDetalle,
   renderBotonEditar,
-  renderBotonAgregarExtra
+  renderBotonAgregarExtra,
+  renderBotonAgregarPlatillo,
+  usaCocina = true
 }) => {
   const [confirmarAnular, setConfirmarAnular] = useState(false);  
 
@@ -127,6 +129,7 @@ const TarjetaPedidoCobrar = ({
           {renderBotonVerDetalle(pedido)}
           {renderBotonEditar(pedido)}
           {renderBotonAgregarExtra && renderBotonAgregarExtra(pedido)}
+          {renderBotonAgregarPlatillo && renderBotonAgregarPlatillo(pedido)}
         </div>  
 
         {esPedidoFantasma ? (
@@ -135,9 +138,15 @@ const TarjetaPedidoCobrar = ({
               <Trash2 size={18} className="mb-1" />
               <span className="text-[9px] font-black uppercase tracking-widest">Eliminar</span>
             </button>
-            <button disabled={isSubmitting || limpiandoMesas} onClick={() => actualizarEstadoPedido(pedido.id, 'Preparando', { metodo_pago: 'Por Cobrar' })} className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-orange-200 group shadow-sm" title="Mandar a Cocina">
-              <ChefHat size={18} className="mb-1" />
-              <span className="text-[9px] font-black uppercase tracking-widest">Cocinar</span>
+            <button
+              disabled={isSubmitting || limpiandoMesas}
+              onClick={() => actualizarEstadoPedido(pedido.id, usaCocina ? 'Preparando' : 'Listo', { metodo_pago: 'Por Cobrar' })}
+              className="bg-orange-50 hover:bg-orange-500 text-orange-600 hover:text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 border border-orange-200 group shadow-sm"
+              title={usaCocina ? 'Mandar a Cocina' : 'Marcar como Listo'}
+            >
+              {/* 🍳 BANDERA: Sin cocina, este botón ya no "cocina" — pasa directo a Listo (Entregas/Cobrar) */}
+              {usaCocina ? <ChefHat size={18} className="mb-1" /> : <PackageCheck size={18} className="mb-1" />}
+              <span className="text-[9px] font-black uppercase tracking-widest">{usaCocina ? 'Cocinar' : 'Listo'}</span>
             </button>
             <button disabled={isSubmitting || limpiandoMesas} onClick={() => setModalPago(pedido)} className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-all flex flex-col justify-center items-center py-2 active:scale-95 disabled:opacity-50 shadow-md shadow-emerald-500/20 group" title="Cobrar Ahora">
               <DollarSign size={18} className="mb-1" />

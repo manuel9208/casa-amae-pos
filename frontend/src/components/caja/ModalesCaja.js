@@ -12,7 +12,9 @@ import ModalAperturaCaja from './modales/ModalAperturaCaja';
 import ModalPuntoVenta from './modales/PuntoDeVenta/PuntoDeVentaPrincipal';
 import ModalAsistencia from './modales/ModalAsistencia';
 import ModalComedor from './modales/ModalComedor';  
-import GestorMermasPrincipal from './modales/mermas/GestorMermasPrincipal';  
+import GestorMermasPrincipal from './modales/mermas/GestorMermasPrincipal';
+import ModalCobrarDiferencia from './modales/ModalCobrarDiferencia';
+import ModalAgregarPlatillo from './modales/ModalAgregarPlatillo';  
 
 const ModalesCaja = ({
   user, cargarDataDinamica, modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, productos, clasificaciones,
@@ -28,7 +30,10 @@ const ModalesCaja = ({
   modalAsistencia, setModalAsistencia,
   modalComedor, setModalComedor, pedidos,
   modalMermas, setModalMermas,
-  combosActivos
+  combosActivos,
+  usaCocina,
+  mesaObligatoria, modalCobrarDiferencia, setModalCobrarDiferencia, confirmarCobroDiferenciaPlatillo,
+  modalAgregarPlatillo, setModalAgregarPlatillo, confirmarItemsAgregarPlatillo
 }) => {  
 
   return (
@@ -103,6 +108,8 @@ const ModalesCaja = ({
         empleadosPOS={empleadosPOS}
         mesas={mesas}
         combosActivos={combosActivos}
+        usaCocina={usaCocina}
+        mesaObligatoria={mesaObligatoria}
       />  
 
       <ModalIdentificar modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} />
@@ -139,6 +146,25 @@ const ModalesCaja = ({
         user={user}
         cargarDataDinamica={cargarDataDinamica}
         setAlertaCaja={setAlertaCaja}
+      />
+
+      <ModalCobrarDiferencia
+        modalCobrarDiferencia={modalCobrarDiferencia}
+        setModalCobrarDiferencia={setModalCobrarDiferencia}
+        confirmarCobroDiferenciaPlatillo={confirmarCobroDiferenciaPlatillo}
+        isSubmitting={isSubmitting}
+      />
+
+      <ModalAgregarPlatillo
+        modalAgregarPlatillo={modalAgregarPlatillo}
+        setModalAgregarPlatillo={setModalAgregarPlatillo}
+        confirmarItemsAgregarPlatillo={confirmarItemsAgregarPlatillo}
+        productos={productos}
+        clasificaciones={clasificaciones}
+        catalogoIngredientes={catalogoIngredientes}
+        configGlobal={configGlobal}
+        combosActivos={combosActivos}
+        isSubmitting={isSubmitting}
       />
     </>
   );

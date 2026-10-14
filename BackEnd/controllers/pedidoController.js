@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const webpush = require('web-push');
+const cocinaOperativaCtrl = require('./cocinaOperativaController');
 
 // 👇 FIX: Configuración segura de llaves VAPID para evitar que el push falle silenciosamente
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -108,7 +109,24 @@ exports.crearPedido = async (req, res) => {
 
         const nroRes = await client.query("SELECT COALESCE(MAX(numero_pedido), 0) + 1 AS num FROM pedidos WHERE (fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'America/Mazatlan')::DATE");
         const sigNumero = nroRes.rows[0].num;
-        const estadoReal = estado_preparacion || 'Pendiente';
+        let estadoReal = estado_preparacion || 'Pendiente';
+
+        // 🍳 BANDERA: Flujo sin Cocina (tabla independiente configuracion_operativa)
+        // Si el negocio NO usa cocina, cualquier estado que normalmente abriría una
+        // comanda en el KDS (Preparando/Pagado/Aceptado) se reescribe a 'Listo', para
+        // que el pedido aterrice directo en Entregas/Cobrar, sin pasar por Cocina.js.
+        // Si usa_cocina=true (o la tabla aún no responde), el comportamiento queda
+        // EXACTAMENTE IGUAL que hoy — cero impacto en negocios existentes.
+        try {
+            const confOpRes = await client.query('SELECT usa_cocina FROM configuracion_operativa WHERE id = 1');
+            const usaCocina = confOpRes.rows.length === 0 ? true : (confOpRes.rows[0].usa_cocina !== false);
+            if (!usaCocina && ['Preparando', 'Pagado', 'Aceptado'].includes(estadoReal)) {
+                estadoReal = 'Listo';
+            }
+        } catch (errConfOp) {
+            console.error("Aviso: no se pudo leer configuracion_operativa, se usa flujo con cocina por defecto:", errConfOp.message);
+        }
+
         const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
 
         let costoEnvioFinal = 0;
@@ -529,7 +547,7 @@ exports.actualizarPedido = async (req, res) => {
 // =========================================================
 exports.actualizarEstado = async (req, res) => {
     const { id } = req.params;
-    const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos, repartidor_id, descuento_puntos } = req.body;
+    const { estado_preparacion, chef_id, carrito, metodo_pago, total, costo_envio, pagos_mixtos, repartidor_id, descuento_puntos, log_evento } = req.body;
     try {
         const prevRes = await db.query('SELECT estado_preparacion, cliente_id, descuento_puntos, total, carrito, mesa, chef_id, tipo_consumo, metodo_pago FROM pedidos WHERE id = $1', [id]);
         if (prevRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
@@ -539,6 +557,21 @@ exports.actualizarEstado = async (req, res) => {
         const metodoPagoAct = metodo_pago !== undefined ? metodo_pago : pedidoPrevio.metodo_pago;
         
         const isPagadoDinero = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto', 'Puntos'].includes(metodoPagoAct);
+
+        // 🍳 BANDERA: Flujo sin Cocina (tabla independiente configuracion_operativa)
+        // Barrera anti-trampa: si algo (frontend viejo, caché, llamada directa a la API)
+        // intenta mandar un pedido a 'Preparando' en un negocio sin cocina, se reescribe
+        // a 'Listo' para que caiga en Entregas/Cobrar en vez de abrir comanda en el KDS.
+        // Si usa_cocina=true (o la tabla aún no responde), queda igual que hoy.
+        try {
+            const confOpRes = await db.query('SELECT usa_cocina FROM configuracion_operativa WHERE id = 1');
+            const usaCocina = confOpRes.rows.length === 0 ? true : (confOpRes.rows[0].usa_cocina !== false);
+            if (!usaCocina && estadoReal === 'Preparando') {
+                estadoReal = 'Listo';
+            }
+        } catch (errConfOp) {
+            console.error("Aviso: no se pudo leer configuracion_operativa, se usa flujo con cocina por defecto:", errConfOp.message);
+        }
 
         // 👇 FIX: Antes solo aplicaba a "Local" sin mesa. Esto dejaba pedidos de
         // "Para llevar" y "Recoger en Local" atascados para siempre en 'Entregado',
@@ -573,7 +606,9 @@ exports.actualizarEstado = async (req, res) => {
             updateFields.push(`costo_envio = $${queryIndex}`); params.push(finalEnvio); queryIndex++;
         }
 
-        if (estadoReal === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion = CURRENT_TIMESTAMP`); }
+        // 🛡️ FIX: Solo se setea la PRIMERA vez que el pedido entra a Preparando.
+// Si ya existía un valor (por una acción previa en la misma comanda), se conserva intacto.
+if (estadoReal === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion = COALESCE(tiempo_inicio_preparacion, CURRENT_TIMESTAMP)`); }
         if (estadoReal === 'Listo') { updateFields.push(`tiempo_listo = CURRENT_TIMESTAMP`); }
         if (estadoReal === 'En Camino') { updateFields.push(`tiempo_salida_reparto = CURRENT_TIMESTAMP`); }
         if (estadoReal === 'Entregado' || estadoReal === 'Finalizado') { updateFields.push(`tiempo_entregado = CURRENT_TIMESTAMP`); }
@@ -582,6 +617,13 @@ exports.actualizarEstado = async (req, res) => {
 
         const result = await db.query(`UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = $${queryIndex} RETURNING *`, params);
         const pedidoActual = result.rows[0];
+
+        // 👇 FASE 2: Log append-only de colaboración (quién preparó/ayudó/terminó cada ítem y cuándo)
+        if (log_evento && Array.isArray(log_evento.indices) && log_evento.accion) {
+            log_evento.indices.forEach(idx => {
+                cocinaOperativaCtrl.registrarEventoProduccion(id, idx, log_evento.usuario_id, log_evento.accion);
+            });
+        }
 
         if (pedidoPrevio.mesa) {
             if (estadoReal === 'Cancelado' || estadoReal === 'Finalizado') {
@@ -898,5 +940,419 @@ exports.obtenerPedidosCliente = async (req, res) => {
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener pedidos del cliente' });
+    }
+};
+
+// =========================================================
+// 🍽️ AGREGAR PLATILLOS A UN PEDIDO EXISTENTE (Opción B: motor de inventario DUPLICADO)
+// No modifica ni reutiliza código de crearPedido/actualizarEstado — cero riesgo sobre lo existente.
+// Reglas de negocio acordadas:
+//  - Bloquea: Cancelado, Liquidado, Finalizado-sin-mesa (genera Nuevo Pedido en su lugar),
+//    Finalizado-con-mesa-ya-liberada, y pedidos ya incluidos en un Corte de Caja.
+//  - Si NO estaba pagado: solo se suma el total, sin preguntar método de pago.
+//  - Si YA estaba pagado: la diferencia se cobra con el método que indique el frontend
+//    (metodo_pago_diferencia). Si es el mismo método -> se suma. Si es distinto -> Mixto con desglose.
+//  - Respeta la bandera usa_cocina: si hay cocina, reabre el pedido a 'Preparando' para que
+//    el nuevo platillo aparezca en el KDS (los ítems viejos, al conservar su 'estado', no reaparecen).
+//    Si no hay cocina, el pedido completo pasa/sigue en 'Listo'.
+// =========================================================
+exports.agregarItemsAPedido = async (req, res) => {
+    const { id } = req.params;
+    const itemsNuevos = req.body.items;
+    const metodoPagoDiferenciaBody = req.body.metodo_pago_diferencia;
+
+    if (!itemsNuevos || !Array.isArray(itemsNuevos) || itemsNuevos.length === 0) {
+        return res.status(400).json({ error: 'No se recibieron platillos para agregar.' });
+    }
+
+    try {
+        // 1. Cargar el pedido actual (lectura simple, fuera de transacción, para validar bloqueos primero)
+        const pedidoRes = await db.query('SELECT * FROM pedidos WHERE id = $1', [id]);
+        if (pedidoRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado' });
+        const pedido = pedidoRes.rows[0];
+
+        // 2. BLOQUEOS DE NEGOCIO
+        if (['Cancelado', 'Liquidado'].includes(pedido.estado_preparacion)) {
+            return res.status(400).json({ error: 'No se puede agregar platillos a una orden cancelada o liquidada.' });
+        }
+
+        if (pedido.estado_preparacion === 'Finalizado') {
+            if (pedido.tipo_consumo !== 'Local') {
+                // 🪑 Regla confirmada: sin mesa + Finalizado -> ya no es "agregar", es un pedido nuevo.
+                return res.status(400).json({
+                    error: 'Esta orden ya fue finalizada. Genera un Nuevo Pedido para este cliente.',
+                    requiere_nuevo_pedido: true
+                });
+            }
+            // Local + Finalizado: solo se permite si la mesa SIGUE físicamente ocupada
+            // (el cajero no liberó o un nuevo flujo la re-ocupó con el mismo pedido). Si ya
+            // está Libre, significa que la mesa realmente se cerró -> también es Nuevo Pedido.
+            if (pedido.mesa) {
+                const mesaCheck = await db.query('SELECT estado FROM mesas WHERE numero_mesa = $1', [pedido.mesa]);
+                const mesaLibre = mesaCheck.rows.length === 0 || mesaCheck.rows[0].estado === 'Libre';
+                if (mesaLibre) {
+                    return res.status(400).json({
+                        error: 'Esta mesa ya fue cerrada y liberada. Genera un Nuevo Pedido.',
+                        requiere_nuevo_pedido: true
+                    });
+                }
+            } else {
+                return res.status(400).json({
+                    error: 'Esta orden ya fue finalizada. Genera un Nuevo Pedido.',
+                    requiere_nuevo_pedido: true
+                });
+            }
+        }
+
+        // 3. BLOQUEO POR AUDITORÍA DE CORTE DE CAJA (mismo criterio que usa el frontend)
+        try {
+            const auditRes = await db.query('SELECT pedidos_incluidos FROM cortes');
+            const yaAuditado = auditRes.rows.some(row => {
+                try {
+                    const inc = typeof row.pedidos_incluidos === 'string' ? JSON.parse(row.pedidos_incluidos) : row.pedidos_incluidos;
+                    return Array.isArray(inc) && inc.map(String).includes(String(id));
+                } catch (e) { return false; }
+            });
+            if (yaAuditado) {
+                return res.status(400).json({ error: 'Esta orden ya forma parte de un Corte de Caja y no puede modificarse.' });
+            }
+        } catch (errAudit) {
+            // Si el check de auditoría falla por cualquier motivo, no bloqueamos la operación
+            // real del negocio — solo lo dejamos registrado en consola para revisión.
+            console.error('Aviso: no se pudo verificar auditoría de corte:', errAudit.message);
+        }
+
+        // 4. VALIDACIÓN DE STOCK (idéntico patrón al de crearPedido, pero solo para los ítems nuevos)
+        const client = await db.connect();
+        try {
+            await client.query('BEGIN');
+
+            const cantRequerida = {};
+            for (const item of itemsNuevos) {
+                const pId = item.producto_id || item.id;
+                if (pId && !isNaN(parseInt(pId))) {
+                    const cleanId = parseInt(pId);
+                    cantRequerida[cleanId] = (cantRequerida[cleanId] || 0) + (parseInt(item.cantidad) || 1);
+                }
+            }
+            for (const [pId, cant] of Object.entries(cantRequerida)) {
+                const checkRes = await client.query('SELECT nombre, usa_stock, stock_preparado FROM productos WHERE id = $1', [pId]);
+                if (checkRes.rows.length > 0) {
+                    const row = checkRes.rows[0];
+                    if (row.usa_stock === true || String(row.usa_stock) === 'true') {
+                        const stockActual = parseInt(row.stock_preparado) || 0;
+                        if (stockActual < cant) {
+                            await client.query('ROLLBACK');
+                            return res.status(400).json({ error: `Stock insuficiente para "${row.nombre}". Solo quedan ${stockActual} unidades.` });
+                        }
+                    }
+                }
+            }
+
+            // 5. MOTOR DE EXPLOSIÓN DE INVENTARIO (copiado de crearPedido — Opción B, sin tocar el original)
+            const tipo_consumo = pedido.tipo_consumo;
+            for (const item of itemsNuevos) {
+                const pId = item.producto_id || item.id;
+                const cantidadVendida = parseInt(item.cantidad) || 1;
+                if (!pId || isNaN(parseInt(pId))) continue;
+
+                const ingredientesOmitidos = [];
+                (item.extras || []).forEach(ex => {
+                    if (ex.tipo === 'base' && String(ex.nombre).startsWith('Sin ')) {
+                        ingredientesOmitidos.push(String(ex.nombre).replace('Sin ', '').trim().replace(/\s+/g, ' ').toLowerCase());
+                    } else if (ex.tipo === 'sustitucion' && String(ex.nombre).includes(' x ')) {
+                        const parts = String(ex.nombre).replace('🔄 Cambio: ', '').split(' x ');
+                        if (parts.length === 2) {
+                            ingredientesOmitidos.push(parts[0].trim().replace(/\s+/g, ' ').toLowerCase());
+                        }
+                    }
+                });
+
+                const opcionesGrupos = (item.opciones || []).filter(o => o.tipo === 'grupo_obligatorio' || o.tipo === 'grupo_opcional');
+                opcionesGrupos.forEach(opt => {
+                    const nombreOpcionLimpio = String(opt.nombre).trim().toLowerCase();
+                    const fueSeleccionada = (item.extras || []).some(ex => {
+                        const isGroupType = ex.tipo === 'grupo_obligatorio' || ex.tipo === 'grupo_opcional';
+                        return isGroupType && String(ex.nombre).toLowerCase().includes(nombreOpcionLimpio);
+                    });
+                    if (!fueSeleccionada) ingredientesOmitidos.push(nombreOpcionLimpio);
+                });
+
+                const nombresVariaciones = (item.extras || [])
+                    .filter(e => e.tipo === 'variacion')
+                    .map(e => String(e.nombre).trim().toLowerCase());
+                const arrayVariacionesGlobal = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+
+                const prodRes = await client.query('SELECT nombre, rendimiento, stock_preparado, usa_stock FROM productos WHERE id = $1', [pId]);
+
+                if (prodRes.rows.length > 0) {
+                    const row = prodRes.rows[0];
+                    const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
+
+                    if (isUsaStock) {
+                        await client.query('UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2', [cantidadVendida, pId]);
+                    } else {
+                        const rendimiento = parseFloat(row.rendimiento) || 1;
+                        let lotesADescontar = cantidadVendida / rendimiento;
+
+                        if (lotesADescontar > 0) {
+                            const arrayVariaciones = nombresVariaciones.length > 0 ? nombresVariaciones : [null];
+                            const esParaLlevar = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
+
+                            const recursiveQueryPlatillo = `
+                                WITH RECURSIVE Explosion AS (
+                                    SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                    FROM recetas r
+                                    LEFT JOIN insumos ibase ON r.insumo_id = ibase.id
+                                    WHERE r.producto_id = $2
+                                    AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($3::text[]))
+                                    AND (
+                                        array_length($5::text[], 1) IS NULL 
+                                        OR ibase.nombre IS NULL 
+                                        OR NOT (REGEXP_REPLACE(LOWER(TRIM(ibase.nombre)), '\\s+', ' ', 'g') = ANY($5::text[]))
+                                    )
+                                    UNION ALL
+                                    SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                    FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                    WHERE e.sub_producto_id IS NOT NULL
+                                ),
+                                Requeridos AS (
+                                    SELECT e.insumo_id, SUM(e.qty_factor) as total_descontar 
+                                    FROM Explosion e
+                                    LEFT JOIN insumos i_check ON e.insumo_id = i_check.id
+                                    WHERE e.insumo_id IS NOT NULL 
+                                    AND (i_check.descontar_solo_llevando = false OR (i_check.descontar_solo_llevando = true AND $4 = true))
+                                    GROUP BY e.insumo_id
+                                ),
+                                MapeoSustitutos AS (
+                                    SELECT 
+                                        CASE 
+                                            WHEN i.stock_actual <= 0 AND i.insumos_sustitutos IS NOT NULL AND jsonb_array_length(i.insumos_sustitutos) > 0 THEN i.insumos_sustitutos
+                                            ELSE jsonb_build_array(i.id)
+                                        END as array_ids,
+                                        r.total_descontar
+                                    FROM Requeridos r
+                                    JOIN insumos i ON r.insumo_id = i.id
+                                ),
+                                TotalesFinales AS (
+                                    SELECT CAST(jsonb_array_elements_text(array_ids) AS INTEGER) as final_insumo_id, SUM(total_descontar) as qty
+                                    FROM MapeoSustitutos GROUP BY final_insumo_id
+                                )
+                                UPDATE insumos i SET stock_actual = i.stock_actual - t.qty
+                                FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
+                            `;
+                            const arrayOmitidos = ingredientesOmitidos.length > 0 ? ingredientesOmitidos : [];
+                            await client.query(recursiveQueryPlatillo, [lotesADescontar, pId, arrayVariaciones, esParaLlevar, arrayOmitidos]);
+                        }
+                    }
+
+                    if (item.extras && item.extras.length > 0) {
+                        for (const extra of item.extras) {
+                            if (['grupo_opcional', 'grupo_obligatorio', 'extra', 'sustitucion'].includes(extra.tipo)) {
+                                let nombreExtraLimpio = '';
+                                if (extra.tipo === 'sustitucion') {
+                                    nombreExtraLimpio = extra.nombre.split(' x ')[1]?.trim();
+                                } else if (extra.tipo === 'extra') {
+                                    nombreExtraLimpio = extra.nombre.replace('[Agregado] ', '').replace('🔸 ', '').replace('Extra ', '').trim();
+                                } else if (extra.nombre.includes(': ')) {
+                                    nombreExtraLimpio = extra.nombre.split(': ')[1].trim();
+                                } else {
+                                    nombreExtraLimpio = extra.nombre.trim();
+                                }
+
+                                if (!nombreExtraLimpio) continue;
+
+                                if (extra.tipo === 'grupo_obligatorio' || extra.tipo === 'grupo_opcional') {
+                                    const yaEnRecetaBase = await client.query(
+                                        `SELECT 1 FROM recetas r
+                                        JOIN insumos i2 ON r.insumo_id = i2.id
+                                        WHERE r.producto_id = $1
+                                        AND (r.sabor_nombre IS NULL OR LOWER(TRIM(r.sabor_nombre)) = ANY($2::text[]))
+                                        AND LOWER(TRIM(i2.nombre)) = LOWER(TRIM($3))
+                                        LIMIT 1`,
+                                        [pId, arrayVariacionesGlobal, nombreExtraLimpio]
+                                    );
+                                    if (yaEnRecetaBase.rows.length > 0) continue;
+                                }
+
+                                const ingRes = await client.query(
+                                    `SELECT ci.id FROM catalogo_ingredientes ci
+                                    JOIN clasificaciones c ON ci.clasificacion_id = c.id
+                                    WHERE LOWER(TRIM(ci.nombre)) = LOWER(TRIM($1))
+                                    AND LOWER(TRIM(c.nombre)) = LOWER(TRIM($2))
+                                    LIMIT 1`,
+                                    [nombreExtraLimpio, item.categoria]
+                                );
+
+                                if (ingRes.rows.length > 0) {
+                                    const ingredienteId = ingRes.rows[0].id;
+                                    const esParaLlevarExtra = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
+
+                                    const recursiveQueryExtra = `
+                                        WITH RECURSIVE Explosion AS (
+                                            SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+                                            FROM recetas r WHERE r.ingrediente_id = $2
+                                            UNION ALL
+                                            SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+                                            FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                                            WHERE e.sub_producto_id IS NOT NULL
+                                        ),
+                                        Requeridos AS (
+                                            SELECT e.insumo_id, SUM(e.qty_factor) as total_descontar 
+                                            FROM Explosion e
+                                            LEFT JOIN insumos i_check ON e.insumo_id = i_check.id
+                                            WHERE e.insumo_id IS NOT NULL 
+                                            AND (i_check.descontar_solo_llevando = false OR (i_check.descontar_solo_llevando = true AND $3 = true))
+                                            GROUP BY e.insumo_id
+                                        ),
+                                        MapeoSustitutos AS (
+                                            SELECT 
+                                                CASE 
+                                                    WHEN i.stock_actual <= 0 AND i.insumos_sustitutos IS NOT NULL AND jsonb_array_length(i.insumos_sustitutos) > 0 THEN i.insumos_sustitutos
+                                                    ELSE jsonb_build_array(i.id)
+                                                END as array_ids, 
+                                                r.total_descontar
+                                            FROM Requeridos r JOIN insumos i ON r.insumo_id = i.id
+                                        ),
+                                        TotalesFinales AS (
+                                            SELECT CAST(jsonb_array_elements_text(array_ids) AS INTEGER) as final_insumo_id, SUM(total_descontar) as qty 
+                                            FROM MapeoSustitutos GROUP BY final_insumo_id
+                                        )
+                                        UPDATE insumos i SET stock_actual = i.stock_actual - t.qty FROM TotalesFinales t WHERE i.id = t.final_insumo_id;
+                                    `;
+                                    await client.query(recursiveQueryExtra, [cantidadVendida, ingredienteId, esParaLlevarExtra]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5b. EMPAQUES GLOBALES (copiado de crearPedido), evaluado solo sobre los ítems nuevos
+            const esParaLlevarGlobal = ['Domicilio', 'Recoger en Local', 'Para llevar'].includes(tipo_consumo);
+            const empaquesGlobalesRes = await client.query(`
+                SELECT id, regla_empaque_global, stock_actual, insumos_sustitutos 
+                FROM insumos 
+                WHERE es_empaque_global = true AND (descontar_solo_llevando = false OR (descontar_solo_llevando = true AND $1 = true))
+            `, [esParaLlevarGlobal]);
+
+            for (const empG of empaquesGlobalesRes.rows) {
+                const regla = typeof empG.regla_empaque_global === 'string' ? JSON.parse(empG.regla_empaque_global) : (empG.regla_empaque_global || {});
+                const categoriasAplicables = regla.categorias_aplicables || [];
+                const divisor = Number(regla.regla_divisor) || 1;
+
+                if (categoriasAplicables.length > 0) {
+                    let itemsAplicables = 0;
+                    for (const item of itemsNuevos) {
+                        if (categoriasAplicables.includes(item.categoria)) {
+                            itemsAplicables += (parseInt(item.cantidad) || 1);
+                        }
+                    }
+                    if (itemsAplicables > 0) {
+                        const piezasADescontar = Math.ceil(itemsAplicables / divisor);
+                        let targetId = empG.id;
+                        if (empG.stock_actual <= 0 && empG.insumos_sustitutos && empG.insumos_sustitutos.length > 0) {
+                            targetId = empG.insumos_sustitutos[0];
+                        }
+                        await client.query('UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2', [piezasADescontar, targetId]);
+                    }
+                }
+            }
+
+            // 6. FUSIÓN DE CARRITO: los ítems viejos NO se tocan (conservan su 'estado' tal cual,
+            // por eso no reaparecen en Cocina). Los nuevos se agregan sin 'estado' (nacen 'Pendiente').
+            const carritoViejo = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : (pedido.carrito || []);
+            const carritoFinal = [...carritoViejo, ...itemsNuevos];
+
+            const diferencia = itemsNuevos.reduce((sum, i) => sum + (Number(i.precioFinal || 0) * (Number(i.cantidad) || 1)), 0);
+            const nuevoTotal = Number(pedido.total || 0) + diferencia;
+
+            // 7. ESTADO DE PREPARACIÓN: respeta la bandera usa_cocina
+            let usaCocina = true;
+            try {
+                const confOpRes = await client.query('SELECT usa_cocina FROM configuracion_operativa WHERE id = 1');
+                usaCocina = confOpRes.rows.length === 0 ? true : (confOpRes.rows[0].usa_cocina !== false);
+            } catch (e) { /* default usaCocina = true */ }
+
+            let estadoFinal = pedido.estado_preparacion;
+            if (usaCocina) {
+                // Si el pedido ya había avanzado (Listo/Entregado/Finalizado-con-mesa-aún-ocupada),
+                // lo reabrimos a 'Preparando' para que el platillo nuevo entre a Cocina.
+                if (['Listo', 'Entregado', 'Finalizado'].includes(pedido.estado_preparacion)) {
+                    estadoFinal = 'Preparando';
+                }
+                // Si seguía 'Pendiente' o 'Preparando', se queda igual.
+            } else {
+                // Sin cocina, el pedido completo vive en 'Listo' (salvo que siga 'Pendiente' por cobrar/confirmar).
+                estadoFinal = pedido.estado_preparacion === 'Pendiente' ? 'Pendiente' : 'Listo';
+            }
+
+            // 8. MÉTODO DE PAGO / PAGOS MIXTOS (matriz de escenarios A-I acordada)
+            const metodosPagados = ['Efectivo', 'Tarjeta', 'Transferencia', 'Puntos', 'Mixto'];
+            const yaEstabaPagado = metodosPagados.includes(pedido.metodo_pago);
+
+            let metodoPagoFinal = pedido.metodo_pago;
+            let pagosMixtosFinal = pedido.pagos_mixtos;
+
+            if (yaEstabaPagado && metodoPagoDiferenciaBody) {
+                if (pedido.metodo_pago === 'Mixto') {
+                    let desglose = [];
+                    try {
+                        desglose = typeof pedido.pagos_mixtos === 'string' ? JSON.parse(pedido.pagos_mixtos) : (pedido.pagos_mixtos || []);
+                    } catch (e) { desglose = []; }
+
+                    const idxExistente = desglose.findIndex(p => p.metodo === metodoPagoDiferenciaBody);
+                    if (idxExistente >= 0) {
+                        desglose[idxExistente].monto = Number(desglose[idxExistente].monto) + diferencia;
+                    } else {
+                        desglose.push({ metodo: metodoPagoDiferenciaBody, monto: diferencia });
+                    }
+                    pagosMixtosFinal = JSON.stringify(desglose);
+                    metodoPagoFinal = 'Mixto';
+                } else if (metodoPagoDiferenciaBody !== pedido.metodo_pago) {
+                    // Método distinto al original -> se convierte en Mixto con desglose de ambos montos
+                    const desglose = [
+                        { metodo: pedido.metodo_pago, monto: Number(pedido.total || 0) },
+                        { metodo: metodoPagoDiferenciaBody, monto: diferencia }
+                    ];
+                    pagosMixtosFinal = JSON.stringify(desglose);
+                    metodoPagoFinal = 'Mixto';
+                }
+                // Si es el mismo método -> no se toca metodo_pago/pagos_mixtos, solo sube el total.
+            }
+            // Si NO estaba pagado (Pendiente/Por Cobrar/Comida Personal) -> no se toca metodo_pago, solo sube el total.
+
+            // 9. ACTUALIZAR EL PEDIDO
+            const updateRes = await client.query(
+                `UPDATE pedidos SET carrito = $1, total = $2, estado_preparacion = $3, metodo_pago = $4, pagos_mixtos = $5 WHERE id = $6 RETURNING *`,
+                [JSON.stringify(carritoFinal), nuevoTotal, estadoFinal, metodoPagoFinal, pagosMixtosFinal, id]
+            );
+
+            // 10. Reafirmar la mesa como Ocupada (defensivo, por si quedó Libre de un Finalizado previo)
+            if (pedido.mesa) {
+                await client.query("UPDATE mesas SET estado = 'Ocupada', pedido_actual_id = $1 WHERE numero_mesa = $2", [id, pedido.mesa]);
+            }
+
+            await client.query('COMMIT');
+
+            const io = req.app.get('io');
+            if (io) {
+                io.emit('catalogo_actualizado'); // el inventario cambió
+                io.emit('pedido_actualizado');   // Cocina/Caja refrescan en vivo
+            }
+
+            res.json({ pedido: updateRes.rows[0], diferencia, items_agregados: itemsNuevos.length });
+
+        } catch (errorTx) {
+            await client.query('ROLLBACK');
+            console.error("Error al agregar platillos al pedido:", errorTx);
+            res.status(500).json({ error: 'Error en el servidor al agregar los platillos.' });
+        } finally {
+            client.release();
+        }
+
+    } catch (error) {
+        console.error("Error al agregar platillos al pedido:", error);
+        res.status(500).json({ error: 'Error en el servidor al agregar los platillos.' });
     }
 };

@@ -269,6 +269,66 @@ exports.obtenerClientes = async (req, res) => {
   }
 };
 
+// 🆕 FIX 404: Obtener un solo cliente por ID (usado para refrescar puntos en tiempo real desde Caja)
+exports.obtenerClientePorId = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      'SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella FROM clientes c WHERE c.id = $1',
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error al obtener cliente por ID:", error);
+    res.status(500).json({ error: 'Error al obtener cliente' });
+  }
+};
+
+// 🔍 NUEVO: Buscador optimizado en servidor (reemplaza la descarga masiva del frontend)
+exports.buscarClientes = async (req, res) => {
+  const termino = String(req.query.q || '').trim();
+  if (termino.length < 2) return res.json({ registrados: [], invitados: [] });
+
+  try {
+    const terminos = termino.split(/\s+/).filter(Boolean).slice(0, 5);
+    const valores = terminos.map(t => `%${t}%`);
+
+    // 1. Clientes registrados (match por nombre+apellido o teléfono)
+    const condicionesCliente = terminos.map((_, i) =>
+      `(LOWER(COALESCE(nombre,'') || ' ' || COALESCE(apellido,'')) LIKE LOWER($${i + 1}) OR COALESCE(telefono::text, '') LIKE $${i + 1})`
+    ).join(' AND ');
+
+    const registradosRes = await db.query(
+      `SELECT id, nombre, apellido, telefono, direccion, puntos
+       FROM clientes
+       WHERE ${condicionesCliente}
+       ORDER BY id DESC
+       LIMIT 8`,
+      valores
+    );
+
+    // 2. Historial de invitados (sin cliente_id) — excluye el carrito pesado y limita resultados
+    const condicionesPedido = terminos.map((_, i) =>
+      `LOWER(COALESCE(p.direccion_entrega,'')) LIKE LOWER($${i + 1})`
+    ).join(' AND ');
+
+    const invitadosRes = await db.query(
+      `SELECT p.direccion_entrega
+      FROM pedidos p
+      WHERE p.cliente_id IS NULL AND (${condicionesPedido})
+      ORDER BY p.id DESC
+      LIMIT 30`,
+      valores
+    );
+
+    res.json({ registrados: registradosRes.rows, invitados: invitadosRes.rows });
+  } catch (error) {
+    console.error("Error al buscar clientes:", error);
+    res.status(500).json({ error: 'Error al buscar clientes' });
+  }
+};
+
 exports.actualizarCliente = async (req, res) => {
   const { id } = req.params;
   const { nombre, apellido, telefono, correo, puntos, nip, direccion, fecha_nacimiento } = req.body;

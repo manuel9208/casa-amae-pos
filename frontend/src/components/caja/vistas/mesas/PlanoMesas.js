@@ -1,7 +1,7 @@
 import React from 'react';
 import { MapPin } from 'lucide-react';
 
-const PlanoMesas = ({ mesas, zonaPlanoActiva, isSubmitting, limpiandoMesas, pedidos, setModalPago, setModalLiberarMesa }) => {
+const PlanoMesas = ({ mesas, zonaPlanoActiva, isSubmitting, limpiandoMesas, pedidos, onSeleccionarPedidoMesa, setModalLiberarMesa }) => {
   return (
     <div className="bg-slate-100 p-2 md:p-6 rounded-3xl border border-slate-200 shadow-inner animate-in fade-in relative overflow-x-auto custom-scrollbar">
       <div className="absolute top-4 left-6 pointer-events-none opacity-40 flex items-center gap-2 text-slate-400 z-0">
@@ -25,16 +25,17 @@ const PlanoMesas = ({ mesas, zonaPlanoActiva, isSubmitting, limpiandoMesas, pedi
                <button
                  key={mesa.id}
                  disabled={isLibre || isSubmitting || limpiandoMesas}
-                 onClick={() => {
-                    if (!isLibre) {
-                       const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
-                       if (pedidoVinculado) {
-                           setModalPago(pedidoVinculado);
-                       } else {
-                           setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
-                       }
-                    }
-                 }}
+                  onClick={() => {
+                     if (!isLibre) {
+                        const pedidoVinculado = pedidos.find(p => p.id === mesa.pedido_actual_id);
+                        if (pedidoVinculado) {
+                        // 🪑 NUEVO: en vez de abrir el cobro directo, preguntamos primero
+                        onSeleccionarPedidoMesa(pedidoVinculado);
+                        } else {
+                        setModalLiberarMesa({ todas: false, mesa: mesa.numero_mesa });
+                        }
+                     }
+                  }}
                  className={`absolute w-20 h-20 sm:w-24 sm:h-24 rounded-2xl border-4 flex flex-col items-center justify-center transition-all ${bgClass} ${!isLibre ? 'active:scale-95 cursor-pointer z-20' : 'cursor-default z-10'}`}
                  style={{ left: `${mesa.pos_x}%`, top: `${mesa.pos_y}%` }}
                >

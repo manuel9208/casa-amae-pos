@@ -12,7 +12,9 @@ const GestorCobranzaPrincipal = ({
   getTelefonoExtraido,
   renderBotonVerDetalle,
   renderBotonEditar,
-  renderBotonAgregarExtra
+  renderBotonAgregarExtra,
+  renderBotonAgregarPlatillo,
+  usaCocina
 }) => {
   // 🛡️ FIX: Excluimos pedidos a Domicilio que ya tienen repartidor asignado y van
   // "En Camino". Esos pedidos ya no deben solicitarse aquí en Cobranza; su cobro/entrega
@@ -55,6 +57,8 @@ const GestorCobranzaPrincipal = ({
                 renderBotonVerDetalle={renderBotonVerDetalle}
                 renderBotonEditar={renderBotonEditar}
                 renderBotonAgregarExtra={renderBotonAgregarExtra}
+                renderBotonAgregarPlatillo={renderBotonAgregarPlatillo}
+                usaCocina={usaCocina}
               />
             ))}
           </div>

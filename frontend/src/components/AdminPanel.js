@@ -16,6 +16,7 @@ import AdminDistribucion from './admin/AdminDistribucion'; // 👈 RUTA CORREGID
 import AdminBiometria from './admin/AdminBiometria';
 import AdminAsistencia from './admin/AdminAsistencia';
 import AdminIA from './admin/AdminIA';
+import AdminConfigOperativa from './admin/AdminConfigOperativa';
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -55,7 +56,8 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewHuellas = isGlobalAdmin || user?.permisos?.huellas === true;
   const canViewAsistencia = isGlobalAdmin || user?.permisos?.asistencia === true;
   const canViewIA = isGlobalAdmin || user?.permisos?.ia === true;
-
+  const canViewConfigOperativa = isGlobalAdmin || user?.permisos?.configuracion === true;
+  
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
   const showAlert = useCallback((titulo, mensaje, tipo = 'info') => {
@@ -181,6 +183,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           canViewHuellas={canViewHuellas}
           canViewAsistencia={canViewAsistencia}
           canViewIA={canViewIA}
+          canViewConfigOperativa={canViewConfigOperativa}
         />  
       </div>
 
@@ -242,7 +245,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
             configGlobal={configGlobal}
             setConfigGlobal={setConfigGlobal}
           />
-        )}  
+        )}
+        {/* 🍳 NUEVO ESPACIO: Flujo Operativo (Cocina Sí/No), 100% independiente de configGlobal */}
+                {seccion === 'config_operativa' && canViewConfigOperativa && (
+                    <AdminConfigOperativa
+                        apiUrl={apiUrl}
+                        showAlert={showAlert}
+                    />
+                )}  
         {seccion === 'usuarios' && canViewUsuarios && (
           <AdminUsuarios
             {...commonProps}
