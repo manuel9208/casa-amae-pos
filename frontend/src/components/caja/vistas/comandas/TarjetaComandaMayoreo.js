@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MapPin, Phone, User, Clock, Trash2, Eye, AlertTriangle, Package, XCircle } from 'lucide-react';
 import TicketImpresionMayoreo from '../../modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo'; // 👈 RUTA CORREGIDA EXACTA
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const TarjetaComandaMayoreo = ({
     pedido,
@@ -100,7 +101,7 @@ const TarjetaComandaMayoreo = ({
         setProcesando(true);
         try {
             const apiBase = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-            const res = await fetch(`${apiBase}/distribucion/ventas/${pedido.id}/estado`, {
+            const res = await apiFetch(`${apiBase}/distribucion/ventas/${pedido.id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ estado_preparacion: 'Cancelado' })

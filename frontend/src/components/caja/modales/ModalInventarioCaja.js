@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Search, Save, Send, ClipboardList, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalInventarioCaja = ({ apiUrl, insumosDB, auditoriaActiva, cerrarModal, showAlert }) => {
   const [busqueda, setBusqueda] = useState('');
@@ -62,7 +63,7 @@ const ModalInventarioCaja = ({ apiUrl, insumosDB, auditoriaActiva, cerrarModal, 
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/insumos/auditoria/${auditoriaActiva.id}/guardar`, {
+      const res = await apiFetch(`${apiUrl}/insumos/auditoria/${auditoriaActiva.id}/guardar`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datos: datosLocales, enviar_a_revision })

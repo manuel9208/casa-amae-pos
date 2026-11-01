@@ -6,6 +6,7 @@ import VistaMensajesEmpleado from './VistaMensajesEmpleado';
 import VistaNominasEmpleado from './VistaNominasEmpleado';
 import ImagenCachada from '../ImagenCachada';
 import VistaAsistencia from './VistaAsistencia'; 
+import { apiFetch } from '../../utils/apiFetch';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -32,16 +33,16 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
 
   useEffect(() => {
     const cargarDatosCentrales = () => {
-      fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
+     apiFetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
         const myData = data.find(u => u.id === user.id);
         if (myData) setUserData(myData);
       }).catch(()=>{});
 
-      fetch(`${apiUrl}/configuracion`).then(r => r.json()).then(data => {
+     apiFetch(`${apiUrl}/configuracion`).then(r => r.json()).then(data => {
         if (data) setConfigGlobal(data);
       }).catch(()=>{});
 
-      fetch(`${apiUrl}/pedidos/hoy`).then(r => r.json()).then(data => {
+     apiFetch(`${apiUrl}/pedidos/hoy`).then(r => r.json()).then(data => {
         if (Array.isArray(data)) setPedidosHoy(data);
       }).catch(()=>{});
     };
@@ -136,7 +137,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
     formData.append('area', area);
     formData.append('fecha', strHoy);  
     try {
-      const res = await fetch(`${apiUrl}/configuracion/evidencia`, { method: 'POST', body: formData });  
+      const res = await apiFetch(`${apiUrl}/configuracion/evidencia`, { method: 'POST', body: formData });  
       if (res.ok) {
         const data = await res.json();
         setConfigGlobal(prev => ({ ...prev, matriz_limpieza: JSON.stringify(data.matriz) }));
@@ -191,7 +192,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
         motivo: vacMotivo, estado: 'pendiente', fecha_solicitud: strHoy
       };
 
-      const res = await fetch(`${apiUrl}/usuarios/${user.id}/prestaciones`, {
+      const res = await apiFetch(`${apiUrl}/usuarios/${user.id}/prestaciones`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prestaciones: pres })
       });
@@ -313,7 +314,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
                     const turno = horarioSemanal[d.nombreCompleto];
                     if (!turno) return null;
                     return (
-                      <tr key={d.fechaStr} className={`transition ${d.esHoy ? 'bg-blue-50/50' : 'hover:bg-slate-50'}`}>
+                      <tr key={d.fechaStr} className={`transition ${d.esHoy ? 'bg-[color-mix(in_srgb,var(--c-primario)_6%,var(--c-tarjetas))]' : 'hover:bg-[color-mix(in_srgb,var(--c-tarjetas)_92%,black)]'}`}>
                         <td className="p-4 font-bold text-slate-700">{d.num} {d.nombreBreve} {d.esHoy && <span className="ml-2 bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0.5 rounded font-black">HOY</span>}</td>
                         <td className="p-4 text-center font-black text-slate-600">
                           {turno.activo ? `${turno.entrada} - ${turno.salida}` : turno.es_descanso ? '🛋️ DESCANSO PAGADO' : '🚫 DÍA LIBRE'}
@@ -406,7 +407,7 @@ const PortalEmpleado = ({ user, apiUrl, onLogout, onVolver }) => {
               <div className="bg-red-50 border border-red-200 p-8 rounded-3xl text-center shadow-sm relative">
                 <button onClick={() => {
                   const pres = {...prestaciones}; delete pres.solicitud_vacaciones;
-                  fetch(`${apiUrl}/usuarios/${user.id}/prestaciones`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({prestaciones: pres}) }).then(() => setUserData({...userData, prestaciones: JSON.stringify(pres)}));
+                 apiFetch(`${apiUrl}/usuarios/${user.id}/prestaciones`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({prestaciones: pres}) }).then(() => setUserData({...userData, prestaciones: JSON.stringify(pres)}));
                 }} className="absolute top-4 right-4 bg-red-100 text-red-500 p-2 rounded-xl font-black text-xs hover:bg-red-500 hover:text-white transition">Nueva Solicitud</button>
                 <XCircle size={48} className="mx-auto text-red-500 mb-4"/>
                 <h4 className="text-xl font-black text-red-800">Solicitud Rechazada</h4>

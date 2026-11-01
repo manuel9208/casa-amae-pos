@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize, RotateCw } from 'lucide-react';
+import { LogOut, Clock, ChefHat, CheckCircle2, AlertTriangle, Maximize, RotateCw, ArrowLeftRight } from 'lucide-react';
 // Importación directa del motor de caché
 import ImagenCachada from './ImagenCachada';
+import TarjetaComandaCocinaSoloLectura from './pantalla/TarjetaComandaCocinaSoloLectura'; // 🆕 Vista detallada de comandas
+import { apiFetch } from '../utils/apiFetch';
 
 const PantallaTV = ({ onLogout }) => {
   const [pedidos, setPedidos] = useState([]);
@@ -11,19 +13,35 @@ const PantallaTV = ({ onLogout }) => {
   // Estado para guardar y controlar la rotación de pantalla
   const [rotacion, setRotacion] = useState(() => Number(localStorage.getItem('pos_tv_rotacion')) || 0);
 
+  // 🆕 VISTA DETALLADA DE COMANDAS: toggle único con el botón de flechas invertidas.
+  // No tiene botón de "Volver" — el mismo botón alterna de ida y vuelta.
+  const [vistaComandas, setVistaComandas] = useState(false);
+
+  // 🆕 Filtro Todo/Cocina/Barra DENTRO de la Vista Detallada (independiente del
+  // carrusel normal de columnas, que no lo necesita).
+  const [filtroTabTV, setFiltroTabTV] = useState('Todo');
+
+  // 🆕 Reloj interno para que las insignias de tiempo de TarjetaComandaCocinaSoloLectura
+  // se actualicen solas, igual que ya hace Cocina.js con su propio "ahora".
+  const [ahora, setAhora] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setAhora(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
   const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        const resConf = await fetch(`${apiUrl}/configuracion`);
+        const resConf = await apiFetch(`${apiUrl}/configuracion`);
         const dataConf = await resConf.json();
         if (dataConf && !dataConf.error) {
           // Solo actualiza si hubo un cambio real en la config
           setConfig(prev => JSON.stringify(prev) === JSON.stringify(dataConf) ? prev : dataConf);
         }
 
-        const resPed = await fetch(`${apiUrl}/pedidos/hoy`);
+        const resPed = await apiFetch(`${apiUrl}/pedidos/hoy`);
         const dataPed = await resPed.json();
         if (Array.isArray(dataPed)) {
           // Solo actualiza si entraron o cambiaron pedidos
@@ -96,10 +114,14 @@ const PantallaTV = ({ onLogout }) => {
     const itemsCocina = carritoArray.filter(i => i.destino === 'Cocina' && i.estado !== 'Finalizado');
     const itemsBarra = carritoArray.filter(i => i.destino === 'Barra' && i.estado !== 'Finalizado');
 
+    // 🐞 FIX: se quitó "if (estadoGlobal === 'Preparando') return 'Preparando'".
+    // Esa línea cortaba la evaluación antes de revisar los item.estado reales —
+    // por eso un pedido recién aceptado por Caja (estado_preparacion='Preparando'
+    // a nivel global, pero NINGÚN platillo individual tocado aún por Cocina)
+    // se mostraba prematuramente como "PREPARANDO" en la TV.
     const getEstado = (items, estadoGlobal) => {
       if (items.length === 0) return null;
       if (estadoGlobal === 'Listo') return 'Listo';
-      if (estadoGlobal === 'Preparando') return 'Preparando';
       if (items.every(i => i.estado === 'Listo')) return 'Listo';
       if (items.some(i => i.estado === 'Preparando' || i.estado === 'Listo')) return 'Preparando';
       return 'Pagado';
@@ -116,8 +138,46 @@ const PantallaTV = ({ onLogout }) => {
   const preparando = subPedidos.filter(p => p.subEstado === 'Preparando');
   const listos = subPedidos.filter(p => p.subEstado === 'Listo');
 
+  // 🆕 VISTA DETALLADA: mismo criterio de "sigue activo en cocina" que ya usa el
+  // bucle de subPedidos de arriba (excluye Cancelado/Entregado/Pendiente/Finalizado/
+  // En Camino/Liquidado a nivel pedido, y Listo/Finalizado a nivel de cada platillo).
+  // 🆕 Ahora SÍ respeta el filtro Todo/Cocina/Barra (filtroTabTV).
+  const getCarritoSafe = (p) => {
+    if (Array.isArray(p.carrito)) return p.carrito;
+    try { return JSON.parse(p.carrito) || []; } catch (e) { return []; }
+  };
+
+  const pedidosVistaDetallada = pedidos.filter(p => {
+    if (['Cancelado', 'Entregado', 'Pendiente', 'Finalizado', 'En Camino', 'Liquidado'].includes(p.estado_preparacion)) return false;
+    const carritoArray = getCarritoSafe(p);
+    return carritoArray.some(i =>
+      (filtroTabTV === 'Todo' || i.destino === filtroTabTV) &&
+      i.estado !== 'Listo' && i.estado !== 'Finalizado'
+    );
+  });
+
+  // 🆕 ACUMULADO POR CLASIFICACIÓN: suma cantidades de todos los productos que
+  // SIGUEN pendientes de salir de cocina (ni Listo ni Finalizado), agrupados por
+  // item.categoria, respetando también el filtro Todo/Cocina/Barra.
+  // Se calcula 100% en el frontend, sin ningún endpoint nuevo.
+  const acumuladoClasificaciones = {};
+  pedidosVistaDetallada.forEach(p => {
+    const carritoArray = getCarritoSafe(p);
+    carritoArray.forEach(item => {
+      if (item.estado === 'Listo' || item.estado === 'Finalizado') return;
+      if (filtroTabTV !== 'Todo' && item.destino !== filtroTabTV) return;
+      const cat = item.categoria || 'Otros';
+      acumuladoClasificaciones[cat] = (acumuladoClasificaciones[cat] || 0) + (Number(item.cantidad) || 1);
+    });
+  });
+  const listaAcumulado = Object.entries(acumuladoClasificaciones).sort((a, b) => b[1] - a[1]);
+
   const renderBotonesControl = () => (
     <div className="absolute bottom-4 right-4 flex gap-3 z-[9999] opacity-20 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300 print:hidden pointer-events-auto">
+      {/* 🆕 Alterna entre el carrusel/columnas normales y la Vista Detallada de Comandas */}
+      <button onClick={() => setVistaComandas(v => !v)} className="p-3 bg-black/60 rounded-2xl text-white/80 hover:text-white hover:bg-purple-600 transition shadow-lg backdrop-blur-sm border border-white/10 active:scale-95 cursor-pointer" title="Vista Detallada de Comandas">
+        <ArrowLeftRight size={24} />
+      </button>
       <button onClick={() => setRotacion(r => (r + 90) % 360)} className="p-3 bg-black/60 rounded-2xl text-white/80 hover:text-white hover:bg-blue-500 transition shadow-lg backdrop-blur-sm border border-white/10 active:scale-95 cursor-pointer" title="Girar Pantalla">
         <RotateCw size={24} />
       </button>
@@ -277,6 +337,63 @@ const PantallaTV = ({ onLogout }) => {
         {subPedidos.length === 0 && (
           <div className="absolute bottom-12 inset-x-0 text-white font-black text-xl landscape:text-2xl tracking-[0.5em] landscape:tracking-[1em] uppercase z-30 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] animate-pulse pointer-events-none text-center flex justify-center w-full">
             ESPERANDO ÓRDENES...
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* 🆕 CAPA 4: VISTA DETALLADA DE COMANDAS (SOLO LECTURA)       */}
+        {/* Se activa/desactiva con el mismo botón de flechas invertidas. */}
+        {/* No controla pedidos — solo los muestra, igual que la tablet de Cocina. */}
+        {/* ========================================================= */}
+        {vistaComandas && (
+          <div className="absolute inset-0 w-full h-full bg-slate-950 z-40 flex flex-col overflow-hidden animate-in fade-in duration-300">
+            {/* Encabezado con acumulado y filtro — opacidad tenue, se ilumina al pasar el mouse/tocar */}
+            <div className="shrink-0 bg-slate-900 border-b border-slate-800 p-4 landscape:p-6">
+              <div className="flex flex-col landscape:flex-row landscape:items-center justify-between gap-3 mb-3">
+                {/* 🆕 Título SIEMPRE visible — ya no se oculta */}
+                <h2 className="text-white text-lg landscape:text-xl font-black uppercase tracking-widest flex items-center gap-2">
+                  📋 Comandas Activas en Cocina
+                </h2>
+                {/* 🆕 Solo el filtro Todo/Cocina/Barra lleva opacidad tenue, igual que los controles de abajo */}
+                <div className="flex bg-slate-800 p-1 rounded-xl opacity-30 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
+                  {['Todo', 'Cocina', 'Barra'].map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setFiltroTabTV(tab)}
+                      className={`px-4 py-1.5 rounded-lg font-black text-xs uppercase tracking-widest transition-all ${filtroTabTV === tab ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {listaAcumulado.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {listaAcumulado.map(([cat, cant]) => (
+                    <div key={cat} className="bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+                      <span className="text-slate-400 font-black text-[9px] uppercase tracking-widest">{cat}</span>
+                      <span className="text-white font-black text-base ml-2">{cant}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-slate-500 font-bold text-xs">No hay productos pendientes en cocina.</p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 landscape:p-6 custom-scrollbar">
+              {pedidosVistaDetallada.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <p className="text-slate-600 font-black text-2xl uppercase tracking-widest">Sin comandas activas</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 landscape:grid-cols-4 gap-5">
+                  {pedidosVistaDetallada.map((p, idx) => (
+                    <TarjetaComandaCocinaSoloLectura key={p.id} pedido={p} index={idx} ahora={ahora} />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

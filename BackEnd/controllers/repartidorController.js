@@ -2,19 +2,21 @@ const db = require('../config/db');
 
 // 1. Obtener pedidos listos en cocina (Inyectando Contexto GPS para Google Maps)
 exports.obtenerPedidosDisponiblesParaReparto = async (req, res) => {
+  const { empresa_id } = req;
   try {
     const query = `
       SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
              conf.gps_ciudad_estado, conf.gps_direccion_local
       FROM pedidos p
-      LEFT JOIN clientes c ON p.cliente_id = c.id
-      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE id = 1) AS conf
+      LEFT JOIN clientes c ON p.cliente_id = c.id AND c.empresa_id = p.empresa_id
+      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE empresa_id = $1) AS conf
       WHERE p.estado_preparacion = 'Listo'
       AND p.tipo_consumo = 'Domicilio'
       AND p.repartidor_id IS NULL
+      AND p.empresa_id = $1
       ORDER BY p.fecha_creacion ASC
     `;
-    const result = await db.query(query);
+    const result = await db.query(query, [empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener pool de reparto:", error.message);
@@ -25,6 +27,7 @@ exports.obtenerPedidosDisponiblesParaReparto = async (req, res) => {
 // 2. Acción de auto-asignación con transmisión en tiempo real integrada
 exports.tomarPedidoRepartidor = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { repartidor_id } = req.body;
   
   if (!repartidor_id) {
@@ -33,8 +36,8 @@ exports.tomarPedidoRepartidor = async (req, res) => {
   
   try {
     // Bloqueo de concurrencia: Validar que otro conductor no haya tomado la orden hace milisegundos
-    const validoRes = await db.query('SELECT estado_preparacion, repartidor_id, numero_pedido FROM pedidos WHERE id = $1', [id]);
-    if (validoRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    const validoRes = await db.query('SELECT estado_preparacion, repartidor_id, numero_pedido FROM pedidos WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
+    if (validoRes.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado o no pertenece a tu negocio.' });
     
     const pedido = validoRes.rows[0];
     if (pedido.repartidor_id) {
@@ -42,7 +45,10 @@ exports.tomarPedidoRepartidor = async (req, res) => {
     }
     
     // Consultamos el nombre del conductor para enriquecer la alerta visual de la Caja
-    const repRes = await db.query('SELECT nombre FROM usuarios WHERE id = $1', [repartidor_id]);
+    const repRes = await db.query('SELECT nombre FROM usuarios WHERE id = $1 AND empresa_id = $2', [repartidor_id, empresa_id]);
+    if (repRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Repartidor no encontrado o no pertenece a tu negocio.' });
+    }
     const nombreRepartidor = repRes.rows[0]?.nombre || 'Repartidor';
     
     const query = `
@@ -50,10 +56,10 @@ exports.tomarPedidoRepartidor = async (req, res) => {
       SET estado_preparacion = 'En Camino',
       repartidor_id = $1,
       tiempo_salida_reparto = CURRENT_TIMESTAMP
-      WHERE id = $2
+      WHERE id = $2 AND empresa_id = $3
       RETURNING *
     `;
-    const result = await db.query(query, [repartidor_id, id]);
+    const result = await db.query(query, [repartidor_id, id, empresa_id]);
     const pedidoActualizado = result.rows[0];
 
     // 📡 EMISIÓN DEL EVENTO EN TIEMPO REAL HACIA LA CAJA
@@ -78,10 +84,10 @@ exports.tomarPedidoRepartidor = async (req, res) => {
 // 3. Finalizar entrega física (Preparado para Fase 2: Recibir y guardar kilómetros reales)
 exports.entregarPedidoRepartidor = async (req, res) => {
   const { id } = req.params;
-  const { distancia_km } = req.body; // 👈 NUEVO: Recibe los KM exactos desde el frontend del repartidor
+  const { empresa_id } = req;
+  const { distancia_km } = req.body;
   
   try {
-    // Aseguramos silenciosamente que la columna exista para evitar bloqueos si no se ha corrido la migración manual
     await db.query(`ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS distancia_km NUMERIC DEFAULT 0;`).catch(() => {});
 
     const query = `
@@ -89,11 +95,11 @@ exports.entregarPedidoRepartidor = async (req, res) => {
       SET estado_preparacion = 'Entregado',
       tiempo_entregado = CURRENT_TIMESTAMP,
       distancia_km = $2
-      WHERE id = $1
+      WHERE id = $1 AND empresa_id = $3
       RETURNING *
     `;
-    const result = await db.query(query, [id, distancia_km || 0]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    const result = await db.query(query, [id, distancia_km || 0, empresa_id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Pedido no encontrado o no pertenece a tu negocio.' });
     
     const pedidoActualizado = result.rows[0];
 
@@ -117,18 +123,20 @@ exports.entregarPedidoRepartidor = async (req, res) => {
 // 4. Obtener los viajes activos (Inyectando Contexto GPS)
 exports.obtenerMisViajesActivos = async (req, res) => {
   const { repartidor_id } = req.params;
+  const { empresa_id } = req;
   try {
     const query = `
       SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
              conf.gps_ciudad_estado, conf.gps_direccion_local
       FROM pedidos p
-      LEFT JOIN clientes c ON p.cliente_id = c.id
-      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE id = 1) AS conf
+      LEFT JOIN clientes c ON p.cliente_id = c.id AND c.empresa_id = p.empresa_id
+      CROSS JOIN (SELECT gps_ciudad_estado, gps_direccion_local FROM configuracion WHERE empresa_id = $2) AS conf
       WHERE p.repartidor_id = $1
       AND p.estado_preparacion = 'En Camino'
+      AND p.empresa_id = $2
       ORDER BY p.tiempo_salida_reparto DESC
     `;
-    const result = await db.query(query, [repartidor_id]);
+    const result = await db.query(query, [repartidor_id, empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener ruta activa:", error.message);
@@ -141,6 +149,7 @@ exports.obtenerMisViajesActivos = async (req, res) => {
 // =========================================================================
 
 exports.obtenerRepartidoresAuditoria = async (req, res) => {
+  const { empresa_id } = req;
   try {
     const query = `
       SELECT
@@ -149,14 +158,15 @@ exports.obtenerRepartidoresAuditoria = async (req, res) => {
       COUNT(p.id) as pedidos_pendientes,
       COALESCE(SUM(p.total), 0) as efectivo_acumulado
       FROM usuarios u
-      INNER JOIN pedidos p ON u.id = p.repartidor_id
+      INNER JOIN pedidos p ON u.id = p.repartidor_id AND p.empresa_id = u.empresa_id
       WHERE p.estado_preparacion = 'Entregado'
       AND p.metodo_pago = 'Efectivo'
+      AND u.empresa_id = $1
       GROUP BY u.id, u.nombre
       HAVING COUNT(p.id) > 0
       ORDER BY efectivo_acumulado DESC
     `;
-    const result = await db.query(query);
+    const result = await db.query(query, [empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener auditoría de repartidores:", error.message);
@@ -166,6 +176,7 @@ exports.obtenerRepartidoresAuditoria = async (req, res) => {
 
 exports.obtenerPedidosAuditoria = async (req, res) => {
   const { repartidor_id } = req.params;
+  const { empresa_id } = req;
   try {
     const query = `
       SELECT id, numero_pedido, total, metodo_pago, tiempo_entregado
@@ -173,9 +184,10 @@ exports.obtenerPedidosAuditoria = async (req, res) => {
       WHERE repartidor_id = $1
       AND estado_preparacion = 'Entregado'
       AND metodo_pago = 'Efectivo'
+      AND empresa_id = $2
       ORDER BY tiempo_entregado ASC
     `;
-    const result = await db.query(query, [repartidor_id]);
+    const result = await db.query(query, [repartidor_id, empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener pedidos para auditoría:", error.message);
@@ -184,6 +196,7 @@ exports.obtenerPedidosAuditoria = async (req, res) => {
 };
 
 exports.liquidarAuditoria = async (req, res) => {
+  const { empresa_id } = req;
   const { repartidor_id, pedido_ids, monto_liquidado } = req.body;
   
   if (!repartidor_id || !pedido_ids || pedido_ids.length === 0) {
@@ -193,16 +206,19 @@ exports.liquidarAuditoria = async (req, res) => {
   try {
     await db.query('BEGIN');
     
+    // 🔒 Patrón 9 (variante masiva) corregido: AND empresa_id = $3 evita liquidar
+    // pedidos de efectivo de otro negocio aunque los IDs coincidan tras la migración.
     const updateQuery = `
       UPDATE pedidos
       SET estado_preparacion = 'Liquidado'
       WHERE repartidor_id = $1
       AND id = ANY($2::int[])
       AND estado_preparacion = 'Entregado'
+      AND empresa_id = $3
       RETURNING id
     `;
     
-    const result = await db.query(updateQuery, [repartidor_id, pedido_ids]);
+    const result = await db.query(updateQuery, [repartidor_id, pedido_ids, empresa_id]);
     
     await db.query('COMMIT');
     
@@ -221,19 +237,21 @@ exports.liquidarAuditoria = async (req, res) => {
 // 8. 👇 HISTORIAL CON CONTEXTO GPS INYECTADO
 exports.obtenerHistorialRepartidor = async (req, res) => {
   const { repartidor_id } = req.params;
+  const { empresa_id } = req;
   try {
     const query = `
       SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono,
              conf.gps_ciudad_estado
       FROM pedidos p
-      LEFT JOIN clientes c ON p.cliente_id = c.id
-      CROSS JOIN (SELECT gps_ciudad_estado FROM configuracion WHERE id = 1) AS conf
+      LEFT JOIN clientes c ON p.cliente_id = c.id AND c.empresa_id = p.empresa_id
+      CROSS JOIN (SELECT gps_ciudad_estado FROM configuracion WHERE empresa_id = $2) AS conf
       WHERE p.repartidor_id = $1
       AND p.estado_preparacion IN ('Entregado', 'Liquidado')
       AND DATE(p.tiempo_entregado) = CURRENT_DATE
+      AND p.empresa_id = $2
       ORDER BY p.tiempo_entregado DESC
     `;
-    const result = await db.query(query, [repartidor_id]);
+    const result = await db.query(query, [repartidor_id, empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error al obtener historial del repartidor:", error.message);

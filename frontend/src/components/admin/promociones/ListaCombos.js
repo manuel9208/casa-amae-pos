@@ -1,11 +1,12 @@
 import React from 'react';
 import { Trash2, Edit, Package, Layers } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ListaCombos = ({ combos, productos, apiUrl, showAlert, showConfirm, refrescarCombos, setComboAEditar }) => {
     
     const toggleEstado = async (id, estadoActual) => {
         try {
-            const res = await fetch(`${apiUrl}/combos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !estadoActual }) });
+            const res = await apiFetch(`${apiUrl}/combos/${id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !estadoActual }) });
             if (res.ok) refrescarCombos();
         } catch (error) { showAlert("Error", "No se pudo actualizar el estado.", "error"); }
     };
@@ -13,7 +14,7 @@ const ListaCombos = ({ combos, productos, apiUrl, showAlert, showConfirm, refres
     const eliminarCombo = (id) => {
         showConfirm("Eliminar Combo", "¿Estás seguro de borrar este constructor de combo permanentemente?", async () => {
             try {
-                const res = await fetch(`${apiUrl}/combos/${id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/combos/${id}`, { method: 'DELETE' });
                 if (res.ok) { showAlert("Eliminado", "Combo borrado del sistema.", "success"); refrescarCombos(); }
             } catch (error) { showAlert("Error", "No se pudo eliminar el combo.", "error"); }
         });

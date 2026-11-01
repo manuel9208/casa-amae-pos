@@ -26,13 +26,15 @@ const inicializarTablaCombos = async () => {
 // 2. OBTENER TODOS LOS COMBOS
 // =========================================================================
 const obtenerCombos = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await pool.query(`
             SELECT c.*, p.nombre as producto_base_nombre, p.imagen_url as producto_base_imagen 
             FROM combos c
-            JOIN productos p ON c.producto_base_id = p.id
+            JOIN productos p ON c.producto_base_id = p.id AND p.empresa_id = $1
+            WHERE c.empresa_id = $1
             ORDER BY c.creado_en DESC
-        `);
+        `, [empresaId]); // 🔒 FILTRO EMPRESA
         res.json(result.rows);
     } catch (error) {
         console.error('Error al obtener combos:', error);
@@ -45,6 +47,7 @@ const obtenerCombos = async (req, res) => {
 // =========================================================================
 const crearCombo = async (req, res) => {
     const { producto_base_id, nombre, configuracion_grupos, activo } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     if (!producto_base_id || !nombre || !configuracion_grupos) {
         return res.status(400).json({ error: 'Faltan campos obligatorios para crear el combo.' });
@@ -52,15 +55,16 @@ const crearCombo = async (req, res) => {
 
     try {
         const query = `
-            INSERT INTO combos (producto_base_id, nombre, configuracion_grupos, activo)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO combos (producto_base_id, nombre, configuracion_grupos, activo, empresa_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *;
-        `;
+        `; // 🆕 TENANT
         const values = [
             producto_base_id, 
             nombre, 
             JSON.stringify(configuracion_grupos), // Guardado como JSONB
-            activo !== undefined ? activo : true
+            activo !== undefined ? activo : true,
+            empresaId
         ];
 
         const result = await pool.query(query, values);
@@ -77,6 +81,7 @@ const crearCombo = async (req, res) => {
 const actualizarCombo = async (req, res) => {
     const { id } = req.params;
     const { producto_base_id, nombre, configuracion_grupos, activo } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
         const query = `
@@ -85,15 +90,16 @@ const actualizarCombo = async (req, res) => {
                 nombre = $2, 
                 configuracion_grupos = $3, 
                 activo = $4
-            WHERE id = $5
+            WHERE id = $5 AND empresa_id = $6
             RETURNING *;
-        `;
+        `; // 🔒 FILTRO EMPRESA
         const values = [
             producto_base_id, 
             nombre, 
             JSON.stringify(configuracion_grupos), 
             activo, 
-            id
+            id,
+            empresaId
         ];
 
         const result = await pool.query(query, values);
@@ -115,10 +121,11 @@ const actualizarCombo = async (req, res) => {
 const cambiarEstadoCombo = async (req, res) => {
     const { id } = req.params;
     const { activo } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
-        const query = `UPDATE combos SET activo = $1 WHERE id = $2 RETURNING *;`;
-        const result = await pool.query(query, [activo, id]);
+        const query = `UPDATE combos SET activo = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *;`; // 🔒 FILTRO EMPRESA
+        const result = await pool.query(query, [activo, id, empresaId]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Combo no encontrado.' });
@@ -136,9 +143,10 @@ const cambiarEstadoCombo = async (req, res) => {
 // =========================================================================
 const eliminarCombo = async (req, res) => {
     const { id } = req.params;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
-        const result = await pool.query(`DELETE FROM combos WHERE id = $1 RETURNING id;`, [id]);
+        const result = await pool.query(`DELETE FROM combos WHERE id = $1 AND empresa_id = $2 RETURNING id;`, [id, empresaId]); // 🔒 FILTRO EMPRESA
         
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Combo no encontrado para eliminar.' });

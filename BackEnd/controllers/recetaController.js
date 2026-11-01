@@ -27,12 +27,14 @@ exports.inicializarTablasRecetas = async () => {
 };
 
 exports.obtenerReceta = async (req, res) => {
-    const { producto_id } = req.params; // Puede ser un producto_id o un ingrediente_id dependiendo del modo
+    const { producto_id } = req.params; // Puede ser un producto_id, ingrediente_id o sub_receta_id dependiendo del modo/origen
     const modo = req.query.modo || 'platillos';
 
     // 👇 CORRECCIÓN QUIRÚRGICA: Quitamos el "r." para evitar romper el scope de la subconsulta en PostgreSQL
-    const colFiltro = modo === 'extras' ? 'ingrediente_id' : 'producto_id';
+    let colFiltro = modo === 'extras' ? 'ingrediente_id' : 'producto_id';
+    if (req.query.origen === 'sub_receta') colFiltro = 'sub_receta_id'; // 👈 NUEVO: retrocompatible, no toca llamadas con modo=platillos/extras
 
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const query = `
         WITH RECURSIVE EmpaquesCosto AS (
@@ -47,7 +49,8 @@ exports.obtenerReceta = async (req, res) => {
             LEFT JOIN LATERAL jsonb_array_elements(
                 CASE WHEN jsonb_typeof(opt->'empaques') = 'array' THEN opt->'empaques' ELSE '[]'::jsonb END
             ) AS emp ON true
-            LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int
+            LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int AND i.empresa_id = $2
+            WHERE p.empresa_id = $2
             GROUP BY p.id
         ),
         Explosion AS (
@@ -57,7 +60,8 @@ exports.obtenerReceta = async (req, res) => {
                 r.sub_producto_id,
                 r.cantidad_usada::numeric AS qty_factor
             FROM recetas r
-            WHERE r.producto_id IN (SELECT sub_producto_id FROM recetas WHERE ${colFiltro} = $1 AND sub_producto_id IS NOT NULL)
+            WHERE r.producto_id IN (SELECT sub_producto_id FROM recetas WHERE ${colFiltro} = $1 AND sub_producto_id IS NOT NULL AND empresa_id = $2)
+            AND r.empresa_id = $2
             UNION ALL
             SELECT
                 e.root_producto_id,
@@ -65,8 +69,8 @@ exports.obtenerReceta = async (req, res) => {
                 r.sub_producto_id,
                 ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
             FROM Explosion e
-            JOIN productos p ON e.sub_producto_id = p.id
-            JOIN recetas r ON r.producto_id = p.id
+            JOIN productos p ON e.sub_producto_id = p.id AND p.empresa_id = $2
+            JOIN recetas r ON r.producto_id = p.id AND r.empresa_id = $2
             WHERE e.sub_producto_id IS NOT NULL
         ),
         CostoTotalSubrecetas AS (
@@ -82,8 +86,8 @@ exports.obtenerReceta = async (req, res) => {
                 +
                 COALESCE(MAX(ec_root.costo_empaques_batch), 0) as costo_total_bruto
             FROM Explosion e
-            LEFT JOIN insumos i ON e.insumo_id = i.id
-            LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id
+            LEFT JOIN insumos i ON e.insumo_id = i.id AND i.empresa_id = $2
+            LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id AND p_sub.empresa_id = $2
             LEFT JOIN EmpaquesCosto ec_sub ON e.sub_producto_id = ec_sub.producto_id
             LEFT JOIN EmpaquesCosto ec_root ON e.root_producto_id = ec_root.producto_id
             GROUP BY e.root_producto_id
@@ -95,15 +99,15 @@ exports.obtenerReceta = async (req, res) => {
         ((i.costo_presentacion::numeric / COALESCE(NULLIF(i.cantidad_presentacion::numeric, 0), 1)) / COALESCE(NULLIF(i.factor_rendimiento::numeric, 0), 1)) as costo_unitario_real,
         (SELECT (ca.costo_total_bruto / COALESCE(NULLIF(p_sub.rendimiento::numeric, 0), 1))
         FROM CostoTotalSubrecetas ca
-        JOIN productos p_sub ON p_sub.id = ca.producto_id
+        JOIN productos p_sub ON p_sub.id = ca.producto_id AND p_sub.empresa_id = $2
         WHERE ca.producto_id = r.sub_producto_id) as costo_subreceta
         FROM recetas r
-        LEFT JOIN insumos i ON r.insumo_id = i.id
-        LEFT JOIN productos p ON r.sub_producto_id = p.id
-        WHERE r.${colFiltro} = $1
-        `;
+        LEFT JOIN insumos i ON r.insumo_id = i.id AND i.empresa_id = $2
+        LEFT JOIN productos p ON r.sub_producto_id = p.id AND p.empresa_id = $2
+        WHERE r.${colFiltro} = $1 AND r.empresa_id = $2
+        `; // 🔒 FILTRO EMPRESA aplicado en TODOS los niveles del motor de costeo (3 CTEs + consulta final)
 
-        const result = await db.query(query, [producto_id]);
+        const result = await db.query(query, [producto_id, empresaId]); // 🆕 TENANT: $2
         res.json(result.rows);
     } catch (error) {
         console.error("Error al obtener receta:", error);
@@ -112,11 +116,12 @@ exports.obtenerReceta = async (req, res) => {
 };
 
 exports.agregarInsumoReceta = async (req, res) => {
-    // 👇 Recibimos los nuevos campos híbridos
-    const { producto_id, ingrediente_id, sabor_nombre, insumo_id, sub_producto_id, cantidad_usada } = req.body;
+    // 👇 Recibimos los nuevos campos híbridos + sub_receta_id (dueño = Base/Sub-Receta independiente)
+    const { producto_id, sub_receta_id, ingrediente_id, sabor_nombre, insumo_id, sub_producto_id, cantidad_usada } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
-        // 🛡️ ESCUDO ANTI-BUCLES INFINITOS (Solo aplica si estamos costeando un Producto, no un Extra)
+        // 🛡️ ESCUDO ANTI-BUCLES INFINITOS (Solo aplica si estamos costeando un Producto, no un Extra ni una Sub-Receta)
         if (sub_producto_id && producto_id) {
             // 1. Validar que no se agregue a sí mismo
             if (Number(producto_id) === Number(sub_producto_id)) {
@@ -126,15 +131,15 @@ exports.agregarInsumoReceta = async (req, res) => {
             // 2. Validar recursividad profunda (Evitar que A -> B -> C -> A)
             const checkBucleQuery = `
             WITH RECURSIVE Descendientes AS (
-                SELECT sub_producto_id FROM recetas WHERE producto_id = $1 AND sub_producto_id IS NOT NULL
+                SELECT sub_producto_id FROM recetas WHERE producto_id = $1 AND sub_producto_id IS NOT NULL AND empresa_id = $3
                 UNION ALL
                 SELECT r.sub_producto_id FROM recetas r
                 INNER JOIN Descendientes d ON r.producto_id = d.sub_producto_id
-                WHERE r.sub_producto_id IS NOT NULL
+                WHERE r.sub_producto_id IS NOT NULL AND r.empresa_id = $3
             )
             SELECT sub_producto_id FROM Descendientes WHERE sub_producto_id = $2 LIMIT 1;
-            `;
-            const bucleCheck = await db.query(checkBucleQuery, [producto_id, sub_producto_id]);
+            `; // 🔒 FILTRO EMPRESA — escudo anti-bucles aislado por empresa
+            const bucleCheck = await db.query(checkBucleQuery, [producto_id, sub_producto_id, empresaId]); // 🆕 TENANT: $3
 
             if (bucleCheck.rows.length > 0) {
                 return res.status(400).json({
@@ -143,10 +148,10 @@ exports.agregarInsumoReceta = async (req, res) => {
             }
         }
 
-        // 👇 Inserción de alta precisión con soporte para Sabores y Extras
+        // 👇 Inserción de alta precisión con soporte para Sabores, Extras y Sub-Recetas (Bases)
         const result = await db.query(
-            'INSERT INTO recetas (producto_id, ingrediente_id, sabor_nombre, insumo_id, sub_producto_id, cantidad_usada) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [producto_id || null, ingrediente_id || null, sabor_nombre || null, insumo_id || null, sub_producto_id || null, cantidad_usada]
+            'INSERT INTO recetas (producto_id, sub_receta_id, ingrediente_id, sabor_nombre, insumo_id, sub_producto_id, cantidad_usada, empresa_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', // 🆕 TENANT
+            [producto_id || null, sub_receta_id || null, ingrediente_id || null, sabor_nombre || null, insumo_id || null, sub_producto_id || null, cantidad_usada, empresaId]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -157,8 +162,9 @@ exports.agregarInsumoReceta = async (req, res) => {
 
 exports.eliminarInsumoReceta = async (req, res) => {
     const { id } = req.params;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        await db.query('DELETE FROM recetas WHERE id = $1', [id]);
+        await db.query('DELETE FROM recetas WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: 'Error al eliminar item de receta' });
@@ -168,10 +174,11 @@ exports.eliminarInsumoReceta = async (req, res) => {
 exports.actualizarOpcionesProducto = async (req, res) => {
     const { id } = req.params;
     const { opciones } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await db.query(
-            'UPDATE productos SET opciones = $1 WHERE id = $2 RETURNING *',
-            [JSON.stringify(opciones), id]
+            'UPDATE productos SET opciones = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', // 🔒 FILTRO EMPRESA
+            [JSON.stringify(opciones), id, empresaId]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -185,8 +192,9 @@ exports.actualizarOpcionesProducto = async (req, res) => {
 // =========================================================
 
 exports.obtenerSubRecetas = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        const result = await db.query("SELECT * FROM sub_recetas ORDER BY nombre ASC");
+        const result = await db.query("SELECT * FROM sub_recetas WHERE empresa_id = $1 ORDER BY nombre ASC", [empresaId]); // 🔒 FILTRO EMPRESA
         res.json(result.rows);
     } catch (error) {
         console.error("Error al obtener sub-recetas:", error);
@@ -196,10 +204,11 @@ exports.obtenerSubRecetas = async (req, res) => {
 
 exports.crearSubReceta = async (req, res) => {
     const { nombre, categoria, rendimiento, unidad_rendimiento } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await db.query(
-            "INSERT INTO sub_recetas (nombre, categoria, rendimiento, unidad_rendimiento) VALUES ($1, $2, $3, $4) RETURNING *",
-            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ']
+            "INSERT INTO sub_recetas (nombre, categoria, rendimiento, unidad_rendimiento, empresa_id) VALUES ($1, $2, $3, $4, $5) RETURNING *", // 🆕 TENANT
+            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ', empresaId]
         );
         
         const io = req.app.get('io');
@@ -215,10 +224,11 @@ exports.crearSubReceta = async (req, res) => {
 exports.actualizarSubReceta = async (req, res) => {
     const { id } = req.params;
     const { nombre, categoria, rendimiento, unidad_rendimiento } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await db.query(
-            "UPDATE sub_recetas SET nombre = $1, categoria = $2, rendimiento = $3, unidad_rendimiento = $4 WHERE id = $5 RETURNING *",
-            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ', id]
+            "UPDATE sub_recetas SET nombre = $1, categoria = $2, rendimiento = $3, unidad_rendimiento = $4 WHERE id = $5 AND empresa_id = $6 RETURNING *", // 🔒 FILTRO EMPRESA
+            [nombre, categoria || 'Base', rendimiento || 1, unidad_rendimiento || 'PZ', id, empresaId]
         );
         
         const io = req.app.get('io');
@@ -233,8 +243,9 @@ exports.actualizarSubReceta = async (req, res) => {
 
 exports.eliminarSubReceta = async (req, res) => {
     const { id } = req.params;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        await db.query("DELETE FROM sub_recetas WHERE id = $1", [id]);
+        await db.query("DELETE FROM sub_recetas WHERE id = $1 AND empresa_id = $2", [id, empresaId]); // 🔒 FILTRO EMPRESA
         
         const io = req.app.get('io');
         if (io) io.emit('catalogo_actualizado');

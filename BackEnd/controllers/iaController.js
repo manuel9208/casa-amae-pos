@@ -146,7 +146,7 @@ const calcularRangosTiempo = (modo = 'mes', fechaReferencia = null, rangoInicioM
 
 // 👇 Resume ingresos/pedidos/cancelaciones de un rango de fechas específico (reutilizable
 // para el periodo actual Y para cada periodo comparativo, evitando duplicar la query 4 veces).
-const obtenerResumenPeriodo = async (fechaInicio, fechaFin) => {
+const obtenerResumenPeriodo = async (fechaInicio, fechaFin, empresaId) => {
   try {
     const res = await db.query(`
       SELECT 
@@ -155,8 +155,8 @@ const obtenerResumenPeriodo = async (fechaInicio, fechaFin) => {
         COUNT(CASE WHEN estado_preparacion = 'Cancelado' THEN 1 END) as pedidos_cancelados,
         COALESCE(SUM(CASE WHEN estado_preparacion = 'Cancelado' THEN total ELSE 0 END), 0) as dinero_cancelado
       FROM pedidos
-      WHERE fecha_creacion::date BETWEEN $1 AND $2
-    `, [fechaInicio, fechaFin]);
+      WHERE fecha_creacion::date BETWEEN $1 AND $2 AND empresa_id = $3
+    `, [fechaInicio, fechaFin, empresaId]);
     return {
       pedidos: Number(res.rows[0].pedidos_validos),
       ingresos: Number(res.rows[0].ingresos_validos),
@@ -180,7 +180,7 @@ const calcularVariacionPct = (actual, anterior) => {
 // enviado por el FRONTEND según lo que el usuario seleccionó en su sesión de Chat.
 // Ya NO se usa "configIA.proveedor_activo" como fuente de verdad (ese campo se
 // mantiene en la tabla solo por compatibilidad, pero deja de dictar el comportamiento).
-const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3, maxRetries = 3, cacheKey = null, configIA = null, proveedorElegido = null) => {
+const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3, maxRetries = 3, cacheKey = null, configIA = null, proveedorElegido = null, empresaId = null) => {
   // 1. Verificación de Caché (Respuesta guardada por 30 minutos = 0 costo)
   if (cacheKey && respuestasCache.has(cacheKey)) {
     const dataCached = respuestasCache.get(cacheKey);
@@ -241,7 +241,7 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
         textoFinal = limpiarMarkdown(textoFinal);
         
         if (cacheKey) respuestasCache.set(cacheKey, { texto: textoFinal, timestamp: Date.now() });
-        await registrarConsumoIA(hoy);
+        await registrarConsumoIA(hoy, empresaId);
 
         return textoFinal;
       } catch (error) {
@@ -277,7 +277,7 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
       });
       const textoFinal = limpiarMarkdown(response.content?.[0]?.text || '');
       if (cacheKey) respuestasCache.set(cacheKey, { texto: textoFinal, timestamp: Date.now() });
-      await registrarConsumoIA(hoy);
+      await registrarConsumoIA(hoy, empresaId);
       return textoFinal;
     } catch (error) {
       const msgErr = error.message || '';
@@ -303,7 +303,7 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
       });
       const textoFinal = limpiarMarkdown(response.choices[0].message.content);
       if (cacheKey) respuestasCache.set(cacheKey, { texto: textoFinal, timestamp: Date.now() });
-      await registrarConsumoIA(hoy);
+      await registrarConsumoIA(hoy, empresaId);
       return textoFinal;
     } catch (error) {
       if (error.message.includes('Incorrect API key')) {
@@ -316,14 +316,14 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
   }
 };
 
-const registrarConsumoIA = async (fechaHoy) => {
+const registrarConsumoIA = async (fechaHoy, empresaId) => {
   try {
     await db.query(`
       UPDATE ia_configuracion 
       SET consultas_hoy = CASE WHEN fecha_uso = $1::date THEN consultas_hoy + 1 ELSE 1 END,
           fecha_uso = $1::date
-      WHERE id = 1
-    `, [fechaHoy]);
+      WHERE empresa_id = $2
+    `, [fechaHoy, empresaId]);
   } catch (error) {
     console.error("Error al registrar consumo IA:", error);
   }
@@ -353,11 +353,14 @@ exports.inicializarTablaIA = async () => {
         imagen_proveedor VARCHAR(20) DEFAULT 'gemini',
         contexto_negocio TEXT DEFAULT NULL,
         consultas_hoy INTEGER DEFAULT 0,
-        fecha_uso DATE DEFAULT CURRENT_DATE
+        fecha_uso DATE DEFAULT CURRENT_DATE,
+        empresa_id INTEGER REFERENCES empresas(id)
       );
     `);
-    
-    await db.query(`INSERT INTO ia_configuracion (id) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM ia_configuracion WHERE id = 1);`);
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ia_configuracion_empresa_unica ON ia_configuracion(empresa_id);`);
+
+    // 🆕 Ya no se siembra una fila fija id=1: ahora es 1 fila por empresa,
+    // creada automáticamente al primer guardado (ver actualizarConfiguracionIA con UPSERT).
 
     // Inyección segura de columnas por si venimos de versiones anteriores
     await db.query(`ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS proveedor_activo VARCHAR(20) DEFAULT 'gemini';`);
@@ -388,7 +391,7 @@ exports.inicializarTablaIA = async () => {
     // (UNIQUE), que se sobreescribe cada día vía UPSERT en guardarHistorialChat(). Así
     // la tabla nunca crece sin control y el historial se "reinicia" solo al cambiar de
     // fecha, sin necesidad de ningún cron de limpieza.
-    await db.query(`
+        await db.query(`
       CREATE TABLE IF NOT EXISTS ia_conversaciones (
         id SERIAL PRIMARY KEY,
         usuario_id INTEGER NOT NULL,
@@ -396,19 +399,36 @@ exports.inicializarTablaIA = async () => {
         fecha DATE DEFAULT CURRENT_DATE,
         mensajes JSONB DEFAULT '[]'::jsonb,
         actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(usuario_id, contexto)
+        empresa_id INTEGER REFERENCES empresas(id),
+        UNIQUE(usuario_id, contexto, empresa_id)
       );
     `);
-    
+
+    // 👇 NUEVO: Eliminamos el candado VIEJO (2 columnas, sin empresa_id) que pudo
+    // quedar de una instalación anterior al multi-tenant. Si no se quita, choca
+    // con el candado nuevo de 3 columnas y provoca "duplicate key" al guardar
+    // el chat de un usuario que ya tenía historial de otra empresa con el mismo id.
+    await db.query(`
+      ALTER TABLE ia_conversaciones DROP CONSTRAINT IF EXISTS ia_conversaciones_usuario_id_contexto_key;
+    `).catch((e) => console.error("Aviso: constraint viejo de ia_conversaciones ya no existía.", e.message));
+
+    // 👇 Blindaje para instalaciones donde la tabla ya existía ANTES de
+    // la migración multi-tenant (el CREATE TABLE IF NOT EXISTS de arriba no
+    // se ejecuta en ese caso, dejando la tabla sin este índice único correcto).
+    await db.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ia_conversaciones_unica
+      ON ia_conversaciones (usuario_id, contexto, empresa_id);
+    `).catch((e) => console.error("Aviso: índice único de ia_conversaciones ya existía o no se pudo crear.", e.message));
+
     console.log(`✅ Módulo IA inicializado con candados dinámicos y Multi-Llave (Gemini/OpenAI/Claude).`);
   } catch (error) {
     console.error('🚨 Error al inicializar tabla del módulo IA:', error);
   }
 };
 
-const obtenerConfigIA = async () => {
-  const confRes = await db.query('SELECT * FROM ia_configuracion WHERE id = 1');
-  if (confRes.rows.length === 0) throw new Error('Configuración de IA no encontrada.');
+const obtenerConfigIA = async (empresaId) => {
+  const confRes = await db.query('SELECT * FROM ia_configuracion WHERE empresa_id = $1', [empresaId]);
+  if (confRes.rows.length === 0) throw new Error('Configuración de IA no encontrada. Pide al Administrador que la configure primero en Ajustes de IA.');
   if (!confRes.rows[0].modulo_activo) throw new Error('El módulo de IA está desactivado temporalmente por el Administrador.');
   return confRes.rows[0];
 };
@@ -417,8 +437,9 @@ const obtenerConfigIA = async () => {
 // 2. ENDPOINTS DE ADMINISTRACIÓN DE IA
 // =========================================================================
 exports.obtenerConfiguracionIA = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const config = await obtenerConfigIA();
+    const config = await obtenerConfigIA(empresa_id);
     // Enmascaramos las llaves por seguridad antes de enviarlas al front
     const maskKey = (key) => key ? `${key.substring(0, 6)}...${key.substring(key.length - 4)}` : '';
     
@@ -444,6 +465,7 @@ exports.obtenerConfiguracionIA = async (req, res) => {
 };
 
 exports.actualizarConfiguracionIA = async (req, res) => {
+  const { empresa_id } = req;
   const {
     modulo_activo, tier_premium, proveedor_activo,
     api_key_gemini, api_key_openai, api_key_claude,
@@ -455,10 +477,7 @@ exports.actualizarConfiguracionIA = async (req, res) => {
     const openaiParam = (api_key_openai && !api_key_openai.includes('...')) ? api_key_openai.trim() : null;
     const claudeParam = (api_key_claude && !api_key_claude.includes('...')) ? api_key_claude.trim() : null;
 
-    // 👇 NUEVO CANDADO: no se puede HABILITAR un proveedor si no hay ninguna llave
-    // disponible para él (ni la que se manda ahora, ni la que ya existía en BD).
-    // Esto blinda el backend por si el frontend llegara a fallar en bloquear el switch.
-    const configActual = await db.query('SELECT api_key_gemini, api_key_openai, api_key_claude FROM ia_configuracion WHERE id = 1');
+    const configActual = await db.query('SELECT api_key_gemini, api_key_openai, api_key_claude FROM ia_configuracion WHERE empresa_id = $1', [empresa_id]);
     const actual = configActual.rows[0] || {};
 
     const tieneLlaveGemini = !!(geminiParam || actual.api_key_gemini);
@@ -475,21 +494,22 @@ exports.actualizarConfiguracionIA = async (req, res) => {
       return res.status(400).json({ error: 'No puedes habilitar Claude sin antes guardar su llave API.' });
     }
 
+    // Resolvemos los valores finales en JS (equivalente al COALESCE original),
+    // ya que INSERT...ON CONFLICT no puede referenciar la fila previa igual que UPDATE.
+    const apiKeyGeminiFinal = geminiParam || actual.api_key_gemini || null;
+    const apiKeyOpenaiFinal = openaiParam || actual.api_key_openai || null;
+    const apiKeyClaudeFinal = claudeParam || actual.api_key_claude || null;
+
     await db.query(`
-      UPDATE ia_configuracion SET 
-        modulo_activo = $1, 
-        tier_premium = $2, 
-        proveedor_activo = $3,
-        api_key_gemini = COALESCE($4, api_key_gemini),
-        api_key_openai = COALESCE($5, api_key_openai),
-        api_key_claude = COALESCE($6, api_key_claude),
-        gemini_habilitado = $7,
-        openai_habilitado = $8,
-        claude_habilitado = $9,
-        imagen_proveedor = $10,
-        contexto_negocio = $11
-      WHERE id = 1
-    `, [modulo_activo, tier_premium, proveedor_activo, geminiParam, openaiParam, claudeParam, gemini_habilitado, openai_habilitado, claude_habilitado, imagen_proveedor, contexto_negocio || null]);
+      INSERT INTO ia_configuracion
+        (empresa_id, modulo_activo, tier_premium, proveedor_activo, api_key_gemini, api_key_openai, api_key_claude, gemini_habilitado, openai_habilitado, claude_habilitado, imagen_proveedor, contexto_negocio)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (empresa_id) DO UPDATE SET
+        modulo_activo = $2, tier_premium = $3, proveedor_activo = $4,
+        api_key_gemini = $5, api_key_openai = $6, api_key_claude = $7,
+        gemini_habilitado = $8, openai_habilitado = $9, claude_habilitado = $10,
+        imagen_proveedor = $11, contexto_negocio = $12
+    `, [empresa_id, modulo_activo, tier_premium, proveedor_activo, apiKeyGeminiFinal, apiKeyOpenaiFinal, apiKeyClaudeFinal, gemini_habilitado, openai_habilitado, claude_habilitado, imagen_proveedor, contexto_negocio || null]);
 
     res.json({ success: true, mensaje: 'Configuración de IA actualizada con éxito.' });
   } catch (error) {
@@ -501,13 +521,12 @@ exports.actualizarConfiguracionIA = async (req, res) => {
 // 3. ANALISTA FINANCIERO AVANZADO
 // =========================================================================
 exports.analizarVentas = async (req, res) => {
-  // 👇 NUEVO: modoTiempo ('semana'|'mes'|'año'|'rango'), fechaReferencia (para elegir
-  // "qué" semana/mes/año ver) y rangoInicio/rangoFin (solo si modoTiempo='rango').
+  const { empresa_id } = req;
   const { prompt, proveedor, modoTiempo, fechaReferencia, rangoInicio, rangoFin } = req.body;
   if (!prompt) return res.status(400).json({ error: 'El prompt es requerido.' });
 
   try {
-    const configIA = await obtenerConfigIA();
+    const configIA = await obtenerConfigIA(empresa_id);
 
     let rangos;
     try {
@@ -526,10 +545,10 @@ exports.analizarVentas = async (req, res) => {
     let gastosTotal = 0;
 
     // 👇 NUEVO: Resúmenes de ingresos/pedidos para CADA periodo del comparativo
-    const resumenActual = await obtenerResumenPeriodo(rangos.actual.inicio, rangos.actual.fin);
-    const resumenAnterior = await obtenerResumenPeriodo(rangos.anterior.inicio, rangos.anterior.fin);
-    const resumenAnioPasado = await obtenerResumenPeriodo(rangos.anioPasado.inicio, rangos.anioPasado.fin);
-    const resumenMesPasado = rangos.mesPasado ? await obtenerResumenPeriodo(rangos.mesPasado.inicio, rangos.mesPasado.fin) : null;
+    const resumenActual = await obtenerResumenPeriodo(rangos.actual.inicio, rangos.actual.fin, empresa_id);
+    const resumenAnterior = await obtenerResumenPeriodo(rangos.anterior.inicio, rangos.anterior.fin, empresa_id);
+    const resumenAnioPasado = await obtenerResumenPeriodo(rangos.anioPasado.inicio, rangos.anioPasado.fin, empresa_id);
+    const resumenMesPasado = rangos.mesPasado ? await obtenerResumenPeriodo(rangos.mesPasado.inicio, rangos.mesPasado.fin, empresa_id) : null;
 
     const ingresosB2C = resumenActual.ingresos;
     const pedidosB2C = resumenActual.pedidos;
@@ -537,31 +556,31 @@ exports.analizarVentas = async (req, res) => {
     const dineroCancelado = resumenActual.dineroCancelado;
 
     try {
-      const gastosRes = await db.query(`SELECT COALESCE(SUM(total_pago), 0) as total FROM gastos_proveedores WHERE estado IN ('Pagado', 'Aprobado') AND fecha_compra::date BETWEEN $1 AND $2`, [rangos.actual.inicio, rangos.actual.fin]);
+      const gastosRes = await db.query(`SELECT COALESCE(SUM(total_pago), 0) as total FROM gastos_proveedores WHERE estado IN ('Pagado', 'Aprobado') AND fecha_compra::date BETWEEN $1 AND $2 AND empresa_id = $3`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       gastosTotal += Number(gastosRes.rows[0].total);
-      const comprasRes = await db.query(`SELECT COALESCE(SUM(costo_total), 0) as total FROM compras_insumos WHERE fecha_compra::date BETWEEN $1 AND $2`, [rangos.actual.inicio, rangos.actual.fin]);
+      const comprasRes = await db.query(`SELECT COALESCE(SUM(costo_total), 0) as total FROM compras_insumos WHERE fecha_compra::date BETWEEN $1 AND $2 AND empresa_id = $3`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       gastosTotal += Number(comprasRes.rows[0].total);
     } catch(e) {}
 
     try {
-      const mermasRes = await db.query(`SELECT nombre_item, SUM(costo_perdido) as perdida, SUM(cantidad) as cantidad FROM reporte_mermas WHERE fecha_creacion::date BETWEEN $1 AND $2 GROUP BY nombre_item ORDER BY perdida DESC LIMIT 5`, [rangos.actual.inicio, rangos.actual.fin]);
+      const mermasRes = await db.query(`SELECT nombre_item, SUM(costo_perdido) as perdida, SUM(cantidad) as cantidad FROM reporte_mermas WHERE fecha_creacion::date BETWEEN $1 AND $2 AND empresa_id = $3 GROUP BY nombre_item ORDER BY perdida DESC LIMIT 5`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       mermasTotal = mermasRes.rows.reduce((acc, curr) => acc + Number(curr.perdida), 0);
       listaMermas = mermasRes.rows;
     } catch(e) {}
 
     try {
-      const platillosRes = await db.query(`SELECT obj->>'nombre' as platillo, SUM(CAST(obj->>'cantidad' AS INTEGER)) as cantidad FROM pedidos p, jsonb_array_elements(p.carrito) obj WHERE p.estado_preparacion != 'Cancelado' AND p.fecha_creacion::date BETWEEN $1 AND $2 GROUP BY platillo ORDER BY cantidad DESC LIMIT 10`, [rangos.actual.inicio, rangos.actual.fin]);
+      const platillosRes = await db.query(`SELECT obj->>'nombre' as platillo, SUM(CAST(obj->>'cantidad' AS INTEGER)) as cantidad FROM pedidos p, jsonb_array_elements(p.carrito) obj WHERE p.estado_preparacion != 'Cancelado' AND p.fecha_creacion::date BETWEEN $1 AND $2 AND p.empresa_id = $3 GROUP BY platillo ORDER BY cantidad DESC LIMIT 10`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       platillosVendidos = platillosRes.rows;
     } catch(e) {}
 
     try {
-      const histRes = await db.query(`SELECT MIN(fecha_creacion) as primer_dia FROM pedidos WHERE estado_preparacion != 'Cancelado'`);
+      const histRes = await db.query(`SELECT MIN(fecha_creacion) as primer_dia FROM pedidos WHERE estado_preparacion != 'Cancelado' AND empresa_id = $1`, [empresa_id]);
       if (histRes.rows.length > 0 && histRes.rows[0].primer_dia) primerDiaVenta = new Date(histRes.rows[0].primer_dia).toLocaleDateString('es-MX');
       
       const diasRes = await db.query(`
         SELECT EXTRACT(ISODOW FROM fecha_creacion) as dia_numero, COUNT(id) as pedidos, COALESCE(SUM(total), 0) as ingresos
-        FROM pedidos WHERE estado_preparacion != 'Cancelado' GROUP BY dia_numero ORDER BY ingresos ASC
-      `);
+        FROM pedidos WHERE estado_preparacion != 'Cancelado' AND empresa_id = $1 GROUP BY dia_numero ORDER BY ingresos ASC
+      `, [empresa_id]);
       const nombresDias = { 1:'Lunes', 2:'Martes', 3:'Miércoles', 4:'Jueves', 5:'Viernes', 6:'Sábado', 7:'Domingo' };
       const diasFormateados = diasRes.rows.map(d => `${nombresDias[d.dia_numero]}: $${Number(d.ingresos).toFixed(2)} (${d.pedidos} ordenes)`);
       if (diasFormateados.length > 0) ventasPorDiaStr = diasFormateados.join(' | ');
@@ -571,10 +590,11 @@ exports.analizarVentas = async (req, res) => {
       const crmRes = await db.query(`
         SELECT c.nombre, c.puntos, COUNT(p.id) as visitas_periodo 
         FROM clientes c 
-        LEFT JOIN pedidos p ON c.id = p.cliente_id AND p.fecha_creacion::date BETWEEN $1 AND $2
+        LEFT JOIN pedidos p ON c.id = p.cliente_id AND p.fecha_creacion::date BETWEEN $1 AND $2 AND p.empresa_id = c.empresa_id
+        WHERE c.empresa_id = $3
         GROUP BY c.id, c.nombre, c.puntos 
         ORDER BY visitas_periodo DESC, c.puntos DESC LIMIT 5
-      `, [rangos.actual.inicio, rangos.actual.fin]);
+      `, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       topClientes = crmRes.rows;
     } catch(e) {}
 
@@ -585,10 +605,10 @@ exports.analizarVentas = async (req, res) => {
                COUNT(CASE WHEN estado_preparacion != 'Cancelado' THEN 1 END) as pedidos,
                COALESCE(SUM(CASE WHEN estado_preparacion != 'Cancelado' THEN total ELSE 0 END), 0) as ingresos
         FROM pedidos
-        WHERE fecha_creacion >= CURRENT_DATE - INTERVAL '6 months'
+        WHERE fecha_creacion >= CURRENT_DATE - INTERVAL '6 months' AND empresa_id = $1
         GROUP BY DATE_TRUNC('month', fecha_creacion)
         ORDER BY mes_fecha ASC
-      `);
+      `, [empresa_id]);
       if (tendenciaRes.rows.length > 0) {
         tendenciaMensualStr = tendenciaRes.rows.map(m => `${m.mes.trim()}: $${Number(m.ingresos).toFixed(2)} (${m.pedidos} pedidos)`).join(' | ');
       }
@@ -599,29 +619,31 @@ exports.analizarVentas = async (req, res) => {
         SELECT p.nombre, p.categoria, p.precio_base
         FROM productos p
         WHERE p.disponible = true
+        AND p.empresa_id = $3
         AND NOT EXISTS (
           SELECT 1 FROM pedidos pe, jsonb_array_elements(pe.carrito) obj
           WHERE pe.estado_preparacion != 'Cancelado'
           AND pe.fecha_creacion::date BETWEEN $1 AND $2
+          AND pe.empresa_id = p.empresa_id
           AND LOWER(TRIM(obj->>'nombre')) = LOWER(TRIM(p.nombre))
         )
         ORDER BY p.nombre ASC LIMIT 15
-      `, [rangos.actual.inicio, rangos.actual.fin]);
+      `, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       productosSinVenta = sinVentaRes.rows;
     } catch(e) {}
 
     try {
-      const stockRes = await db.query(`SELECT nombre, unidad_medida, stock_actual FROM insumos WHERE es_empaque = false ORDER BY stock_actual ASC LIMIT 10`);
+      const stockRes = await db.query(`SELECT nombre, unidad_medida, stock_actual FROM insumos WHERE es_empaque = false AND empresa_id = $1 ORDER BY stock_actual ASC LIMIT 10`, [empresa_id]);
       insumosStockBajo = stockRes.rows;
     } catch(e) {}
 
     try {
       const gastoInsumoRes = await db.query(`
         SELECT i.nombre, SUM(ci.costo_total) as gasto_total, SUM(ci.paquetes) as paquetes_comprados
-        FROM compras_insumos ci JOIN insumos i ON ci.insumo_id = i.id
-        WHERE ci.fecha_compra::date BETWEEN $1 AND $2
+        FROM compras_insumos ci JOIN insumos i ON ci.insumo_id = i.id AND i.empresa_id = ci.empresa_id
+        WHERE ci.fecha_compra::date BETWEEN $1 AND $2 AND ci.empresa_id = $3
         GROUP BY i.nombre ORDER BY gasto_total DESC LIMIT 10
-      `, [rangos.actual.inicio, rangos.actual.fin]);
+      `, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       insumosMayorGasto = gastoInsumoRes.rows;
     } catch(e) {}
 
@@ -629,9 +651,9 @@ exports.analizarVentas = async (req, res) => {
       const mermasTipoRes = await db.query(`
         SELECT tipo, origen, COUNT(*) as eventos, SUM(costo_perdido) as perdida_total
         FROM reporte_mermas
-        WHERE fecha_creacion::date BETWEEN $1 AND $2
+        WHERE fecha_creacion::date BETWEEN $1 AND $2 AND empresa_id = $3
         GROUP BY tipo, origen ORDER BY perdida_total DESC
-      `, [rangos.actual.inicio, rangos.actual.fin]);
+      `, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       mermasPorTipoOrigen = mermasTipoRes.rows;
     } catch(e) {}
 
@@ -738,8 +760,8 @@ exports.analizarVentas = async (req, res) => {
       }
     };
 
-    const cacheKeyStr = `finanzas_${modoTiempo || 'mes'}_${rangos.actual.inicio}_${proveedor || 'gemini'}_${prompt.substring(0, 30)}`;
-    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.2, 3, cacheKeyStr, configIA, proveedor);
+    const cacheKeyStr = `finanzas_${empresa_id}_${modoTiempo || 'mes'}_${rangos.actual.inicio}_${proveedor || 'gemini'}_${prompt.substring(0, 30)}`;
+    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.2, 3, cacheKeyStr, configIA, proveedor, empresa_id);
     
     res.json({ success: true, respuesta: respuestaText, rangoUsado: rangos.actual, graficoData });
   } catch (error) {
@@ -753,11 +775,12 @@ exports.analizarVentas = async (req, res) => {
 // 4. GESTOR DE TALENTO (RRHH)
 // =========================================================================
 exports.analizarEmpleados = async (req, res) => {
+  const { empresa_id } = req;
   const { prompt, proveedor, modoTiempo, fechaReferencia, rangoInicio, rangoFin } = req.body;
   if (!prompt) return res.status(400).json({ error: 'El prompt es requerido.' });
 
   try {
-    const configIA = await obtenerConfigIA();
+    const configIA = await obtenerConfigIA(empresa_id);
 
     let rangos;
     try {
@@ -770,27 +793,27 @@ exports.analizarEmpleados = async (req, res) => {
     let finanzasPersonal = [];
 
     try {
-      const asistenciasRes = await db.query(`SELECT u.nombre, u.rol, COUNT(a.id) as dias_asistidos, COALESCE(SUM(ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2)), 0) AS horas FROM usuarios u LEFT JOIN registro_asistencias a ON u.id = a.usuario_id AND a.fecha::date BETWEEN $1 AND $2 WHERE u.rol != 'admin' GROUP BY u.id, u.nombre, u.rol ORDER BY horas DESC`, [rangos.actual.inicio, rangos.actual.fin]);
+      const asistenciasRes = await db.query(`SELECT u.nombre, u.rol, COUNT(a.id) as dias_asistidos, COALESCE(SUM(ROUND((EXTRACT(EPOCH FROM (COALESCE(a.hora_salida, CURRENT_TIMESTAMP) - a.hora_entrada))/3600)::numeric, 2)), 0) AS horas FROM usuarios u LEFT JOIN registro_asistencias a ON u.id = a.usuario_id AND a.fecha::date BETWEEN $1 AND $2 AND a.empresa_id = u.empresa_id WHERE u.rol != 'admin' AND u.empresa_id = $3 GROUP BY u.id, u.nombre, u.rol ORDER BY horas DESC`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       listaAsistencias = asistenciasRes.rows;
     } catch(e) {}
 
     try {
-      const cocinaRes = await db.query(`SELECT u.nombre as chef, COUNT(p.id) as ordenes, ROUND(AVG(EXTRACT(EPOCH FROM (p.tiempo_listo - p.tiempo_inicio_preparacion))/60)::numeric, 1) AS mins_promedio FROM pedidos p JOIN usuarios u ON p.chef_id = u.id WHERE p.tiempo_listo IS NOT NULL AND p.fecha_creacion::date BETWEEN $1 AND $2 GROUP BY u.nombre ORDER BY mins_promedio ASC`, [rangos.actual.inicio, rangos.actual.fin]);
+      const cocinaRes = await db.query(`SELECT u.nombre as chef, COUNT(p.id) as ordenes, ROUND(AVG(EXTRACT(EPOCH FROM (p.tiempo_listo - p.tiempo_inicio_preparacion))/60)::numeric, 1) AS mins_promedio FROM pedidos p JOIN usuarios u ON p.chef_id = u.id AND u.empresa_id = p.empresa_id WHERE p.tiempo_listo IS NOT NULL AND p.fecha_creacion::date BETWEEN $1 AND $2 AND p.empresa_id = $3 GROUP BY u.nombre ORDER BY mins_promedio ASC`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       listaCocina = cocinaRes.rows;
     } catch(e) {}
 
     try {
-      const repartidoresRes = await db.query(`SELECT u.nombre as repartidor, COUNT(p.id) as entregas, ROUND(AVG(EXTRACT(EPOCH FROM (p.tiempo_entregado - p.tiempo_salida_reparto))/60)::numeric, 1) AS mins_entrega_promedio FROM pedidos p JOIN usuarios u ON p.repartidor_id = u.id WHERE p.tiempo_entregado IS NOT NULL AND p.fecha_creacion::date BETWEEN $1 AND $2 GROUP BY u.nombre ORDER BY mins_entrega_promedio ASC`, [rangos.actual.inicio, rangos.actual.fin]);
+      const repartidoresRes = await db.query(`SELECT u.nombre as repartidor, COUNT(p.id) as entregas, ROUND(AVG(EXTRACT(EPOCH FROM (p.tiempo_entregado - p.tiempo_salida_reparto))/60)::numeric, 1) AS mins_entrega_promedio FROM pedidos p JOIN usuarios u ON p.repartidor_id = u.id AND u.empresa_id = p.empresa_id WHERE p.tiempo_entregado IS NOT NULL AND p.fecha_creacion::date BETWEEN $1 AND $2 AND p.empresa_id = $3 GROUP BY u.nombre ORDER BY mins_entrega_promedio ASC`, [rangos.actual.inicio, rangos.actual.fin, empresa_id]);
       listaReparto = repartidoresRes.rows;
     } catch(e) {}
 
     try {
-      const nominaRes = await db.query(`SELECT fecha_creacion FROM historico_nominas ORDER BY fecha_creacion DESC LIMIT 1`);
+      const nominaRes = await db.query(`SELECT fecha_creacion FROM historico_nominas WHERE empresa_id = $1 ORDER BY fecha_creacion DESC LIMIT 1`, [empresa_id]);
       if (nominaRes.rows.length > 0) ultimaNomina = new Date(nominaRes.rows[0].fecha_creacion).toLocaleDateString('es-MX');
     } catch(e) {}
 
     try {
-      const empleadosRes = await db.query(`SELECT id, nombre, rol, prestaciones FROM usuarios WHERE rol != 'admin'`);
+      const empleadosRes = await db.query(`SELECT id, nombre, rol, prestaciones FROM usuarios WHERE rol != 'admin' AND empresa_id = $1`, [empresa_id]);
       finanzasPersonal = empleadosRes.rows.map(u => {
         let prest = {};
         try {
@@ -830,8 +853,8 @@ exports.analizarEmpleados = async (req, res) => {
       6. JAMÁS muestres formato JSON.
     `;
 
-    const cacheKeyStr = `rrhh_${modoTiempo || 'mes'}_${rangos.actual.inicio}_${proveedor || 'gemini'}_${prompt.substring(0, 30)}`;
-    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.3, 3, cacheKeyStr, configIA, proveedor);
+    const cacheKeyStr = `rrhh_${empresa_id}_${modoTiempo || 'mes'}_${rangos.actual.inicio}_${proveedor || 'gemini'}_${prompt.substring(0, 30)}`;
+    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.3, 3, cacheKeyStr, configIA, proveedor, empresa_id);
     
     res.json({ success: true, respuesta: respuestaText, rangoUsado: rangos.actual });
   } catch (error) {
@@ -845,14 +868,15 @@ exports.analizarEmpleados = async (req, res) => {
 // 5. ASISTENTE CREATIVO (Chat Libre)
 // =========================================================================
 exports.chatLibre = async (req, res) => {
-  const { prompt, proveedor } = req.body; // 👇 NUEVO: proveedor elegido por el usuario
+  const { empresa_id } = req;
+  const { prompt, proveedor } = req.body;
   if (!prompt) return res.status(400).json({ error: 'El prompt es requerido.' });
 
   try {
-    const configIA = await obtenerConfigIA();
+    const configIA = await obtenerConfigIA(empresa_id);
     const systemPrompt = "Eres AdminIA, el asistente creativo y copiloto de negocios exclusivo de este sistema POS. REGLAS INQUEBRANTABLES: 1. SIEMPRE responde en Español. 2. Tu moneda base es el Peso Mexicano/Latino ($), NUNCA dólares ni USD. 3. Sé amable, conciso, proactivo y da consejos de marketing o liderazgo relacionados con restaurantes. 4. PROHIBIDO usar formato Markdown (nada de **negritas**, #, backticks); escribe en texto plano usando guion simple (-) para listas.";
     
-    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.7, 3, null, configIA, proveedor);
+    const respuestaText = await generarRespuestaTexto(systemPrompt, prompt, 0.7, 3, null, configIA, proveedor, empresa_id);
     res.json({ success: true, respuesta: respuestaText });
   } catch (error) {
     const msg = error.message.includes('límite') || error.message.includes('llave') || error.message.includes('desactivado') || error.message.includes('Premium') || error.message.includes('saldo')
@@ -908,15 +932,12 @@ const generarImagenDallE = async (promptImagen, apiKey) => {
 };
 
 exports.generarImagen = async (req, res) => {
-  // 👇 NUEVO: "proveedor" ahora lo elige el usuario en el Studio Mágico (Gemini o DALL-E),
-  // no se usa más "configIA.imagen_proveedor" como la opción fija a ejecutar. Ese campo
-  // en la BD ahora solo define QUÉ proveedores de imagen están disponibles (igual que
-  // gemini_habilitado/openai_habilitado para texto), no cuál se usa.
+  const { empresa_id } = req;
   const { prompt, proveedor } = req.body;
   if (!prompt) return res.status(400).json({ error: 'El prompt es requerido para generar la imagen.' });
 
   try {
-    const configIA = await obtenerConfigIA();
+    const configIA = await obtenerConfigIA(empresa_id);
     const imagenHabilitados = configIA.imagen_proveedor || 'gemini'; // 'gemini' | 'openai' | 'ambos' | 'ninguno'
     const imagenProveedor = proveedor || 'gemini';
 
@@ -957,7 +978,9 @@ exports.generarImagen = async (req, res) => {
       const openaiKey = (configIA.api_key_openai || process.env.OPENAI_API_KEY || '').trim();
       urlFinal = await generarImagenDallE(prompt, openaiKey);
       proveedorUsado = 'openai';
-      await db.query('UPDATE ia_configuracion SET ultima_imagen_ia = CURRENT_TIMESTAMP WHERE id = 1');
+      // 🔒 Patrón 26 corregido: el límite "1 imagen DALL-E/día" ahora es
+      // independiente por empresa, no compartido entre los 5 negocios.
+      await db.query('UPDATE ia_configuracion SET ultima_imagen_ia = CURRENT_TIMESTAMP WHERE empresa_id = $1', [empresa_id]);
     }
 
     if (!urlFinal) {
@@ -997,14 +1020,15 @@ exports.generarImagen = async (req, res) => {
 // 7. HISTORIAL DE CHAT (Reinicio diario, sin saturar la BD)
 // =========================================================================
 exports.obtenerHistorialChat = async (req, res) => {
+  const { empresa_id } = req;
   const { usuario_id, contexto } = req.query;
   if (!usuario_id || !contexto) return res.json({ success: true, mensajes: [] });
 
   try {
     const hoy = obtenerFechaHoyLocal();
     const result = await db.query(
-      'SELECT mensajes, fecha FROM ia_conversaciones WHERE usuario_id = $1 AND contexto = $2',
-      [usuario_id, contexto]
+      'SELECT mensajes, fecha FROM ia_conversaciones WHERE usuario_id = $1 AND contexto = $2 AND empresa_id = $3',
+      [usuario_id, contexto, empresa_id]
     );
 
     if (result.rows.length === 0) return res.json({ success: true, mensajes: [] });
@@ -1028,19 +1052,18 @@ exports.obtenerHistorialChat = async (req, res) => {
 };
 
 exports.guardarHistorialChat = async (req, res) => {
+  const { empresa_id } = req;
   const { usuario_id, contexto, mensajes } = req.body;
   if (!usuario_id || !contexto) return res.status(400).json({ error: 'Faltan datos para guardar el historial.' });
 
   try {
     const hoy = obtenerFechaHoyLocal();
-    // 👇 UPSERT: una sola fila por usuario+contexto. Si ya existía de otro día,
-    // se SOBREESCRIBE con los mensajes de hoy (reinicio diario, sin crecer la BD).
     await db.query(`
-      INSERT INTO ia_conversaciones (usuario_id, contexto, fecha, mensajes, actualizado_en)
-      VALUES ($1, $2, $3::date, $4::jsonb, CURRENT_TIMESTAMP)
-      ON CONFLICT (usuario_id, contexto)
+      INSERT INTO ia_conversaciones (usuario_id, contexto, fecha, mensajes, actualizado_en, empresa_id)
+      VALUES ($1, $2, $3::date, $4::jsonb, CURRENT_TIMESTAMP, $5)
+      ON CONFLICT (usuario_id, contexto, empresa_id)
       DO UPDATE SET fecha = $3::date, mensajes = $4::jsonb, actualizado_en = CURRENT_TIMESTAMP
-    `, [usuario_id, contexto, hoy, JSON.stringify(mensajes || [])]);
+    `, [usuario_id, contexto, hoy, JSON.stringify(mensajes || []), empresa_id]);
 
     res.json({ success: true });
   } catch (error) {

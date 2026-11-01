@@ -4,6 +4,7 @@ import CatalogoMayoreo from './CatalogoMayoreo';
 import ModalCheckoutMayoreo from './ModalCheckoutMayoreo';
 import ModalCantidadMayoreo from './ModalCantidadMayoreo';
 import { useCarritoMayoreo } from './useCarritoMayoreo';
+import { apiFetch } from '../../../../../utils/apiFetch';
 
 const PuntoDeVentaMayoreo = ({ apiUrl, baseUrl, showAlert, user, onClose }) => {
     const [articulos, setArticulos] = useState([]);
@@ -19,10 +20,10 @@ const PuntoDeVentaMayoreo = ({ apiUrl, baseUrl, showAlert, user, onClose }) => {
     useEffect(() => {
         const cargarDatos = async () => {
             try {
-                const resArt = await fetch(`${apiUrl}/distribucion/articulos`);
+                const resArt = await apiFetch(`${apiUrl}/distribucion/articulos`);
                 if (resArt.ok) setArticulos(await resArt.json());
 
-                const resCli = await fetch(`${apiUrl}/distribucion/clientes`);
+                const resCli = await apiFetch(`${apiUrl}/distribucion/clientes`);
                 if (resCli.ok) setClientes(await resCli.json());
             } catch (error) {
                 console.error("Error al cargar datos B2B:", error);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Loader2, Tag, X } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../utils/apiFetch';
 
 // ==========================================
 // 🏭 COMPONENTE AISLADO: Gestión de Estaciones de Cocina (Capacidad de Producción)
@@ -19,8 +20,8 @@ const GestionEstacionesCocina = ({ apiUrl, showAlert }) => {
     const cargarDatos = useCallback(async () => {
         try {
             const [resEst, resClas] = await Promise.all([
-                fetch(`${apiUrl}/cocina/estaciones?t=${Date.now()}`),
-                fetch(`${apiUrl}/clasificaciones?t=${Date.now()}`)
+               apiFetch(`${apiUrl}/cocina/estaciones?t=${Date.now()}`),
+               apiFetch(`${apiUrl}/clasificaciones?t=${Date.now()}`)
             ]);
             if (resEst.ok) setEstaciones(await resEst.json());
             if (resClas.ok) setClasificaciones(await resClas.json());
@@ -47,7 +48,7 @@ const GestionEstacionesCocina = ({ apiUrl, showAlert }) => {
     const guardarEstacion = async (estacion) => {
         setGuardandoId(estacion.id);
         try {
-            const res = await fetch(`${apiUrl}/cocina/estaciones/${estacion.id}`, {
+            const res = await apiFetch(`${apiUrl}/cocina/estaciones/${estacion.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -72,7 +73,7 @@ const GestionEstacionesCocina = ({ apiUrl, showAlert }) => {
         if (!nuevaEstacionNombre.trim()) return;
         setCreando(true);
         try {
-            const res = await fetch(`${apiUrl}/cocina/estaciones`, {
+            const res = await apiFetch(`${apiUrl}/cocina/estaciones`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ nombre: nuevaEstacionNombre.trim(), capacidad_maxima_paralela: 5, ventana_minutos: 15 })
@@ -91,7 +92,7 @@ const GestionEstacionesCocina = ({ apiUrl, showAlert }) => {
 
     const eliminarEstacion = async (estacion) => {
         try {
-            const res = await fetch(`${apiUrl}/cocina/estaciones/${estacion.id}`, { method: 'DELETE' });
+            const res = await apiFetch(`${apiUrl}/cocina/estaciones/${estacion.id}`, { method: 'DELETE' });
             if (res.ok) {
                 showAlert && showAlert('Eliminada', `La estación "${estacion.nombre}" fue eliminada. Sus clasificaciones recibirán una nueva estación automática.`, 'success');
                 cargarDatos();
@@ -103,7 +104,7 @@ const GestionEstacionesCocina = ({ apiUrl, showAlert }) => {
 
     const asignarClasificacion = async (estacionId, clasificacionId) => {
         try {
-            const res = await fetch(`${apiUrl}/cocina/estaciones/${estacionId}/asignar-clasificacion`, {
+            const res = await apiFetch(`${apiUrl}/cocina/estaciones/${estacionId}/asignar-clasificacion`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ clasificacion_id: clasificacionId })

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Filter, Layers, Plus, Settings2, Tag, Trash2, X, Zap, Clock } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const FormularioPromocion = ({ productos, clasificaciones, apiUrl, showAlert, refrescarDatos, isSubmitting, setIsSubmitting, promoAEditar, setPromoAEditar }) => {
     const estadoInicialFormulario = {
@@ -172,7 +173,7 @@ const FormularioPromocion = ({ productos, clasificaciones, apiUrl, showAlert, re
         try {
             const url = promoAEditar ? `${apiUrl}/promociones/${promoAEditar.id}` : `${apiUrl}/promociones`;
             const method = promoAEditar ? 'PUT' : 'POST';
-            const res = await fetch(url, {
+            const res = await apiFetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

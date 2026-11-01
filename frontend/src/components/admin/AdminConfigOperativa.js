@@ -116,6 +116,34 @@ const AdminConfigOperativa = ({ apiUrl, showAlert }) => {
           </div>
         )}
 
+        {/* 🔧 CORRECCIÓN VISUAL APLICADA: este bloque explicativo (Con Cocina / Modo Mostrador)
+            estaba antes hasta el final del archivo, después de "Capacidad de Producción".
+            Ahora queda justo debajo del switch "Flujo Normal (Con Cocina)" al que describe. */}
+        {!cargandoConfigOperativa && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={`p-5 rounded-2xl border-2 transition-all ${usaCocina ? 'border-orange-300 bg-orange-50/50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                <p className="text-xs font-black uppercase tracking-widest text-orange-600 mb-2 flex items-center gap-2">
+                  <ChefHat size={14} /> Con Cocina (Default)
+                </p>
+                <ul className="text-xs font-medium text-slate-600 space-y-1 list-disc list-inside">
+                  <li>Pedido confirmado → Cocina (KDS)</li>
+                  <li>Cocina lo marca "Listo"</li>
+                  <li>Pasa a Entregas / Cobrar</li>
+                </ul>
+              </div>
+              <div className={`p-5 rounded-2xl border-2 transition-all ${!usaCocina ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                <p className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-2 flex items-center gap-2">
+                  <PackageCheck size={14} /> Modo Mostrador
+                </p>
+                <ul className="text-xs font-medium text-slate-600 space-y-1 list-disc list-inside">
+                  <li>Pedido confirmado → directo a Entregas / Cobrar</li>
+                  <li>Cocina (KDS) nunca lo recibe</li>
+                  <li>Funciona igual para Mostrador, Cuenta Abierta y Domicilio</li>
+                </ul>
+              </div>
+            </div>
+        )}
+
         {/* 🪑 NUEVA TARJETA: Mesa Obligatoria (Consumo Local) */}
         {!cargandoConfigOperativa && (
           <div className="border-2 border-slate-100 rounded-3xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6">
@@ -198,29 +226,6 @@ const AdminConfigOperativa = ({ apiUrl, showAlert }) => {
           <GestionEstacionesCocina apiUrl={apiUrl} showAlert={showAlert} />
         </div>
       )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div className={`p-5 rounded-2xl border-2 transition-all ${usaCocina ? 'border-orange-300 bg-orange-50/50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
-            <p className="text-xs font-black uppercase tracking-widest text-orange-600 mb-2 flex items-center gap-2">
-              <ChefHat size={14} /> Con Cocina (Default)
-            </p>
-            <ul className="text-xs font-medium text-slate-600 space-y-1 list-disc list-inside">
-              <li>Pedido confirmado → Cocina (KDS)</li>
-              <li>Cocina lo marca "Listo"</li>
-              <li>Pasa a Entregas / Cobrar</li>
-            </ul>
-          </div>
-          <div className={`p-5 rounded-2xl border-2 transition-all ${!usaCocina ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-2 flex items-center gap-2">
-              <PackageCheck size={14} /> Modo Mostrador
-            </p>
-            <ul className="text-xs font-medium text-slate-600 space-y-1 list-disc list-inside">
-              <li>Pedido confirmado → directo a Entregas / Cobrar</li>
-              <li>Cocina (KDS) nunca lo recibe</li>
-              <li>Funciona igual para Mostrador, Cuenta Abierta y Domicilio</li>
-            </ul>
-          </div>
-        </div>
 
       </div>
     </div>

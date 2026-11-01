@@ -9,6 +9,7 @@ import VistaCortesHistorico from './reportes/VistaCortesHistorico';
 import ReporteCombustible from './reportes/ReporteCombustible';
 import ReporteCompras from './reportes/ReporteCompras';
 import ReporteMermas from './reportes/ReporteMermas';
+import { apiFetch } from '../../utils/apiFetch';
 // 👇 FIX: Importamos 'CalendarDays' para que el sistema reconozca el icono
 import { BarChart3, History, Fuel, ShoppingCart, Trash2, CalendarDays } from 'lucide-react';
 import io from 'socket.io-client';
@@ -29,7 +30,7 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   const [filtroConsumo, setFiltroConsumo] = useState('Todos');
 
   useEffect(() => {
-    fetch(`${apiUrl}/clasificaciones`)
+   apiFetch(`${apiUrl}/clasificaciones`)
       .then(res => res.json())
       .then(data => setClasificaciones(Array.isArray(data) ? data : []))
       .catch(e => console.error('Error cargando clasificaciones', e));
@@ -39,7 +40,7 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     setCargando(true);
     try {
       const urlConsulta = `${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&fechaFin=${fFin}&clasificacion=${encodeURIComponent(filtroClasificacion)}&tipo_consumo=${encodeURIComponent(filtroConsumo)}`;
-      const res = await fetch(urlConsulta);
+      const res = await apiFetch(urlConsulta);
       if (res.ok) {
         const data = await res.json();
         setReporte(data);

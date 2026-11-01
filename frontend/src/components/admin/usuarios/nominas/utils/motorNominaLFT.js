@@ -83,6 +83,40 @@ export const calcularMinutosTarde = (horaEntradaEsperada, horaEntradaRealISO) =>
     return dif > 0 ? dif : 0;
 };  
 
+// 👇 TABLA ISR MENSUAL VIGENTE (SAT). Actualizar estos montos cada año fiscal.
+const TABLA_ISR_MENSUAL = [
+    { limiteInferior: 0.01,      limiteSuperior: 746.04,     cuotaFija: 0,         porcentaje: 1.92 },
+    { limiteInferior: 746.05,    limiteSuperior: 6332.05,    cuotaFija: 14.32,     porcentaje: 6.40 },
+    { limiteInferior: 6332.06,   limiteSuperior: 11128.01,   cuotaFija: 371.83,    porcentaje: 10.88 },
+    { limiteInferior: 11128.02,  limiteSuperior: 12935.82,   cuotaFija: 893.63,    porcentaje: 16.00 },
+    { limiteInferior: 12935.83,  limiteSuperior: 15487.71,   cuotaFija: 1182.88,   porcentaje: 17.92 },
+    { limiteInferior: 15487.72,  limiteSuperior: 31236.49,   cuotaFija: 1640.18,   porcentaje: 21.36 },
+    { limiteInferior: 31236.50,  limiteSuperior: 49233.00,   cuotaFija: 5004.12,   porcentaje: 23.52 },
+    { limiteInferior: 49233.01,  limiteSuperior: 93993.90,   cuotaFija: 9236.89,   porcentaje: 30.00 },
+    { limiteInferior: 93993.91,  limiteSuperior: 125325.20,  cuotaFija: 22665.17,  porcentaje: 32.00 },
+    { limiteInferior: 125325.21, limiteSuperior: 375975.61,  cuotaFija: 32691.18,  porcentaje: 34.00 },
+    { limiteInferior: 375975.62, limiteSuperior: Infinity,   cuotaFija: 117912.32, porcentaje: 35.00 }
+];
+
+const calcularISRMensual = (baseMensual) => {
+    if (baseMensual <= 0) return 0;
+    const tramo = TABLA_ISR_MENSUAL.find(t => baseMensual >= t.limiteInferior && baseMensual <= t.limiteSuperior) || TABLA_ISR_MENSUAL[TABLA_ISR_MENSUAL.length - 1];
+    const excedente = baseMensual - tramo.limiteInferior;
+    return tramo.cuotaFija + (excedente * (tramo.porcentaje / 100));
+};
+
+// Convierte el sueldo gravable del periodo pagado (cualquier rango de días) a un
+// equivalente mensual, calcula el ISR con la tabla SAT y lo regresa prorrateado
+// exactamente a los días que se están pagando en este corte.
+export const calcularISRPeriodo = (sueldoGravablePeriodo, diasDelPeriodo) => {
+    if (sueldoGravablePeriodo <= 0 || diasDelPeriodo <= 0) return 0;
+    const sueldoDiarioGravable = sueldoGravablePeriodo / diasDelPeriodo;
+    const baseMensualEquivalente = sueldoDiarioGravable * 30.4;
+    const isrMensual = calcularISRMensual(baseMensualEquivalente);
+    const isrDiario = isrMensual / 30.4;
+    return isrDiario * diasDelPeriodo;
+};
+
 const pagarEmpleadoSemanal = (horasReales, hrsProgramadasDia, sueldoDiarioFijo, edicionManualAdmin, sueldoPorHora) => {
     if (edicionManualAdmin) {
         return horasReales * sueldoPorHora;
@@ -264,7 +298,24 @@ export const procesarMotorNomina = (empleado, asistenciasRango, fechasRango, reg
 
     (prestaciones.prestamos || []).forEach(p => {
         if (p.activo && Number(p.saldo_restante) > 0) egresos.push({ concepto: `Abono Préstamo: ${p.concepto}`, monto: Math.min(Number(p.descuento_por_nomina), Number(p.saldo_restante)), sistema: false, prestamo_id: p.id });
-    });  
+    });
+
+    // 👇 NUEVO: Retención de IMSS (Cuota Obrera), configurada en NominaConfig.js
+    if (reglasGlobales.retencion_imss_activa) {
+        const porcentajeImss = Number(reglasGlobales.porcentaje_imss) || 0;
+        const montoImss = metricas.sueldoOrdinario * (porcentajeImss / 100);
+        if (montoImss > 0) {
+            egresos.push({ concepto: `IMSS (Cuota Obrera ${porcentajeImss}%)`, monto: Number(montoImss.toFixed(2)), sistema: true });
+        }
+    }
+
+    // 👇 NUEVO: Retención de ISR usando la tabla progresiva oficial del SAT
+    if (reglasGlobales.retencion_isr_activa) {
+        const montoIsr = calcularISRPeriodo(metricas.sueldoOrdinario, fechasRango.length);
+        if (montoIsr > 0) {
+            egresos.push({ concepto: `ISR (Retención según tabla SAT)`, monto: Number(montoIsr.toFixed(2)), sistema: true });
+        }
+    }
 
     return {
         empleado_id: empleado.id, nombre: empleado.nombre, rol: empleado.rol,

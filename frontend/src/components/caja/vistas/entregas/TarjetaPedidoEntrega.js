@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { MapPin, Phone, User, Bike, CheckCircle2, DollarSign, XCircle, Utensils, Package, AlertTriangle, Banknote } from 'lucide-react';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const TarjetaPedidoEntrega = ({
     pedido,
@@ -58,7 +59,7 @@ const TarjetaPedidoEntrega = ({
             setProcesandoLocal(true);
             try {
                 const apiBase = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-                await fetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
+                await apiFetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ estado_preparacion: nuevoEstado, ...extras })
@@ -82,7 +83,7 @@ const TarjetaPedidoEntrega = ({
             const montoGasto = parseFloat(costoExterno) || 0;
             if (montoGasto > 0) {
                 const apiBase = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-                await fetch(`${apiBase}/gastos-proveedores`, {
+                await apiFetch(`${apiBase}/gastos-proveedores`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

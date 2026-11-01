@@ -5,6 +5,7 @@ import ListaPromociones from './promociones/ListaPromociones';
 import GestorCupones from './promociones/GestorCupones';
 import ProgramaLealtad from './promociones/ProgramaLealtad';
 import GestorCombos from './promociones/GestorCombos'; 
+import { apiFetch } from '../../utils/apiFetch';
 
 const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos, configGlobal, setConfigGlobal }) => {
     const [promociones, setPromociones] = useState([]);
@@ -17,8 +18,8 @@ const AdminPromociones = ({ apiUrl, baseUrl, showAlert, showConfirm, productos, 
     const cargarDatos = useCallback(async () => {
         try {
             const [resPromo, resClasif] = await Promise.all([
-                fetch(`${apiUrl}/promociones`),
-                fetch(`${apiUrl}/clasificaciones`)
+               apiFetch(`${apiUrl}/promociones`),
+               apiFetch(`${apiUrl}/clasificaciones`)
             ]);
             if (resPromo.ok) {
                 const data = await resPromo.json();

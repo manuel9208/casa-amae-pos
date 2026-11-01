@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Users, TrendingUp } from 'lucide-react';
 import DirectorioClientes from './clientes/DirectorioClientes';
 import AnaliticaClientes from './clientes/AnaliticaClientes';
+import { apiFetch } from '../../utils/apiFetch';
 
-const AdminClientes = ({ apiUrl, showAlert }) => {
+const AdminClientes = ({ apiUrl, showAlert, showConfirm }) => {
   const [vista, setVista] = useState('directorio'); 
   const [clientes, setClientes] = useState([]);
   const [reportes, setReportes] = useState(null);
@@ -11,8 +12,8 @@ const AdminClientes = ({ apiUrl, showAlert }) => {
   const cargarDatos = useCallback(async () => {
     try {
       const [resClientes, resReportes] = await Promise.all([
-        fetch(`${apiUrl}/clientes`),
-        fetch(`${apiUrl}/clientes/reportes`)
+       apiFetch(`${apiUrl}/clientes`),
+       apiFetch(`${apiUrl}/clientes/reportes`)
       ]);
 
       if (resClientes.ok && resReportes.ok) {
@@ -53,7 +54,8 @@ const AdminClientes = ({ apiUrl, showAlert }) => {
          <DirectorioClientes 
             clientes={clientes} 
             apiUrl={apiUrl} 
-            showAlert={showAlert} 
+            showAlert={showAlert}
+            showConfirm={showConfirm} 
             refrescarDatos={cargarDatos}
          />
       ) : (

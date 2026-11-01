@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, Fingerprint, Search, CheckCircle2, Trash2 } from 'lucide-react';
-import { useBiometria } from '../../../hooks/useBiometria';  
+import { useBiometria } from '../../../hooks/useBiometria'; 
+import { apiFetch } from '../../../utils/apiFetch'; 
 
 const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
     const [empleados, setEmpleados] = useState([]);
@@ -9,7 +10,7 @@ const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
 
     const cargarEmpleados = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/usuarios`);
+            const res = await apiFetch(`${apiUrl}/usuarios`);
             if (res.ok) setEmpleados(await res.json());
         } catch (error) { 
             console.error("Error al cargar empleados", error); 
@@ -31,7 +32,7 @@ const GestorHuellasEmpleados = ({ apiUrl, showAlert }) => {
     const handleDesvincularHuella = async (empleadoId) => {
         try {
             // 👇 Ruta corregida para mantener simetría con /huellas/cliente/:id
-            const res = await fetch(`${apiUrl}/huellas/empleado/${empleadoId}`, {
+            const res = await apiFetch(`${apiUrl}/huellas/empleado/${empleadoId}`, {
                 method: 'DELETE'
             });
             

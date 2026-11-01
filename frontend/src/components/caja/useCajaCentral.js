@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { esPedidoPagado } from './pedidoEstadoUtils';
+import { apiFetch } from '../../utils/apiFetch';
 import { useConfigOperativa } from '../../hooks/useConfigOperativa'; // 👈 NUEVO
 
 const getMazatlanDateStr = () => {
@@ -78,16 +79,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
       const t = new Date().getTime();
       const [ resPed, resMesas, resInsumos, resGastos, resProd, resClas, resIng, resUsu, resCortes, resConfig ] = await Promise.all([
-        fetch(`${apiUrl}/pedidos/hoy?t=${t}`),
-        fetch(`${apiUrl}/mesas?t=${t}`),
-        fetch(`${apiUrl}/insumos?t=${t}`),
-        fetch(`${apiUrl}/insumos/compras/hoy?t=${t}`),
-        fetch(`${apiUrl}/productos?t=${t}`),
-        fetch(`${apiUrl}/clasificaciones?t=${t}`),
-        fetch(`${apiUrl}/ingredientes?t=${t}`),
-        fetch(`${apiUrl}/usuarios?t=${t}`),
-        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true`),
-        fetch(`${apiUrl}/configuracion?t=${t}`)
+       apiFetch(`${apiUrl}/pedidos/hoy?t=${t}`),
+       apiFetch(`${apiUrl}/mesas?t=${t}`),
+       apiFetch(`${apiUrl}/insumos?t=${t}`),
+       apiFetch(`${apiUrl}/insumos/compras/hoy?t=${t}`),
+       apiFetch(`${apiUrl}/productos?t=${t}`),
+       apiFetch(`${apiUrl}/clasificaciones?t=${t}`),
+       apiFetch(`${apiUrl}/ingredientes?t=${t}`),
+       apiFetch(`${apiUrl}/usuarios?t=${t}`),
+       apiFetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true`),
+       apiFetch(`${apiUrl}/configuracion?t=${t}`)
       ]);
 
       const dataPed = await resPed.json();
@@ -167,7 +168,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
 
       try {
-        const resCombos = await fetch(`${apiUrl}/combos`);
+        const resCombos = await apiFetch(`${apiUrl}/combos`);
         if (resCombos.ok) {
             const dataCombos = await resCombos.json();
             setCombosActivos(Array.isArray(dataCombos) ? dataCombos.filter(c => c.activo) : []);
@@ -187,7 +188,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   useEffect(() => {
     if (operadorActual && apiUrl) {
-        fetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true&t=${new Date().getTime()}`)
+       apiFetch(`${apiUrl}/cortes/historial?fecha=${hoyStr}&completo=true&t=${new Date().getTime()}`)
         .then(r => r.json())
         .then(dataCortes => {
             const cortesArr = Array.isArray(dataCortes) ? dataCortes : (dataCortes && dataCortes.id ? [dataCortes] : []);
@@ -216,13 +217,13 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     e.preventDefault();
     const m = Number(inputFondo);
     try {
-        await fetch(`${apiUrl}/usuarios/${operadorActual.id}`, {
+        await apiFetch(`${apiUrl}/usuarios/${operadorActual.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fondo_actual: m })
         });
 
-        await fetch(`${apiUrl}/cortes`, {
+        await apiFetch(`${apiUrl}/cortes`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -255,7 +256,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   useEffect(() => {
     const cargarConfig = async () => {
       try {
-        const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
+        const res = await apiFetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
         const data = await res.json();
         if (data && !data.error) {
           setConfigGlobal(prev => {
@@ -508,7 +509,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const nuevoEstado = !configGlobal.negocio_abierto;
       const formData = new FormData();
       formData.append('negocio_abierto', nuevoEstado ? 'true' : 'false');
-      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      const res = await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
       if (res.ok) setConfigGlobal({ ...configGlobal, negocio_abierto: nuevoEstado });
     } catch (e) {}
   };
@@ -570,7 +571,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         if (puntosUsados > 0) {
             payload.descuento_puntos = puntosUsados;
             payload.cliente_id = ordenCobrada.cliente_id;
-            fetch(`${apiUrl}/pedidos/${ordenCobrada.id}`, {
+           apiFetch(`${apiUrl}/pedidos/${ordenCobrada.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -589,7 +590,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     // otro evento de socket (ej. al registrar el gasto del repartidor externo) podía pisar
     // el estado 'Finalizado' recién calculado, trayendo de vuelta el estado viejo ('Listo').
     try {
-        const res = await fetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
+        const res = await apiFetch(`${apiUrl}/pedidos/${ordenCobrada.id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error('Respuesta no exitosa del servidor');
@@ -641,7 +642,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           const promesas = idsArray.map(id => {
               const pedido = pedidos.find(p => p.id === id);
               const metodoSeguro = (pedido && ['Efectivo', 'Mixto', 'Transferencia'].includes(pedido.metodo_pago)) ? pedido.metodo_pago : 'Efectivo';
-              return fetch(`${apiUrl}/pedidos/${id}/estado`, {
+              return apiFetch(`${apiUrl}/pedidos/${id}/estado`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ estado_preparacion: 'Liquidado', metodo_pago: metodoSeguro, cajero_id: operadorActual?.id })
@@ -679,7 +680,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         if (estadoSeguro === 'Finalizado' && pedidoFull?.metodo_pago === 'Por Cobrar') {
             payload.metodo_pago = 'Por Cobrar';
         }
-        fetch(`${apiUrl}/pedidos/${idReal}/estado`, {
+       apiFetch(`${apiUrl}/pedidos/${idReal}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
         })
         .then(res => {
@@ -717,7 +718,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-        fetch(`${apiUrl}/pedidos/${id}/estado`, {
+       apiFetch(`${apiUrl}/pedidos/${id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
         })
@@ -754,7 +755,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-        fetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
+       apiFetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
         })
@@ -775,7 +776,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
       arrayMesasOcupadas.forEach(m => {
-        fetch(`${apiUrl}/mesas/${m.id}/estado`, {
+       apiFetch(`${apiUrl}/mesas/${m.id}/estado`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'Libre' })
         }).catch(console.error);
       });
@@ -786,7 +787,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   const limpiarAlerta = async (id) => {
     setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
     try {
-      fetch(`${apiUrl}/pedidos/${id}/alerta`, {
+     apiFetch(`${apiUrl}/pedidos/${id}/alerta`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: null })
       }).catch(console.error);
     } catch(e) {}
@@ -794,7 +795,14 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
   const abrirModalResolver = (pedido) => {
     setModalResolver(pedido);
-    setItemAfectadoIdx('');
+
+    // 🐞 FIX: El mensaje de Cocina ya trae el índice incrustado, ej. "[IDX:2] 🚨 FALTANTE: ...".
+    // El <select> de ModalResolver.js se bloquea automáticamente cuando detecta "[IDX:" en el
+    // mensaje, pero nunca se estaba extrayendo ese número — por eso quedaba bloqueado Y vacío
+    // ("Selecciona el platillo..."), en vez de mostrar ya elegido el platillo correcto.
+    const match = String(pedido.alerta_cocina || '').match(/\[IDX:(\d+)\]/);
+    setItemAfectadoIdx(match ? match[1] : '');
+
     setAccionAlerta('');
     setIngredienteReemplazo('');
   };
@@ -837,16 +845,16 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      fetch(`${apiUrl}/pedidos/${modalId}/estado`, {
+     apiFetch(`${apiUrl}/pedidos/${modalId}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ carrito: items, estado_preparacion: payloadEstado.estado_preparacion })
       }).catch(console.error);
 
-      fetch(`${apiUrl}/pedidos/${modalId}/alerta`, {
+     apiFetch(`${apiUrl}/pedidos/${modalId}/alerta`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alerta_cocina: textoRespuesta })
       }).catch(console.error);
 
       if (accionAlerta === 'cancelar' && mesaIdParaLiberar) {
-         fetch(`${apiUrl}/mesas/${mesaIdParaLiberar}/estado`, {
+        apiFetch(`${apiUrl}/mesas/${mesaIdParaLiberar}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: 'Libre' })
          }).catch(console.error);
       }
@@ -871,7 +879,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     
     // 2. SINCRONIZACIÓN SILENCIOSA
     try {
-      fetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, {
+     apiFetch(`${apiUrl}/pedidos/${pedidoOriginal.id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ carrito: items, total: nuevoTotal, estado_preparacion: pedidoOriginal.estado_preparacion })
       }).catch(console.error);
@@ -937,7 +945,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       const payload = { items: itemsNuevos };
       if (metodoPagoDiferencia) payload.metodo_pago_diferencia = metodoPagoDiferencia;
 
-      const res = await fetch(`${apiUrl}/pedidos/${pedidoId}/agregar-items`, {
+      const res = await apiFetch(`${apiUrl}/pedidos/${pedidoId}/agregar-items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -969,7 +977,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {  
       if (payload.tipo_compra === 'proveedor_multi') {
         
-        await fetch(`${apiUrl}/gastos-proveedores`, {
+        await apiFetch(`${apiUrl}/gastos-proveedores`, {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({
@@ -987,7 +995,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
       } else {
         const payloadConUsuario = { ...payload, usuario_id: operadorActual?.id };  
-        await fetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
+        await apiFetch(`${apiUrl}/insumos/${payload.insumo_id}/comprar`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadConUsuario)
         });
         mostrarAlertaCaja("Compra Registrada", "El gasto se ha descontado de la caja", "success");
@@ -999,6 +1007,32 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
 
     } catch(e) {
       mostrarAlertaCaja("Error", "Fallo de conexión al registrar la operación.", "error");
+    }
+    setIsSubmitting(false);
+  };
+
+  // 🆕 Registrar un Gasto de Caja libre (Vasos, pago a proveedor varios, etc.)
+  // Llama al endpoint nuevo /insumos/gasto-caja — jamás toca insumosDB ni dispara
+  // 'catalogo_actualizado', porque no afecta inventario ni costeo de recetas.
+  const registrarGastoCajaLibre = async (payload) => {
+    if (isSubmitting) return; setIsSubmitting(true);
+
+    try {
+      const res = await apiFetch(`${apiUrl}/insumos/gasto-caja`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, usuario_id: operadorActual?.id })
+      });
+
+      if (res.ok) {
+        mostrarAlertaCaja("Gasto Registrado", "El gasto se ha descontado de la caja.", "success");
+        await cargarDataDinamica();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        mostrarAlertaCaja("Error", data.error || "No se pudo registrar el gasto.", "error");
+      }
+    } catch (e) {
+      mostrarAlertaCaja("Error", "Fallo de conexión al registrar el gasto.", "error");
     }
     setIsSubmitting(false);
   };
@@ -1037,7 +1071,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           cupon_codigo: pedidoRef.cupon_codigo
         };
 
-        const res = await fetch(`${apiUrl}/pedidos/${id}`, {
+        const res = await apiFetch(`${apiUrl}/pedidos/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(paqueteCompleto)
@@ -1068,7 +1102,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/clientes`);
+      const res = await apiFetch(`${apiUrl}/clientes`);
       const clientes = await res.json();
       const clienteEncontrado = clientes.find(c => c.telefono === telClienteNuevo);
       if (clienteEncontrado) {
@@ -1085,7 +1119,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telClienteNuevo, ...datosNuevoCliente}) });
+      const res = await apiFetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({telefono: telClienteNuevo, ...datosNuevoCliente}) });
       const data = await res.json();
       if (res.ok) {
         setModalIdentificar(false);
@@ -1173,7 +1207,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         lanzarImpresion, procesarPago, confirmarPedidoRecoger,
         confirmarPedidoDomicilio, actualizarEstadoPedido, guardarEdicionPedido,
         limpiarAlerta, abrirModalResolver, enviarRespuestaCocina,
-        registrarCompraRapida, confirmarAgregarExtra, abrirIdentificador,
+        registrarCompraRapida, registrarGastoCajaLibre, confirmarAgregarExtra, abrirIdentificador,
         onGoToKiosco: onGoToKioscoLocal,
         forzarLiberacionMesas,
         pedidosAuditados, combosActivos,

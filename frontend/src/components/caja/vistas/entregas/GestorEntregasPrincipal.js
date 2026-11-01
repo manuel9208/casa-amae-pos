@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PackageCheck, Store, Package } from 'lucide-react';
 import TarjetaPedidoEntrega from './TarjetaPedidoEntrega';
+import { apiFetch } from '../../../../utils/apiFetch';
 import TarjetaPedidoEntregaMayoreo from './TarjetaPedidoEntregaMayoreo'; // 👈 NUEVO: Tarjeta exclusiva B2B
 
 const GestorEntregasPrincipal = ({
@@ -25,7 +26,7 @@ const GestorEntregasPrincipal = ({
     const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
 
     useEffect(() => {
-        fetch(`${apiBase}/distribucion/configuracion`)
+       apiFetch(`${apiBase}/distribucion/configuracion`)
             .then(res => res.json())
             .then(data => {
                 if (!data.error) {
@@ -40,7 +41,7 @@ const GestorEntregasPrincipal = ({
 
     const cargarPedidosB2B = useCallback(() => {
         setCargandoB2B(true);
-        fetch(`${apiBase}/distribucion/ventas`)
+       apiFetch(`${apiBase}/distribucion/ventas`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {

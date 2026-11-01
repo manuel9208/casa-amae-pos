@@ -3,6 +3,7 @@ import {
   Truck, Edit, Trash2, Phone, Mail, User, Building2, Package, 
   AlertTriangle, Search, CheckCircle2, Save, XCircle, PlusCircle
 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const DirectorioProveedores = ({ insumosDB, productos, apiUrl, showAlert, showConfirm }) => {
   const [proveedores, setProveedores] = useState([]);
@@ -27,7 +28,7 @@ const DirectorioProveedores = ({ insumosDB, productos, apiUrl, showAlert, showCo
 
   const cargarProveedores = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/proveedores`);
+      const res = await apiFetch(`${apiUrl}/proveedores`);
       if (res.ok) {
         const data = await res.json();
         setProveedores(data);
@@ -147,7 +148,7 @@ const DirectorioProveedores = ({ insumosDB, productos, apiUrl, showAlert, showCo
       const url = editandoId ? `${apiUrl}/proveedores/${editandoId}` : `${apiUrl}/proveedores`;
       const method = editandoId ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -169,7 +170,7 @@ const DirectorioProveedores = ({ insumosDB, productos, apiUrl, showAlert, showCo
   const eliminarProveedor = (id) => {
     showConfirm("Eliminar Proveedor", "¿Estás seguro de borrar este proveedor? Perderás su configuración de alertas automáticas.", async () => {
       try {
-        const res = await fetch(`${apiUrl}/proveedores/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/proveedores/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminado", "Proveedor borrado con éxito.", "success");
           cargarProveedores();

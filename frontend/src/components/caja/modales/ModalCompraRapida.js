@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { PackagePlus, XCircle, CheckCircle2, Search, Wallet, Truck, Package, Clock, DollarSign } from 'lucide-react';  
+import { PackagePlus, XCircle, CheckCircle2, Search, Wallet, Truck, Package, Clock, DollarSign, Receipt } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalCompraRapida = ({
   modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
-  paquetesComprados, setPaquetesComprados, registrarCompraRapida, isSubmitting
+  paquetesComprados, setPaquetesComprados, registrarCompraRapida, isSubmitting,
+  registrarGastoCajaLibre // 🆕 Función nueva (vendrá de useCajaCentral.js en el siguiente paso)
 }) => {
   const apiUrlLocal = process.env.REACT_APP_API_URL || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
 
@@ -19,19 +21,26 @@ const ModalCompraRapida = ({
   const [historialHoy, setHistorialHoy] = useState([]);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
+  // 🆕 ESTADOS: Modal "Registrar Gasto de Caja" — aislado de insumoComprar,
+  // nunca toca insumosDB ni afecta stock/costo de recetas.
+  const [modalGastoCaja, setModalGastoCaja] = useState(false);
+  const [conceptoGasto, setConceptoGasto] = useState('');
+  const [cantidadGasto, setCantidadGasto] = useState('');
+  const [costoGasto, setCostoGasto] = useState('');
+
   // Cargar Catálogos o Historial dependiendo de la pestaña activa
   useEffect(() => {
     if (!modalCompraRapida) return;
 
     if (tab === 'proveedores') {
-      fetch(`${apiUrlLocal}/proveedores`).then(r => r.json()).then(d => setProveedores(d)).catch(() => {});
-      fetch(`${apiUrlLocal}/productos`).then(r => r.json()).then(d => setProductosLocal(d)).catch(() => {});
+     apiFetch(`${apiUrlLocal}/proveedores`).then(r => r.json()).then(d => setProveedores(d)).catch(() => {});
+     apiFetch(`${apiUrlLocal}/productos`).then(r => r.json()).then(d => setProductosLocal(d)).catch(() => {});
     } 
     else if (tab === 'historial') {
       setCargandoHistorial(true);
       Promise.all([
-        fetch(`${apiUrlLocal}/insumos/compras/hoy`).then(r => r.json()),
-        fetch(`${apiUrlLocal}/gastos-proveedores`).then(r => r.json())
+       apiFetch(`${apiUrlLocal}/insumos/compras/hoy`).then(r => r.json()),
+       apiFetch(`${apiUrlLocal}/gastos-proveedores`).then(r => r.json())
       ])
       .then(([compras, gastos]) => {
          const hoyIso = new Date().toISOString().split('T')[0];
@@ -39,7 +48,7 @@ const ModalCompraRapida = ({
          const gastosHoy = (gastos || []).filter(g => g.fecha_gasto && g.fecha_gasto.startsWith(hoyIso) && g.origen === 'Caja');
 
          const historialUnificado = [
-           ...compras.map(c => ({ id: `compra_${c.id}`, tipo: 'Insumo', concepto: c.nombre, monto: c.costo_total, hora: c.created_at })),
+           ...compras.map(c => ({ id: `compra_${c.id}`, tipo: c.concepto_gasto ? 'Gasto de Caja' : 'Insumo', concepto: c.nombre, monto: c.costo_total, hora: c.created_at })),
            ...gastosHoy.map(g => ({ id: `gasto_${g.id}`, tipo: 'Gasto / Envío', concepto: g.concepto, monto: g.monto, hora: g.fecha_gasto }))
          ].sort((a, b) => new Date(b.hora) - new Date(a.hora)); // Más reciente arriba
 
@@ -121,6 +130,28 @@ const ModalCompraRapida = ({
     setArticulosProv([]);
   };  
 
+  // 🆕 Cierra solo el mini-formulario de Gasto de Caja, sin afectar el modal grande de atrás
+  const cerrarModalGastoSeguro = () => {
+    setModalGastoCaja(false);
+    setConceptoGasto('');
+    setCantidadGasto('');
+    setCostoGasto('');
+  };
+
+  const submitGastoCaja = (e) => {
+    e.preventDefault();
+    if (!conceptoGasto.trim() || !cantidadGasto || !costoGasto) return;
+    if (Number(cantidadGasto) <= 0 || Number(costoGasto) <= 0) return;
+
+    registrarGastoCajaLibre({
+      concepto: conceptoGasto,
+      cantidad: cantidadGasto,
+      costo: costoGasto
+    });
+
+    cerrarModalGastoSeguro();
+  };
+
   return (
     <>
       {modalCompraRapida && !insumoComprar && (
@@ -156,9 +187,19 @@ const ModalCompraRapida = ({
             {/* =============================================================== */}
             {tab === 'insumos' && (
               <div className="flex flex-col h-full overflow-hidden animate-in slide-in-from-left-4">
-                <div className="mb-4 shrink-0 relative">
-                  <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input type="text" placeholder="Buscar insumo por nombre..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500 transition-all" />
+                <div className="mb-4 shrink-0 flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input type="text" placeholder="Buscar insumo por nombre..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:border-emerald-500 transition-all" />
+                  </div>
+                  {/* 🆕 Botón grande con texto visible — pensado para usuarios sin experiencia en tecnología */}
+                  <button
+                    type="button"
+                    onClick={() => setModalGastoCaja(true)}
+                    className="shrink-0 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white font-black px-5 py-3 rounded-xl shadow-lg shadow-orange-500/30 transition active:scale-95 whitespace-nowrap"
+                  >
+                    <Receipt size={20} /> + Registrar Gasto
+                  </button>
                 </div>  
                 <div className="flex-1 overflow-y-auto pr-2 bg-slate-50 rounded-2xl border border-slate-100 relative custom-scrollbar">
                   {insumosDB.length === 0 ? (
@@ -289,15 +330,15 @@ const ModalCompraRapida = ({
                       {historialHoy.map((mov, idx) => (
                         <div key={idx} className="bg-white p-4 md:p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-slate-300 transition">
                           <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-xl shrink-0 shadow-inner ${mov.tipo === 'Insumo' ? 'bg-emerald-100 text-emerald-600' : 'bg-orange-100 text-orange-600'}`}>
-                              {mov.tipo === 'Insumo' ? <Package size={24} /> : <DollarSign size={24} />}
+                            <div className={`p-3 rounded-xl shrink-0 shadow-inner ${mov.tipo === 'Insumo' ? 'bg-emerald-100 text-emerald-600' : mov.tipo === 'Gasto de Caja' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                              {mov.tipo === 'Insumo' ? <Package size={24} /> : mov.tipo === 'Gasto de Caja' ? <Receipt size={24} /> : <DollarSign size={24} />}
                             </div>
                             <div>
                               <p className="font-black text-slate-800 text-base leading-tight">{mov.concepto}</p>
                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1.5 flex items-center gap-1.5">
                                  <Clock size={12}/> {new Date(mov.hora).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 
                                  <span className="opacity-50">•</span> 
-                                 <span className={mov.tipo === 'Insumo' ? 'text-emerald-500' : 'text-orange-500'}>{mov.tipo}</span>
+                                 <span className={mov.tipo === 'Insumo' ? 'text-emerald-500' : mov.tipo === 'Gasto de Caja' ? 'text-orange-500' : 'text-blue-500'}>{mov.tipo}</span>
                               </p>
                             </div>
                           </div>
@@ -362,6 +403,72 @@ const ModalCompraRapida = ({
             <div className="flex gap-4">
               <button disabled={isSubmitting} type="button" onClick={cerrarModalSeguro} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
               <button type="submit" disabled={!paquetesComprados || Number(paquetesComprados) <= 0 || isSubmitting} className="flex-[2] py-5 bg-emerald-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 transition flex justify-center items-center gap-2"><CheckCircle2 size={24}/> {isSubmitting ? 'Guardando...' : 'Confirmar'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 🆕 MODAL: REGISTRAR GASTO DE CAJA (Vasos, pago a proveedor varios, etc.) */}
+      {/* Aislado de insumoComprar — nunca toca insumos reales ni descuenta stock. */}
+      {modalGastoCaja && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+          <form onSubmit={submitGastoCaja} className="bg-white p-6 md:p-8 rounded-[40px] shadow-2xl border border-slate-200 w-full max-w-md animate-in slide-in-from-bottom-4">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="bg-orange-100 text-orange-600 p-2.5 rounded-2xl shrink-0">
+                <Receipt size={24} />
+              </div>
+              <h2 className="text-2xl font-black text-slate-800">Registrar Gasto de Caja</h2>
+            </div>
+            <p className="text-slate-500 font-bold mb-6 pb-4 border-b">
+              Para compras varias (vasos, pagos a proveedores, etc.) que NO afectan tu inventario de insumos.
+            </p>
+
+            <div className="space-y-6 mb-8">
+              <div>
+                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">¿Qué compraste?</label>
+                <input
+                  type="text" required autoFocus disabled={isSubmitting}
+                  value={conceptoGasto}
+                  onChange={(e) => setConceptoGasto(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-xl font-black outline-none focus:border-orange-500 text-slate-800 disabled:opacity-50 uppercase"
+                  placeholder="EJ. VASOS"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Cantidad</label>
+                  <input
+                    type="number" min="0.01" step="0.01" required disabled={isSubmitting}
+                    value={cantidadGasto}
+                    onChange={(e) => setCantidadGasto(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-2xl font-black outline-none focus:border-orange-500 text-slate-800 disabled:opacity-50"
+                    placeholder="Ej. 50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2">Costo ($)</label>
+                  <input
+                    type="number" min="0.01" step="0.01" required disabled={isSubmitting}
+                    value={costoGasto}
+                    onChange={(e) => setCostoGasto(e.target.value)}
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 text-center text-2xl font-black outline-none focus:border-orange-500 text-slate-800 disabled:opacity-50"
+                    placeholder="Ej. 25"
+                  />
+                </div>
+              </div>
+              <div className="bg-orange-50 border border-orange-100 p-6 rounded-3xl text-center">
+                <p className="text-xs font-black text-orange-600 uppercase tracking-widest mb-1">Se descontará de caja:</p>
+                <p className="text-5xl font-black text-orange-700">
+                  ${cantidadGasto && costoGasto ? (Number(cantidadGasto) * Number(costoGasto)).toFixed(2) : '0.00'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-4">
+              <button disabled={isSubmitting} type="button" onClick={cerrarModalGastoSeguro} className="flex-1 py-5 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition disabled:opacity-50">Cancelar</button>
+              <button type="submit" disabled={!conceptoGasto.trim() || !cantidadGasto || !costoGasto || Number(cantidadGasto) <= 0 || Number(costoGasto) <= 0 || isSubmitting} className="flex-[2] py-5 bg-orange-500 text-white font-black text-xl rounded-2xl disabled:opacity-50 hover:bg-orange-600 shadow-lg shadow-orange-500/30 transition flex justify-center items-center gap-2">
+                <CheckCircle2 size={24}/> {isSubmitting ? 'Guardando...' : 'Confirmar Gasto'}
+              </button>
             </div>
           </form>
         </div>

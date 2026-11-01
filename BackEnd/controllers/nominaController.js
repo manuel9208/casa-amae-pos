@@ -5,11 +5,12 @@ const db = require('../config/db');
 // =========================================================================
 
 exports.guardarNomina = async (req, res) => {
+    const { empresa_id } = req;
     const { datos_corte, usuario_admin_id } = req.body;
     try {
         const result = await db.query(
-            'INSERT INTO historico_nominas (usuario_admin_id, datos_corte) VALUES ($1, $2) RETURNING *',
-            [usuario_admin_id || null, JSON.stringify(datos_corte)]
+            'INSERT INTO historico_nominas (usuario_admin_id, datos_corte, empresa_id) VALUES ($1, $2, $3) RETURNING *',
+            [usuario_admin_id || null, JSON.stringify(datos_corte), empresa_id]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -23,12 +24,13 @@ exports.guardarNomina = async (req, res) => {
 // =========================================================================
 exports.revertirNomina = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     
     try {
-        // 1. Obtener los datos de la nómina a revertir
-        const nominaRes = await db.query('SELECT datos_corte FROM historico_nominas WHERE id = $1', [id]);
+        // 1. Obtener los datos de la nómina a revertir (🔒 Patrón 9 corregido: AND empresa_id)
+        const nominaRes = await db.query('SELECT datos_corte FROM historico_nominas WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
         if (nominaRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Nómina no encontrada en el historial.' });
+            return res.status(404).json({ error: 'Nómina no encontrada en el historial o no pertenece a tu negocio.' });
         }
 
         const datosCorte = typeof nominaRes.rows[0].datos_corte === 'string'
@@ -42,7 +44,7 @@ exports.revertirNomina = async (req, res) => {
 
         // 2. Por cada empleado en el recibo, hacer Rollback de sus estados financieros
         for (const r of recibos) {
-            const empRes = await db.query('SELECT horario_semanal, prestaciones FROM usuarios WHERE id = $1', [r.empleado_id]);
+            const empRes = await db.query('SELECT horario_semanal, prestaciones FROM usuarios WHERE id = $1 AND empresa_id = $2', [r.empleado_id, empresa_id]);
             if (empRes.rows.length === 0) continue;
 
             let horActual = typeof empRes.rows[0].horario_semanal === 'string'
@@ -94,14 +96,14 @@ exports.revertirNomina = async (req, res) => {
             // 3. ACTUALIZAR AL EMPLEADO
             if (huboCambio) {
                 await db.query(
-                    'UPDATE usuarios SET horario_semanal = $1, prestaciones = $2 WHERE id = $3',
-                    [JSON.stringify(horActual), JSON.stringify(presActual), r.empleado_id]
+                    'UPDATE usuarios SET horario_semanal = $1, prestaciones = $2 WHERE id = $3 AND empresa_id = $4',
+                    [JSON.stringify(horActual), JSON.stringify(presActual), r.empleado_id, empresa_id]
                 );
             }
         }
 
         // 4. DESTRUIR EL REGISTRO DE NÓMINA (El Rollback final)
-        await db.query('DELETE FROM historico_nominas WHERE id = $1', [id]);
+        await db.query('DELETE FROM historico_nominas WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
 
         // CONFIRMAR TRANSACCIÓN
         await db.query('COMMIT');
@@ -120,15 +122,16 @@ exports.revertirNomina = async (req, res) => {
 // =========================================================================
 exports.actualizarPlantillaBase = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     const { plantilla_semanal } = req.body;
 
     try {
         const result = await db.query(
-            'UPDATE usuarios SET horario_semanal = $1 WHERE id = $2 RETURNING *',
-            [JSON.stringify(plantilla_semanal || {}), id]
+            'UPDATE usuarios SET horario_semanal = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *',
+            [JSON.stringify(plantilla_semanal || {}), id, empresa_id]
         );
 
-        if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado o no pertenece a tu negocio' });
 
         res.json({ success: true, usuario: result.rows[0] });
     } catch (error) {

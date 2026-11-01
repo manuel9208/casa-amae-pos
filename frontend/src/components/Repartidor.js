@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Navigation, LogOut, Layers, MapPin, Phone, MessageCircle, Banknote, ShoppingBag, CheckCircle2, AlertTriangle, Package, History, Eye, XCircle, User, Smartphone, PieChart } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../utils/apiFetch';
 
 const Repartidor = ({ user, configGlobal, onLogout }) => {
     const [pedidosPool, setPedidosPool] = useState([]);
@@ -28,9 +29,9 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
     const cargarDatosLogistica = useCallback(async () => {
         try {
             const [resPool, resMisViajes, resHistorial] = await Promise.all([
-                fetch(`${apiUrl}/reparto/disponibles`),
-                fetch(`${apiUrl}/reparto/mis-viajes/${user.id}`),
-                fetch(`${apiUrl}/reparto/historial/${user.id}`)
+               apiFetch(`${apiUrl}/reparto/disponibles`),
+               apiFetch(`${apiUrl}/reparto/mis-viajes/${user.id}`),
+               apiFetch(`${apiUrl}/reparto/historial/${user.id}`)
             ]);
             const dataPool = await resPool.json();
             const dataMisViajes = await resMisViajes.json();
@@ -66,7 +67,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
     const tomarPedido = async (pedidoId) => {
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/reparto/tomar/${pedidoId}`, {
+            const res = await apiFetch(`${apiUrl}/reparto/tomar/${pedidoId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ repartidor_id: user.id })
@@ -94,7 +95,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
             // Por eso ahora lo llamamos PRIMERO (registra la entrega física: distancia/tiempo),
             // y DESPUÉS, al final, llamamos a /pedidos/:id/estado para fijar 'Liquidado'.
             // Así la ÚLTIMA escritura es la que persiste, y 'Liquidado' ya no se pierde.
-            const res = await fetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
+            const res = await apiFetch(`${apiUrl}/reparto/entregar/${pedidoId}`, { 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
@@ -102,7 +103,7 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
 
             // 👇 Como este pedido ya venía pagado antes de despachar, lo cerramos como
             // 'Liquidado' (no se le debe nada a Caja). Esta llamada va al final a propósito.
-            await fetch(`${apiUrl}/pedidos/${pedidoId}/estado`, { 
+            await apiFetch(`${apiUrl}/pedidos/${pedidoId}/estado`, { 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ estado_preparacion: 'Liquidado' })
@@ -178,14 +179,14 @@ const Repartidor = ({ user, configGlobal, onLogout }) => {
             // 2º AL FINAL fijamos el método de pago real y el estado definitivo, que puede
             // ser 'Liquidado' (si fue Transferencia pura). Esta llamada va al final a
             // propósito para que su resultado sea el que prevalezca.
-            await fetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
+            await apiFetch(`${apiUrl}/reparto/entregar/${modalCobro.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ distancia_km: 0, tiempo_real_minutos: 0 })
             });
 
             // Actualizamos el método de pago real con el que se topó el repartidor
-            await fetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
+            await apiFetch(`${apiUrl}/pedidos/${modalCobro.id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payloadEstado)

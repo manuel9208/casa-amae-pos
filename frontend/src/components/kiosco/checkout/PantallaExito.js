@@ -1,4 +1,30 @@
 import React from 'react';
+import { motion } from 'framer-motion';
+
+// Checkmark animado estilo Apple Pay/Stripe: el círculo aparece con un "pop"
+// elástico y la palomita se dibuja trazo por trazo mediante animación de su
+// propio contorno SVG (pathLength 0 -> 1).
+const CheckmarkAnimado = () => (
+  <motion.div
+    initial={{ scale: 0 }}
+    animate={{ scale: 1 }}
+    transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+    className="bg-emerald-100 text-emerald-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner"
+  >
+    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+      <motion.path
+        d="M16 34 L27 45 L48 20"
+        stroke="currentColor"
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={{ delay: 0.15, duration: 0.45, ease: 'easeOut' }}
+      />
+    </svg>
+  </motion.div>
+);
 
 const PantallaExito = ({
   isOffline, numeroPedidoReal, tipoConsumo, metodoPagoFinal, contador, reiniciarKiosco
@@ -8,7 +34,7 @@ const PantallaExito = ({
       {isOffline ? (
           <div className="bg-red-100 text-red-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 text-6xl shadow-inner">📝</div>
       ) : (
-          <div className="bg-emerald-100 text-emerald-600 w-32 h-32 rounded-full flex items-center justify-center mx-auto mb-8 text-6xl shadow-inner">✓</div>
+          <CheckmarkAnimado />
       )}
       
       <h2 className="text-6xl font-black mb-4 texto-destacado">

@@ -1,0 +1,1040 @@
+manual de usuario
+ 
+📘 MANUAL DE USUARIO — Catálogos (Clasificaciones e Ingredientes/Extras)
+Ubicación en el sistema: Panel Admin → pestaña "Catálogos" 
+AdminCatalogos.js
+
+¿Para quién es? Administrador del negocio (Admin Global o con permisos de catálogo).
+
+¿Qué hace este módulo?
+Permite organizar el menú del negocio en dos niveles:
+
+Clasificaciones — son las categorías principales del menú (ej. "Sushis", "Postres", "Bebidas", "Pizzas") que el cliente ve en el Kiosco.
+Ingredientes y Extras — son los componentes que se pueden agregar/quitar/duplicar dentro de cada categoría (ej. "Pepperoni" en Pizzas).
+Sub-pestaña: Clasificaciones
+
+Cada clasificación que crees define:
+
+Nombre — el que verá el cliente en el menú.
+Destino de comanda — a dónde se imprime/envía el pedido: Cocina o Barra.
+Icono/Emoji — representación visual en el Kiosco.
+Genera Puntos — si las compras de esta categoría acumulan puntos de fidelidad.
+Canjeable con Puntos — si el cliente puede pagar productos de esta categoría usando sus puntos acumulados.
+Horario Especial — permite limitar la venta de toda la categoría a ciertos días/horas (ej. "Desayunos" solo de 7am a 12pm).
+Imagen — foto opcional que aparece en el menú del Kiosco.
+Flujo de uso:
+
+Completa el formulario y presiona "Agregar Clasificación".
+Para editar, usa el ícono de lápiz sobre la clasificación deseada — se puede cambiar cualquier campo, incluido el nombre, sin romper los productos ya asignados a esa categoría (el sistema reubica automáticamente todos los platillos y promociones relacionadas al nuevo nombre) 
+clasificacionController.js
+.
+Para eliminar, los productos de esa categoría pasan automáticamente a "Sin Categoría" (no se eliminan) 
+clasificacionController.js
+.
+Función de Clonado (🚀): permite duplicar una categoría completa en 4 pasos — datos generales, selección de platillos a copiar, selección de ingredientes/extras a copiar, y modo de copiado ("Copia Exacta" conserva todo; modo "Limpio" resetea stock y horarios) 
+GestorClasificaciones.js
+. Ideal para crear menús de temporada o nuevas sucursales rápidamente.
+Sub-pestaña: Ingredientes y Extras
+
+Define los modificadores que el cliente puede elegir dentro de un producto:
+
+Es Base (viene incluido de forma gratuita, con opción de permitir "doble" por un costo extra).
+Es Extra (se cobra aparte desde el inicio).
+Flujo de uso:
+
+Selecciona a qué Clasificación pertenece el ingrediente.
+Define nombre, comportamiento (Base/Extra) y precio.
+El sistema evita duplicados automáticamente: no deja guardar un ingrediente con el mismo nombre dentro de la misma clasificación 
+GestorIngredientes.js
+.
+Los ingredientes se identifican internamente por ID, por lo que renombrarlos o cambiar su configuración nunca afecta los productos ya existentes que los usan 
+GestorIngredientes.js
+.
+Reglas importantes:
+
+Cambiar el nombre de una categoría es seguro: el sistema reubica productos y promociones automáticamente.
+Cada negocio (empresa) ve y administra únicamente sus propias clasificaciones e ingredientes — el sistema está aislado por negocio a nivel de base de datos 
+clasificacionController.js
+.
+Toda creación, edición o borrado actualiza el menú del Kiosco y Cocina en tiempo real, sin necesidad de recargar pantalla 
+clasificacionController.js
+
+
+📘 MANUAL DE USUARIO — Menú (Crear y Editar Platillos)
+Ubicación: Panel Admin → pestaña "Menú" 
+AdminMenu.js
+
+¿Para quién es? Administrador del negocio.
+
+¿Qué hace este módulo?
+Permite dar de alta y editar cada platillo o bebida que se vende, con su ficha técnica completa, de forma que se refleje automáticamente en el Kiosco, Caja y Cocina.
+
+Flujo de uso — Crear un platillo:
+
+Selecciona la Clasificación/Categoría a la que pertenece (debe existir previamente en Catálogos) 
+FormularioProducto.js
+.
+Elige un ícono/emoji representativo.
+Escribe el nombre y, si aplica, una descripción corta.
+Define el Precio Base — excepto si el platillo usa Tamaños o Sabores (ver abajo), en cuyo caso el precio se define por cada opción y este campo se bloquea automáticamente.
+Define el Tiempo de preparación en minutos (usado por Cocina/KDS para sus métricas).
+Activa los interruptores según aplique:
+Disponible — si se muestra en el Kiosco ahora mismo.
+Genera Puntos — si la compra acumula fidelidad.
+Canje — si se puede pagar con puntos.
+Stock — si quieres controlar un inventario de piezas preparadas (ej. "quedan 5 pizzas").
+Horario Especial (opcional): limita la venta de este platillo específico a ciertos días/horas.
+¿Aplica Tamaños Fijos? — actívalo si vendes el producto en Chico/Mediano/Grande/Jumbo, cada uno con su propio precio extra. Al activarlo, el Precio Base se bloquea y se define 0 automáticamente, ya que el precio real nace de cada tamaño.
+¿Lleva Sabores Libres? — actívalo para productos con variantes de sabor (ej. "Papas: Búfalo, BBQ"), cada una con su propio costo opcional. Igual que con Tamaños, bloquea y resetea el Precio Base.
+Grupos de Selección Obligatoria/Opcional — permite armar reglas tipo "elige tu tipo de leche" (obligatorio, una opción) o modificadores opcionales con límite de selección, tomando los ingredientes ya definidos en Catálogos 
+FormularioProducto.js
+.
+Presiona "Guardar Platillo". El sistema valida que no exista ya un platillo con el mismo nombre dentro de la misma categoría 
+FormularioProducto.js
+.
+Reglas importantes:
+
+Si activas Tamaños o Sabores, el Precio Base queda definido por esas opciones — no se cobra un precio base adicional.
+Cada platillo pertenece a una sola categoría; para reorganizar el menú se recomienda usar primero el módulo de Catálogos.
+Todo cambio se refleja en tiempo real en el Kiosco del cliente, sin necesidad de recargar pantalla (vía WebSockets) 
+productoController.js
+.
+El panel incluye una vista previa en vivo ("Vista Previa de: [Categoría]") que muestra exactamente cómo lucen los platillos ya guardados, con sus etiquetas de estado (Oculto, +Pts, Canjeable, Stock) 
+ListaProductos.js
+
+
+📘 MANUAL DE USUARIO — Inventario (Insumos y Recetas/Escandallos)
+Ubicación: Panel Admin → pestaña "Inventario" 
+AdminInventario.js
+
+¿Para quién es? Administrador o encargado de costos del negocio.
+
+¿Qué hace este módulo? Permite registrar la materia prima (insumos) y construir el costeo real de cada platillo (receta/escandallo), incluyendo mermas, rendimientos y sub-preparaciones reutilizables.
+
+Sub-pestaña: Materia Prima (Insumos)
+
+Alta rápida de insumos con nombre, unidad de medida, cantidad por paquete y costo.
+Marca de "Empaque/Desechable" para artículos que no son comida (vasos, bolsas, etc.).
+Factor de Rendimiento (Mermas): define si el insumo se usa directo, tiene merma (se pela/limpia) o se expande (arroz, frijol) — el sistema calcula automáticamente el costo real por merma mediante una prueba de pesaje crudo vs. limpio 
+GestorInsumos.js
+.
+Alertas de stock bajo configurables por insumo, con notificación push automática al equipo 
+insumoController.js
+.
+Auditoría de inventario bipartita: el Admin solicita un conteo, Caja lo captura, y el Admin aprueba o rechaza antes de que se actualice el stock real 
+GestorInsumos.js +1
+ .
+Sub-pestaña: Escandallos (Recetas)
+
+Se eligen "Platillos" (productos reales del menú) o "Sub-Recetas" (preparaciones base reutilizables, como una salsa o masa madre) para costear.
+Sub-Recetas: permiten armar una preparación una sola vez (ej. "Salsa BBQ Casera") y reutilizarla dentro de múltiples platillos, evitando capturar el mismo costeo repetidas veces.
+Soporta Tamaños Fijos y Sabores Libres con costeo independiente por variante.
+Calcula automáticamente: costo de insumos, empaques, factor de luz/agua, costo real final, precio sugerido (x3) y margen real 
+GestorRecetas.js +1
+ .
+Blindaje "anti-bucle infinito": el sistema no permite que un producto se use a sí mismo (directa o indirectamente) como su propio ingrediente 
+recetaController.js
+.
+Reglas importantes:
+
+Las Sub-Recetas no se venden directamente al cliente; son "ingredientes internos" para armar platillos reales.
+Cada negocio (empresa) ve y administra únicamente sus propios insumos y recetas — aislamiento total por tenant 
+insumoController.js +1
+ .
+Todo el motor de costeo trabaja en tiempo real: cambios en insumos impactan automáticamente el costo de los platillos que los usan.
+
+📘 MANUAL DE USUARIO — Marketing, Combos y Promociones
+Ubicación: Panel Admin → pestaña "Promociones" 
+AdminPromociones.js
+
+¿Para quién es? Administrador del negocio, encargado de marketing/ventas.
+
+¿Qué hace este módulo? Permite configurar 4 motores distintos para aumentar el ticket promedio y fidelizar clientes, todos conectados en tiempo real al Kiosco:
+
+1. Reglas Automáticas — Define dos tipos de promociones sin intervención manual del cajero:
+
+Upselling (Sugerencia): cuando el cliente compra cierto producto/categoría, el sistema le sugiere automáticamente artículos complementarios a un precio especial (global o individual por ítem) 
+FormularioPromocion.js
+.
+Happy Hour (Descuento): aplica un descuento automático (porcentaje, precio fijo o monto fijo) a un producto o categoría durante un horario y días específicos 
+FormularioPromocion.js
+.
+2. Constructor de Combos — Convierte un platillo "padre" en un combo personalizable: el cliente elige entre grupos de opciones (ej. "Elige tu bebida", límite 1) ya sea de toda una categoría o de productos específicos seleccionados a mano 
+FormularioCombo.js
+.
+
+3. Cupones de Descuento — Códigos promocionales (ej. "VERANO20") con descuento por porcentaje o monto fijo, límite de usos y fecha de vencimiento opcional 
+GestorCupones.js
+.
+
+4. Puntos y Lealtad — Configura el motor de fidelidad: porcentaje de puntos generado por cada compra y el valor en dinero real de cada punto acumulado, con interruptores independientes para habilitar acumulación y/o canje 
+ProgramaLealtad.js
+.
+
+Reglas importantes:
+
+Si no hay productos registrados en el Menú, el sistema bloquea la creación de combos/promociones con una alerta visual 
+AdminPromociones.js
+.
+Todos los cambios se reflejan en tiempo real en el Kiosco del cliente vía WebSockets, sin necesidad de recargar.
+El sistema previene duplicados y conflictos (ej. mismo platillo con la misma variación repetido en una oferta) 
+FormularioPromocion.js
+.
+
+📘 MANUAL DE USUARIO — Mesas / QR
+Ubicación: Panel Admin → pestaña "Mesas / QR" 
+AdminMesas.js
+
+¿Para quién es? Administrador (configura el mapa) y Cajero (usa la info en el día a día desde Caja).
+
+¿Qué hace este módulo?
+Es el mapa de control del salón: define cuántas mesas existen, en qué zona/área del restaurante están ubicadas físicamente, y permite verificar en tiempo real cuáles están libres, cuáles están siendo atendidas y con qué número de pedido asociado. Aunque la asignación operativa de mesas ocurre desde Caja durante el servicio diario, este panel es donde se crean, organizan y visualizan las mesas del negocio.
+
+Sub-sección: Mapeo de Mesas y QR
+
+Zona/Área: agrupa mesas por ubicación física (ej. "Salón Principal", "Terraza", "Barra"), facilitando que el personal identifique rápido dónde está cada una 
+ListaMesasQR.js
+.
+Nombre o Número de Mesa: identificador único por mesa (ej. "Mesa 1", "VIP 2").
+Cada mesa creada genera automáticamente su código QR descargable, que al escanearse lleva directo al Kiosco con la mesa pre-identificada (?mesa=NombreMesa) — ideal para que el cliente ordene desde su celular sin intervención del mesero 
+ListaMesasQR.js
+.
+Estados visuales por color: 🟩 Libre, 🟧 Esperando (ocupada sin pedido cerrado), 🟥 Comiendo/Por Pagar — y si hay una orden activa, se muestra el número de pedido asociado directamente en la tarjeta de la mesa 
+ListaMesasQR.js
+.
+Sub-sección: Diseñador de Plano Visual
+
+Permite arrastrar y acomodar cada mesa en un lienzo 2D que imita la distribución real del restaurante, organizado por zona 
+PlanoMesas2D.js
+.
+Una vez guardado el plano, Caja puede visualizar de un vistazo la ocupación real del salón tal como está físicamente distribuido, no solo como una lista.
+Reglas importantes:
+
+El nombre/número de mesa es único por negocio (no se pueden duplicar nombres de mesa dentro de la misma empresa) 
+mesaController.js
+.
+Eliminar una mesa es permanente y se confirma con un modal de seguridad antes de ejecutarse 
+ListaMesasQR.js
+.
+El estado de ocupación y el número de pedido se actualizan en tiempo real conforme Caja gestiona el flujo de servicio.
+
+📘 MANUAL DE USUARIO — Proveedores y Compras
+Ubicación: Panel Admin → pestaña "Proveedores" 
+proveedorController.js +1
+
+¿Para quién es? Administrador o encargado de compras del negocio.
+
+¿Qué hace este módulo?
+Permite llevar el control completo de los proveedores externos: a quién le compras, qué insumos/productos te suministra cada uno, y el registro de facturas con actualización automática de inventario.
+
+Sub-pestaña: Directorio de Proveedores
+
+Registra los datos de la empresa proveedora (nombre, RFC, teléfono, correo de pagos) y opcionalmente un agente de ventas con su WhatsApp 
+DirectorioProveedores.js
+.
+Catálogo del proveedor: vincula cada artículo que te suministra (puede ser un Insumo o un Producto) con su precio pactado y una alerta de stock mínimo individual por artículo 
+DirectorioProveedores.js
+.
+Método de alertas: puedes activar notificación automática por Correo y/o WhatsApp cuando el stock de ese artículo llegue al mínimo configurado 
+DirectorioProveedores.js +1
+ .
+Sub-pestaña: Control de Facturas y Gastos
+
+Registrar Compra/Factura: seleccionas el proveedor, capturas cuánto te entregó de cada artículo de su catálogo y el total pagado 
+ControlGastos.js
+.
+3 estados de factura:
+✅ Recibida y Pagada (Liquidada): suma el stock de inmediato y no genera deuda.
+📦 Recibida pero POR PAGAR (A Crédito): suma el stock igual, pero queda marcada como deuda pendiente.
+⏳ Pendiente de Recibir: no mueve inventario todavía, solo queda en espera.
+Acciones masivas (Bulk): puedes seleccionar varias facturas del mismo proveedor y mismo estado para aprobarlas o liquidarlas todas de un solo clic, enviando un solo correo consolidado al proveedor 
+ControlGastos.js +1
+ .
+Notificación automática al proveedor: al aprobar o pagar, si el proveedor tiene activado "Enviar Email", recibe un correo con el desglose de folios y el total procesado 
+proveedorController.js
+.
+Reporte en PDF: exporta el historial de gastos filtrado por periodo, proveedor o estado 
+ControlGastos.js
+.
+Eliminar factura: si la factura ya había sumado inventario, al borrarla el sistema descuenta automáticamente ese stock para mantener la congruencia 
+ControlGastos.js
+.
+Reglas importantes:
+
+Solo se puede registrar una factura de un proveedor que ya tenga artículos vinculados en su catálogo.
+El sistema exige configurar una cuenta SMTP (engrane ⚙️ "Configuración") antes de registrar una factura de un proveedor que requiera notificación por correo 
+ConfigProveedores.js +1
+ .
+Las alertas de stock bajo tienen un candado anti-spam de 24 horas por artículo, para no saturar al proveedor con correos repetidos 
+proveedorController.js
+.
+
+
+📘 MANUAL DE USUARIO — Clientes CRM
+Ubicación: Panel Admin → pestaña "Clientes CRM" 
+AdminClientes.js
+
+¿Para quién es? Administrador o encargado de atención al cliente.
+
+¿Qué hace este módulo? Administra la base de datos de clientes del negocio: datos de contacto, NIP de seguridad, dirección y puntos de fidelidad, además de un panel de analítica de comportamiento de compra.
+
+Sub-pestaña: Directorio
+
+Buscador rápido por nombre o teléfono.
+Nuevo Cliente: registra nombre, apellido, celular (10 dígitos, único por negocio), correo, fecha de nacimiento, dirección y NIP de 4 dígitos (usado para autorizar canjes de puntos).
+Editar Cliente: permite modificar todos los datos, incluido un ajuste manual de Puntos Monedero (solo visible en modo edición) — útil para bonificaciones o correcciones manuales de saldo.
+Eliminar Cliente: acción irreversible protegida con un modal de confirmación; borra también sus puntos y beneficios acumulados.
+Sub-pestaña: Analítica
+
+Total de clientes registrados y puntos repartidos en todo el sistema.
+Promedio de edad de la cartera de clientes.
+Platillos Favoritos: ranking de los productos más pedidos por clientes identificados.
+Clientes VIP: top 5 por puntos acumulados.
+Métodos de Pago y Origen de Pedidos: distribución de cómo y desde dónde compran tus clientes (Kiosco, Caja, etc.).
+Reglas importantes:
+
+El teléfono no se puede modificar una vez registrado (queda bloqueado en edición) para proteger la identidad del cliente.
+Cada negocio ve y administra únicamente sus propios clientes — aislamiento total por empresa.
+El NIP es la llave de seguridad para que el cliente autorice el canje de sus puntos en Caja/Kiosco.
+
+
+📘 MANUAL DE USUARIO — AdminIA (Copiloto)
+Ubicación: Panel Admin → pestaña "AdminIA" 
+AdminIA.js
+
+¿Para quién es? Administrador del negocio (Chat Experto y Studio Mágico) y Administrador Global únicamente (pestaña Ajustes).
+
+¿Qué hace este módulo? Es el asistente de inteligencia artificial del sistema, con 3 áreas:
+
+1. Chat Experto — Conversación con IA enrutada a 3 contextos 
+ChatCopiloto.js
+:
+
+Finanzas & Ventas: analiza ventas, mermas, platillos más vendidos, con selector de periodo (semana/mes/año/rango) y gráficas comparativas.
+Gestión de Personal: rendimiento de cocina/reparto, asistencias, préstamos y horas extra pendientes.
+Marketing & Ideas: sugerencias creativas y estrategias de negocio.
+El historial de cada contexto se reinicia diariamente y se guarda automáticamente.
+El usuario elige qué motor de IA usar (Gemini/ChatGPT/Claude) entre los habilitados por el Admin Global.
+2. Studio Mágico — Generador de fotografías de producto con IA (Gemini gratis o DALL-E 3 premium) a partir de una descripción de texto 
+GeneradorImagenes.js
+.
+
+3. Ajustes (solo Admin Global) — Configura qué proveedores de IA existen como opción, guarda las llaves API de cada uno, activa el Nivel Premium (desbloquea DALL-E 3 y quita el límite de 15 consultas/día) y define el contexto de negocio que la IA usa para dar recomendaciones más precisas 
+ConfiguracionIA.js
+.
+
+Reglas importantes:
+
+Un proveedor no se puede habilitar sin antes guardar su llave API correspondiente.
+El plan gratuito tiene un límite de 15 consultas de texto por día; el Premium lo elimina.
+Cada negocio (empresa) tiene su propia configuración de IA, historial y consumo — completamente aislado.
+
+📘 MANUAL DE USUARIO — Módulo de Mayoreo (Distribución B2B)
+¿Qué es?
+Un sistema paralelo dentro de tu POS que te permite venderle a otros negocios (cafeterías, tienditas, revendedores) con reglas distintas a las de tu mostrador normal: precios por volumen, crédito comercial, puntos de lealtad empresarial y un directorio de clientes mayoristas con expediente documental.
+
+¿Para quién es?
+Administrador Global / Dueño: configura precios, políticas de crédito y SMTP.
+Cajero: levanta pedidos de mayoreo desde la pestaña correspondiente en Caja.
+Cliente mayorista: recibe notificaciones por correo de sus compras a crédito.
+Estructura del módulo
+Dentro de ADMIN → Mayoreo → Gestión de Distribución encontrarás 5 pestañas 
+AdminDistribucion.js
+:
+
+PESTAÑA
+ESTADO
+FUNCIÓN
+📦 Catálogo de Artículos
+✅ Operativo
+Alta de productos con precios escalonados
+👥 Directorio de Clientes
+✅ Operativo
+Alta de clientes B2B, crédito y documentación
+💰 Cuentas por Cobrar
+🔜 Próximamente
+Abonos y estados de cuenta (en roadmap)
+🎁 Promociones
+🔜 Próximamente
+Cupones exclusivos B2B (en roadmap)
+📈 Reportes de Venta
+🔜 Próximamente
+Métricas aisladas de distribución (en roadmap)
+
+
+1. Catálogo de Artículos
+¿Qué hace?
+Da de alta los productos que vendes por mayoreo, separados del menú normal del restaurante, con su propia estructura de precios escalonados.
+
+Flujo paso a paso
+Entra a Nuevo Artículo 
+CatalogoArticulos.js
+.
+Llena nombre, descripción, categoría (puedes escribir una nueva o elegir una existente con el buscador inteligente).
+Sube una imagen o elige un emoji representativo.
+Define:
+Unidad de venta (Pieza, Kg, Litro, etc.) y su equivalencia (ej. "la caja trae 24 piezas").
+Disponible / Da Puntos / Acepta Puntos con switches visuales.
+Control de stock con alerta de mínimo configurable.
+Política de pago global: Contado o Crédito (aplica a todo el artículo salvo excepciones).
+En Reglas de Precios, agrega tantos niveles como necesites: Público, Medio Mayoreo, Mayoreo, o un precio especial atado a un cliente específico (como se ve en la captura con "Coffeebook" a $160) [captura].
+Guarda — el catálogo se actualiza en vivo vía WebSockets para todas las pantallas conectadas (sin recargar).
+Regla de negocio clave
+El sistema distingue entre reglas de precio por Nivel/Volumen (aplican a cualquier cliente que compre cierta cantidad) y reglas por Cliente Especial (precio negociado solo para ese cliente), y cada una puede tener su propia política de crédito independiente del artículo.
+
+2. Directorio de Clientes (B2B)
+¿Qué hace?
+Es tu CRM de clientes mayoristas: datos generales, puntos de lealtad y, lo más importante, el expediente de crédito comercial.
+
+Flujo paso a paso
+Pestaña "Datos Generales": empresa, contacto, teléfono, RFC (opcional), dirección de entrega, fecha de nacimiento y puntos acumulados 
+DirectorioClientes.js
+.
+Pestaña "Expediente de Crédito":
+Activa el switch de Línea de Crédito.
+Define límite de crédito y días de gracia para pagar.
+Sube INE (frente/reverso) y comprobante de domicilio — se guardan en Cloudinary de forma segura 
+DirectorioClientes.js
+.
+Verificación obligatoria por correo: antes de poder guardar un cliente con crédito activo, el sistema exige verificar su correo con un código de 6 dígitos enviado por SMTP. Sin este paso, el botón de guardar lo bloquea con una alerta 
+DirectorioClientes.js
+.
+Regla de negocio clave
+🔒 Ningún cliente puede tener crédito activo sin correo verificado. Esto evita fraudes de clientes con datos de contacto falsos o inaccesibles, protegiendo tu cartera de cobro.
+
+3. Notificaciones automáticas al cliente
+Cada vez que se registra una venta con metodo_pago: Crédito, el sistema envía automáticamente un correo al cliente confirmando el monto cargado a su línea de crédito y el número de orden 
+distVentasController.js
+ — cumpliendo con la comunicación proactiva del sistema sin que el cajero tenga que hacer nada manual.
+
+4. Configuración General (⚙️ Ajustes)
+Desde el botón Ajustes en la cabecera del módulo 
+AdminDistribucion.js
+ el administrador controla:
+
+Visibilidad en Caja: activar/desactivar que los cajeros vean la pestaña de mayoreo, y el nombre comercial que se mostrará (ej. "28:20", "Mayoreo").
+Programa de Puntos B2B: % de puntos que gana el cliente por compra y el valor en pesos de cada punto.
+SMTP propio y aislado: host, puerto, correo remitente y contraseña de aplicación — independiente del SMTP que uses en otros módulos (Marketing, Biometría, etc.), para mayor control y trazabilidad de las comunicaciones de cobranza.
+
+## 📘 MANUAL DE USUARIO — Módulo de Finanzas y Reportes
+
+### ¿Qué es?
+El centro de inteligencia financiera del negocio: un tablero donde el Administrador consulta ventas, costos, ganancias, cortes de caja, rendimiento de repartidores, compras de insumos y mermas — todo en tiempo real y exportable a PDF/CSV.
+
+### ¿Para quién es?
+Exclusivo del **Administrador Global**, dentro de **ADMIN → Finanzas**.
+
+### Estructura del módulo
+5 pestañas principales [9]:
+
+| Pestaña | Qué muestra |
+|---|---|
+| 📊 Ventas | Reporte financiero completo: ingresos, costos, ganancia neta, desglose por producto |
+| 🕐 Cortes | Auditoría histórica de cortes de caja por turno/cajero |
+| ⛽ Combustible | Rendimiento logístico de repartidores (km, gasto de gasolina) |
+| 🛒 Compras | Historial de abastecimiento de insumos |
+| 🗑️ Mermas | Auditoría de desperdicios y pérdidas económicas |
+
+### 1. Reporte de Ventas — Flujo paso a paso
+1. Elige el periodo: **Día, Semana, Mes, Año o Rango** personalizado [10].
+2. Opcionalmente filtra por **Categoría** (incluye filtros especiales "Solo Extras" y "Solo Envíos") y por **Tipo de Consumo** (Local, Recoger, Domicilio) [10].
+3. El sistema muestra:
+   - **Progreso y Metas**: volumen actual vs. meta de crecimiento del 5% contra el periodo histórico equivalente [13].
+   - **Análisis Inteligente**: producto más/menos vendido, mejor/peor día, productos sin ventas el día anterior [12].
+   - **Tendencias y Horarios**: comparativa gráfica de horas pico vs. horas muertas entre periodos [11][19].
+   - **Resumen Financiero**: 6 tarjetas con Ingresos Brutos, Descuentos, Ingresos Netos, Costo de Inversión, Ganancia Neta y Artículos Vendidos, cada una con indicador de tendencia ↑/↓ [17].
+   - **Tabla de Desglose**: cada producto vendido con su Clasificación, Tamaño y Sabor agrupados correctamente, precio, costo de receta, descuentos y ganancia [18].
+4. Exporta el reporte completo a **PDF profesional** (con tu logo) o **CSV** (para Excel) con un clic [10][26].
+
+### Regla de negocio clave (agrupación de productos)
+- Un platillo se identifica por **Nombre + Tamaño + Sabor** (si aplican). Ejemplo: "Latte (Jumbo)" se cuenta junto sin importar si el cliente pidió Leche Entera o Deslactosada.
+- Los **ingredientes elegidos en grupo** (Leche, Hielo, Salsa, Topping) **nunca** se mezclan con el nombre del platillo — siempre aparecen como una fila de "Extra" aparte con su propio costo y ganancia.
+- Si un producto usa **Tamaños Fijos** con precio base en $0 (ej. "Frapuccino" cuyo precio real vive en Chico/Mediano/Grande/Jumbo), el reporte toma automáticamente el precio del tamaño elegido.
+
+### 2. Cortes (Auditoría)
+Muestra el historial completo de cortes de caja por turno, separando Caja Principal, Repartidores, Pagos Digitales y el Cuadre Global (diferencia entre lo esperado y lo declarado) [20][21][22].
+
+### 3. Combustible (Rendimiento Logístico)
+Calcula el gasto real de gasolina por repartidor según su vehículo y rendimiento configurado (Km/Litro), cruzando las rutas reales registradas por GPS [14].
+
+### 4. Compras y Mermas
+Historial de todo lo comprado a proveedores y de todo lo que se perdió por desperdicio, caducidad o error — con el costo exacto asociado a cada evento [15][16].
+
+
+📘 MANUAL DE USUARIO — Módulo Flujo Operativo
+¿Qué es este módulo?
+"Flujo Operativo" es el panel donde defines cómo viajan los pedidos dentro de tu negocio, de forma totalmente independiente a la Configuración General del restaurante. Los cambios aquí se aplican de inmediato, sin necesidad de guardar nada adicional 
+AdminConfigOperativa.js
+.
+
+1. Flujo Normal (Con Cocina) — Switch principal
+ON (naranja): Todo pedido confirmado pasa primero por la pantalla de Cocina (KDS). Cocina debe marcarlo como "Listo" antes de que pase a Entregas/Cobrar 
+AdminConfigOperativa.js
+.
+OFF (verde, Modo Mostrador): El pedido salta directo a Entregas/Cobrar; Cocina (KDS) nunca lo recibe. Ideal para cafeterías o barras donde el mismo cajero prepara y entrega 
+AdminConfigOperativa.js
+.
+Justo debajo del switch verás siempre las dos tarjetas comparativas ("Con Cocina" vs "Modo Mostrador") resaltando cuál modo está activo en ese momento, para que cualquier gerente entienda de un vistazo el impacto del cambio 
+AdminConfigOperativa.js
+.
+2. Mesa Obligatoria (Consumo Local)
+ON: El cajero no podrá levantar un pedido tipo "Local" sin asignar primero una mesa.
+OFF: El cajero puede dejar el pedido "Local" sin mesa (modo Barra/Libre) 
+AdminConfigOperativa.js
+.
+3. Criterio de Presencia en Cocina
+Define qué empleados aparecen como "disponibles" en el KDS:
+
+Solo Asistencia: debe tener checada su entrada ese día.
+Solo Horario: debe tener turno asignado en ese momento.
+Ambos: debe cumplir las dos condiciones a la vez 
+AdminConfigOperativa.js
+.
+4. Capacidad de Producción (Estaciones de Cocina)
+Aquí configuras cada estación física de tu cocina (Freidora, Parrilla, Horno, etc.):
+
+Capacidad: cuántos platillos puede preparar esa estación en paralelo.
+Min (ventana de minutos): tiempo estimado de preparación por tanda.
+Puedes crear nuevas estaciones, editar nombre/capacidad/minutos con el botón de guardar (ícono disco), eliminar una estación (sus clasificaciones se reasignan automáticamente), y vincular clasificaciones de tu catálogo a cada estación con "Agregar clasificación" 
+GestionEstacionesCocina.js
+. Esto permite que el KDS calcule tiempos de espera reales según la carga de trabajo de cada estación.
+Recomendaciones de uso
+Cambia "Flujo Normal" a OFF solo si tu operación no usa pantalla de cocina (ej. cafetería pequeña de mostrador).
+Activa "Mesa Obligatoria" si quieres evitar que se pierdan cuentas de clientes sentados sin mesa asignada.
+Ajusta "Capacidad de Producción" realista: si una estación se satura, el sistema reflejará tiempos de espera más largos en el KDS, ayudando a tu equipo a priorizar.
+
+📘 Manual de Usuario — Seguridad y Biometría
+¿Qué es? El centro de control de identidad y dispositivos: define qué equipos físicos pueden operar el sistema (MDM) y gestiona las huellas digitales (Passkeys/WebAuthn) de empleados y clientes.
+
+1. Equipos Autorizados (MDM)
+
+Al entrar por primera vez desde una tablet/equipo nuevo, aparece el botón "Registrar Este Equipo" — lo identifica por su device_id único 
+GestorDispositivos.js
+.
+Edítalo para asignarle un alias (ej. "Tablet Caja Principal"), qué pantallas puede abrir (Caja, Cocina, Kiosco, Repartidor, TV, Portal Empleado, Admin) y qué roles de empleados pueden iniciar sesión en él 
+GestorDispositivos.js
+.
+El botón de editar (lápiz) activa el modo edición; guardar confirma los cambios; el ícono de basura elimina el equipo (con confirmación personalizada, ya no nativa).
+2. Huellas Empleados
+
+Busca al empleado, presiona "Vincular Huella" — el sistema activa el sensor biométrico del dispositivo (huella/Face ID) usando WebAuthn 
+useBiometria.js +1
+ .
+Si ya tiene huella, puedes "Reemplazar" (nuevo registro) o "Desvincular" (elimina la credencial) 
+GestorHuellasEmpleados.js
+.
+Al vincularse, el empleado puede iniciar sesión tocando el sensor en vez de escribir su PIN.
+3. Huellas Clientes
+
+Directorio de clientes con Passkey activa o no. Permite "Resetear Huella" cuando el cliente cambia de celular o pierde acceso 
+GestorHuellasClientes.js
+.
+4. Configuración (engrane superior derecho)
+
+Interruptor maestro MDM Activado/Apagado: si está apagado, cualquier equipo puede usar el sistema sin restricciones 
+ModalConfigSeguridad.js
+.
+Bloqueo estricto fuera del equipo oficial: marca qué roles (Cajero, Cocina, Repartidor, etc.) solo podrán abrir el Portal del Empleado (nunca Caja/Cocina/Admin) cuando inicien sesión desde un dispositivo no registrado — ideal para evitar que un empleado opere la caja desde su celular personal 
+ModalConfigSeguridad.js
+.
+Configuración del servidor de correos (SMTP) para notificaciones del sistema 
+ModalConfigSeguridad.js
+.
+
+📘 MANUAL DE USUARIO — Módulo de Asistencia (GPS/IP)
+¿Qué es?
+El sistema de control de horarios y checador digital de tu negocio. Permite que los empleados registren su entrada y salida desde múltiples métodos (login, portal, NFC, o reloj biométrico ZKTeco), mientras el Administrador define reglas estrictas de seguridad para evitar que alguien marque asistencia sin estar físicamente en el negocio.
+
+¿Para quién es?
+Exclusivo del Administrador Global, dentro de ADMIN → Asistencia (GPS/IP).
+
+Estructura del módulo
+PANTALLA
+FUNCIÓN
+⚙️ Reglas de Asistencia (Modal)
+Define qué métodos de checado están activos y qué tan estricta es la validación
+📡 Redes Wi-Fi (IP)
+Lista blanca de IPs públicas autorizadas para checar
+📍 Geocercas (GPS)
+Lista blanca de ubicaciones exactas (latitud/longitud) autorizadas
+📱 Celulares Vinculados
+Dispositivos personales de empleados verificados
+💳 Gafetes NFC Activos
+Tarjetas/pulseras NFC asignadas para checado tipo "Tap & Go"
+📊 Reporte de Asistencias
+Historial, KPIs y exportación de todas las checadas
+
+
+1. Reglas de Asistencia (⚙️ Configuración)
+Flujo paso a paso
+Métodos de Reloj Checador Habilitados 
+ModalConfigAsistencia.js
+: activa una o varias opciones:
+ZKTeco K40: reloj biométrico físico externo.
+Inicio de Sesión: checa automáticamente al loguearse en el sistema.
+Portal del Empleado: el empleado checa manualmente desde su portal (puede exigirse solo PIN, solo Huella, o ambos).
+NFC (Gafete/Pulsera): checado por contacto con una tarjeta física.
+Restringir Check-In (Seguridad Activa) — solo aplica si Portal o NFC están activos:
+Exigir Ambas (IP + GPS exacto), Solo Ubicación (GPS), o Solo Red Wi-Fi (IP).
+Si exige GPS, define la Tolerancia en metros (recomendado 50-100m, para compensar errores de señal satelital).
+Corte Automático de Horas: si un empleado olvida checar su salida, el sistema cierra su turno solo usando la hora de cierre del negocio + minutos de tolerancia configurados, evitando que el conteo de horas siga corriendo indefinidamente 
+ModalConfigAsistencia.js
+.
+Regla de negocio clave
+🔒 El sistema valida la ubicación en 2 capas: primero en el navegador del empleado (vía useValidadorAsistencia) 
+useValidadorAsistencia.js
+, y el mismo cálculo de distancia (fórmula de Haversine) se replica también en el servidor para evitar que alguien manipule el GPS desde el navegador.
+
+2. Redes Wi-Fi (IP) y Geocercas (GPS)
+Flujo paso a paso
+Agregar IP: escribe la IP manualmente o usa el botón "Detectar IP" para autodetectar la IP pública actual del dispositivo desde donde administras 
+GestorRedesGPS.js
+.
+Agregar Geocerca: escribe latitud/longitud manualmente o usa "Capturar GPS" para tomar tu ubicación actual desde el navegador 
+GestorRedesGPS.js
+.
+Ambas listas son de autorización positiva: solo lo que está en la lista puede usarse para checar.
+3. Celulares Vinculados y Gafetes NFC
+Flujo paso a paso
+En Celulares Vinculados 
+GestorDispositivosNFC.js
+, cada empleado que haya iniciado sesión desde su propio celular aparece listado; desde ahí puedes desvincular su dispositivo o asignarle un gafete NFC.
+Al asignar NFC: se abre un modal con lector activo — el empleado acerca su tarjeta/pulsera y el sistema la vincula automáticamente a su perfil 
+GestorDispositivosNFC.js
+.
+En Gafetes NFC Activos puedes ver quién tiene uno asignado y revocarlo en cualquier momento.
+4. Reporte de Asistencias
+Flujo paso a paso
+Filtra por Periodo (Día, Semana, Mes, Año, Rango personalizado), por Empleados específicos (multi-selección), por Roles, o busca por nombre 
+ReporteAsistencias.js
+.
+El sistema muestra 4 KPIs en vivo: Checadas totales, Horas acumuladas, Turnos activos (empleados que aún no checan salida) y Promedio por turno 
+ReporteAsistencias.js
+.
+La tabla de historial muestra: Empleado, Fecha, Hora Entrada, Hora Salida (con etiqueta "⚠️ Cierre Automático" si el sistema lo cerró por tolerancia), Ubicación (si el checado trajo GPS, muestra la distancia exacta a la geocerca más cercana con un link directo a Google Maps) y Horas Trabajadas 
+ReporteAsistencias.js
+.
+Exporta a PDF profesional (con tu logo) o CSV, usando siempre los mismos filtros que tienes aplicados en pantalla 
+exportadorAsistencia.js
+.
+Regla de negocio clave
+📍 La columna de Ubicación queda vacía automáticamente si la checada no trae coordenadas GPS (por ejemplo, un checado hecho desde el reloj biométrico ZKTeco, que no tiene GPS) — así nunca se muestra información engañosa o inventada 
+ReporteAsistencias.js
+
+
+📘 MANUAL DE USUARIO — Módulo Empleado
+1. ¿Qué es este módulo?
+El Portal de Gestión de Empleados centraliza toda la administración del personal: altas/bajas, horarios, nómina, auditoría de conducta y limpieza, vacaciones y comunicación directa con el equipo. Se accede desde el panel Admin → pestaña "Empleados".
+
+2. Pestañas y funciones
+🧑‍🤝‍🧑 Plantilla (Directorio de Empleados)
+Da de alta, edita o elimina empleados. Define rol (admin, gerente, jefe, cajero, cocina, repartidor, TV, ayudante de cocina) y sus permisos granulares por pantalla (Caja, Cocina, Admin, Repartidor) y por función (corte de caja, cancelar pedidos, reportar mermas, proveedores, distribución, etc.). También permite forzar el cierre de sesión remoto de cualquier empleado.
+
+📅 Calendario Anual
+Define días festivos oficiales del año que disparan automáticamente el pago de bono LFT del 200% cuando un empleado trabaja ese día 
+motorNominaLFT.js
+.
+
+🧼 Limpieza
+Asigna tareas de limpieza por área y por empleado/día, con evidencia fotográfica. Alimenta directamente el cálculo de "Bono de Limpieza" en nómina.
+
+📋 Observaciones (Auditoría de Conducta)
+Crea reglas o políticas del negocio (uso de uniforme, tareas administrativas, etc.) y las asigna por puesto/día mediante una "Plantilla Fija". Cada día se evalúa Sí/No por empleado en el "Checklist Diario" 
+GestorObservaciones.js
+. Alimenta el "Bono de Comportamiento".
+
+💰 Nóminas (ver detalle abajo)
+
+💬 Encargos
+Centro de mensajería directa Admin → Empleado. Permite enviar instrucciones puntuales y verificar si el empleado ya las leyó (con timestamp de lectura) 
+VistaMensajesAdmin.js
+.
+
+🕐 GestorHorarios (accesible desde Plantilla)
+
+Asignación masiva de turnos por empleado/rol/rango de fechas, respetando automáticamente días cerrados del negocio, descansos y días no laborales de cada empleado 
+GestorHorarios.js
+.
+Aprobación/rechazo de solicitudes de vacaciones de empleados, con detección de "colisiones" (si demasiados empleados piden el mismo día, se alerta según el límite configurado) 
+GestorHorarios.js
+.
+Duplicar horario al siguiente mes.
+Corte parcial de nómina por rango de fechas (bloquea días ya pagados).
+3. Submódulo Nóminas (el corazón del módulo)
+🔧 Configuración y Bonos (NominaConfig)
+
+Políticas globales: bonos de limpieza, comportamiento, puntualidad clásica y estricta, prima dominical, castigo por faltas (Ley 1/6), y retenciones fiscales (ISR e IMSS) 
+NominaConfig.js
+.
+Ficha financiera por empleado: sueldo base, frecuencia de pago, tarifa de día de apoyo, datos fiscales (NSS, CURP, RFC), préstamos con descuento automático por nómina, límites de comedor de empleados, y plantilla perpetua de horario semanal 
+NominaConfig.js
+.
+🧮 Generar Nómina (NominaGenerar)
+
+Selecciona rango de fechas y empleados.
+El sistema calcula automáticamente: horas trabajadas, faltas, retardos, bonos de festivos (200% LFT), prima dominical, descuentos por Ley 1/6, préstamos activos, y el cumplimiento de limpieza/conducta 
+motorNominaLFT.js
+.
+Puedes editar manualmente horas trabajadas, justificar faltas/retardos, aprobar días de apoyo en días libres, y agregar ingresos/egresos manuales (bonos extra, descuentos personalizados).
+Alerta visual si hay tareas de limpieza/conducta sin calificar (se consideran fallidas por defecto si no se resuelven).
+Al confirmar "Aprobar y Emitir Nómina", el corte se registra financieramente y bloquea los días pagados.
+📜 Historial
+Consulta nóminas pasadas filtrando por empleado o periodo. Permite:
+
+Descargar el recibo de nómina individual en PDF profesional (diseño corporativo con logo, desglose de ingresos/egresos y espacio de firma).
+Eliminar una nómina completa de forma reversible: libera los días pagados, regresa saldos a préstamos descontados y permite regenerarla.
+4. Flujo recomendado de uso semanal/quincenal
+Verifica/actualiza horarios de la semana en "Plantilla".
+Resuelve solicitudes de vacaciones pendientes.
+Evalúa limpieza y observaciones del periodo (Checklist Diario).
+Entra a Nóminas → Generar → selecciona fechas/empleados → Calcular.
+Revisa alertas y ajusta manualmente lo necesario.
+Aprueba y emite. Descarga los recibos en PDF desde Historial.
+5. Preguntas frecuentes
+¿Qué pasa si elimino una nómina por error? Los días vuelven a estar disponibles para pagar y los préstamos recuperan su saldo descontado automáticamente; puedes regenerarla sin perder nada.
+
+¿El PDF del recibo se puede imprimir? Sí, se descarga como archivo PDF real y puedes imprimirlo desde cualquier lector de PDF, con diseño profesional (ya no es una captura de pantalla).
+
+¿Cómo evito pagar dos veces el mismo día? El sistema bloquea automáticamente los días ya pagados y los muestra con candado en el panel de "Auditoría de Fechas".
+
+📘 MANUAL DE USUARIO — Módulo Configuración
+1. ¿Qué es este módulo?
+Es el centro de control de la "Marca Blanca" del sistema: todo lo que define la identidad visual, operativa y de contacto del negocio vive aquí. Se accede desde Admin → "Configuración" y se guarda con un único botón "Guardar Configuración" al final de la página 
+AdminConfiguracion.js
+.
+
+2. Secciones (en orden de aparición)
+1️⃣ Marca, Identidad y Horarios
+Nombre del negocio, logo principal, y horario operativo semanal (día por día, con hora de apertura/cierre y switch de activo/inactivo). Este horario es la base que usan Kiosco, Caja y el cálculo de nómina para saber qué días está abierto el negocio 
+MarcaIdentidad.js
+.
+
+🔒 Seguridad y Operación (Caja y Kiosco) (ver tu captura)
+
+Bloqueo de Pantalla: exige PIN tras inactividad en el POS.
+Cocina en Caja (KDS Mini): permite notificar faltantes directo desde Caja sin pantalla de cocina separada.
+PIN Maestro: código de seguridad de 4 dígitos para desbloquear el Kiosco físico desde otro panel.
+🔄 Políticas de Venta y Sustituciones
+Activa/desactiva si el cliente puede sustituir ingredientes en el Kiosco/Caja, y define la regla de cobro: diferencia proporcional del ingrediente o tarifa fija.
+
+🍽️ Prestación: Comedor de Empleados
+Define qué puede consumir cada empleado gratis por turno (1 platillo + 1 bebida, solo comida, o solo bebida) y qué categorías del menú cuentan como "bebida" o "platillo" 
+GestorComedorPersonal.js
+.
+
+2️⃣ Transferencias y Contacto
+WhatsApp de pagos, banco, CLABE/cuenta y titular — datos que se muestran al cliente para pagos por transferencia 
+PagosContacto.js
+.
+
+📧 Envío de Correos (SMTP Genérico)
+Configura el servidor de correo saliente (host, puerto, remitente, contraseña de aplicación) para notificaciones automáticas del sistema.
+
+3️⃣ Branding del Kiosco y TV
+Mensajes personalizados del Kiosco (bienvenida, negocio cerrado), títulos de las 3 columnas de la Pantalla TV ("En Cola", "Preparando", "Listos"), y la paleta completa de colores y tipografías de marca blanca (inyectados como variables CSS globales) 
+BrandingGlobal.js
+.
+
+4️⃣ Publicidad en Pantalla TV
+Carrusel de hasta 3 imágenes promocionales con tiempo configurable por imagen, más un video promocional opcional (máximo 10 segundos, validado automáticamente al subirlo) 
+PublicidadTV.js
+.
+
+5️⃣ Configuración de Ticket
+Activa/desactiva impresión de tickets, elige el modo (PDF, impresora térmica de red, o Parzibyte), define domicilio del local, mensaje de despedida y firma del sistema en el ticket.
+
+6️⃣ Costos de Envío a Domicilio
+Aviso al cliente sobre el cálculo del envío, y zonas de tarifa personalizables (nombre de zona + costo), con botón para agregar zonas ilimitadas 
+CostosEnvio.js
+.
+
+7️⃣ Notificaciones de WhatsApp (Oficial)
+Activa mensajes automáticos al cliente vía WhatsApp Cloud API de Meta, configurando el Phone Number ID y el Access Token permanente 
+NotificacionesWA.js
+.
+
+8️⃣ Logística y Mapas
+Ciudad/Estado de contexto GPS (para que el repartidor no se pierda buscando calles en otro estado), dirección del local como punto de partida, y API Key de Google Maps para cálculos exactos de distancia/combustible 
+GestorLogisticaMapas.js
+.
+
+⏰ Métodos de Reloj Checador
+Activa/desactiva de forma independiente: Checador Biométrico (huella IP), Botones de Asistencia en pantallas de Caja/Cocina, y Login Automático (inicio/cierre de sesión como registro de entrada/salida) 
+GestorAsistencias.js
+.
+
+3. Botones clave
+"Guardar Configuración": guarda TODAS las secciones de golpe en un solo envío.
+"↺ Restablecer Diseño": regresa todos los valores visuales (colores, mensajes, tarifas) a los predeterminados de fábrica — requiere confirmación y no se aplica hasta guardar 
+AdminConfiguracion.js
+.
+4. Recomendaciones de uso
+Cambios de horario operativo impactan directamente el Kiosco y el cálculo de nómina — verifica antes de guardar.
+Si activas WhatsApp Oficial, asegúrate de tener cuenta válida en Meta for Developers antes de guardar, o los mensajes no se enviarán.
+El video promocional de TV se valida automáticamente: si dura más de 10 segundos, el sistema lo rechaza y te avisa con un mensaje claro (no un error genérico).
+
+📘 MANUAL DE USUARIO — Módulo Kiosco
+1. ¿Qué es este módulo?
+Es la interfaz de autoservicio orientada al cliente final: permite identificarse o entrar como invitado, navegar el menú, armar su pedido, pagar y dar seguimiento en tiempo real a su orden. Se despliega en tótems físicos, tablets de mesa, o como acceso web público, y se adapta automáticamente según el modo configurado (modoKiosco: estándar, tótem o drive-thru) 
+App.js
+ 
+Kiosco.js
+.
+
+2. Secciones (en orden de aparición)
+🔑 Identificación o Invitado
+El cliente ingresa su celular a 10 dígitos para identificarse y acumular puntos, o continúa como invitado. Si es su primera vez, se le pide registrar nombre, apellido, correo (opcional), fecha de nacimiento y un NIP de seguridad de 4 dígitos, usado exclusivamente para canjear puntos 
+App.js
+.
+
+👆 Login Biométrico (Huella)
+Botón alterno de acceso rápido para clientes que ya registraron su huella, sin necesidad de teclear el celular cada vez 
+App.js
+.
+
+🍽️ Menú Principal
+Pantalla central con buscador en vivo, grid de categorías con imagen/emoji y fondos animados (video o Lottie) por categoría, y grid de productos con badges de "Promo", "Happy Hour" y "Más Vendido Hoy" 
+Kiosco.js
+ 
+MenuPrincipal.js
+.
+
+🛒 Carrito Lateral / Flotante
+En escritorio se muestra fijo al costado; en móvil se accede mediante la barra inferior flotante (Menú / Carrito / Perfil). Permite editar cantidades, aplicar cupones de descuento y canjear puntos de fidelidad (con verificación de NIP o huella) 
+Kiosco.js
+ 
+MenuPrincipal.js
+.
+
+🎁 Modal de Seguridad de Puntos (NIP)
+Antes de aplicar un descuento con puntos, el sistema exige el NIP del cliente o su huella digital como segundo factor de seguridad. Incluye opción de "¿Olvidaste tu NIP?" que envía uno nuevo al correo registrado 
+Kiosco.js
+.
+
+🧩 Personalización y Combos
+Al seleccionar un producto personalizable, se abre un modal para elegir ingredientes/extras; si el producto pertenece a un combo configurado, se despliega el armador de combos paso a paso 
+Kiosco.js
+.
+
+💳 Flujo de Checkout
+Secuencia guiada: tipo de consumo (mesa, para llevar, domicilio), datos de entrega si aplica, selección de método de pago, y pantalla de confirmación con número de pedido 
+Kiosco.js
+.
+
+📦 Mis Pedidos
+Historial de pedidos del cliente identificado, con notificaciones automáticas en tiempo real (sonido + alerta visual) cuando el estado cambia a "Listo", "En Camino" o "Entregado" 
+Kiosco.js
+.
+
+3. Botones clave
+"Identificarme": cambia de modo invitado a cliente registrado, habilitando puntos y seguimiento de pedidos.
+"Canjear con Huella": alternativa biométrica al NIP para aplicar descuento de puntos sin teclear nada 
+Kiosco.js
+.
+Barra inferior (Menú / Carrito / Perfil): navegación exclusiva de móvil/tablet, con contador animado de artículos y total acumulado en tiempo real [BottomNavKiosco.js].
+4. Recomendaciones de uso
+Si el negocio está fuera de su horario configurado (horarios_semana), el Kiosco entra automáticamente en "Modo Lectura": se puede ver el menú, pero no se pueden hacer pedidos, mostrando el horario disponible más próximo 
+MenuPrincipal.js
+.
+Los pedidos realizados sin conexión a internet se guardan localmente y se sincronizan automáticamente al recuperar la señal, evitando pérdida de ventas 
+Kiosco.js
+.
+El stock de productos se valida en vivo: si un producto tiene control de inventario activado (usa_stock), el sistema bloquea agregar más unidades de las disponibles 
+MenuPrincipal.js
+.
+
+📘 MANUAL DE USUARIO — Módulo Caja
+
+¿Qué es este módulo?
+Caja es la terminal operativa principal del restaurante: aquí se reciben, confirman, cobran, entregan y auditan todos los pedidos que llegan desde el Kiosco (cliente), se levantan pedidos directos de mostrador/teléfono, se controla el estado de las mesas, se registran gastos de insumos y consumo interno del personal, y se cierra el corte de caja de cada turno. Se accede iniciando sesión como empleado con rol cajero (o admin/gerente/jefe con permiso pantalla_caja) desde el selector de pantallas de la app 
+App.js
+, y dentro de la terminal cada operador se identifica además con un PIN de 4 dígitos en la Pantalla de Bloqueo 
+PantallaBloqueo.js
+. Todo lo que ocurre en Caja se guarda de inmediato en el servidor y se sincroniza en vivo (Sockets) con Cocina, el Kiosco y el Panel de Administración 
+Caja.js
+.
+Secciones (en orden de aparición)
+🔒 Pantalla de Bloqueo — PantallaBloqueo.js
+Antes de operar, cada cajero teclea su PIN de 4 dígitos en un teclado numérico grande. Si el PIN coincide con algún empleado válido, la caja se desbloquea y queda identificado ese operador para todo el turno 
+PantallaBloqueo.js
+. Se vuelve a bloquear sola tras un tiempo de inactividad configurable.
+
+🧭 Barra Superior — TopNavCaja.js
+Contiene el estado del negocio ("Recepción Abierta"/"Pedidos Detenidos"), el botón rojo pulsante "Realizar Inventario" (solo visible cuando Administración solicitó un conteo físico de inventario, para que el cajero lo capture ahí mismo) 
+TopNavCaja.js
+, el botón "Comedor" (registro de consumo interno del personal), "Levantar Pedido" (para armar una orden nueva de mostrador/teléfono), accesos a "Compras Rápidas" y "Reportar Merma" (visibles solo si el operador tiene el permiso correspondiente), el botón de Asistencia NFC (si está activado), pantalla completa, y el cierre de sesión 
+TopNavCaja.js
+.
+
+📋 Pestaña "Comandas" — GestorComandasPrincipal (dentro de VistasCaja.js)
+Vista general de comandas activas del turno.
+
+📜 Pestaña "Ver Todos" — VistaHistorial (solo visible si el flujo usa Cocina)
+Historial completo de pedidos del día, sin filtrar por estado.
+
+📞 Pestaña "Por Confirmar" — VistaConfirmar
+Aquí llegan los pedidos nuevos creados desde el Kiosco con estado Pendiente. El cajero decide si acepta (pasa a Preparando o Listo, según si el negocio usa Cocina) o asigna zona de envío si es a domicilio.
+
+🛍️ Pestaña "Cuentas / Cobrar" — VistaCobrar
+Pedidos pendientes de pago, sin importar su tipo de consumo. Desde aquí se abre el Modal de Pago, se puede ver el detalle, editar la orden, agregar un extra de último minuto o agregar un platillo nuevo a una orden ya abierta.
+
+🖥️ Pestaña "Entregas" — VistaEntregas
+Pedidos ya listos en cocina, esperando ser entregados al cliente o despachados a reparto.
+
+👨‍🍳 Pestaña "KDS Cocina" — vista mini de cocina (solo visible si está activada la opción "Cocina en Caja" y el rol del operador lo permite).
+
+🚲 Pestaña "Por Liquidar" — liquidación de pedidos a Domicilio donde el repartidor trae dinero en mano (Efectivo/Mixto) y debe entregarlo a caja al volver; es independiente del Corte de Caja normal del cajero.
+
+📄 Pestaña "Corte Caja" — VistaCorte
+Muestra el desglose financiero del turno activo: fondo inicial, ventas por método de pago, gastos (compras + consumo de Comedor), efectivo esperado en cajón vs. efectivo declarado, y la diferencia neta.
+
+🍽️ Pestaña "Mesas en Servicio" (solo si se usa Cocina) — VistaMesasPagadas
+Muestra qué mesas están actualmente ocupadas/en servicio y a qué comanda pertenece cada una, para dar seguimiento sin perder de vista el pedido asociado.
+
+🗺️ Pestaña "Mapa Mesas" (solo si se usa Cocina) — VistaMesas
+Plano del restaurante para abrir, asignar y liberar mesas nuevas.
+
+Botones clave
+Levantar Pedido: abre el Punto de Venta interno para armar una orden nueva directamente en Caja (mostrador, teléfono, etc.) 
+TopNavCaja.js
+.
+Comedor: registra el consumo interno de comida del personal. No genera ningún cobro al empleado, pero sí descuenta inventario en tiempo real (igual que una venta real, porque el platillo preparado lleva receta con costo) y queda reflejado como gasto operativo real en los reportes, bajo la categoría "Comedor", separado de las ventas pero visible como parte del costo total del negocio 
+TopNavCaja.js +1
+ .
+Compras Rápidas (ícono de bolsa): abre "Compras y Recepciones", con 3 pestañas: "Compra Libre (Caja)" para registrar compra de insumos reales (afecta stock y costo), "Recepción Proveedor" para mercancía que requiere aprobación de Administración, y "Historial de Hoy" con el registro de todo lo gastado desde Caja en el día, incluyendo insumos reales y Gastos de Caja libres (ej. vasos, pagos varios) que no afectan inventario 
+ModalCompraRapida.js
+.
+Realizar Inventario: solo aparece cuando Administración solicitó una auditoría de inventario; lleva al cajero a capturar el conteo físico correspondiente 
+Caja.js +1
+ .
+Reportar Merma (ícono de bote de basura): abre el gestor de mermas compartido con Cocina.
+Asistencia NFC (ícono de escaneo, solo si está activo): permite que un empleado registre su entrada/salida tocando su credencial NFC, validando ubicación/red antes de confirmar 
+TopNavCaja.js
+.
+Confirmar Ingreso / Cerrar Sesión: bloquea la caja o cierra la sesión del operador por completo.
+Recomendaciones de uso
+El fondo de caja debe abrirse al inicio de cada turno (ModalAperturaCaja); sin esto, el sistema no puede calcular el efectivo esperado del Corte.
+Usa "Comedor" siempre que un empleado consuma algo de la cocina, aunque sea gratis para él — así el dueño ve el costo real de esos insumos en sus reportes, y el inventario se mantiene exacto.
+No cierres la pestaña ni recargues la página mientras se procesa un cobro; el sistema usa actualización optimista y confirma en segundo plano, pero una mala conexión puede mostrar una alerta de "Sin Conexión con el Servidor" — en ese caso, revisa la orden en "Ver Todos" antes de volver a cobrar.
+El PIN de la Pantalla de Bloqueo identifica al cajero responsable de cada venta; no compartas tu PIN, ya que el Corte de Caja se calcula por operador.
+Antes de registrar un "Gasto de Caja" libre, verifica que realmente no deba afectar inventario (ej. insumos reales deben registrarse en "Compra Libre", no como gasto libre).
+
+📘 MANUAL DE USUARIO — Módulo Cocina
+
+¿Qué es este módulo?
+Cocina es la pantalla KDS (Kitchen Display System) donde el personal de cocina recibe, prepara y marca como listas las comandas que llegan ya confirmadas desde Caja. Se accede iniciando sesión como empleado con rol cocina/ayudante_cocina (o jefe/gerente/admin con permiso correspondiente) desde el selector de pantallas 
+App.js
+. Todo cambio de estado de un platillo se guarda de inmediato en el servidor y se sincroniza en vivo (Sockets) con Caja y la Pantalla TV 
+Cocina.js
+.
+Secciones (en orden de aparición)
+🧭 Barra Superior — HeaderKDS.js
+Muestra el nombre del usuario activo, el filtro de áreas ("Todo", "Cocina", "Barra"), el botón "Pedir Insumo", el botón "Merma" (si tiene permiso), el botón de Asistencia NFC (si está activado) y pantalla completa 
+HeaderKDS.js
+.
+
+👥 Selector de Perfil Activo (solo si hay más de un trabajador presente)
+Permite indicar quién de los presentes está tomando o ayudando con cada platillo, para llevar el registro de quién preparó qué 
+Cocina.js
+.
+
+🍽️ Tablero de Comandas — GridPedidos.js / TarjetaComandaCocina.js
+El corazón del módulo: tarjetas con cada pedido activo, mostrando tiempo transcurrido, platillos pendientes, extras/modificaciones, y botones "Preparar", "Ayudar" y "¡Terminado!" por cada platillo individual 
+GridPedidos.js +1
+ .
+
+Botones clave
+Preparar / Ayudar / ¡Terminado!: controlan el ciclo de vida de cada platillo dentro de una comanda, de forma individual (no hay que esperar a que toda la orden esté lista) 
+TarjetaComandaCocina.js
+.
+Faltante (ícono de alerta): reporta en 3 toques que un ingrediente/platillo se terminó, proponiendo una solución (cambiar, quitar o cancelar). El mensaje llega a Caja en tiempo real; Caja responde y la respuesta regresa a Cocina automáticamente, sin necesidad de recargar la pantalla 
+ModalProblema.js +1
+ .
+Pedir Insumo (ícono de caja azul): notifica a Caja, en vivo y sin afectar ninguna base de datos, que se necesita un insumo específico (del catálogo o escrito libremente) junto con la cantidad. Caja ve una tarjeta flotante con botones Aceptar/Rechazar; si rechaza, debe indicar el motivo para que Cocina sepa cómo proceder (ej. detener producción de un platillo). Si Caja no está conectada en ese momento, la solicitud se pierde (no se encola ni se guarda) 
+api.js +2
+ .
+Reportar Merma: da de baja insumos dañados o desperdiciados directamente del inventario.
+Tomar todo lo pendiente: acción masiva para iniciar de golpe todos los platillos pendientes de una comanda.
+Recomendaciones de uso
+Usa "Pedir Insumo" solo para comunicación operativa con Caja (ej. "faltan vasos", "se acabó el pan") — nunca queda guardado como historial, es un aviso momentáneo.
+Usa "Faltante" únicamente cuando el problema es con un platillo específico de una comanda ya en curso (ingrediente agotado), no para pedir insumos en general.
+Si Caja rechaza una solicitud de insumo, lee el motivo con atención: puede significar que debes pausar la preparación de cierto platillo hasta nuevo aviso.
+Mantén la pantalla conectada a internet; tanto "Faltante" como "Pedir Insumo" dependen de la conexión en vivo con el servidor para funcionar correctamente.
+
+📘 MANUAL DE USUARIO — Módulo PantallaTV
+
+¿Qué es este módulo?
+PantallaTV es la pantalla pública (TV o monitor grande) que muestra a los clientes el estado de sus pedidos en tiempo real, además de servir como pantalla publicitaria con imágenes/video configurables desde el Admin. Se accede a través del flujo de login especial (número 0000000000) o rol tv dentro de App.js 
+App.js
+, quedando persistida en localStorage (pos_vista_tv). No requiere guardarse manualmente: se actualiza sola leyendo GET /pedidos/hoy y GET /configuracion cada 3 segundos 
+PantallaTV.js
+.
+Secciones (en orden de aparición)
+🖼️ Capa 1 — Carrusel de Publicidad (PantallaTV.js)
+Rotación automática de hasta 3 imágenes + 1 video configurados desde Admin (tv_imagen_1/2/3, tv_video), con crossfade suave y pantalla de bienvenida con logo y nombre del negocio cuando toca el turno de "Órdenes".
+
+📊 Capa 2 — Estado de Órdenes en Vivo (PantallaTV.js)
+Tres columnas: "En Cola", "Preparando" y "¡Listos!", separadas por Cocina/Barra, mostrando el número de cada pedido activo con animaciones de urgencia.
+
+⏳ Capa 3 — Mensaje de Espera
+Texto flotante "ESPERANDO ÓRDENES..." cuando no hay ningún pedido activo.
+
+📋 Capa 4 — Vista Detallada de Comandas (TarjetaComandaCocinaSoloLectura.js)
+Vista nueva de solo lectura, activada con el botón de flechas invertidas: muestra todas las comandas activas en cocina con su clasificación, nombre e ingredientes (sin botones de acción), más un acumulado de cantidades por clasificación en la parte superior, con un filtro Todo/Cocina/Barra.
+
+Botones clave
+Girar Pantalla: rota la vista 90° (útil si el monitor está en orientación distinta).
+Pantalla Completa: activa el modo fullscreen del navegador.
+Vista Detallada (flechas invertidas): alterna entre el carrusel/columnas normales y la Vista Detallada de Comandas; el mismo botón regresa a la vista anterior.
+Cerrar Sesión: sale de la Pantalla TV y regresa al login.
+Recomendaciones de uso
+Mantén la pantalla siempre conectada a internet: todo depende de polling cada 3 segundos, sin esto no se actualizan los pedidos.
+La Vista Detallada es solo informativa: el control real de los platillos (Preparar/Terminar) se hace siempre desde la tablet de Cocina.
+Si usas pantallas grandes (32"+) con muchas comandas simultáneas, usa la Vista Detallada para evitar el scroll perdido que ocurre en tablets pequeñas.
+
+📘 MANUAL DE USUARIO — Módulo Portal del Empleado
+1. ¿Qué es este módulo?
+El Portal del Empleado es el espacio personal que cada colaborador usa para gestionar su relación laboral con el negocio sin depender de un administrador: consultar su horario, checar asistencia, ver y descargar sus recibos de nómina, solicitar vacaciones, revisar sus tareas de limpieza asignadas y leer avisos enviados por la administración.
+
+Se accede desde la pantalla de selección de entornos tras iniciar sesión como empleado, seleccionando la opción "Mi Portal (Empleado)". El componente real que orquesta todo el portal es PortalEmpleado.js 
+PortalEmpleado.js
+ — toda la información que muestra se consulta en vivo contra la base de datos (configuración del negocio, horarios, nóminas, mensajes) y se actualiza automáticamente vía WebSockets cuando administración publica cambios (nuevo mensaje, nueva nómina, actualización de configuración).
+
+2. Secciones (en orden de aparición)
+⏱️ Asistencia — Reloj checador con huella/Face ID o PIN manual, con vinculación de dispositivo anti-suplantación y validación de ubicación/IP según la política del negocio. Componente: VistaAsistencia.js 
+VistaAsistencia.js
+.
+
+📅 Mi Horario — Calendario mensual de turnos asignados, con indicador de día actual, horario de entrada/salida, descansos pagados, días libres y estado de pago (Pendiente / Auditado / Cobrado). Vive dentro de PortalEmpleado.js 
+PortalEmpleado.js
+.
+
+💵 Mis Recibos — Historial de nómina cobrada, con botón para generar y descargar el recibo en PDF real, idéntico en diseño al que genera Administración (mismo logo, mismos totales). Componente: VistaNominasEmpleado.js 
+VistaNominasEmpleado.js
+, que reutiliza el generador compartido generarReciboNominaPDF.js 
+generarReciboNominaPDF.js
+.
+
+✨ Mis Tareas — Zonas de limpieza asignadas al empleado según su rol para el día en curso, con opción de subir foto de evidencia a la nube. Vive dentro de PortalEmpleado.js 
+PortalEmpleado.js
+.
+
+🌴 Vacaciones — Consulta de días disponibles/usados por ley y formulario para solicitar días específicos del calendario, respetando días cerrados del negocio, festivos bloqueados por administración y descansos propios del empleado. Vive dentro de PortalEmpleado.js 
+PortalEmpleado.js
+.
+
+💬 Mis Avisos — Bandeja de mensajes/encargos enviados por la administración, con opción de marcarlos como "Enterado". Componente: VistaMensajesEmpleado.js 
+VistaMensajesEmpleado.js
+.
+
+3. Botones clave
+"Escanear Huella" / Teclado PIN (Asistencia): registra la entrada o salida validando que el PIN/huella pertenezca al dueño de la sesión — bloquea intentos de suplantación.
+"Ver y Descargar PDF" (Mis Recibos): genera al instante el comprobante de nómina en PDF descargable, sin necesidad de imprimir pantalla.
+"Marcar como Enterado" (Mis Avisos): confirma la lectura del mensaje y lo mueve del estado "Nuevo" a "Leído".
+"Enviar Solicitud" (Vacaciones): envía la petición a Recursos Humanos; queda en estado "En Revisión" hasta que el administrador la apruebe o rechace.
+"Tomar Foto" (Mis Tareas): sube la evidencia de limpieza directamente a la nube para validación del supervisor.
+4. Recomendaciones de uso
+El reloj checador requiere vincular el celular una sola vez con PIN de seguridad; no se puede checar asistencia desde un dispositivo no vinculado.
+Si el administrador marcó un día como festivo bloqueado, ese día no podrá seleccionarse para vacaciones aunque esté disponible en el calendario.
+Los recibos de nómina solo aparecen una vez que administración publica el corte; no existen recibos "en borrador" visibles para el empleado.
+El Portal respeta el Modo Oscuro Automático configurado por el negocio (horario 7pm–7am u otros modos), adaptando tarjetas de avisos y tablas de horario sin perder el color de marca.

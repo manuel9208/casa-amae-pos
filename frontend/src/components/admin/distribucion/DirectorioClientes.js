@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Plus, Edit, Trash2, Users, CreditCard, ShieldCheck, Mail, Upload, FileText, CheckCircle2, XCircle, Building2, MapPin, Phone, Star, BellRing } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const DirectorioClientes = ({ apiUrl, showAlert, showConfirm }) => {
   const [clientes, setClientes] = useState([]);
@@ -29,7 +30,7 @@ const DirectorioClientes = ({ apiUrl, showAlert, showConfirm }) => {
   // ==========================================
   const cargarDatos = useCallback(async () => {
     try {
-      const resCli = await fetch(`${apiUrl}/distribucion/clientes`);
+      const resCli = await apiFetch(`${apiUrl}/distribucion/clientes`);
       if (resCli.ok) setClientes(await resCli.json());
     } catch (error) {
       console.error("Error al cargar directorio B2B:", error);
@@ -83,7 +84,7 @@ const DirectorioClientes = ({ apiUrl, showAlert, showConfirm }) => {
     if (!formData.correo) return showAlert('Atención', 'Ingresa un correo electrónico primero.', 'error');
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/distribucion/clientes/enviar-codigo`, {
+      const res = await apiFetch(`${apiUrl}/distribucion/clientes/enviar-codigo`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ correo: formData.correo, empresa: formData.empresa })
       });
@@ -145,7 +146,7 @@ const DirectorioClientes = ({ apiUrl, showAlert, showConfirm }) => {
       const url = editandoId ? `${apiUrl}/distribucion/clientes/${editandoId}` : `${apiUrl}/distribucion/clientes`;
       const method = editandoId ? 'PUT' : 'POST';
       
-      const res = await fetch(url, { method, body: payload });
+      const res = await apiFetch(url, { method, body: payload });
       if (res.ok) {
         showAlert('Éxito', 'Cliente guardado correctamente en el directorio.', 'success');
         setModalVisible(false);
@@ -163,7 +164,7 @@ const DirectorioClientes = ({ apiUrl, showAlert, showConfirm }) => {
   const eliminarCliente = (id) => {
     showConfirm('Eliminar Cliente', '¿Estás seguro de borrar este cliente y todos sus documentos del sistema?', async () => {
       try {
-        const res = await fetch(`${apiUrl}/distribucion/clientes/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/distribucion/clientes/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert('Eliminado', 'El cliente ha sido borrado.', 'success');
           cargarDatos();

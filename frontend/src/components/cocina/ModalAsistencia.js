@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Delete, X, Clock, Fingerprint, MapPin } from 'lucide-react';  
 import { useBiometria } from '../../hooks/useBiometria';
+import { apiFetch } from '../../utils/apiFetch';
 // 👇 FIX: Ruta calculada para la carpeta Cocina (Sube 1 nivel -> admin -> asistencia)
 import { useValidadorAsistencia } from '../admin/asistencia/useValidadorAsistencia';
 
@@ -24,7 +25,7 @@ const ModalAsistencia = ({ modalAsistencia, setModalAsistencia, apiUrl, setAlert
   // Cargar la configuración de biometría al abrir el modal
   useEffect(() => {
     if (modalAsistencia) {
-      fetch(`${apiUrl}/biometria/configuracion`)
+     apiFetch(`${apiUrl}/biometria/configuracion`)
         .then(r => r.json())
         .then(data => setMetodoAsistencia(data.metodo_asistencia || 'ambos'))
         .catch(() => setMetodoAsistencia('ambos'));
@@ -69,7 +70,7 @@ const ModalAsistencia = ({ modalAsistencia, setModalAsistencia, apiUrl, setAlert
 
       // Enviamos su PIN invisiblemente al reloj checador original
       try {
-        const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
+        const res = await apiFetch(`${apiUrl}/usuarios/asistencia`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pin: userPin, tipo: modalAsistencia })
@@ -114,7 +115,7 @@ const ModalAsistencia = ({ modalAsistencia, setModalAsistencia, apiUrl, setAlert
         }
 
         try {
-          const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
+          const res = await apiFetch(`${apiUrl}/usuarios/asistencia`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pin: pinInput, tipo: modalAsistencia })

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 // =========================================================================
 // CEREBRO DE VALIDACIÓN DE ASISTENCIA (GPS e IP)
@@ -28,7 +29,7 @@ export const useValidadorAsistencia = (apiUrl) => {
         let lonObtenida = null;
         try {
             // 1. Obtener reglas de la base de datos
-            const resConfig = await fetch(`${apiUrl}/asistencia/configuracion`);
+            const resConfig = await apiFetch(`${apiUrl}/asistencia/configuracion`);
             if (!resConfig.ok) throw new Error("No se pudo cargar la configuración.");
             const dataConfig = await resConfig.json();
             

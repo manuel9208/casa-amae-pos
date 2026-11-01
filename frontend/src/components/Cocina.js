@@ -9,6 +9,7 @@ import ModalSolicitarInsumo from './cocina/ModalSolicitarInsumo';
 import ModalAsistencia from './cocina/ModalAsistencia';  
 
 import GestorMermasPrincipal from './caja/modales/mermas/GestorMermasPrincipal';
+import { apiFetch } from '../utils/apiFetch';
 
 const Cocina = ({ user, onLogout }) => {
     const [pedidos, setPedidos] = useState([]);
@@ -34,6 +35,7 @@ const Cocina = ({ user, onLogout }) => {
     const [alertaCaja, setAlertaCaja] = useState(null);  
 
     const bloqueosOptimistasRef = useRef(new Set());
+    const socketRef = useRef(null); // 🆕 Guardamos la referencia para poder emitir desde enviarSolicitudInsumo()
     
     const audioRef = useRef(new Audio('/campana.mp3'));
     const prevPedidosCount = useRef(0);
@@ -43,10 +45,10 @@ const Cocina = ({ user, onLogout }) => {
         const t = Date.now();
         try {
             const [resIng, resClas, resProd, resIns] = await Promise.all([
-                fetch(`${apiUrl}/ingredientes?t=${t}`),
-                fetch(`${apiUrl}/clasificaciones?t=${t}`),
-                fetch(`${apiUrl}/productos?t=${t}`),
-                fetch(`${apiUrl}/insumos?t=${t}`)
+               apiFetch(`${apiUrl}/ingredientes?t=${t}`),
+               apiFetch(`${apiUrl}/clasificaciones?t=${t}`),
+               apiFetch(`${apiUrl}/productos?t=${t}`),
+               apiFetch(`${apiUrl}/insumos?t=${t}`)
             ]);
             
             if (resIng.ok) setCatalogoIngredientes(await resIng.json());
@@ -64,7 +66,7 @@ const Cocina = ({ user, onLogout }) => {
 
     const cargarTrabajadoresActivos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/cocina/personal-presente?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/cocina/personal-presente?t=${Date.now()}`);
             if (!res.ok) return;
             const presentes = await res.json();
 
@@ -89,7 +91,7 @@ const Cocina = ({ user, onLogout }) => {
     // 🏭 FASE 5: Producción en vivo por Estación (alimenta el cálculo de tiempo real)
     const fetchProduccionEnVivo = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/cocina/produccion-en-vivo?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/cocina/produccion-en-vivo?t=${Date.now()}`);
             if (res.ok) setProduccionEnVivo(await res.json());
         } catch (e) { console.error("Error cargando producción en vivo:", e); }
     }, [apiUrl]);
@@ -101,15 +103,18 @@ const Cocina = ({ user, onLogout }) => {
     }, [fetchProduccionEnVivo]); 
 
     useEffect(() => {
-        if (alertaCaja) {
-            const timer = setTimeout(() => setAlertaCaja(null), 4000);
-            return () => clearTimeout(timer);
-        }
+    if (alertaCaja) {
+        // 🆕 15s en vez de 4s: un motivo de rechazo (ej. "No hay pan, tiendas
+        // cerradas") puede ser más largo que una alerta normal. El botón de
+        // cierre manual sigue disponible, así que no afecta si se lee antes.
+        const timer = setTimeout(() => setAlertaCaja(null), 15000);
+        return () => clearTimeout(timer);
+    }
     }, [alertaCaja]);  
 
     const fetchPedidos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/pedidos/hoy?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/pedidos/hoy?t=${Date.now()}`);
             if (!res.ok) throw new Error("Error en petición");
             let data = await res.json();  
             
@@ -147,14 +152,30 @@ const Cocina = ({ user, onLogout }) => {
 
     useEffect(() => {
         const nuevoSocket = io(apiUrl.replace('/api', ''), {
-            transports: ['websocket', 'polling']
-        });  
+        transports: ['websocket', 'polling']
+        });
+        socketRef.current = nuevoSocket; // 🆕 Referencia para emitir solicitudes de insumo
         nuevoSocket.on('connect', () => fetchPedidos());
         nuevoSocket.on('nuevo_pedido', () => fetchPedidos());
         nuevoSocket.on('pedido_actualizado', () => fetchPedidos());
         nuevoSocket.on('pedido_eliminado', () => fetchPedidos());
+
+    // 🆕 PEDIR INSUMO: escucha la respuesta de Caja. Puro evento en vivo,
+    // sin registrar nada en BD. Si Cocina no está conectada, se pierde sin más.
+    // Si rechazan, el motivo es información operativa (ej. "No hay pan, tiendas
+    // cerradas") para decidir si se detiene la producción de ese platillo.
+    nuevoSocket.on('respuesta_insumo_cocina', (payload) => {
+      setAlertaCaja({
+        titulo: payload.aceptado ? '✅ Insumo Aceptado' : '❌ Insumo Rechazado',
+        mensaje: payload.aceptado
+          ? `Caja aceptó tu solicitud de "${payload.insumo}" (${payload.cantidad}).`
+          : `Caja rechazó "${payload.insumo}"${payload.motivo ? `: ${payload.motivo}` : '.'}`,
+        tipo: payload.aceptado ? 'success' : 'error'
+      });
+    });
+
         return () => nuevoSocket.disconnect();
-    }, [apiUrl, fetchPedidos]);  
+    }, [apiUrl, fetchPedidos]);
 
     useEffect(() => {
         const timer = setInterval(() => setAhora(Date.now()), 15000);
@@ -211,7 +232,7 @@ const Cocina = ({ user, onLogout }) => {
         });
 
         // 2. ENVÍO SILENCIOSO EN SEGUNDO PLANO (Fire and Forget)
-        fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
+       apiFetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -240,7 +261,7 @@ const Cocina = ({ user, onLogout }) => {
             
             setPedidos(prev => prev.map(p => p.id === targetId ? { ...p, alerta_cocina: msj } : p));
 
-            await fetch(`${apiUrl}/pedidos/${targetId}/alerta`, {
+            await apiFetch(`${apiUrl}/pedidos/${targetId}/alerta`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ alerta_cocina: msj })
             });
@@ -255,12 +276,24 @@ const Cocina = ({ user, onLogout }) => {
         }
     };  
 
+    // 🆕 PEDIR INSUMO: emite por socket, sin tocar BD, sin depender de ningún pedido.
+    const enviarSolicitudInsumo = (insumoNombre, cantidadTexto) => {
+        if (!socketRef.current) return;
+        socketRef.current.emit('solicitud_insumo_cocina', {
+        solicitud_id: Date.now(),
+        insumo: insumoNombre,
+        cantidad: cantidadTexto,
+        solicitante: user?.nombre || 'Cocina',
+        timestamp: new Date().toISOString()
+        });
+    };
+
     const limpiarAlerta = async (id) => {
         bloqueosOptimistasRef.current.add(id);
         setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
 
         try {
-            await fetch(`${apiUrl}/pedidos/${id}/alerta`, {
+            await apiFetch(`${apiUrl}/pedidos/${id}/alerta`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ alerta_cocina: null })
             });
@@ -378,12 +411,11 @@ const Cocina = ({ user, onLogout }) => {
 
             {modalInsumo && (
                 <ModalSolicitarInsumo
-                    setModalInsumo={setModalInsumo}
-                    catalogoIngredientes={catalogoIngredientes}
-                    apiUrl={apiUrl} user={user}
-                    pedidos={pedidos} 
+                setModalInsumo={setModalInsumo}
+                catalogoIngredientes={catalogoIngredientes}
+                enviarSolicitudInsumo={enviarSolicitudInsumo}
                 />
-            )}  
+            )}
 
             <ModalAsistencia
                 modalAsistencia={modalAsistencia}

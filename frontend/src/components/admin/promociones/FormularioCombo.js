@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Package, Plus, Trash2, Layers, CheckSquare, ListFilter, Filter, AlertTriangle, X } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const FormularioCombo = ({ productos, clasificaciones, promociones, apiUrl, showAlert, refrescarCombos, comboAEditar, setComboAEditar }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -214,7 +215,7 @@ const FormularioCombo = ({ productos, clasificaciones, promociones, apiUrl, show
             };
 
             const url = comboAEditar ? `${apiUrl}/combos/${comboAEditar.id}` : `${apiUrl}/combos`;
-            const res = await fetch(url, { method: comboAEditar ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const res = await apiFetch(url, { method: comboAEditar ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 
             if (res.ok) {
                 showAlert("¡Éxito!", `Constructor de Combo ${comboAEditar ? 'actualizado' : 'guardado'} correctamente.`, "success");

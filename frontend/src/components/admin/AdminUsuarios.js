@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, History, DollarSign, MessageSquare, Calendar, ClipboardCheck } from 'lucide-react';
+import { Users, Sparkles, DollarSign, MessageSquare, Calendar, ClipboardCheck } from 'lucide-react';
 import DirectorioEmpleados from './usuarios/DirectorioEmpleados';
 import ZonasLimpieza from './usuarios/ZonasLimpieza';
 import GestorObservaciones from './usuarios/GestorObservaciones';
-import VistaHistoricoMeses from './usuarios/VistaHistoricoMeses';
 import VistaNominas from './usuarios/VistaNominas';
 import VistaMensajesAdmin from './usuarios/VistaMensajesAdmin';
 import GestorCalendarioAnual from './usuarios/GestorCalendarioAnual';  
+import { apiFetch } from '../../utils/apiFetch';
 
 const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, user }) => {
     const [vista, setVista] = useState('directorio');
     const [configGlobal, setConfigGlobal] = useState({});  
 
     useEffect(() => {
-        fetch(`${apiUrl}/configuracion`)
+       apiFetch(`${apiUrl}/configuracion`)
             .then(res => res.json())
             .then(data => { if (data && !data.error) setConfigGlobal(data); })
             .catch(() => {});
@@ -45,10 +45,6 @@ const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConf
                         <DollarSign size={16}/> Nóminas
                     </button>  
 
-                    <button onClick={() => setVista('historico_meses')} className={`px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-black transition-all flex items-center gap-2 text-xs sm:text-sm ${vista === 'historico_meses' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>
-                        <History size={16}/> Histórico
-                    </button>  
-
                     <button onClick={() => setVista('mensajes')} className={`px-3 sm:px-4 py-2 sm:py-3 rounded-2xl font-black transition-all flex items-center gap-2 text-xs sm:text-sm ${vista === 'mensajes' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>
                         <MessageSquare size={16}/> Encargos
                     </button>  
@@ -60,8 +56,7 @@ const AdminUsuarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConf
             {vista === 'limpieza' && <ZonasLimpieza usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
             {vista === 'observaciones' && <GestorObservaciones usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
             {vista === 'nominas' && <VistaNominas usuariosDB={usuariosDB} apiUrl={apiUrl} refrescarDatos={refrescarDatos} showAlert={showAlert} showConfirm={showConfirm} />}
-            {vista === 'historico_meses' && <VistaHistoricoMeses usuariosDB={usuariosDB} apiUrl={apiUrl} />}
-            {vista === 'mensajes' && <VistaMensajesAdmin usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} />}
+            {vista === 'mensajes' && <VistaMensajesAdmin usuariosDB={usuariosDB} apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />}
         </div>
     );
 };  

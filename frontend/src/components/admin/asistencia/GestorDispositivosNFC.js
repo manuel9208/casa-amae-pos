@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Smartphone, ScanLine, Trash2, RefreshCw, ShieldCheck, CreditCard } from 'lucide-react';
 import io from 'socket.io-client';
 import { useNFC } from '../../../hooks/useNFC';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorDispositivosNFC = ({ apiUrl, showAlert, showConfirm }) => {
     const [celularesVinculados, setCelularesVinculados] = useState([]);
@@ -13,8 +14,8 @@ const GestorDispositivosNFC = ({ apiUrl, showAlert, showConfirm }) => {
     const cargarDatosDispositivos = useCallback(async () => {
         try {
             const [resCel, resNfc] = await Promise.all([
-                fetch(`${apiUrl}/usuarios/dispositivos-vinculados?t=${Date.now()}`),
-                fetch(`${apiUrl}/usuarios/nfc-vinculados?t=${Date.now()}`)
+               apiFetch(`${apiUrl}/usuarios/dispositivos-vinculados?t=${Date.now()}`),
+               apiFetch(`${apiUrl}/usuarios/nfc-vinculados?t=${Date.now()}`)
             ]);
             if (resCel.ok) setCelularesVinculados(await resCel.json());
             if (resNfc.ok) setNfcVinculados(await resNfc.json());
@@ -36,7 +37,7 @@ const GestorDispositivosNFC = ({ apiUrl, showAlert, showConfirm }) => {
                 setAsignandoNFC(true);
                 try {
                     const idEmpleado = modalNFCAdmin.usuario_id || modalNFCAdmin.id;
-                    const res = await fetch(`${apiUrl}/usuarios/vincular-nfc`, {
+                    const res = await apiFetch(`${apiUrl}/usuarios/vincular-nfc`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ usuario_id: idEmpleado, nfc_uid: nfcData })
                     });
@@ -56,7 +57,7 @@ const GestorDispositivosNFC = ({ apiUrl, showAlert, showConfirm }) => {
     const handleDesvincularCelular = (id, nombre) => {
         showConfirm('¿Desvincular Celular?', `¿Remover celular personal de ${nombre}?`, async () => {
             try {
-                const res = await fetch(`${apiUrl}/usuarios/dispositivos-vinculados/${id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/usuarios/dispositivos-vinculados/${id}`, { method: 'DELETE' });
                 if (res.ok) { showAlert('Desvinculado', 'Celular removido.', 'success'); cargarDatosDispositivos(); }
             } catch (e) { showAlert('Error', 'No se pudo desvincular.', 'error'); }
         });
@@ -65,7 +66,7 @@ const GestorDispositivosNFC = ({ apiUrl, showAlert, showConfirm }) => {
     const handleDesvincularNFC = (usuarioId, nombre) => {
         showConfirm('¿Desvincular NFC?', `¿Revocar Gafete NFC a ${nombre}?`, async () => {
             try {
-                const res = await fetch(`${apiUrl}/usuarios/nfc-vinculados/${usuarioId}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/usuarios/nfc-vinculados/${usuarioId}`, { method: 'DELETE' });
                 if (res.ok) { showAlert('Desvinculado', 'Gafete NFC removido.', 'success'); cargarDatosDispositivos(); }
             } catch (e) { showAlert('Error', 'No se pudo desvincular.', 'error'); }
         });

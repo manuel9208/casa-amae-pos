@@ -4,15 +4,16 @@ const { validarAccesoMDM } = require('../utils/mdmValidator');
 
 exports.identificar = async (req, res) => {
   const { telefono } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1', [telefono]);
+    const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1 AND empresa_id = $2', [telefono, empresaId]); // 🔒 FILTRO EMPRESA
     if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: empleado.rows[0] });
 
     const cliente = await db.query(`
       SELECT c.*,
       EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella
-      FROM clientes c WHERE telefono = $1
-    `, [telefono]);
+      FROM clientes c WHERE telefono = $1 AND empresa_id = $2
+    `, [telefono, empresaId]); // 🔒 FILTRO EMPRESA
 
     if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: cliente.rows[0] });
 
@@ -24,8 +25,9 @@ exports.identificar = async (req, res) => {
 
 exports.login = async (req, res) => {
   const { usuario, password, dispositivo_id, lat, lon } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    const result = await db.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2', [usuario, password]);
+    const result = await db.query('SELECT * FROM usuarios WHERE usuario = $1 AND password = $2 AND empresa_id = $3', [usuario, password, empresaId]); // 🔒 FILTRO EMPRESA
 
     if (result.rows.length > 0) {
       const user = result.rows[0];
@@ -35,7 +37,7 @@ exports.login = async (req, res) => {
       // centralizada en mdmValidator.js para no duplicarla con huellasController.js.
       let mdmInfo = { bloqueadoTotal: false, pantallasPermitidas: 'todas' };
       try {
-        mdmInfo = await validarAccesoMDM(user, dispositivo_id);
+        mdmInfo = await validarAccesoMDM(user, dispositivo_id, empresaId); // 🆕 TENANT: se pasa empresaId como 3er argumento
         if (mdmInfo.bloqueadoTotal) {
           return res.status(403).json({ error: mdmInfo.motivoBloqueo });
         }
@@ -59,8 +61,8 @@ exports.login = async (req, res) => {
       const es_secundaria = devices.indexOf(dispositivo_id) > 0;
 
       await db.query(
-        'UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2',
-        [devices.join(','), user.id]
+        'UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2 AND empresa_id = $3', // 🔒 FILTRO EMPRESA
+        [devices.join(','), user.id, empresaId]
       );
 
       // 👇 FIX SEGURIDAD: El registro de asistencia por Login ahora también valida
@@ -68,11 +70,11 @@ exports.login = async (req, res) => {
       // en sí NUNCA se bloquea por ubicación (el empleado debe poder trabajar en
       // Caja/Cocina/Admin sin importar dónde esté) — solo se omite el REGISTRO DE
       // ASISTENCIA si la ubicación no es válida, avisando al empleado sin frenarlo.
-      const isLoginActivo = await metodoAsistenciaActivo('login');
+      const isLoginActivo = await metodoAsistenciaActivo('login', empresaId); // 🆕 TENANT
       let avisoAsistencia = null;
 
       if (isLoginActivo && !es_secundaria) {
-        const validacionUbicacion = await validarUbicacionServidor({ lat, lon, ip: req.ip });
+        const validacionUbicacion = await validarUbicacionServidor({ lat, lon, ip: req.ip, empresaId }); // 🆕 TENANT
 
         if (validacionUbicacion.success) {
           await asegurarColumnasUbicacion();
@@ -80,13 +82,13 @@ exports.login = async (req, res) => {
           const lonGuardar = (lon !== undefined && lon !== null) ? Number(lon) : null;
 
           const turnoAbierto = await db.query(
-            'SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE',
-            [user.id]
+            'SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+            [user.id, empresaId]
           );
           if (turnoAbierto.rows.length === 0) {
             await db.query(
-              'INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada, lat_registro, lon_registro) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP, $2, $3)',
-              [user.id, latGuardar, lonGuardar]
+              'INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada, lat_registro, lon_registro, empresa_id) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP, $2, $3, $4)', // 🆕 TENANT
+              [user.id, latGuardar, lonGuardar, empresaId]
             );
           }
         } else {
@@ -108,8 +110,9 @@ exports.login = async (req, res) => {
 
 exports.logout = async (req, res) => {
   const { usuario_id, dispositivo_id } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    const userRes = await db.query('SELECT dispositivo_id FROM usuarios WHERE id = $1', [usuario_id]);
+    const userRes = await db.query('SELECT dispositivo_id FROM usuarios WHERE id = $1 AND empresa_id = $2', [usuario_id, empresaId]); // 🔒 FILTRO EMPRESA
 
     if (userRes.rows.length > 0) {
       let devices = (userRes.rows[0].dispositivo_id || '').split(',').filter(Boolean);
@@ -120,18 +123,18 @@ exports.logout = async (req, res) => {
         devices = [];
       }
 
-      await db.query('UPDATE usuarios SET dispositivo_id = $1 WHERE id = $2', [devices.length > 0 ? devices.join(',') : null, usuario_id]);
+      await db.query('UPDATE usuarios SET dispositivo_id = $1 WHERE id = $2 AND empresa_id = $3', [devices.length > 0 ? devices.join(',') : null, usuario_id, empresaId]); // 🔒 FILTRO EMPRESA
     }
 
-    const isLoginActivo = await metodoAsistenciaActivo('login');
+    const isLoginActivo = await metodoAsistenciaActivo('login', empresaId); // 🆕 TENANT
 
-    const userCheck = await db.query('SELECT dispositivo_id FROM usuarios WHERE id = $1', [usuario_id]);
+    const userCheck = await db.query('SELECT dispositivo_id FROM usuarios WHERE id = $1 AND empresa_id = $2', [usuario_id, empresaId]); // 🔒 FILTRO EMPRESA
     const quedanDispositivos = userCheck.rows.length > 0 && userCheck.rows[0].dispositivo_id !== null && userCheck.rows[0].dispositivo_id !== '';
 
     if (isLoginActivo && !quedanDispositivos) {
       await db.query(
-        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND hora_salida IS NULL',
-        [usuario_id]
+        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND hora_salida IS NULL AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+        [usuario_id, empresaId]
       );
     }
 
@@ -143,15 +146,16 @@ exports.logout = async (req, res) => {
 
 exports.forzarLogout = async (req, res) => {
   const { id } = req.params;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    await db.query('UPDATE usuarios SET dispositivo_id = NULL WHERE id = $1', [id]);
+    await db.query('UPDATE usuarios SET dispositivo_id = NULL WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
 
-    const isLoginActivo = await metodoAsistenciaActivo('login');
+    const isLoginActivo = await metodoAsistenciaActivo('login', empresaId); // 🆕 TENANT
 
     if (isLoginActivo) {
       await db.query(
-        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND hora_salida IS NULL',
-        [id]
+        'UPDATE registro_asistencias SET hora_salida = CURRENT_TIMESTAMP WHERE usuario_id = $1 AND hora_salida IS NULL AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+        [id, empresaId]
       );
     }
 
@@ -172,8 +176,9 @@ exports.forzarLogout = async (req, res) => {
 
 exports.vincularDispositivo = async (req, res) => {
   const { usuario_id, dispositivo_id, pin } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    const userRes = await db.query('SELECT pin FROM usuarios WHERE id = $1', [usuario_id]);
+    const userRes = await db.query('SELECT pin FROM usuarios WHERE id = $1 AND empresa_id = $2', [usuario_id, empresaId]); // 🔒 FILTRO EMPRESA
     if (userRes.rows.length === 0 || String(userRes.rows[0].pin) !== String(pin)) {
       return res.status(401).json({ error: 'PIN incorrecto. No se pudo vincular el equipo.' });
     }
@@ -181,11 +186,11 @@ exports.vincularDispositivo = async (req, res) => {
     await db.query('CREATE TABLE IF NOT EXISTS empleados_dispositivos (id SERIAL PRIMARY KEY, usuario_id INT UNIQUE, dispositivo_id TEXT UNIQUE, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
 
     await db.query(`
-      INSERT INTO empleados_dispositivos (usuario_id, dispositivo_id, fecha)
-      VALUES ($1, $2, CURRENT_TIMESTAMP)
+      INSERT INTO empleados_dispositivos (usuario_id, dispositivo_id, fecha, empresa_id)
+      VALUES ($1, $2, CURRENT_TIMESTAMP, $3)
       ON CONFLICT (usuario_id)
       DO UPDATE SET dispositivo_id = EXCLUDED.dispositivo_id, fecha = CURRENT_TIMESTAMP
-    `, [usuario_id, dispositivo_id]);
+    `, [usuario_id, dispositivo_id, empresaId]); // 🆕 TENANT
 
     const io = req.app.get('io');
     if (io) {
@@ -203,6 +208,7 @@ exports.vincularDispositivo = async (req, res) => {
 };
 
 exports.obtenerDispositivosVinculados = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     await db.query('CREATE TABLE IF NOT EXISTS empleados_dispositivos (id SERIAL PRIMARY KEY, usuario_id INT UNIQUE, dispositivo_id TEXT UNIQUE, fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
 
@@ -210,8 +216,9 @@ exports.obtenerDispositivosVinculados = async (req, res) => {
       SELECT ed.id, ed.usuario_id, ed.dispositivo_id, ed.fecha, u.nombre, u.rol
       FROM empleados_dispositivos ed
       JOIN usuarios u ON ed.usuario_id = u.id
+      WHERE ed.empresa_id = $1
       ORDER BY ed.id DESC
-    `);
+    `, [empresaId]); // 🔒 FILTRO EMPRESA
     res.json(result.rows);
   } catch (error) {
     res.json([]);
@@ -220,13 +227,14 @@ exports.obtenerDispositivosVinculados = async (req, res) => {
 
 exports.desvincularDispositivo = async (req, res) => {
   const { id } = req.params;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     // 1. Consultar el usuario_id antes de eliminar para enviarlo en el socket
-    const devCheck = await db.query('SELECT usuario_id FROM empleados_dispositivos WHERE id = $1', [id]);
+    const devCheck = await db.query('SELECT usuario_id FROM empleados_dispositivos WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
     const usuario_id = devCheck.rows.length > 0 ? devCheck.rows[0].usuario_id : null;
 
     // 2. Eliminar la vinculación
-    await db.query('DELETE FROM empleados_dispositivos WHERE id = $1', [id]);
+    await db.query('DELETE FROM empleados_dispositivos WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
 
     // 3. Emitir el evento con un objeto válido para evitar crashing en App.js
     const io = req.app.get('io');

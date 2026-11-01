@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Users, Filter, CheckSquare, Square, Store, Sun, Moon, Save, Palmtree, XCircle, CheckCircle2, History, Lock, AlertTriangle, ChevronLeft, ChevronRight, Clock, Copy } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -253,7 +254,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
         if (!emp) return null;
         const original = typeof emp.horario_semanal === 'string' ? JSON.parse(emp.horario_semanal || '{}') : (emp.horario_semanal || {});
         const nuevoHorario = { ...original, ...horariosTemp[empId] };
-        return fetch(`${apiUrl}/usuarios/${empId}/horario`, {
+        returnapiFetch(`${apiUrl}/usuarios/${empId}/horario`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ horario_semanal: nuevoHorario })
@@ -311,9 +312,9 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
           if (!hor[dStr]) hor[dStr] = {};
           hor[dStr] = { activo: true, es_descanso: false, vacaciones: true, pagado: true, entrada: '00:00', salida: '00:00' };
         });
-        await fetch(`${apiUrl}/usuarios/${emp.id}/horario`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ horario_semanal: hor }) });
+        await apiFetch(`${apiUrl}/usuarios/${emp.id}/horario`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ horario_semanal: hor }) });
       }
-      await fetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ prestaciones: pres }) });
+      await apiFetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ prestaciones: pres }) });
       const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket'] });
       socket.emit('horarios_actualizados');
       socket.disconnect();
@@ -352,7 +353,7 @@ const GestorHorarios = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showCon
             }
           });
           if (huboCambio) {
-            return fetch(`${apiUrl}/usuarios/${emp.id}/horario`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: horOriginal }) });
+            returnapiFetch(`${apiUrl}/usuarios/${emp.id}/horario`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ horario_semanal: horOriginal }) });
           }
           return null;
         });

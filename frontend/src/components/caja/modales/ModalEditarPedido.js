@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Smartphone, XCircle, Home, PackagePlus, MapPin, Phone, CreditCard, RotateCcw, Truck, User, CheckCircle2, AlertTriangle, Star, Clock } from 'lucide-react';
 import { useBuscadorClientes } from '../useBuscadorClientes';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdicionPedido, onGoToKiosco, isSubmitting, configGlobal, apiUrl }) => {
   const [editNombre, setEditNombre] = useState('');
@@ -93,7 +94,7 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       setEditDireccion(dirPura);
 
       if (modalEditarPedido.cliente_id) {
-        fetch(`${apiUrl}/clientes`)
+       apiFetch(`${apiUrl}/clientes`)
           .then(res => res.json())
           .then(clientes => {
             const c = clientes.find(x => String(x.id) === String(modalEditarPedido.cliente_id));
@@ -167,7 +168,7 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
 
   const ejecutarGuardadoAvanzado = async (payload) => {
     try {
-        await fetch(`${apiUrl}/pedidos/${modalEditarPedido.id}`, {
+        await apiFetch(`${apiUrl}/pedidos/${modalEditarPedido.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -312,7 +313,7 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const manejarIrAKiosco = async () => {
     try {
       let clienteReal = null;
-      const res = await fetch(`${apiUrl}/clientes`);
+      const res = await apiFetch(`${apiUrl}/clientes`);
       const clientes = await res.json();
 
       if (editClienteId) {

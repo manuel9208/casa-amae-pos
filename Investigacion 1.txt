@@ -1,0 +1,2068 @@
+📄 Auditoría: asistenciaHelper.js
+🗂️ Tablas detectadas:
+
+configuracion_asistencia (SELECT tipo_registro, validacion_activa, rango_metros — todo con WHERE id = 1) 
+asistenciaHelper.js
+asistencia_ips (SELECT de IPs autorizadas) 
+asistenciaHelper.js
+asistencia_ubicaciones (SELECT de geocercas lat/lon) 
+asistenciaHelper.js
+registro_asistencias (ALTER TABLE para agregar columnas lat_registro/lon_registro) 
+asistenciaHelper.js
+configuracion (fallback legacy, columna asistencia_login) 
+asistenciaHelper.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+metodoAsistenciaActivo()
+configuracion_asistencia WHERE id = 1 — mismo patrón "singleton" que ya vimos en configController.js 
+asistenciaHelper.js
+🔴 Alto — con 5 empresas en una sola BD, todas compartirían la misma regla de asistencia
+validarUbicacionServidor()
+Lee todas las IPs de asistencia_ips y todas las geocercas de asistencia_ubicaciones sin filtrar por empresa 
+asistenciaHelper.js
+🔴 Alto — un empleado de "Chito House" podría checar válidamente usando el Wi-Fi o la geocerca de "Casa Amae"
+
+
+🧩 Casos especiales:
+
+Tiene un interruptor de simulación local (IP_LOCAL_SIMULADA, GPS_LOCAL_SIMULADO) pensado solo para pruebas en desarrollo, con doble seguro para no activarse en producción 
+asistenciaHelper.js
+. No requiere empresa_id, pero hay que preservarlo tal cual al tocar este archivo (regla de Preservación Estricta).
+Ya es un ejemplo real de principio DRY bien aplicado en tu sistema: centraliza lógica que usan authController, huellasController, usuarioController y biometricoController 
+asistenciaHelper.js
+. Esto es bueno para nosotros — arreglar este archivo una sola vez beneficia a 4 controladores a la vez.
+✅ Prioridad: Alta
+
+📄 Auditoría: mdmValidator.js
+🗂️ Tablas detectadas:
+
+configuracion_biometria (SELECT control_dispositivos_activo, roles_restringidos — WHERE id = 1) 
+mdmValidator.js
+equipos_autorizados (SELECT por device_id) 
+mdmValidator.js
+⚠️ Queries de riesgo:
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+validarAccesoMDM()
+configuracion_biometria WHERE id = 1 — mismo patrón singleton 
+mdmValidator.js
+🔴 Alto — todas las empresas compartirían la misma política de bloqueo de dispositivos
+Misma función
+equipos_autorizados WHERE device_id = $1 sin filtro de empresa 
+mdmValidator.js
+🔴 Alto — si dos negocios distintos registraran accidentalmente el mismo device_id (poco probable pero posible con tablets reseteadas/revendidas), se cruzarían los permisos de equipo
+
+
+🧩 Casos especiales:
+
+Contiene un mapa PANTALLAS_POR_ROL hardcodeado en memoria (no en BD) 
+mdmValidator.js
+ — esto es una capa de seguridad adicional que no necesita empresa_id porque los roles (admin, cajero, cocina, etc.) son genéricos del sistema, no por empresa. Se deja intacto.
+El usuario 'admin' tiene bypass total de MDM 
+mdmValidator.js
+ — ⚠️ aquí dejo una alerta para la fase de implementación: si vamos a tener un usuario admin por cada una de las 5 empresas en la misma tabla usuarios, hay que verificar que ese bypass siga siendo correcto por empresa y no se vuelva una puerta trasera cruzada.
+✅ Prioridad: Alta
+
+📄 Auditoría: configController.js
+🗂️ Tablas detectadas:
+
+configuracion (ALTER TABLE auto-migración, SELECT, INSERT...ON CONFLICT, UPDATE matriz_limpieza) — todas con WHERE id = 1 
+configController.js
+promociones (SELECT con JOIN, dentro de obtenerConfiguracion) 
+configController.js
+productos (doble LEFT JOIN, solo lectura para enriquecer promociones) 
+configController.js
+cupones (SELECT, INSERT, UPDATE, DELETE) 
+configController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerConfiguracion()
+SELECT * FROM configuracion WHERE id = 1, y si no existe hace INSERT ... (id, nombre_negocio) VALUES (1, ...) 
+configController.js
+🔴 Alto — confirma el patrón singleton ya detectado: todo el sistema de marca blanca depende de una única fila fija id=1
+obtenerConfiguracion() → subquery de promociones
+WHERE p.activo = true sin filtrar empresa 
+configController.js
+🔴 Alto — mostraría promociones de los 5 negocios mezcladas en la config de todos
+actualizarConfiguracion()
+Lee y escribe también con WHERE id = 1 / ON CONFLICT (id) 
+configController.js
+🔴 Alto — cualquier cliente que guarde su configuración sobreescribiría la de los demás (es el riesgo más grave de fuga/corrupción de datos de todo lo auditado hasta ahora)
+subirEvidenciaLimpieza()
+SELECT/UPDATE ... WHERE id = 1 sobre matriz_limpieza 
+configController.js
+🔴 Alto — mismas evidencias de limpieza compartidas entre negocios
+obtenerCupones(), crearCupon(), validarCupon()
+Ninguna filtra por empresa; validarCupon busca por codigo global 
+configController.js
+🔴 Alto — un código de cupón creado por "Casa Amae" sería válido también en "Chito House" si coincide, y el listado mostraría cupones de todos mezclados
+
+
+🧩 Casos especiales / notas importantes:
+
+Este es el archivo más crítico de todos los que llevamos. La tabla configuracion con id=1 es literalmente el corazón de tu sistema White-Label (colores, logo, mensajes de Kiosco/TV, impresión de tickets, WhatsApp, puntos de fidelidad, horarios, políticas, SMTP, PIN maestro del Kiosco). Migrar esto de "una fila fija" a "una fila por empresa" es el cambio más delicado de toda la auditoría — cualquier error aquí rompería la marca blanca de los 5 clientes a la vez.
+Broadcast global de sockets: io.emit('config_actualizada'), io.emit('forzar_actualizacion') (x2, incluyendo el webhook de Vercel) 
+configController.js
+ — mismo patrón de riesgo que ya vimos en authController.js. Sin rooms por empresa, cuando "Coffeebook" actualice su configuración, el Kiosco/Caja/Cocina de los otros 4 clientes recargaría innecesariamente (o peor, si llegan a cachear mal el payload).
+Buena noticia (reduce riesgo): eliminarArchivosCloudinary, extraerPublicId y borrarDeCloudinary no tocan la BD en absoluto, solo Cloudinary — no requieren empresa_id, aunque sí conviene vigilar que un cliente no pueda mandar URLs de Cloudinary de otro negocio para borrarlas (validación a nivel de autorización, no de BD).
+Columna logo_url, tv_imagen_1/2/3, tv_video: usan COALESCE para no perder el archivo si no se sube uno nuevo 
+configController.js
+ — esta lógica de preservación debe respetarse igual cuando pase a ser por empresa.
+Detalle técnico clave para la migración: el INSERT ... VALUES (1, $1, $2...) ON CONFLICT (id) DO UPDATE 
+configController.js
+ tendrá que cambiar su estrategia de conflicto de ON CONFLICT (id) a ON CONFLICT (empresa_id) (asumiendo una fila de configuración por empresa, con empresa_id como clave única) — no se puede simplemente agregar la columna, hay que ajustar también la restricción UNIQUE de la tabla.
+✅ Prioridad: Alta — la más alta de las auditadas hasta ahora.
+
+📄 Auditoría: configFinancieraController.js
+🗂️ Tablas detectadas:
+
+configuracion_financiera (CREATE TABLE IF NOT EXISTS, INSERT semilla inicial, SELECT, UPDATE, INSERT de respaldo) 
+configFinancieraController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+inicializarTablaConfigFinanciera()
+Crea la tabla con clave VARCHAR(50) UNIQUE como identificador único global, y siembra 'factor_luz_agua' una sola vez con ON CONFLICT (clave) DO NOTHING 
+configFinancieraController.js
+🔴 Alto — mismo patrón "singleton" que ya vimos en configuracion: con una sola fila clave='factor_luz_agua', los 5 negocios compartirían el mismo porcentaje de Luz/Agua
+obtenerFactorLuzAgua()
+SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1 
+configFinancieraController.js
+🔴 Alto — cualquier empresa leería siempre el mismo valor, sin distinción
+actualizarFactorLuzAgua()
+UPDATE ... WHERE clave = 'factor_luz_agua' y su fallback INSERT también usa clave fijo 
+configFinancieraController.js
+🔴 Alto — si "Casa Amae" ajusta su % de luz/agua al 18%, automáticamente se lo cambiaría a los otros 4 negocios también
+
+
+🧩 Casos especiales / notas importantes:
+
+Este archivo es la confirmación de un patrón que ya habíamos anotado (Patrón 1), pero con una variante nueva: aquí el identificador "singleton" no es id = 1, sino clave = 'factor_luz_agua'. Esto significa que la solución no será idéntica en todos los casos — en unos cambiaremos WHERE id = 1 por WHERE empresa_id = $1, y aquí cambiaremos la restricción UNIQUE(clave) por UNIQUE(clave, empresa_id), y las queries pasarán a WHERE clave = 'factor_luz_agua' AND empresa_id = $1.
+Dependencias externas detectadas que NO he auditado todavía: el propio comentario del archivo confiesa que este valor es consumido por reporteController.js, GestorRecetas.js (frontend) y PanelTamanosFijos.js (frontend) 
+configFinancieraController.js
+. Esto es importante: cuando lleguemos a reporteController.js (ya está en nuestro checklist, Grupo 7), debo revisar cómo consume este factor, porque si ese archivo también quedó con la consulta "a secas" sin empresa_id, el problema se propaga a los reportes de costeo de cada negocio.
+Buen diseño defensivo que hay que preservar: el doble blindaje (if (result.rows.length > 0) ... else 15% por defecto en el GET, y el INSERT de respaldo si no existe la fila en el UPDATE) 
+configFinancieraController.js
+ es una buena práctica que no se debe perder al migrar — simplemente ese "valor por defecto" tendrá que aplicarse por empresa cuando no exista su fila específica.
+Es un módulo pensado para escalar a un "Gestor de Gastos Fijos" más completo (renta, internet, nómina) 
+configFinancieraController.js
+ — cuando lo implementen a futuro, ya debe nacer con empresa_id desde el inicio, así evitamos repetir este mismo problema en una tabla nueva.
+✅ Prioridad: Alta
+
+📄 Auditoría: configOperativaCtrl.js
+🗂️ Tablas detectadas:
+
+configuracion_operativa (CREATE TABLE IF NOT EXISTS, 2x ALTER TABLE de compatibilidad, INSERT semilla, SELECT, INSERT...ON CONFLICT DO UPDATE) 
+configOperativaCtrl.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+inicializarTablaConfigOperativa()
+Define id INT PRIMARY KEY DEFAULT 1 y siembra INSERT ... VALUES (1, true, false, 'asistencia') ON CONFLICT (id) DO NOTHING 
+configOperativaCtrl.js
+🔴 Alto — mismo patrón singleton de siempre, pero aquí es aún más rígido: la clave primaria literalmente solo permite el valor 1, no es una simple columna UNIQUE como en los casos anteriores
+obtenerConfigOperativa()
+SELECT * FROM configuracion_operativa WHERE id = 1, con su red de seguridad de reinserción también atada a id=1 
+configOperativaCtrl.js
+🔴 Alto — todas las empresas compartirían si usan o no cocina, si la mesa es obligatoria, y el criterio de presencia en cocina
+actualizarConfigOperativa()
+Lee WHERE id = 1, hace INSERT ... VALUES (1, ...) ON CONFLICT (id) DO UPDATE 
+configOperativaCtrl.js
+🔴 Alto — si "Kaore" desactiva el uso de cocina, automáticamente lo desactivaría para los otros 4 negocios también (esto rompería por completo el flujo Kiosco→Caja→Cocina de los demás clientes)
+
+
+🧩 Casos especiales / notas importantes:
+
+Este es el caso más extremo de "singleton" detectado hasta ahora. A diferencia de configuracion (id SERIAL PRIMARY KEY con un registro fijo por convención) o configuracion_financiera (UNIQUE(clave)), aquí la tabla fue diseñada con id INT PRIMARY KEY DEFAULT 1 
+configOperativaCtrl.js
+ — es decir, estructuralmente nunca podría existir una fila con id=2. La migración aquí no es solo "agregar una columna y cambiar el WHERE", sino que hay que redefinir la clave primaria de la tabla: pasar de id INT PRIMARY KEY DEFAULT 1 a algo como id SERIAL PRIMARY KEY + empresa_id INT UNIQUE NOT NULL REFERENCES empresas(id).
+Excelente práctica de concurrencia que hay que preservar tal cual: el patrón de "leer el estado actual antes de actualizar" en actualizarConfigOperativa() (para que un toggle no pise accidentalmente al otro) 
+configOperativaCtrl.js
+ es justo el tipo de lógica de negocio que la regla de Preservación Estricta nos obliga a no tocar — solo se le agrega el filtro de empresa, la lógica de merge parcial se queda igual.
+Socket sin rooms (mismo patrón ya anotado): io.emit('configuracion_operativa_actualizada') 
+configOperativaCtrl.js
+ es broadcast global — se suma a la lista de eventos que necesitarán moverse a rooms por empresa_id.
+Buen diseño modular que confirma tu sospecha inicial: el comentario del propio archivo indica que es "100% independiente de configuracion (Marca Blanca)" 
+configOperativaCtrl.js
+ — confirma que configController.js efectivamente se dividió en módulos especializados (configFinancieraController.js, configOperativaCtrl.js, y probablemente más que iremos viendo), cada uno con su propia tabla singleton. Es un patrón arquitectónico repetido que ya identificamos 3 veces.
+✅ Prioridad: Alta
+
+📄 Auditoría: usuarioController.js
+🗂️ Tablas detectadas:
+
+usuarios (SELECT, INSERT, UPDATE, DELETE, ALTER TABLE para nfc_uid) 
+usuarioController.js
+credenciales_biometricas (subquery EXISTS) 
+usuarioController.js
+registro_asistencias (SELECT, INSERT, JOIN con usuarios) 
+usuarioController.js
+pedidos (JOIN con usuarios para rendimiento de chefs) 
+usuarioController.js
+historico_nominas (SELECT, INSERT) 
+usuarioController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerUsuarios()
+SELECT u.* FROM usuarios ORDER BY id ASC sin filtro 
+usuarioController.js
+🔴 Alto — el panel de Admin de cualquier empresa vería la plantilla completa de las 5 empresas
+obtenerAyudantesCocina()
+WHERE rol = 'ayudante_cocina' sin filtro de empresa 
+usuarioController.js
+🔴 Alto — mismo problema, cruza personal entre negocios
+crearUsuario() / actualizarUsuario()
+Verifican PIN duplicado con SELECT id FROM usuarios WHERE pin = $1 global 
+usuarioController.js
+🟠 Medio-Alto — un PIN usado por un cajero de "Casa Amae" bloquearía ese mismo PIN para un empleado de "Kaore"; debe ser único por empresa, no global
+eliminarUsuario(), actualizarPrestaciones(), actualizarHorario()
+Todas operan con WHERE id = $X sin validar que ese id pertenezca a la empresa del que hace la petición 
+usuarioController.js
+🔴 Alto — es el riesgo más serio de este archivo: sin ese candado, un Admin de una empresa podría editar/borrar/alterar horarios o prestaciones de empleados de otro negocio con solo adivinar o iterar el ID
+obtenerReporteRendimiento()
+Consulta compleja que cruza registro_asistencias, pedidos e historico_nominas, ninguna con filtro de empresa 
+usuarioController.js
+🔴 Alto — el reporte de rendimiento de cocina, asistencias y nómina mezclaría datos de los 5 negocios en un mismo resultado
+guardarCorteNomina()
+INSERT INTO historico_nominas sin empresa_id 
+usuarioController.js
+🔴 Alto — el histórico de nómina (dato financiero sensible) quedaría sin dueño claro
+obtenerNFCVinculados()
+SELECT ... FROM usuarios WHERE nfc_uid IS NOT NULL sin filtro 
+usuarioController.js
+🔴 Alto — expondría qué empleados de todas las empresas tienen gafete NFC vinculado
+desvincularGafeteNFC()
+UPDATE usuarios SET nfc_uid = NULL WHERE id = $1 sin validar propiedad 
+usuarioController.js
+🔴 Alto — mismo riesgo de "editar sin validar dueño"
+
+
+🧩 Casos especiales / notas importantes:
+
+Buena noticia de reutilización (DRY confirmado): este archivo ya importa y usa asistenciaHelper.js (metodoAsistenciaActivo, validarUbicacionServidor, asegurarColumnasUbicacion) 
+usuarioController.js
+, el mismo que auditamos con authController.js. Esto confirma que arreglar ese helper una sola vez beneficia a ambos controladores automáticamente — ya no es una sospecha, es un hecho confirmado.
+Patrón nuevo detectado — "ownership sin validar": a diferencia de los archivos de configuración (que eran "singleton, todos comparten una fila"), aquí el problema es distinto: cada usuario sí tiene su propia fila, pero ninguna función valida que ese id pertenezca a la empresa de quien hace la petición. Este es un patrón de riesgo que seguramente se repetirá en casi todos los controladores restantes (pedidos, productos, mesas, etc.), así que lo anoto como un hallazgo global importante.
+Restricciones UNIQUE que deben migrar de global a compuestas:
+usuarios.pin → hoy único global, debe ser UNIQUE(pin, empresa_id)
+usuarios.nfc_uid → es físicamente un gafete único, pero conviene revisar si debe seguir siendo global o pasar a UNIQUE(nfc_uid, empresa_id) (técnicamente un gafete físico no se puede duplicar entre negocios distintos de todas formas, así que este caso es de menor urgencia que los demás)
+usuarios.usuario y usuarios.telefono → los mensajes de error 23505 confirman que también son únicos globales 
+usuarioController.js
+, deben pasar a UNIQUE(usuario, empresa_id) y UNIQUE(telefono, empresa_id)
+Sockets sin rooms (mismo patrón ya documentado 3 veces): io.emit('usuario_actualizado', ...) y io.emit('usuario_eliminado', ...) 
+usuarioController.js
+ — se suman a la lista de eventos pendientes de migrar a salas por empresa_id.
+✅ Prioridad: Alta (junto con configController.js, es de los archivos más sensibles por el riesgo de "editar/borrar sin validar dueño").
+
+📄 Auditoría: pedidoController.js (COMPLETO — el más grande y crítico hasta ahora)
+🗂️ Tablas detectadas:
+
+pedidos (SELECT, INSERT, UPDATE — múltiples funciones)
+mesas (SELECT, UPDATE de estado/pedido_actual_id)
+productos (SELECT stock/rendimiento, UPDATE stock_preparado)
+recetas (SELECT recursivo — motor de explosión de insumos)
+insumos (SELECT, UPDATE stock_actual — descuentos y devoluciones)
+catalogo_ingredientes (SELECT, JOIN con clasificaciones)
+clasificaciones (JOIN para genera_puntos y nombres de ingredientes)
+clientes (SELECT teléfono, UPDATE puntos)
+cupones (UPDATE usos_actuales)
+configuracion (SELECT múltiples — puntos, WhatsApp)
+configuracion_operativa (SELECT usa_cocina — en 3 funciones distintas)
+cortes (SELECT pedidos_incluidos — auditoría)
+suscripciones_push (SELECT para notificaciones)
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerPedidosHoy()
+Sin filtro de empresa — mostraría pedidos de los 5 negocios mezclados "del día"
+🔴 Alto
+crearPedido()
+SELECT COALESCE(MAX(numero_pedido), 0) + 1 FROM pedidos WHERE fecha... sin filtrar empresa
+🔴 Altísimo — el número de ticket/pedido se compartiría entre negocios, generando folios cruzados (ej. "Pedido #15" de Casa Amae chocaría con "Pedido #15" de Kaore en la misma fecha)
+crearPedido()
+Todas las consultas a productos, recetas, insumos, catalogo_ingredientes por id sin validar que pertenezcan a la empresa del pedido
+🔴 Alto — un producto con mismo ID numérico de otra empresa podría ser referenciado erróneamente tras la migración de datos
+crearPedido() / actualizarEstado()
+SELECT * FROM configuracion WHERE id = 1 (puntos, WhatsApp) — ya documentado en patrón singleton
+🔴 Alto
+crearPedido() / actualizarEstado() / agregarItemsAPedido()
+SELECT usa_cocina FROM configuracion_operativa WHERE id = 1 — 3 repeticiones del mismo patrón singleton
+🔴 Alto
+actualizarPedido(), actualizarEstado(), actualizarAlerta()
+Reciben :id del pedido y lo actualizan sin validar que pertenezca a la empresa del solicitante — mismo "Patrón 9 (Ownership sin validar)" detectado en usuarioController.js
+🔴 Altísimo — un cajero de una empresa podría alterar/cancelar pedidos de otro negocio si llega a adivinar o iterar el ID
+obtenerHistorialAuditoria()
+ORDER BY p.id DESC LIMIT 3000 sin filtro — devuelve el historial completo del sistema
+🔴 Altísimo — este es de los hallazgos más graves de toda la auditoría: expondría los pedidos de todos los negocios a quien consulte esta ruta
+obtenerPedidosCliente()
+WHERE cliente_id = $1 sin filtro de empresa
+🟠 Medio-Alto — si un cliente_id coincide numéricamente entre dos negocios tras la migración, se mezclarían sus historiales
+agregarItemsAPedido() → bloqueo por auditoría de corte
+SELECT pedidos_incluidos FROM cortes (sin filtro) recorre todos los cortes del sistema para decidir si un pedido ya fue auditado
+🔴 Alto — ineficiente y cruza información de cortes entre negocios
+Notificaciones push (notificarStaff)
+SELECT s.suscripcion FROM suscripciones_push s JOIN usuarios u ... WHERE u.rol IN (...) sin filtro de empresa
+🔴 Alto — el personal de "Chito House" recibiría push notifications de pedidos nuevos de "Casa Amae"
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este es el archivo más complejo y de mayor riesgo transaccional de toda la auditoría. Usa transacciones reales (BEGIN/COMMIT/ROLLBACK) con client.connect() en 3 funciones (crearPedido, agregarItemsAPedido), lo cual es correcto y debe preservarse exactamente igual — solo se le añade el filtro empresa_id a cada query dentro de la transacción, sin tocar la lógica de BEGIN/COMMIT/ROLLBACK.
+Motor de "explosión de recetas" recursivo (WITH RECURSIVE): este es el corazón técnico del sistema (descuenta insumos reales a partir de recetas anidadas, con sustitutos automáticos cuando hay desabasto). Aparece duplicado 4 veces en el archivo (crear, cancelar/devolver, agregarItems) — es una violación del principio DRY que ya existe en tu código actual (no generada por nosotros), y cuando migremos a multi-tenant, cada una de esas 4 copias deberá llevar el filtro de empresa de forma idéntica, o si no, quedarán inconsistencias. Sugerencia a futuro (no ahora): valdría la pena extraer esta lógica a una función compartida en /utils para evitar mantener 4 copias sincronizadas manualmente.
+El comentario del propio código confiesa la duplicación intencional: en agregarItemsAPedido() se indica explícitamente "Opción B: motor de inventario DUPLICADO... No modifica ni reutiliza código de crearPedido/actualizarEstado — cero riesgo sobre lo existente" — es una decisión consciente de los desarrolladores anteriores para evitar tocar lo que ya funcionaba. Lo respetamos tal cual, solo añadiremos empresa_id en cada copia por igual.
+Numeración de pedidos (numero_pedido) es el hallazgo más urgente de este archivo. Al ser calculado con MAX(numero_pedido)+1 filtrado solo por fecha, en multi-tenant debe filtrarse también por empresa_id — de lo contrario, dos negocios competirían por el mismo consecutivo del día y se pisarían folios visibles al cliente en el ticket.
+Broadcast global de sockets (patrón ya documentado, aquí con más eventos que en ningún otro archivo): catalogo_actualizado, nuevo_pedido, pedido_actualizado (x3) — todos sin rooms por empresa. Este archivo es el que más reforzará la necesidad de migrar los sockets a salas por empresa_id, ya que es el más frecuente en disparar eventos en tiempo real.
+Dependencia cruzada confirmada: usa cocinaOperativaCtrl.registrarEventoProduccion() (archivo que ya está en nuestro checklist, Grupo 2) — cuando lo auditemos, debo verificar que ese registro de eventos de producción también reciba el empresa_id correctamente para no romper la trazabilidad de "quién preparó qué".
+Buena práctica a preservar: el manejo de tiempo_inicio_preparacion, tiempo_listo, tiempo_salida_reparto, tiempo_entregado con COALESCE para no sobreescribir timestamps ya guardados — esta lógica de métricas de tiempo no se toca, solo queda protegida por el filtro de empresa a nivel de fila.
+Integración WhatsApp vía Meta API: usa config.wa_api_token, config.wa_phone_id de la tabla configuracion — una vez que esa tabla pase a ser multi-tenant, cada negocio usará sus propias credenciales de WhatsApp automáticamente (esto es positivo, ya que confirma que cada cliente podrá tener su propia cuenta de WhatsApp Business sin conflicto).
+✅ Prioridad: CRÍTICA — el archivo de mayor riesgo de toda la auditoría hasta ahora, por su volumen de queries, su rol central en el flujo de negocio (Kiosco→Caja→Cocina), y por contener el hallazgo más grave detectado (obtenerHistorialAuditoria sin ningún filtro, exponiendo potencialmente miles de pedidos de todos los negocios).
+
+📄 Auditoría: mesaController.js
+Archivo corto y directo, aquí el análisis:
+
+🗂️ Tablas detectadas:
+
+mesas (SELECT con JOIN, INSERT, DELETE, UPDATE estado/pedido, UPDATE posiciones x/y) 
+mesaController.js
+pedidos (LEFT JOIN de solo lectura para mostrar número/total/estado en el mapa de mesas) 
+mesaController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerMesas()
+Sin filtro de empresa — el mapa de mesas mostraría las mesas de los 5 negocios mezcladas 
+mesaController.js
+🔴 Alto
+crearMesa()
+INSERT INTO mesas (numero_mesa, zona) sin empresa_id 
+mesaController.js
+; además el mensaje de error ya avisa de una restricción UNIQUE sobre numero_mesa
+🔴 Alto — si "Casa Amae" ya tiene una "Mesa 5", ningún otro negocio podría crear también su propia "Mesa 5" (choque de unicidad global)
+eliminarMesa(), actualizarEstadoMesa()
+Reciben :id sin validar que la mesa pertenezca a la empresa del solicitante 
+mesaController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) que ya vimos en usuarioController.js y pedidoController.js: un cajero de un negocio podría alterar/borrar mesas de otro con solo adivinar el ID
+guardarPosiciones()
+El UPDATE dentro del BEGIN/COMMIT tampoco valida pertenencia por empresa 
+mesaController.js
+🔴 Alto — alguien podría reacomodar el mapa visual de mesas de otro negocio
+
+
+🧩 Casos especiales:
+
+Restricción UNIQUE a nivel de negocio, no de sistema: el mensaje de error de crearMesa() ("Verifica que el número/nombre no exista ya") confirma que numero_mesa es único globalmente hoy 
+mesaController.js
+. Debe migrar a UNIQUE(numero_mesa, empresa_id), igual que el Patrón 10 ya documentado para usuarios.
+Transacción simple y correcta: guardarPosiciones() ya usa BEGIN/COMMIT/ROLLBACK correctamente para guardar varias mesas a la vez 
+mesaController.js
+ — se preserva igual, solo se agrega el filtro de empresa a cada UPDATE dentro del ciclo.
+Archivo limpio y pequeño (82 líneas) — de los más simples de migrar en cuanto a volumen, aunque el riesgo de seguridad (Patrón 9) es igual de serio que en los archivos grandes.
+✅ Prioridad: Alta (bajo volumen de código, pero alto impacto en el flujo Caja↔Mesas↔Pedidos).
+
+📄 Auditoría: productoController.js
+🗂️ Tablas detectadas:
+
+productos (ALTER TABLE auto-migración x2, SELECT, INSERT, UPDATE, DELETE) 
+productoController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerProductos()
+SELECT * FROM productos ORDER BY id ASC sin filtro 
+productoController.js
+🔴 Alto — el catálogo del Kiosco/Caja de un negocio mostraría los productos de los 5 negocios mezclados
+crearProducto()
+INSERT INTO productos (...) sin empresa_id 
+productoController.js
+🔴 Alto — el producto nuevo quedaría "huérfano", sin dueño claro, visible para todos
+actualizarProducto(), eliminarProducto(), actualizarRendimiento()
+Reciben :id sin validar que el producto pertenezca a la empresa del solicitante 
+productoController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado varias veces: un admin de un negocio podría editar/borrar/alterar el rendimiento de productos de otro negocio con solo adivinar el ID
+🧩 Casos especiales / notas importantes:
+
+Archivo relativamente simple y limpio (173 líneas), de los más sencillos de migrar en cuanto a volumen — pero con el mismo riesgo crítico de Ownership sin validar que ya es un patrón recurrente en casi todos los controladores.
+Auto-migración de columnas duplicada 3 veces (en obtenerProductos, crearProducto y actualizarProducto se repiten exactamente los mismos 6 ALTER TABLE IF NOT EXISTS) 
+productoController.js
+ — es una redundancia ya existente en tu código (no generada por nosotros), funcionalmente inofensiva pero ineficiente. No es parte del problema de multi-tenant, así que no la tocamos salvo que tú decidas limpiarla en otro momento.
+Manejo de Cloudinary correcto y aislado: extraerPublicId/borrarDeCloudinary no tocan la BD, no requieren empresa_id — aunque, igual que en configController.js, convendría validar a futuro que un negocio no pueda borrar imágenes de Cloudinary de otro (validación de autorización, no de base de datos).
+Tabla productos es una de las más referenciadas por otros controladores (ya la vimos usada intensamente en pedidoController.js para el motor de explosión de recetas, y en configController.js para las promociones). Esto la vuelve una tabla de altísima prioridad en el empresa_id, ya que un error aquí se propaga a cascada hacia pedidos, promociones, combos, etc.
+Columna rendimiento (usada en actualizarRendimiento) es clave para el motor de explosión de insumos que vimos en pedidoController.js — se preserva la lógica intacta, solo se protege con el filtro de empresa.
+✅ Prioridad: Alta (bajo volumen de código, pero es una tabla "columna vertebral" para varios otros módulos ya auditados).
+
+📄 Auditoría: catalogoController.js
+🗂️ Tablas detectadas:
+
+clasificaciones (SELECT, INSERT, UPDATE, DELETE) 
+catalogoController.js
+catalogo_ingredientes (SELECT con JOIN, INSERT, UPDATE, DELETE) 
+catalogoController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+getClasificaciones()
+SELECT * FROM clasificaciones ORDER BY id ASC sin filtro 
+catalogoController.js
+🔴 Alto — el Kiosco/Caja de un negocio mostraría las categorías (Bebidas, Platillos, etc.) de los 5 negocios mezcladas
+crearClasificacion()
+INSERT INTO clasificaciones (...) sin empresa_id 
+catalogoController.js
+🔴 Alto — la clasificación nueva queda sin dueño, visible para todos
+actualizarClasificacion(), eliminarClasificacion()
+Reciben :id sin validar que la clasificación pertenezca a la empresa del solicitante 
+catalogoController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado repetidamente: un admin de un negocio podría editar/borrar categorías de otro negocio adivinando el ID
+getIngredientes()
+JOIN clasificaciones sin filtro — devuelve todos los ingredientes de todos los negocios 
+catalogoController.js
+🔴 Alto
+crearIngrediente()
+La validación de duplicado (WHERE clasificacion_id = $1 AND LOWER(TRIM(nombre))...) no filtra por empresa 
+catalogoController.js
+🟠 Medio-Alto — si dos negocios distintos tienen una clasificación con el mismo id tras la migración (cosa que debe evitarse con el nuevo esquema), esto podría bloquear nombres repetidos entre negocios que deberían ser independientes
+actualizarIngrediente(), eliminarIngrediente()
+Mismo patrón de Ownership sin validar por :id 
+catalogoController.js
+🔴 Alto
+
+
+🧩 Casos especiales / notas importantes:
+
+Esta es una tabla de altísima prioridad por su efecto cascada. Recordemos que en pedidoController.js (el archivo más crítico) el motor de explosión de recetas hace joins directos contra catalogo_ingredientes y clasificaciones para resolver extras y sustituciones:
+sql
+
+Plegar
+Guardar
+Copiar
+1
+2
+3
+4
+⌄
+SELECT ci.id FROM catalogo_ingredientes ci
+JOIN clasificaciones c ON ci.clasificacion_id = c.id
+WHERE LOWER(TRIM(ci.nombre)) = LOWER(TRIM($1))
+AND LOWER(TRIM(c.nombre)) = LOWER(TRIM($2))
+
+pedidoController.js
+ — Esto confirma algo muy importante: si catalogo_ingredientes y clasificaciones no quedan correctamente filtradas por empresa_id, el motor de descuento de inventario en pedidoController.js podría descontar insumos del negocio equivocado si dos empresas tienen un ingrediente con el mismo nombre (ej. "Queso" en Casa Amae y "Queso" en Chito House). Esta es una dependencia cruzada crítica que no habíamos visto tan explícita hasta ahora.
+
+Normalización de nombres ya existente y bien diseñada: el sistema ya convierte los nombres a mayúsculas y colapsa espacios (nombreNormalizado = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase()) 
+catalogoController.js
+ antes de guardarlos — esto es clave para que el match exacto del motor de inventario funcione. Esta lógica se preserva intacta; solo se le agrega el filtro de empresa a la validación de duplicados y a las búsquedas.
+Restricción de unicidad por implementar: hoy la validación de duplicados en crearIngrediente/actualizarIngrediente se hace a nivel de código (no de restricción SQL UNIQUE), filtrando por clasificacion_id 
+catalogoController.js
+. Al agregar empresa_id, esa validación de duplicado deberá incluir también el filtro de empresa para no bloquear nombres repetidos entre negocios distintos que deberían poder coexistir sin problema.
+Archivo compacto y de bajo volumen (comparado con pedidoController.js), pero su importancia real está en ser una tabla "base" consumida por el motor de pedidos — cualquier inconsistencia aquí se propaga directamente al descuento de inventario.
+✅ Prioridad: Alta (bajo volumen de código, pero es dependencia directa y confirmada del motor de inventario de
+
+📄 Auditoría: clasificacionController.js
+Antes del análisis de riesgo, hay un hallazgo estructural importante que encontré al comparar este archivo con catalogoController.js que auditamos antes.
+
+🚨 Hallazgo #1 — Posible módulo duplicado/paralelo:
+catalogoController.js ya tenía funciones getClasificaciones, crearClasificacion, actualizarClasificacion, eliminarClasificacion operando sobre la misma tabla clasificaciones 
+catalogoController.js
+. Ahora clasificacionController.js trae otra versión completa de las mismas operaciones (obtenerClasificaciones, crearClasificacion, actualizarClasificacion, eliminarClasificacion), pero más evolucionada: con auto-migración de columnas de horarios, genera_puntos, permite_canje, disponible, y además un módulo nuevo de clonación de catálogos (clonarClasificacion) 
+clasificacionController.js
+. Antes de tocar nada de empresa_id en cualquiera de los dos, necesito que confirmes (revisando api.js o diciéndome) cuál de los dos controladores está realmente enlazado en las rutas activas — si ambos están registrados en api.js podría haber un conflicto de rutas o un archivo "muerto" que ya no se usa pero sigue existiendo. Esto es importante para no perder tiempo migrando código que ya no corre en producción.
+
+🗂️ Tablas detectadas en clasificacionController.js:
+
+clasificaciones (ALTER TABLE auto-migración x5, SELECT, INSERT, UPDATE, DELETE, dentro de transacciones BEGIN/COMMIT/ROLLBACK) 
+clasificacionController.js
+productos (UPDATE masivo de categoria al renombrar/eliminar una clasificación; SELECT/INSERT en el módulo de clonación) 
+clasificacionController.js
+promociones (UPDATE de categoria_trigger al renombrar una clasificación) 
+clasificacionController.js
+catalogo_ingredientes (SELECT, INSERT dentro del módulo de clonación) 
+clasificacionController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerClasificaciones()
+Sin filtro — mezclaría categorías de los 5 negocios 
+clasificacionController.js
+🔴 Alto
+crearClasificacion()
+INSERT sin empresa_id 
+clasificacionController.js
+🔴 Alto
+actualizarClasificacion(), eliminarClasificacion(), actualizarDisponibilidad()
+:id sin validar dueño — Patrón 9 ya conocido 
+clasificacionController.js
+🔴 Alto
+actualizarClasificacion() y eliminarClasificacion() — hallazgo nuevo y más grave
+Al renombrar/eliminar, hacen UPDATE productos SET categoria = $1 WHERE categoria = $2 (texto, no por ID) y lo mismo en promociones.categoria_trigger 
+clasificacionController.js
+🔴🔴 Crítico — esto es una variante nueva y más peligrosa del Patrón 9: si "Casa Amae" y "Chito House" tienen ambas una categoría llamada "Bebidas" y Casa Amae la renombra a "Refrescos", la actualización por coincidencia de texto afectaría también los productos de Chito House que tuvieran categoria = 'Bebidas', sin que exista ningún ID de por medio que lo evite
+clonarClasificacion()
+SELECT catalogo_ingredientes WHERE clasificacion_id=$1 AND id=ANY($2), SELECT productos WHERE id=ANY($1), e inserciones nuevas — ninguna filtra por empresa 
+clasificacionController.js
+🔴 Alto — podría clonar ingredientes/productos de otra empresa si los IDs llegan a coincidir tras la migración de datos
+
+
+🧩 Casos especiales / notas importantes:
+
+Patrón 16 (nuevo): "Cascada por coincidencia de texto, no por relación". Es más peligroso que el Patrón 9 porque ni siquiera depende de adivinar un ID — ocurre automáticamente con cualquier nombre de categoría repetido entre negocios. Debe resolverse agregando AND empresa_id = $X tanto en el UPDATE productos SET categoria=... como en el de promociones.categoria_trigger.
+Módulo de clonación (clonarClasificacion) usa transacción completa (BEGIN/COMMIT/ROLLBACK) correctamente — se preserva igual, solo se filtran por empresa las lecturas de origen y se inyecta empresa_id en cada INSERT nuevo.
+Mismo patrón de auto-migración repetida y broadcast global de socket (catalogo_actualizado) ya documentado varias veces.
+✅ Prioridad: Crítica (por el Patrón 16, más grave que el Ownership simple).
+
+📄 Ahora sí, auditoría de comboController.js (el archivo nuevo que adjuntaste)
+🗂️ Tablas detectadas:
+
+combos (CREATE TABLE IF NOT EXISTS, SELECT con JOIN, INSERT, UPDATE x2, DELETE) 
+comboController.js
+productos (JOIN de solo lectura para traer nombre/imagen del producto base) 
+comboController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerCombos()
+JOIN productos sin filtro — mezclaría combos de los 5 negocios 
+comboController.js
+🔴 Alto
+crearCombo()
+INSERT INTO combos (...) sin empresa_id 
+comboController.js
+🔴 Alto
+actualizarCombo(), cambiarEstadoCombo(), eliminarCombo()
+Reciben :id sin validar que el combo pertenezca a la empresa del solicitante 
+comboController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado en casi todos los controladores
+
+
+🧩 Casos especiales / notas importantes:
+
+Dependencia directa de productos.id: la columna producto_base_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE 
+comboController.js
+ es una llave foránea real a nivel de base de datos. Esto es un hallazgo importante para la fase de implementación: si un producto se elimina, Postgres borra en cascada sus combos asociados automáticamente. Al migrar a multi-tenant, hay que asegurar que este ON DELETE CASCADE siga funcionando correctamente dentro del mismo empresa_id (no debería verse afectado, pero es una relación a verificar con cuidado al momento de tocar el esquema).
+Archivo compacto, sin auto-migraciones repetidas ni transacciones complejas — de los más sencillos de migrar en cuanto a volumen (comparado con pedidoController.js o clasificacionController.js).
+No tiene broadcast de sockets (no emite ningún evento io.emit) — a diferencia de casi todos los demás controladores. Esto es una inconsistencia menor en tu sistema (los combos no notifican en tiempo real cuando cambian), pero no es parte del alcance de esta auditoría de empresa_id, solo lo dejo anotado por si quieres evaluarlo después.
+✅ Prioridad: Alta (por el Patrón 9 y por ser consumido directamente desde el Kiosco/Caja para armar combos de venta).
+
+📄 Auditoría: promocionController.js
+🗂️ Tablas detectadas:
+
+promociones (ALTER TABLE auto-migración, SELECT con JOIN, INSERT, UPDATE x2, DELETE) 
+promocionController.js
+productos (doble LEFT JOIN de solo lectura, para traer nombre/imagen del producto "trigger" y del producto "oferta") 
+promocionController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerPromociones()
+SELECT p.* ... ORDER BY p.activo DESC, p.id DESC sin filtro 
+promocionController.js
+🔴 Alto — el Kiosco/Caja de un negocio mostraría promociones de los 5 negocios mezcladas
+crearPromocion()
+INSERT INTO promociones (...) sin empresa_id 
+promocionController.js
+🔴 Alto — la promoción nueva queda sin dueño, visible para todos
+actualizarEstadoPromocion(), eliminarPromocion(), actualizarPromocion()
+Reciben :id sin validar que la promoción pertenezca a la empresa del solicitante 
+promocionController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado en casi todos los controladores anteriores
+
+
+🧩 Casos especiales / notas importantes:
+
+Confirmación cruzada de un riesgo que ya habíamos anotado como sospecha (Patrón 16). Cuando auditamos clasificacionController.js, detectamos que al renombrar una clasificación se ejecuta UPDATE promociones SET categoria_trigger = $1 WHERE categoria_trigger = $2 por coincidencia de texto, no por relación 
+clasificacionController.js
+. Ahora que veo promocionController.js directamente, confirmo que la columna categoria_trigger efectivamente existe y es el campo real que se usa para vincular una promoción a una categoría completa (no solo a un producto específico) 
+promocionController.js
+. Esto refuerza que el Patrón 16 es 100% válido aquí: si "Casa Amae" y "Chito House" tienen ambas una categoría "Bebidas" y una la renombra, la promoción de la otra empresa podría verse afectada por el UPDATE de texto cruzado que vimos en clasificacionController.js.
+También depende de configController.js: recordemos que obtenerConfiguracion() en configController.js hace su propio JOIN de promociones activas y lo inyecta dentro del payload de configuración 
+configController.js
+. Esto significa que hay 2 lugares distintos donde se consultan promociones con JOIN a productos (uno en configController.js, otro aquí en promocionController.js) — ambos deben recibir el mismo filtro de empresa_id de forma consistente, o quedará una inconsistencia donde un endpoint sí filtra y el otro no.
+Auto-migración que se ejecuta en cada petición: asegurarMigracionPromociones() corre un ALTER TABLE ... DROP CONSTRAINT y un ADD COLUMN IF NOT EXISTS en cada llamada a obtenerPromociones, crearPromocion y actualizarPromocion 
+promocionController.js
+ — mismo patrón de ineficiencia que ya señalamos como mejora a futuro en el tema de HTTP Responses (aunque aquí el impacto en bandwidth es menor porque no se trata de JSONB pesado, es más bien carga innecesaria de procesamiento en el backend).
+Broadcast global de sockets (mismo patrón ya documentado muchas veces): catalogo_actualizado se emite en las 4 funciones de escritura (crearPromocion, actualizarEstadoPromocion, eliminarPromocion, actualizarPromocion) 
+promocionController.js
+ — sin rooms por empresa, cualquier cambio de promoción en un negocio refrescaría innecesariamente las pantallas de los otros 4.
+✅ Prioridad: Alta (por el Patrón 9 y por la confirmación directa del Patrón 16 de cascada por texto, ya que afecta
+
+📄 Auditoría: cocinaOperativaController.js
+Recibido — este es el archivo que faltaba del Grupo 2, y confirma una dependencia que habíamos dejado pendiente desde pedidoController.js (el uso de registrarEventoProduccion). Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+log_produccion_items (CREATE TABLE, INSERT — log append-only) 
+cocinaOperativaController.js
+estaciones_cocina (CREATE TABLE, SELECT, INSERT, UPDATE, DELETE) 
+cocinaOperativaController.js
+estacion_clasificacion (CREATE TABLE con clasificacion_id UNIQUE, SELECT, INSERT...ON CONFLICT) 
+cocinaOperativaController.js
+configuracion_operativa (SELECT criterio_presencia_cocina — mismo singleton WHERE id = 1 ya documentado) 
+cocinaOperativaController.js
+usuarios (SELECT por rol, con horario_semanal) 
+cocinaOperativaController.js
+registro_asistencias (SELECT de turnos abiertos del día) 
+cocinaOperativaController.js
+clasificaciones (SELECT, para sincronización automática de estaciones) 
+cocinaOperativaController.js
+productos (SELECT AVG(tiempo_preparacion) para calcular ventana de tiempo por defecto) 
+cocinaOperativaController.js
+pedidos (SELECT con jsonb_array_elements sobre el carrito, para contar producción en vivo) 
+cocinaOperativaController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+registrarEventoProduccion()
+INSERT INTO log_produccion_items sin empresa_id 
+cocinaOperativaController.js
+🔴 Alto — confirma la dependencia que dejamos pendiente en pedidoController.js: el log de "quién preparó/ayudó/terminó cada ítem" quedaría sin dueño, mezclando trazabilidad de producción entre los 5 negocios
+obtenerPersonalPresente()
+SELECT criterio_presencia_cocina FROM configuracion_operativa WHERE id = 1 (singleton, patrón ya documentado); SELECT ... FROM usuarios WHERE rol IN (...) sin filtro de empresa; registro_asistencias sin filtro 
+cocinaOperativaController.js
+🔴 Alto — el KDS de "Casa Amae" mostraría como "personal presente en cocina" a los cocineros de los 5 negocios mezclados
+sincronizarEstacionesFaltantes()
+Lee todas las clasificaciones del sistema (de los 5 negocios) y les crea una "Estación automática" a cada una sin distinguir empresa 
+cocinaOperativaController.js
+🔴 Alto — generaría estaciones de cocina cruzadas; además, el UNIQUE en estacion_clasificacion.clasificacion_id 
+cocinaOperativaController.js
+ asume que cada clasificación tiene una sola estación en todo el sistema, lo cual technically seguiría funcionando bien después de la migración (cada clasificacion_id seguirá siendo único como fila), pero debe revisarse con cuidado al implementar
+obtenerProduccionEnVivo() — el hallazgo más grave de este archivo
+Agrupa la cuenta de producción en cola GROUP BY categoria (texto plano extraído del JSONB del carrito), cruzando esto contra estacion_clasificacion por nombre de clasificación 
+cocinaOperativaController.js
+🔴🔴 Crítico — esta es una confirmación directa del Patrón 16 (cascada por coincidencia de texto), pero aquí en tiempo real: si "Casa Amae" y "Chito House" tienen ambas una categoría llamada "Bebidas", el conteo de unidades en cola del KDS de Casa Amae sumaría también las unidades de Chito House, mostrando información de producción completamente mezclada y falsa a los cocineros
+obtenerEstaciones(), crearEstacion(), actualizarEstacion(), eliminarEstacion(), asignarClasificacion()
+Ninguna valida que la estación/clasificación pertenezca a la empresa del solicitante 
+cocinaOperativaController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar)
+
+
+🧩 Casos especiales / notas importantes:
+
+Confirmación crítica de dependencia cruzada: recordemos que en pedidoController.js dejamos anotado como "pendiente de confirmar" que cocinaOperativaCtrl.registrarEventoProduccion() necesitaba revisión de empresa_id 
+pedidoController.js
+. Ya confirmado: efectivamente no tiene ningún filtro, por lo que ambos archivos deben corregirse en conjunto.
+Segundo caso confirmado del Patrón 16 (cascada por texto), y el más peligroso hasta ahora porque afecta a cocina en tiempo real, no solo a reportes administrativos. Esto refuerza que cuando lleguemos a la fase de implementación, el campo categoria (texto) usado como "puente" entre pedidos.carrito (JSONB) y clasificaciones necesitará ir acompañado de empresa_id en la comparación, no solo el nombre.
+Lógica "self-healing" bien diseñada que debe preservarse: sincronizarEstacionesFaltantes() se invoca de forma perezosa desde los propios endpoints (no en un cron ni en un flujo de alta de productos) 
+cocinaOperativaController.js
+ — es un patrón correcto y cuidadoso que no se debe alterar, solo filtrar por empresa.
+Nota menor (no es tema de multi-tenant, mejora a futuro): la zona horaria 'America/Mazatlan' está fija en el cálculo de día/hora actual para el criterio de presencia 
+cocinaOperativaController.js
+. Si en el futuro alguno de tus clientes estuviera en otra zona horaria, esto necesitaría ser configurable por empresa — lo dejo anotado como posible mejora, no se toca ahora.
+Buen uso de ON DELETE CASCADE en estacion_clasificacion.estacion_id 
+cocinaOperativaController.js
+ — se preserva igual, la relación interna entre estación y clasificación no se ve afectada por el cambio a multi-tenant mientras ambas tablas queden correctamente filtradas por la misma empresa.
+✅ Prioridad: Crítica (confirma 2 hallazgos graves: dependencia de log de producción sin dueño, y el caso más peligroso del Patrón 16 por afectar el tiempo real del KDS).
+
+📄 Auditoría: corteController.js
+¡Recibido! Este es el último pendiente del Grupo 2 — con este cerramos oficialmente todo el bloque de "Flujo principal de negocio". Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+historico_cortes (ALTER TABLE auto-migración B2B, SELECT de turno abierto, INSERT, UPDATE) 
+corteController.js
+usuarios (LEFT JOIN de solo lectura para mostrar el nombre del cajero en el historial) 
+corteController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+guardarCorte() → verificación de turno abierto
+SELECT id FROM historico_cortes WHERE fecha_corte::DATE = $1::DATE AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false 
+corteController.js
+🔴🔴 Crítico — sin filtro de empresa, si dos negocios tienen cajeros con el mismo usuario_id (muy probable tras la migración, ya que hoy cada negocio tiene su propia numeración de IDs en bases separadas) o si un cajero trabajara conceptualmente "igual" en dos negocios el mismo día, el sistema podría actualizar el corte de un negocio pensando que es la continuación del turno de otro. Esto mezclaría fondos, ventas y efectivo entre negocios distintos — es de los hallazgos más graves de toda la auditoría, a la par de obtenerHistorialAuditoria en pedidoController.js
+guardarCorte() → INSERT/UPDATE final
+Ninguna de las dos ramas (actualizar turno existente o crear uno nuevo) incluye empresa_id 
+corteController.js
+🔴 Alto — el corte quedaría sin dueño claro
+obtenerHistorial()
+Ambas variantes (con fecha y sin fecha) consultan historico_cortes sin ningún filtro de empresa 
+corteController.js
+🔴🔴 Crítico — la variante sin fecha (ORDER BY c.fecha_corte DESC, c.id DESC, sin ningún WHERE) devolvería el historial completo de cortes de los 5 negocios mezclados, incluyendo montos de efectivo, ventas, fondos y datos de mayoreo B2B — es exactamente el mismo patrón crítico que obtenerHistorialAuditoria() en pedidoController.js, pero aquí con información financiera aún más sensible (dinero real en caja)
+
+
+🧩 Casos especiales / notas importantes:
+
+Este archivo confirma y agrava un hallazgo que ya habíamos anotado desde pedidoController.js: recordemos que agregarItemsAPedido() hacía SELECT pedidos_incluidos FROM cortes sin filtro para verificar si un pedido ya había sido auditado 
+pedidoController.js
+. Aquí vemos la tabla real detrás de esa lógica (historico_cortes), y confirmamos que el problema es aún mayor de lo que pensábamos: no solo se lee sin filtrar, sino que además el propio corte se guarda y actualiza sin ningún empresa_id.
+Datos financieros de alta sensibilidad en juego. A diferencia de catálogos o configuraciones, aquí se maneja dinero real: fondo_inicial, fondo_repartidor, total_efectivo, total_tarjeta, total_transferencia, efectivo_entregado, efectivo_en_caja, y todo el bloque de ventas de mayoreo B2B (venta_mayoreo, mayoreo_efectivo, etc.) 
+corteController.js
+. Esto hace que este archivo tenga, junto con pedidoController.js, la prioridad más alta de toda la auditoría — un error aquí no solo expone datos, sino que podría corromper el cuadre de caja real de un negocio.
+Buen manejo de zona horaria que debe preservarse intacto: la función getMazatlanDateStr() con Intl.DateTimeFormat 
+corteController.js
+ es un blindaje cuidadoso para evitar que el servidor (en UTC) asigne la fecha incorrecta después de las 6 PM hora local. Esta lógica no se toca, solo se le agrega el filtro de empresa alrededor.
+Patrón de "upsert manual" (buscar si existe, luego decidir INSERT o UPDATE) bien diseñado para turnos abiertos/cerrados 
+corteController.js
+ — se preserva igual, solo se añade AND empresa_id = $X a la verificación de turno abierto y se inyecta empresa_id en ambas ramas (INSERT y UPDATE).
+Auto-migración de columnas B2B (mismo patrón ya visto varias veces) — sin impacto adicional de riesgo aquí, solo se ejecuta una vez más de lo ideal en cada guardado.
+Dependencia cruzada confirmada con usuarioController.js: el historico_nominas que vimos en usuarioController.js 
+usuarioController.js
+ y el historico_cortes de este archivo son conceptualmente similares (ambos históricos financieros/operativos sin empresa_id) — deben tratarse con el mismo criterio de seguridad al implementar.
+✅ Prioridad: CRÍTICA (junto con pedidoController.js, es de los 2 archivos de mayor riesgo de toda la auditoría, por manejar dinero real y por el hallazgo de obtenerHistorial() sin filtro).
+
+
+📄 Auditoría: clienteController.js
+¡Recibido! Este es el primero del Grupo 3 — Clientes y fidelidad. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+clientes (SELECT, INSERT, UPDATE, ALTER TABLE auto-migración) 
+clienteController.js
+credenciales_biometricas (subquery EXISTS, igual que ya vimos en authController.js) 
+clienteController.js
+pedidos (SELECT de direcciones de invitados, SELECT de métodos de pago/orígenes/platillos vía JSONB) 
+clienteController.js
+configuracion (SELECT de credenciales SMTP — mismo singleton WHERE id = 1 ya documentado varias veces) 
+clienteController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+registrar()
+INSERT INTO clientes (telefono, ...) sin empresa_id 
+clienteController.js
+🔴 Alto — confirma exactamente el escenario que discutimos juntos: hoy telefono es único a nivel sistema, así que tu mismo número no podría registrarse como cliente en 2 negocios distintos sin el filtro compuesto UNIQUE(telefono, empresa_id)
+verificarNip(), recuperarNip(), solicitarCodigoNip(), cambiarNipConCodigo(), cambiarCorreoConCodigo()
+Todas reciben cliente_id sin validar que ese cliente pertenezca a la empresa del solicitante 
+clienteController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar), pero aquí es más sensible porque toca autenticación del cliente final (NIP de fidelidad)
+cambiarCorreoConCodigo()
+SELECT id FROM clientes WHERE correo = $1 AND id != $2 valida duplicado de correo sin filtrar empresa 
+clienteController.js
+🟠 Medio-Alto — bloquearía que un mismo correo se use en 2 negocios distintos, cuando debería permitirse (como con el teléfono)
+obtenerClientes(), obtenerClientePorId()
+Sin filtro de empresa — el CRM de un negocio vería clientes de los 5 negocios mezclados 
+clienteController.js
+🔴 Alto
+buscarClientes()
+Búsqueda SQL optimizada (confirmada activa en api.js como /clientes/buscar) sin filtro de empresa, tanto en la tabla clientes como en el historial de "invitados" sobre pedidos.direccion_entrega 
+clienteController.js
+🔴 Alto — el buscador de Caja mostraría clientes e invitados de los 5 negocios mezclados
+actualizarCliente()
+:id sin validar ownership — Patrón 9 
+clienteController.js
+🔴 Alto
+obtenerReportes()
+Las 6 queries del CRM (promedio de edad, top puntos, clientes antiguos, métodos de pago, orígenes, platillos favoritos) consultan clientes y pedidos sin ningún filtro 
+clienteController.js
+🔴 Alto — el dashboard de fidelidad de un negocio mostraría estadísticas combinadas de los 5 negocios, dato falso para la toma de decisiones
+
+
+🧩 Casos especiales / notas importantes:
+
+Confirmación directa y muy relevante de tu pregunta anterior sobre el teléfono único. Este archivo es la prueba en código de exactamente lo que discutimos: registrar() inserta por telefono sin ninguna otra validación, y el mensaje de error ("Ese número ya está registrado") 
+clienteController.js
+ confirma que hoy existe una restricción UNIQUE(telefono) a nivel de sistema en la tabla clientes. Esto refuerza que el fix es exactamente el mismo que ya definimos: UNIQUE(telefono, empresa_id).
+Nuevo patrón detectado: autenticación secundaria del cliente final (NIP) sin aislar por empresa. A diferencia de usuarios (empleados) que tienen el riesgo concentrado en el login, aquí el riesgo se reparte en 5 funciones distintas relacionadas al NIP de fidelidad del Kiosco. Si dos negocios tienen una fila de cliente con el mismo id tras la migración (muy probable, ya que cada base actual numera sus propios IDs desde 1), alguien podría —en teoría— verificar o recuperar el NIP de un cliente de otro negocio usando el mismo cliente_id. Esto es grave porque el NIP protege el canje de puntos de fidelidad (dinero/beneficios reales para el cliente).
+Dependencia cruzada confirmada con configController.js: las funciones recuperarNip() y solicitarCodigoNip() leen las credenciales SMTP desde configuracion WHERE id = 1 
+clienteController.js
+ — el mismo singleton que ya documentamos extensamente. Esto significa que, hasta que no se resuelva el multi-tenant en configController.js, los 5 negocios enviarían correos de recuperación de NIP usando la misma cuenta de correo SMTP, lo cual ya es un problema funcional incluso antes de pensar en seguridad (el cliente recibiría un correo con el remitente/nombre de negocio incorrecto).
+Correo como identificador potencialmente único: a diferencia del teléfono, aquí vemos que el correo también se valida como único (cambiarCorreoConCodigo) 
+clienteController.js
+, aunque no vimos explícitamente una restricción UNIQUE a nivel de tabla para correo — igual debe tratarse con el mismo criterio: UNIQUE(correo, empresa_id) si se decide blindarlo a nivel de base de datos.
+Sistema de verificación 2FA bien diseñado que debe preservarse intacto: el flujo de codigo_verificacion (6 dígitos, columna temporal que se limpia después de usarse) 
+clienteController.js
+ es una buena práctica de seguridad ya existente — no se toca su lógica, solo se le agrega el filtro de empresa a las validaciones de cliente_id.
+obtenerReportes() es el "hermano" del CRM para clientes, equivalente en espíritu a obtenerHistorialAuditoria() de pedidoController.js y obtenerHistorial() de corteController.js — aunque aquí el riesgo es de exactitud de negocio (estadísticas mezcladas) más que de exposición de datos financieros críticos, sigue siendo grave para la toma de decisiones de cada cliente tuyo.
+✅ Prioridad: Alta (por el volumen de funciones con Patrón 9 relacionadas a la autenticación secundaria del cliente final vía NIP, y por la dependencia confirmada con el singleton de configuracion para SMTP).
+
+📄 Auditoría: biometricoController.js
+¡Recibido! Este es un archivo compacto pero con un hallazgo muy particular por tratarse de integración con hardware físico (checadores ZKTeco por huella). Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+configuracion_asistencia (SELECT tipo_registro — mismo singleton WHERE id = 1 ya documentado varias veces) 
+biometricoController.js
+usuarios (SELECT por id::text o pin) 
+biometricoController.js
+registro_asistencias (SELECT de turno abierto, INSERT, UPDATE de salida) 
+biometricoController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+recibirDatos() → verificación de método activo
+SELECT tipo_registro FROM configuracion_asistencia WHERE id = 1 
+biometricoController.js
+🔴 Alto — confirma el patrón singleton: los 5 negocios compartirían si ZKTeco está activo o no
+recibirDatos() → búsqueda del empleado
+SELECT id FROM usuarios WHERE id::text = $1 OR pin = $1 LIMIT 1 
+biometricoController.js
+🔴🔴 Crítico — este es el hallazgo más grave de este archivo: el checador físico no manda ningún dato de "a qué negocio pertenece", solo un idChecador (que puede ser el ID interno o el PIN). Si dos empleados de negocios distintos comparten el mismo PIN (muy probable tras la migración, ya que hoy cada negocio numera su propio PIN de forma independiente), el sistema registraría la entrada/salida en el empleado equivocado de otro negocio
+recibirDatos() → turno abierto e inserción
+registro_asistencias sin filtro de empresa 
+biometricoController.js
+🔴 Alto — una vez resuelto el usuario correcto, el registro de asistencia también necesita quedar correctamente etiquetado
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este archivo introduce un problema nuevo que no habíamos visto en los controladores anteriores: el dispositivo físico (reloj checador ZKTeco) es ajeno al concepto de "empresa". A diferencia de un login web (donde el frontend puede mandar un header X-Empresa-Slug) o un JWT (que ya trae el empresa_id embebido), el checador biométrico solo manda texto plano con formato fijo (ID_USUARIO \t FECHA_HORA \t ESTADO...) 
+biometricoController.js
+, sin ningún campo adicional que indique la empresa. Esto significa que la solución no puede resolverse solo con una columna empresa_id en la tabla — se necesita una estrategia adicional en la fase de implementación, por ejemplo:
+Asociar cada dispositivo checador físico a una empresa específica mediante su IP de origen o un identificador de equipo (similar a como equipos_autorizados ya resuelve el MDM en mdmValidator.js), y usar ese dato para resolver el empresa_id antes de buscar al usuario.
+O bien, asegurar que la búsqueda WHERE id::text = $1 OR pin = $1 incluya también AND empresa_id = $X, una vez que se resuelva de dónde viene ese $X (necesitará más contexto técnico sobre cómo configuras actualmente los checadores por negocio).
+Mismo patrón de "Soft Fail" de seguridad ya visto en otros archivos (bueno para UX, pero hay que preservarlo con cuidado): si el método ZKTeco no está activo, el endpoint responde 200 OK: 0 en vez de un error 
+biometricoController.js
+, para no bloquear al dispositivo físico. Esta lógica no se toca, solo se le agrega el filtro de empresa a la verificación.
+El handshake() y getComandos() no tocan la base de datos en absoluto 
+biometricoController.js
+ — no requieren empresa_id, son solo respuestas de protocolo para mantener viva la conexión del checador.
+Procesamiento por lotes (batch) correctamente diseñado: el manejo de rawData.split('\n') para procesar varias checadas acumuladas (si el dispositivo se quedó sin internet) 
+biometricoController.js
+ es una buena práctica que se preserva intacta.
+✅ Prioridad: Crítica — no tanto por volumen de código, sino porque es el primer caso de toda la auditoría donde el origen de la petición no es un navegador/app controlado por nosotros, sino un dispositivo físico de terceros. Esto requiere pensar una estrategia de resolución de empresa_id distinta (por IP/dispositivo registrado) a la que usaremos en el resto del sistema (por header o JWT).
+
+
+📄 Auditoría: notificacionController.js
+¡Recibido! Este es un archivo muy compacto — solo una función — pero no por eso menos importante. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+suscripciones_push (SELECT de verificación de duplicado, INSERT) 
+notificacionController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+guardarSuscripcion() → verificación de duplicado
+SELECT id FROM suscripciones_push WHERE suscripcion->>'endpoint' = $1 sin filtro de empresa 
+notificacionController.js
+🟠 Medio — el endpoint de una suscripción push es generado por el navegador/dispositivo del usuario y es prácticamente único a nivel mundial, así que el riesgo de colisión real entre dos empresas es bajo. Sin embargo, por consistencia del esquema (y para que el filtro de empresa_id sea uniforme en toda la tabla), conviene agregarlo de todas formas
+guardarSuscripcion() → INSERT
+INSERT INTO suscripciones_push (usuario_id, cliente_id, suscripcion) sin empresa_id 
+notificacionController.js
+🔴 Alto — aquí sí está el verdadero problema, y es el más importante de este archivo: esta es la tabla que consume pedidoController.js en notificarCliente() y notificarStaff(), donde ya confirmamos (Patrón 13) que el filtro por rol se hace vía JOIN usuarios sin empresa_id 
+pedidoController.js
+. Si la suscripción no nace con empresa_id, no hay forma de filtrar correctamente después, sin importar qué arreglemos en pedidoController.js
+
+
+🧩 Casos especiales / notas importantes:
+
+Este archivo es la "fuente" del Patrón 13 que ya habíamos detectado desde pedidoController.js. Recordemos que notificarStaff() hace JOIN usuarios u ON s.usuario_id = u.id y filtra solo por rol 
+pedidoController.js
+ — ahora confirmamos que el problema nace aquí mismo, en el momento de guardar la suscripción: como no se guarda empresa_id, es imposible filtrar correctamente aguas abajo. Esto significa que el fix debe aplicarse en 2 lugares coordinados: aquí (al guardar) y en pedidoController.js (al leer/notificar).
+Diseño dual bien pensado que debe preservarse: la tabla acepta usuario_id (para personal/staff) o cliente_id (para clientes finales) de forma mutuamente excluyente 
+notificacionController.js
+ — esto ya es compatible con el filtro de empresa sin necesidad de rediseño, solo se le agrega la columna adicional.
+Patrón de verificación "no duplicar por endpoint" es una buena práctica ya existente (evita que un mismo dispositivo quede suscrito más de una vez) 
+notificacionController.js
+ — se preserva igual, solo se refuerza con empresa_id en el WHERE por consistencia.
+Archivo muy pequeño (una sola función) — de los más rápidos de migrar en cuanto a volumen de código, pero de alto impacto porque es la raíz de un problema ya detectado en el archivo más crítico del sistema (pedidoController.js).
+✅ Prioridad: Alta (bajo volumen, pero es la causa raíz confirmada del Patrón 13 de notificaciones cruzadas entre negocios).
+
+📄 Auditoría: mensajeController.js
+¡Recibido! Este es el último pendiente del Grupo 3 — Clientes y fidelidad. Con este cerramos oficialmente todo el grupo. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+mensajes_empleados (INSERT, SELECT con JOIN, SELECT, UPDATE, DELETE) 
+mensajeController.js
+suscripciones_push (SELECT por usuario_id — misma tabla ya auditada en notificacionController.js) 
+mensajeController.js
+usuarios (JOIN de solo lectura para traer nombre/rol del empleado) 
+mensajeController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+enviarMensaje()
+INSERT INTO mensajes_empleados (admin_id, empleado_id, mensaje) sin empresa_id 
+mensajeController.js
+🔴 Alto — el mensaje interno queda sin dueño claro, visible potencialmente para todos
+enviarMensaje() → notificación push
+SELECT suscripcion FROM suscripciones_push WHERE usuario_id = $1 
+mensajeController.js
+🟠 Medio — aquí el riesgo es menor que en pedidoController.js, porque sí filtra por usuario_id específico (no por rol general). Sin embargo, si usuario_id llegara a coincidir entre empresas tras la migración, podría notificar al empleado equivocado de otro negocio
+obtenerMensajesAdmin()
+JOIN usuarios sin filtro — el panel de Admin mostraría los últimos 100 mensajes de los 5 negocios mezclados 
+mensajeController.js
+🔴 Alto
+obtenerMensajesEmpleado()
+WHERE empleado_id = $1 sin validar que ese empleado pertenezca a la empresa del solicitante 
+mensajeController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado en casi todos los controladores
+marcarComoLeido(), eliminarMensaje()
+:id sin validar ownership — Patrón 9 
+mensajeController.js
+🔴 Alto — un admin de un negocio podría marcar como leído o borrar mensajes internos de otro negocio con solo adivinar el ID
+
+
+🧩 Casos especiales / notas importantes:
+
+Confirmación cruzada con notificacionController.js: este archivo reutiliza exactamente el mismo patrón de SELECT suscripcion FROM suscripciones_push 
+mensajeController.js +1
+ que ya identificamos como "causa raíz" del Patrón 13. Esto refuerza que el fix en notificacionController.js (agregar empresa_id al guardar la suscripción) beneficiará automáticamente también a este archivo, sin necesidad de lógica adicional aquí — solo habría que agregar el filtro AND empresa_id = $X a esta consulta puntual también, por consistencia.
+Buen manejo de "fire and forget" en las notificaciones push: el .catch(() => {}) silencioso en el envío de push 
+mensajeController.js
+ es una práctica correcta ya existente (evita que un push fallido tumbe el guardado del mensaje) — se preserva intacta.
+Archivo pequeño y de bajo volumen (comparado con otros del sistema) — rápido de migrar, pero con el Patrón 9 presente en 3 de sus 5 funciones, consistente con el resto del sistema.
+Módulo de comunicación interna Admin↔Empleado ("Encargos"): es conceptualmente similar a mensajeController.js como un canal de instrucciones de trabajo — asegurar que quede bien aislado por empresa es importante no solo por seguridad, sino porque un mensaje de instrucciones cruzado podría causar confusión operativa real entre negocios.
+✅ Prioridad: Alta (por el Patrón 9 en la mayoría de sus funciones y por la confirmación adicional del Patrón 13 de notificaciones).
+
+📄 Auditoría: insumoController.js
+Este es, por volumen de funciones, uno de los archivos más grandes del Grupo 4, y abre un subgrupo completo de riesgos nuevos relacionados con inventario, auditorías físicas y el motor de surtido. Primer archivo del Grupo 4 — Inventario y operación de cocina.
+
+🗂️ Tablas detectadas:
+
+insumos (ALTER TABLE auto-migración x6, SELECT, INSERT, UPDATE ×5 funciones distintas, DELETE) 
+insumoController.js
+surtidos_borrador (CREATE TABLE singleton, SELECT, UPDATE — mismo patrón id=1 ya documentado) 
+insumoController.js
+compras_insumos (ALTER TABLE, SELECT con JOIN, INSERT) 
+insumoController.js
+auditorias_inventario (CREATE TABLE, SELECT, INSERT, UPDATE) 
+insumoController.js
+suscripciones_push (SELECT con JOIN — reutilizado de otro módulo) 
+insumoController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+inicializarInsumos()
+Crea el "Insumo Fantasma" Repartidor Externo con SELECT id FROM insumos WHERE LOWER(nombre)='repartidor externo' sin filtro 
+insumoController.js
+🔴 Alto — solo se crearía un "Repartidor Externo" para todo el sistema, cuando debería existir uno por empresa
+obtenerInsumos()
+SELECT * FROM insumos ORDER BY nombre ASC sin filtro 
+insumoController.js
+🔴 Alto — el inventario de un negocio mostraría insumos de los 5 negocios mezclados
+crearInsumo() / actualizarInsumo()
+Validación de nombre duplicado WHERE LOWER(nombre) = LOWER($1) sin filtro de empresa 
+insumoController.js
+🔴 Alto — bloquearía nombres de insumos repetidos entre negocios distintos (ej. "Queso" en Casa Amae impediría que Chito House cree su propio "Queso")
+comprarInsumo(), fijarStockExacto(), reiniciarStock(), eliminarInsumo(), actualizarAlertaStock()
+Todas reciben :id sin validar ownership por empresa 
+insumoController.js
+🔴 Alto — mismo Patrón 9 repetido: un admin de un negocio podría alterar/comprar/borrar insumos de otro con solo adivinar el ID
+obtenerComprasHoy(), obtenerReporteCompras()
+JOIN con insumos sin filtro de empresa 
+insumoController.js
+🔴 Alto — el reporte de compras de hoy/por periodo mostraría compras de los 5 negocios mezcladas
+obtenerAuditoriaActiva(), solicitarAuditoria()
+WHERE estado != 'completada' sin filtro — solo puede existir UNA auditoría activa en todo el sistema 
+insumoController.js
+🔴🔴 Crítico — si "Casa Amae" inicia un inventario físico, el sistema bloquearía a "Chito House" de iniciar el suyo ("Ya hay un inventario en curso"), aunque sean negocios completamente distintos
+guardarProgresoAuditoria(), resolverAuditoria()
+:id sin validar ownership; y al aprobar, hace UPDATE insumos SET stock_actual=... WHERE id=insumoId tomando IDs de un JSON guardado sin re-validar empresa 
+insumoController.js
+🔴 Alto — podría aplicar cantidades de auditoría sobre insumos de la empresa equivocada si los IDs coinciden tras la migración
+verificarAlertasStockPersonalizado()
+SELECT ... FROM insumos WHERE alerta_stock_activa = true sin filtro; notificarStaff(null, ...) con rolesArray=null dispara a todo el staff de todos los negocios 
+insumoController.js
+🔴🔴 Crítico — este cron (corre cada 60s según el propio comentario del código) notificaría alertas de stock bajo de "Casa Amae" al personal de "Chito House", "Kaore", etc.
+obtenerBorradorSurtido(), guardarBorradorSurtido()
+surtidos_borrador WHERE id = 1 — mismo patrón singleton ya documentado 4 veces 
+insumoController.js
+🔴 Alto — el borrador de "qué se va a surtir hoy" sería compartido entre los 5 negocios
+aplicarSurtido()
+El UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2 dentro de la transacción no valida empresa 
+insumoController.js
+🔴 Alto — mismo riesgo que las auditorías: podría sumar stock al insumo equivocado
+
+
+🧩 Casos especiales / notas importantes:
+
+El hallazgo más grave y nuevo de este archivo: el sistema de auditoría de inventario físico es "singleton total", no solo una fila de configuración. A diferencia de los singletons anteriores (que eran configuraciones), aquí la propia operación de negocio (hacer un inventario físico) está diseñada para que solo pueda ocurrir una vez a la vez en todo el sistema. Esto es un bloqueo operativo real: dos de tus clientes nunca podrían hacer su conteo de inventario el mismo día a la misma hora bajo el esquema actual.
+Confirmación crítica: el cron de alertas de stock (verificarAlertasStockPersonalizado) es explícitamente llamado "cada 60s" según el comentario del código 
+insumoController.js
+ — esto significa que, sin el filtro de empresa, cada minuto el sistema completo estaría enviando notificaciones push cruzadas entre los 5 negocios sobre insumos de otros. Es uno de los hallazgos de mayor frecuencia/impacto de toda la auditoría (no es un caso aislado de "alguien hizo clic en algo", es un proceso automático recurrente).
+Duplicación intencional ya documentada por el propio desarrollador: el comentario confirma que notificarStaff() aquí es "duplicado intencional de pedidoController.js, Opción B confirmada" 
+insumoController.js
+ — esto es exactamente el mismo patrón que vimos en pedidoController.js (Patrón 13), y ahora confirmamos una tercera copia de esta misma función vulnerable (ya iba en pedidoController.js y mensajeController.js/notificacionController.js relacionados). Cuando se corrija el origen (guardar empresa_id en suscripciones_push), las 3 copias de notificarStaff deberán actualizarse igual para filtrar correctamente.
+Insumo "fantasma" (Repartidor Externo) usado para cuadre de caja: este insumo especial se crea una sola vez con lógica de "si no existe, créalo" 
+insumoController.js
+. Al migrar a multi-tenant, cada empresa necesitará su propio "Repartidor Externo" (o se decide que este insumo específico sea compartido/global — a definir en la fase de implementación, ya que conceptualmente es un insumo técnico, no un producto real de inventario).
+Buen manejo transaccional que debe preservarse intacto: comprarInsumo(), resolverAuditoria() y aplicarSurtido() ya usan BEGIN/COMMIT/ROLLBACK correctamente 
+insumoController.js
+ — se mantiene igual, solo se añade el filtro de empresa a cada query dentro de las transacciones.
+Validación de nombre duplicado sin empresa_id es exactamente el mismo patrón ya visto en catalogoController.js (Patrón 15) — aquí se confirma una segunda vez sobre una tabla distinta (insumos en vez de catalogo_ingredientes).
+✅ Prioridad: Crítica (por el hallazgo del "singleton operativo" de auditorías de inventario, y por el cron de notificaciones cruzadas que corre automáticamente cada 60 segundos).
+
+📄 Auditoría: ingredienteController.js
+¡Recibido! Este es el archivo real confirmado por api.js detrás de las rutas /ingredientes — distinto del catalogoController.js descartado como código muerto. Es un archivo compacto, sencillo de auditar. Aquí está el análisis:
+
+🗂️ Tablas detectadas:
+
+catalogo_ingredientes (SELECT con JOIN, INSERT, UPDATE, DELETE) 
+ingredienteController.js
+clasificaciones (LEFT JOIN de solo lectura, para traer el nombre de la clasificación) 
+ingredienteController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerIngredientes()
+JOIN clasificaciones sin filtro — devuelve todos los ingredientes de todos los negocios 
+ingredienteController.js
+🔴 Alto
+crearIngrediente()
+INSERT INTO catalogo_ingredientes (...) sin empresa_id 
+ingredienteController.js
+🔴 Alto
+actualizarIngrediente(), eliminarIngrediente()
+Reciben :id sin validar que el ingrediente pertenezca a la empresa del solicitante 
+ingredienteController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar) ya documentado en casi todos los controladores
+
+
+🧩 Casos especiales / notas importantes:
+
+Hallazgo relevante: esta versión es MÁS simple y MENOS segura que la del archivo descartado. Al comparar con catalogoController.js (código muerto, pero que auditamos igual), notamos una diferencia importante: aquella versión sí tenía normalización de nombre (.toUpperCase(), colapso de espacios) y validación de duplicados antes de insertar 
+catalogoController.js
+. Esta versión real y activa (ingredienteController.js) NO tiene ninguna de esas 2 protecciones — inserta y actualiza el nombre tal cual llega del frontend, sin normalizar ni validar si ya existe uno igual en la misma clasificación 
+ingredienteController.js
+.
+Esto es un hallazgo crítico independiente del tema multi-tenant, pero que debemos tener muy presente para la fase de implementación: recordemos que en pedidoController.js, el motor de explosión de recetas hace un match exacto e insensible a mayúsculas contra catalogo_ingredientes.nombre:
+sql
+
+Plegar
+Guardar
+Copiar
+1
+2
+⌄
+WHERE LOWER(TRIM(ci.nombre)) = LOWER(TRIM($1))
+AND LOWER(TRIM(c.nombre)) = LOWER(TRIM($2))
+
+pedidoController.js
+ Si aquí no se normaliza el nombre al guardarlo (por ejemplo, "Queso" vs "queso " con espacio vs "QUESO"), el LOWER(TRIM()) del motor de pedidos sí los empataría correctamente en teoría, pero sin una validación de duplicados, se podrían crear 2 filas distintas con el "mismo" ingrediente (una como "Queso" y otra como "Queso extra" sin darse cuenta), generando inconsistencias de inventario reales, incluso antes de pensar en el problema de multi-tenant.
+
+Confirma y refuerza el Patrón 16 (cascada por coincidencia de texto) de forma aún más directa: como aquí no hay ninguna validación de duplicado ni normalización, el riesgo de que dos negocios (o incluso el mismo negocio) tengan nombres de ingredientes inconsistentes es más alto que en la versión descartada.
+Archivo muy pequeño (40 líneas) — el más corto y simple de todo el Grupo 4, rápido de migrar en cuanto a volumen, pero con una nota importante de calidad de datos a vigilar.
+✅ Prioridad: Alta (por el Patrón 9, por ser consumido directamente por el motor crítico de pedidoController.js, y por la falta de normalización/validación de duplicados que debe considerarse al momento de implementar el fix).
+
+
+
+📄 Auditoría: recetaController.js
+¡Recibido! Este archivo contiene el motor de costeo de recetas (el "hermano financiero" del motor de explosión de inventario que ya vimos en pedidoController.js), más el CRUD de Sub-Recetas. Es el último pendiente antes de cerrar el Grupo 4. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+sub_recetas (CREATE TABLE, SELECT, INSERT, UPDATE, DELETE) 
+recetaController.js
+recetas (ALTER TABLE auto-migración, SELECT recursivo complejo, INSERT, DELETE) 
+recetaController.js
+productos (JOIN + LATERAL joins para calcular costo de empaques; UPDATE de opciones) 
+recetaController.js
+insumos (JOIN para traer costo unitario real) 
+recetaController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerReceta()
+El motor recursivo completo (WITH RECURSIVE EmpaquesCosto, Explosion, CostoTotalSubrecetas) filtra únicamente por producto_id o ingrediente_id ($1), sin empresa_id en ningún nivel de la recursión 
+recetaController.js
+🔴🔴 Crítico — si tras la migración dos empresas tienen productos con el mismo ID numérico, este motor podría calcular el costo real de un platillo usando insumos/recetas de la empresa equivocada, mostrando costeos financieros falsos a los administradores
+agregarInsumoReceta() → "Escudo Anti-Bucles Infinitos"
+La consulta recursiva que detecta bucles (A → B → C → A) recorre recetas sin filtrar por empresa 
+recetaController.js
+🟠 Medio-Alto — podría bloquear (falso positivo) o no detectar (falso negativo) un bucle real si cruza productos de otra empresa con IDs coincidentes
+agregarInsumoReceta() → INSERT
+INSERT INTO recetas (...) sin empresa_id 
+recetaController.js
+🔴 Alto — la relación receta-insumo queda sin dueño claro
+eliminarInsumoReceta()
+:id sin validar ownership — Patrón 9 
+recetaController.js
+🔴 Alto
+actualizarOpcionesProducto()
+UPDATE productos SET opciones = $1 WHERE id = $2 sin validar ownership 
+recetaController.js
+🔴 Alto — hallazgo cruzado importante: esta función toca la tabla productos (ya auditada en productoController.js), confirmando que productos tiene puntos de escritura en al menos 2 controladores distintos — ambos deben protegerse igual
+obtenerSubRecetas()
+SELECT * FROM sub_recetas ORDER BY nombre ASC sin filtro 
+recetaController.js
+🔴 Alto — las preparaciones base (masas, salsas) de los 5 negocios se mostrarían mezcladas
+crearSubReceta()
+INSERT INTO sub_recetas (...) sin empresa_id 
+recetaController.js
+🔴 Alto
+actualizarSubReceta(), eliminarSubReceta()
+:id sin validar ownership — Patrón 9 
+recetaController.js
+🔴 Alto
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este archivo es, junto con pedidoController.js, el segundo motor transaccional/recursivo más complejo de todo el sistema. El query de obtenerReceta() usa 3 CTEs recursivas encadenadas (EmpaquesCosto con LATERAL JOIN, Explosion, CostoTotalSubrecetas) para calcular el costo real de un platillo incluyendo sub-recetas anidadas y empaques 
+recetaController.js
+. Igual que con el motor de pedidoController.js, el filtro de empresa_id deberá inyectarse con mucho cuidado en cada nivel de la recursión para no romper la lógica de costeo ni dejar fugas entre empresas.
+Excelente medida de seguridad ya existente que debe preservarse intacta: el "Escudo Anti-Bucles Infinitos" en agregarInsumoReceta() evita que un admin cree una receta circular (ej. Producto A contiene a Producto B, que contiene a Producto A) 
+recetaController.js
+. Es una protección crítica de integridad de datos — no se toca su lógica, solo se le agrega el filtro de empresa para que la detección de bucles sea correcta y no cruce productos de otros negocios.
+Confirmación de dependencia cruzada con productoController.js: vía api.js confirmamos que router.put('/productos/:id/opciones', recetaCtrl.actualizarOpcionesProducto) 
+api.js
+ — es decir, la tabla productos recibe escrituras tanto desde su propio controlador como desde recetaController.js. Esto refuerza la importancia de que, al migrar productos a multi-tenant, ambos archivos queden perfectamente alineados en su criterio de empresa_id.
+Buena práctica de concurrencia/integridad a preservar: el manejo de sub_producto_id con ON DELETE CASCADE implícito en el diseño (relación recursiva entre productos y sub-recetas) debe mantenerse igual, solo protegido por el filtro de empresa.
+Broadcast global de sockets (mismo patrón ya documentado muchas veces): catalogo_actualizado se emite en crearSubReceta, actualizarSubReceta, eliminarSubReceta 
+recetaController.js
+ — sin rooms por empresa.
+✅ Prioridad: Crítica (por el motor de costeo recursivo que podría calcular costos financieros cruzados entre empresas, y por la confirmación de doble punto de escritura sobre la tabla productos).
+
+📄 Auditoría: mermaController.js
+¡Recibido! Este archivo cierra bien el Grupo 4 — es el motor de registro de desperdicios/mermas, y reutiliza directamente el mismo motor de explosión de recetas que ya auditamos a fondo en pedidoController.js. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+reporte_mermas (CREATE TABLE IF NOT EXISTS, INSERT, SELECT con JOIN) 
+mermaController.js
+insumos (UPDATE directo de stock_actual, y dentro del motor recursivo) 
+mermaController.js
+productos (SELECT usa_stock/stock_preparado/rendimiento, UPDATE stock_preparado) 
+mermaController.js
+recetas (SELECT recursivo — mismo motor WITH RECURSIVE Explosion de pedidoController.js) 
+mermaController.js
+usuarios (LEFT JOIN de solo lectura, para mostrar el nombre de quien reportó la merma) 
+mermaController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+registrarMerma() → Flujo "Insumo"
+UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2 sin validar ownership 
+mermaController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar): se podría descontar stock de un insumo de otra empresa si el ID coincide tras la migración
+registrarMerma() → Flujo "Receta"/"Platillo"
+SELECT ... FROM productos WHERE id = $1 y el motor recursivo completo sin empresa_id en ningún nivel 
+mermaController.js
+🔴🔴 Crítico — confirma por tercera vez el mismo riesgo del motor de explosión de recetas ya documentado en pedidoController.js (crear/cancelar pedido) y en el flujo de devolución: si dos empresas comparten IDs de producto/receta, se podría descontar inventario de la empresa equivocada
+registrarMerma() → INSERT histórico
+INSERT INTO reporte_mermas (...) sin empresa_id 
+mermaController.js
+🔴 Alto — el reporte de mermas quedaría sin dueño claro, mezclando pérdidas financieras entre negocios
+obtenerMermas()
+Todas las variantes de filtro (día/semana/mes/año/tipo) consultan reporte_mermas con JOIN usuarios sin ningún filtro de empresa 
+mermaController.js
+🔴🔴 Crítico — el reporte de mermas de un negocio mostraría las pérdidas/desperdicios de los 5 negocios mezclados, es información financiera sensible (como ya vimos con corteController.js)
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Esta es la TERCERA aparición confirmada del motor de explosión recursiva de recetas (WITH RECURSIVE Explosion...), idéntico en estructura al que vimos en pedidoController.js (crear pedido y su reversa al cancelar). Esto refuerza aún más el Patrón 12 (lógica duplicada en múltiples archivos) — ahora sabemos que no son 4 copias dentro de un solo archivo, sino que se extiende a otro controlador completo. Esto es importante para la fase de implementación: el filtro de empresa_id deberá aplicarse de forma perfectamente consistente en todas las copias de este motor (mínimo 5 ocurrencias contando ambos archivos), o quedará una fuga de datos en la copia que se nos pase por alto.
+Buena práctica transaccional ya existente que se preserva intacta: registrarMerma() ya usa BEGIN/COMMIT/ROLLBACK correctamente 
+mermaController.js
+ — se mantiene igual, solo se añade el filtro de empresa a cada query dentro de la transacción.
+Mismo patrón de riesgo financiero que corteController.js: así como el historial de cortes de caja expone dinero real, aquí obtenerMermas() expone pérdidas/desperdicios reales de cada negocio — un dato competitivamente sensible (un negocio no debería poder ver cuánto desperdicia otro).
+Diseño correcto que distingue 3 escenarios de merma (Insumo directo, Receta base, Platillo preparado con usa_stock) 
+mermaController.js
+ — esta lógica de negocio no se toca, solo se protege con el filtro de empresa.
+Límite de resultados ya implementado (LIMIT 500 en obtenerMermas) 
+mermaController.js
+ — a diferencia de obtenerHistorialAuditoria (sin límite real de impacto, LIMIT 3000) o obtenerHistorial de cortes (sin límite alguno), aquí ya existe cierta contención, aunque sigue siendo insuficiente sin el filtro de empresa.
+✅ Prioridad: Crítica (por la tercera confirmación del motor de explosión de recetas sin empresa_id, y por la exposición de datos financieros de mermas entre los 5 negocios).
+
+
+📄 Auditoría: proveedorController.js (ÚLTIMO del Grupo 4)
+🗂️ Tablas detectadas:
+
+configuracion_proveedores (CREATE TABLE singleton, SELECT, UPDATE) 
+proveedorController.js
+proveedores (CREATE TABLE, SELECT, INSERT, UPDATE, DELETE) 
+proveedorController.js
+gastos_proveedores (CREATE TABLE, ALTER x4, SELECT con JOIN, INSERT, UPDATE x2 — individual y bulk, DELETE con lógica de reversión) 
+proveedorController.js
+insumos (UPDATE stock_actual — reversión y aplicación) 
+proveedorController.js
+productos (UPDATE stock_preparado — reversión y aplicación) 
+proveedorController.js
+suscripciones_push (SELECT con JOIN, DELETE de endpoints caducados) 
+proveedorController.js
+configuracion (SELECT nombre_negocio — usado en 4 lugares distintos para los correos) 
+proveedorController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerConfiguracion()/actualizarConfiguracion()
+configuracion_proveedores WHERE id = 1 — mismo patrón singleton ya documentado 4 veces 
+proveedorController.js
+🔴 Alto — nuevo hallazgo importante: aquí el singleton guarda credenciales SMTP reales (correos_smtp), lo que significa que los 5 negocios compartirían la misma cuenta de correo para comunicarse con sus proveedores — un proveedor de "Casa Amae" podría recibir un correo firmado por "Chito House"
+alertarAdministradores()
+JOIN usuarios u ON sp.usuario_id = u.id WHERE u.rol IN ('admin','gerente') sin filtro de empresa 
+proveedorController.js
+🔴🔴 Crítico — esta es la cuarta ocurrencia confirmada del mismo patrón de notificaciones push cruzadas (Patrón 13), y aquí el detonante es aún más sensible: alertas de facturas/dinero de proveedores llegarían al admin de otro negocio
+obtenerProveedores(), obtenerGastos()
+Sin filtro de empresa 
+proveedorController.js
+🔴 Alto — el directorio de proveedores y el historial de facturas de un negocio se mezclarían con los de los otros 4
+crearProveedor()
+INSERT INTO proveedores (...) sin empresa_id 
+proveedorController.js
+🔴 Alto
+actualizarProveedor(), eliminarProveedor(), actualizarEstadoGasto(), eliminarGasto()
+Todas reciben :id sin validar ownership por empresa 
+proveedorController.js
+🔴 Alto — mismo Patrón 9, pero aquí el riesgo es financiero directo: alterar/aprobar/eliminar una factura de otro negocio afecta su stock e inventario reales
+actualizarEstadoGastoBulk()
+WHERE id = ANY($1::int[]) sin filtro — podría aprobar/pagar en lote facturas de otros negocios si los IDs coinciden 
+proveedorController.js
+🔴🔴 Crítico — es la variante "masiva" del Patrón 9, multiplicando el daño potencial de una sola petición
+verificarAlertasStock() (cron)
+SELECT * FROM proveedores WHERE enviar_email=true OR enviar_wa=true sin filtro — recorre proveedores de todos los negocios en cada ejecución del cron 
+proveedorController.js
+🔴🔴 Crítico — mismo patrón del cron de insumoController.js (cada 60s), pero aquí se agrava porque además envía correos reales a proveedores con datos de stock cruzados entre negocios
+enviarCorreoProveedor(), enviarCorreoBulkProveedor(), verificarAlertasStock()
+Las 3 funciones leen SELECT nombre_negocio FROM configuracion LIMIT 1 
+proveedorController.js
+🔴 Alto — variante nueva del patrón singleton: aquí ni siquiera usa WHERE id = 1, usa LIMIT 1 (toma la primera fila que encuentre) — con 5 negocios en la misma tabla, esto es aún más impredecible: el correo a un proveedor podría salir firmado con el nombre de cualquiera de los 5 negocios, no necesariamente el correcto
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Hallazgo más grave de este archivo: verificarAlertasStock() combina 3 problemas al mismo tiempo — es un cron automático (como el de insumoController.js), sin filtro de empresa, y además envía correos electrónicos reales a proveedores externos. Esto significa que, sin corregir, el sistema podría enviarle a un proveedor de "Casa Amae" una alerta de stock bajo que en realidad pertenece a "Chito House", generando confusión operativa real con terceros fuera del sistema (no solo entre tus propios negocios).
+Nuevo patrón detectado (variante del singleton): uso de LIMIT 1 en vez de WHERE id = 1. Esto es más peligroso que el patrón singleton clásico porque ni siquiera depende de que exista una fila con id=1 — simplemente toma la primera que Postgres le entregue, lo cual es impredecible en una tabla con filas de 5 negocios distintos. Se repite 3 veces en este archivo (enviarCorreoProveedor, enviarCorreoBulkProveedor, verificarAlertasStock).
+Confirma por cuarta vez el Patrón 13 (notificaciones push cruzadas) — ya lo habíamos visto en pedidoController.js, insumoController.js, mensajeController.js/notificacionController.js, y ahora aquí en alertarAdministradores(). Refuerza que el fix en notificacionController.js (agregar empresa_id al guardar la suscripción) debe propagarse consistentemente a 4 copias distintas de lógica similar.
+Excelente manejo transaccional ya existente que debe preservarse intacto: eliminarGasto(), actualizarEstadoGasto() y actualizarEstadoGastoBulk() usan BEGIN/COMMIT/ROLLBACK correctamente, incluyendo la lógica de reversión de stock al eliminar una factura aprobada 
+proveedorController.js
+ — se mantiene igual, solo se añade el filtro de empresa a cada query dentro de las transacciones.
+Dependencia cruzada confirmada con insumos y productos: este archivo también escribe directamente sobre stock_actual y stock_preparado 
+proveedorController.js
+ — confirma que estas 2 columnas son modificadas desde al menos 4 controladores distintos ya auditados (pedidoController.js, insumoController.js, mermaController.js, y ahora proveedorController.js). Es una tabla de altísima prioridad transversal.
+Folio generado por proveedorId + timestamp (generarFolio) 
+proveedorController.js
+ — no tiene problema de unicidad entre empresas ya que incluye el ID del proveedor, pero conviene revisar en la fase de implementación si dos proveedores de empresas distintas podrían compartir el mismo proveedorId tras la migración, generando folios idénticos (poco probable pero no imposible).
+✅ Prioridad: CRÍTICA (por el cron automático que envía correos reales a terceros con datos cruzados, y por ser la cuarta confirmación del patrón de notificaciones push entre negocios).
+
+📄 Auditoría: nominaController.js
+¡Recibido! Primer archivo del Grupo 5 — RH y dispositivos. Este es un archivo compacto (3 funciones) pero de altísima sensibilidad financiera — es el "Botón de Pánico" que reversa nóminas completas. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+historico_nominas (INSERT, SELECT, DELETE) 
+nominaController.js
+usuarios (SELECT horario_semanal/prestaciones, UPDATE de ambos campos — en 2 funciones distintas) 
+nominaController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+guardarNomina()
+INSERT INTO historico_nominas (usuario_admin_id, datos_corte) sin empresa_id 
+nominaController.js
+🔴 Alto — el corte de nómina queda sin dueño claro, mismo patrón ya visto en usuarioController.js (guardarCorteNomina)
+revertirNomina()
+SELECT datos_corte FROM historico_nominas WHERE id = $1 sin validar ownership 
+nominaController.js
+🔴🔴 Crítico — el "Botón de Pánico" podría revertir la nómina de otro negocio con solo adivinar el id
+revertirNomina() → loop de reversión
+SELECT horario_semanal, prestaciones FROM usuarios WHERE id = $1 y su UPDATE correspondiente, usando empleado_id tomado del JSON datos_corte sin revalidar empresa 
+nominaController.js
+🔴🔴 Crítico — este es el hallazgo más grave del archivo: si los IDs de empleados llegan a coincidir entre negocios tras la migración, este proceso podría devolver dinero de préstamos, reactivar deudas y modificar horas extra de empleados de otro negocio completamente distinto
+actualizarPlantillaBase()
+UPDATE usuarios SET horario_semanal = $1 WHERE id = $2 sin validar ownership 
+nominaController.js
+🔴 Alto — mismo Patrón 9, pero aquí altera la "Plantilla Perpetua" (horario base semanal) de un empleado que podría pertenecer a otro negocio
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este es el archivo con mayor riesgo financiero "en reversa" de toda la auditoría. A diferencia de otros controladores donde el riesgo es "ver" o "alterar" datos, aquí el riesgo es deshacer una operación financiera completa: devolver dinero a saldos de préstamos, reactivar deudas marcadas como pagadas, restaurar horas extra y liberar días marcados como "nómina pagada". Si el empleado_id dentro de datos_corte (JSON histórico) llega a apuntar a un empleado de otro negocio tras la migración, el daño sería financiero real y directo sobre nóminas de terceros.
+Excelente diseño transaccional que debe preservarse exactamente igual: el uso de BEGIN/COMMIT/ROLLBACK con el comentario explícito "Protección ACID" 
+nominaController.js
+ es un patrón ejemplar — no se toca la lógica de reversión en sí, solo se añade el filtro de empresa_id tanto en la lectura inicial de historico_nominas como en cada UPDATE de usuarios dentro del ciclo for.
+Confirma y profundiza un hallazgo ya visto en usuarioController.js: recordemos que esa auditoría detectó guardarCorteNomina() escribiendo en historico_nominas sin empresa_id 
+usuarioController.js
+. Ahora confirmamos que nominaController.js tiene su propia copia de guardarNomina() operando sobre la misma tabla — es decir, hay 2 puntos de escritura distintos sobre historico_nominas (uno en cada controlador), confirmado también por api.js:
+
+Plegar
+Guardar
+Copiar
+1
+2
+router.post('/usuarios/corte-nomina', nominaCtrl.guardarNomina);
+router.post('/nominas', nominaCtrl.guardarNomina);
+
+cocinaOperativaController.js
+ Curiosamente ambas rutas ya apuntan al mismo controlador (nominaCtrl), lo cual es positivo — significa que no hay 2 implementaciones distintas, solo 2 rutas que llegan al mismo lugar. Pero sí confirma que ambos controladores (usuarioController.js y nominaController.js) deben tratarse como un solo bloque coherente al aplicar el fix de empresa_id.
+
+El campo JSON datos_corte contiene estructuras anidadas complejas (recibos, metricas.diasAuditados, metricas.prestamosAplicados, metricas.horasExtrasAcumulables) 
+nominaController.js
+ — toda esta data no necesita cambios en su estructura interna, solo la fila que la contiene necesita el filtro de empresa_id para no cruzar negocios al momento de revertir.
+✅ Prioridad: CRÍTICA (junto con pedidoController.js y corteController.js, es de los archivos de mayor riesgo financiero real de toda la auditoría — aquí el peligro es "deshacer" operaciones de nómina de otro negocio).
+
+📄 Auditoría: asistenciaConfigController.js
+¡Recibido! Este archivo confirma varias sospechas que veníamos arrastrando desde mdmValidator.js y asistenciaHelper.js desde el Grupo 1. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+configuracion_asistencia (CREATE TABLE singleton con id SERIAL, ALTER x2, INSERT semilla, SELECT, UPDATE) 
+asistenciaConfigController.js
+asistencia_ips (CREATE TABLE, SELECT, INSERT, DELETE) 
+asistenciaConfigController.js
+asistencia_ubicaciones (CREATE TABLE, SELECT, INSERT, DELETE) 
+asistenciaConfigController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+inicializarTablas()
+Semilla INSERT ... VALUES (1, ...) ON CONFLICT (id) DO NOTHING 
+asistenciaConfigController.js
+🔴 Alto — confirma el patrón singleton: todos los negocios compartirían la misma configuración de reglas de asistencia (IP/GPS, métodos activos)
+obtenerConfiguracionCompleta()
+SELECT * FROM configuracion_asistencia WHERE id = 1, SELECT * FROM asistencia_ips ORDER BY id DESC, SELECT * FROM asistencia_ubicaciones ORDER BY id DESC — ninguna filtra por empresa 
+asistenciaConfigController.js
+🔴🔴 Crítico — confirma exactamente el hallazgo que ya habíamos anotado como sospecha en asistenciaHelper.js: el panel de administración de "Casa Amae" vería y editaría las mismas IPs/geocercas que "Chito House"
+actualizarConfiguracionGeneral()
+UPDATE configuracion_asistencia ... WHERE id = 1 
+asistenciaConfigController.js
+🔴 Alto — si un negocio cambia su validación de GPS/IP, se la cambiaría a los 5 a la vez
+agregarIP(), eliminarIP()
+INSERT INTO asistencia_ips, DELETE FROM asistencia_ips WHERE id = $1 — sin empresa_id, y el DELETE además sin validar ownership 
+asistenciaConfigController.js
+🔴🔴 Crítico — mismo patrón de "Ownership sin validar" (Patrón 9) combinado con el singleton: un negocio podría borrar la IP de Wi-Fi autorizada de otro negocio
+agregarUbicacion(), eliminarUbicacion()
+Mismo patrón que las IPs, pero con geocercas GPS 
+asistenciaConfigController.js
+🔴🔴 Crítico — un negocio podría eliminar la geocerca de la sucursal física de otro negocio
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este archivo CIERRA el ciclo de sospecha que dejamos abierto desde el Grupo 1. Cuando auditamos asistenciaHelper.js, anotamos como "Alto riesgo" que validarUbicacionServidor() leía asistencia_ips y asistencia_ubicaciones sin filtro 
+asistenciaHelper.js
+. Ahora confirmamos la causa raíz: estas tablas nunca tuvieron empresa_id desde su creación en este controlador. Es decir, el problema no estaba solo en cómo se leían (helper), sino también en cómo se escribían (aquí). Ambos archivos deben corregirse en conjunto.
+Confirmación total del Patrón 1 (singleton WHERE id = 1) — aquí con la variante de que la tabla sí usa id SERIAL PRIMARY KEY (no INT PRIMARY KEY DEFAULT 1 como en configuracion_operativa), por lo que la migración aquí es más simple: solo hace falta agregar empresa_id y cambiar la restricción de unicidad, sin tener que rediseñar la clave primaria.
+Restricción UNIQUE a nivel de IP, confirmada por el manejo del error 23505 ('Esta IP ya está registrada.') 
+asistenciaConfigController.js
+ — esto es especialmente delicado: si dos negocios distintos están en la misma red de oficina/coworking o usan el mismo proveedor de internet con IP pública compartida, hoy el segundo negocio no podría registrar esa misma IP aunque la necesite para su propia sucursal. Debe migrar a UNIQUE(ip, empresa_id).
+Buen manejo de retrocompatibilidad de tipos de datos: la migración de tipo_registro de texto plano a JSONB con un CASE WHEN 
+asistenciaConfigController.js
+ es un ejemplo cuidadoso de evolución de esquema sin romper datos existentes — se preserva intacta, no se toca esta lógica de conversión.
+Socket sin rooms (mismo patrón ya documentado muchas veces): io.emit('config_asistencia_actualizada', result.rows[0]) 
+asistenciaConfigController.js
+ — sin filtrar por empresa, el payload completo de configuración de un negocio se transmitiría a las pantallas conectadas de los otros 4.
+Dependencia cruzada triple confirmada: este archivo es consumido por asistenciaHelper.js (lectura), que a su vez es usado por authController.js, usuarioController.js, huellasController.js (pendiente) y biometricoController.js — todos dependen, en cadena, de que estas 3 tablas queden correctamente aisladas por empresa. Es una de las piezas más "raíz" de todo el sistema de asistencia.
+✅ Prioridad: CRÍTICA (cierra el ciclo de un hallazgo que llevábamos abierto desde el Grupo 1, y tiene alto efecto cascada sobre 4 controladores distintos).
+
+📄 Auditoría: equipoController.js
+¡Recibido! Este archivo es especialmente importante porque cierra oficialmente el rompecabezas MDM que dejamos abierto desde mdmValidator.js en el Grupo 1 — ahora confirmamos la tabla configuracion_biometria que sospechábamos. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+configuracion_biometria (ALTER TABLE auto-migración x3, SELECT, UPDATE) 
+equipoController.js
+equipos_autorizados (ALTER TABLE, SELECT, INSERT...ON CONFLICT, UPDATE, DELETE) 
+equipoController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerConfiguracion()
+SELECT ... FROM configuracion_biometria WHERE id = 1 
+equipoController.js
+🔴🔴 Crítico — confirma por completo el patrón singleton que ya sospechábamos desde mdmValidator.js: los 5 negocios compartirían si el "Bloqueo MDM" está activo, qué roles están restringidos, y las credenciales SMTP usadas para el motor biométrico
+actualizarConfiguracion()
+UPDATE configuracion_biometria ... WHERE id = 1 
+equipoController.js
+🔴 Alto — cualquier negocio que ajuste su política de dispositivos se la cambiaría a los otros 4
+obtenerEquipos()
+SELECT * FROM equipos_autorizados ORDER BY fecha_registro DESC sin filtro 
+equipoController.js
+🔴🔴 Crítico — el panel de "Dispositivos Permitidos" de un negocio mostraría las tablets/equipos de los 5 negocios mezclados
+registrarEquipo()
+INSERT ... ON CONFLICT (device_id) DO UPDATE sin empresa_id 
+equipoController.js
+🔴🔴 Crítico — esta es la confirmación más grave: recordemos que en mdmValidator.js, el login valida SELECT ... FROM equipos_autorizados WHERE device_id = $1 
+mdmValidator.js
+. Sin empresa_id, si una tablet fuera reutilizada o si por coincidencia device_id se repitiera, el equipo autorizado para "Casa Amae" controlaría también el acceso en "Chito House"
+actualizarEquipo(), eliminarEquipo()
+:id sin validar ownership — Patrón 9 
+equipoController.js
+🔴 Alto — un admin de un negocio podría editar/eliminar la tablet autorizada de otro negocio
+
+
+🧩 Casos especiales / notas muy importantes:
+
+CIERRE OFICIAL del rompecabezas MDM. Desde el Grupo 1, en mdmValidator.js, habíamos dejado anotado como "pendiente de confirmar" la estructura de configuracion_biometria y equipos_autorizados 
+mdmValidator.js
+. Ahora confirmamos: ambas tablas nacen sin empresa_id, exactamente como sospechábamos. Esto cierra la cadena completa de dependencia: equipoController.js (escritura) → mdmValidator.js (lectura/validación en login) → usado por authController.js y huellasController.js (pendiente).
+Nuevo dato sensible descubierto en el singleton: configuracion_biometria no solo guarda las reglas MDM — también guarda credenciales SMTP completas (smtp_host, smtp_port, smtp_user, smtp_pass, correo_remitente) 
+equipoController.js
+. Esto es la tercera tabla distinta (junto con configuracion y configuracion_proveedores) que guarda credenciales de correo compartidas entre los 5 negocios — un patrón que se repite y que deberá resolverse de forma consistente en los 3 casos.
+El array de objetos roles_restringidos ([{ rol: 'cajero', pantallas_excepcion: [...] }]) 
+equipoController.js
+ es consumido directamente por mdmValidator.js en su lógica de "Equipo Foráneo" 
+mdmValidator.js
+ — al migrar, toda esta estructura de datos se preserva intacta, solo se protege la fila completa con empresa_id.
+ON CONFLICT (device_id) DO UPDATE confirma que hoy device_id es único a nivel de todo el sistema 
+equipoController.js
+. Debe migrar a UNIQUE(device_id, empresa_id) — aunque aquí hay un matiz a considerar en la fase de implementación: un device_id (identificador físico de una tablet) normalmente no se repite entre negocios salvo que reutilicen físicamente el mismo equipo, así que el riesgo real de colisión es menor que en otros casos (como el PIN de empleados), pero la protección de todas formas debe existir por consistencia y para el caso de equipos reasignados entre sucursales.
+Patrón de actualización parcial de contraseña ya bien diseñado: actualizarConfiguracion() solo actualiza smtp_pass si se envía un valor no vacío 
+equipoController.js
+ — buena práctica para no borrar la contraseña accidentalmente al editar otros campos. Se preserva intacta.
+✅ Prioridad: CRÍTICA (cierra el ciclo completo de MDM iniciado en el Grupo 1, y confirma el tercer caso de credenciales SMTP compartidas entre negocios).
+
+
+📄 Auditoría: huellasController.js
+¡Recibido! Este es el último pendiente del Grupo 5 — RH y dispositivos. Es el "equivalente biométrico" de authController.js — maneja el enrolamiento y login por huella (WebAuthn), y confirma varias dependencias que veníamos seccionando desde el Grupo 1. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+configuracion_biometria (CREATE TABLE, INSERT semilla, SELECT para SMTP) 
+huellasController.js
+equipos_autorizados (CREATE TABLE — ya auditada a fondo en equipoController.js) 
+huellasController.js
+credenciales_biometricas (CREATE TABLE, INSERT, SELECT por credential_id, UPDATE counter, DELETE x2) 
+huellasController.js
+usuarios (SELECT en registro y autenticación, UPDATE dispositivo_id) 
+huellasController.js
+clientes (SELECT en registro y autenticación) 
+huellasController.js
+registro_asistencias (SELECT turno abierto, INSERT) 
+huellasController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+inicializarTablas()
+equipos_autorizados.device_id UNIQUE NOT NULL y credenciales_biometricas.credential_id UNIQUE NOT NULL 
+huellasController.js
+🔴 Alto — confirma de nuevo la necesidad de UNIQUE(..., empresa_id) ya documentada para equipos_autorizados
+enviarCodigoVerificacion()
+SELECT * FROM configuracion_biometria WHERE id = 1 para obtener credenciales SMTP 
+huellasController.js
+🔴 Alto — tercera confirmación del patrón de credenciales SMTP compartidas (Patrón 25) entre los 5 negocios
+generarOpcionesRegistro()
+SELECT usuario, nombre FROM usuarios WHERE id = $1 y SELECT telefono, nombre FROM clientes WHERE id = $1 sin validar empresa 
+huellasController.js
+🔴 Alto — mismo Patrón 9 (Ownership sin validar): se podrían generar opciones de registro de huella para un usuario_id/cliente_id de otro negocio
+verificarRegistro()
+INSERT INTO credenciales_biometricas (...) sin empresa_id 
+huellasController.js
+🔴 Alto — la huella queda sin dueño claro a nivel de negocio
+verificarAutenticacion()
+SELECT * FROM credenciales_biometricas WHERE credential_id = $1 — búsqueda global, sin filtrar empresa 
+huellasController.js
+🟠 Medio — el riesgo real aquí es menor que en otros casos porque el credential_id de WebAuthn es criptográficamente único por dispositivo+origen, pero debe añadirse el filtro por consistencia defensiva
+eliminarHuellaCliente(), eliminarHuellaEmpleado()
+DELETE FROM credenciales_biometricas WHERE cliente_id/usuario_id = $1 sin validar ownership 
+huellasController.js
+🔴 Alto — mismo Patrón 9: se podría desvincular la huella de un cliente/empleado de otro negocio
+
+
+🧩 Casos especiales / notas muy importantes:
+
+CIERRE OFICIAL de la cadena de autenticación biométrica. El propio código confirma textualmente que validarAccesoMDM está "centralizada... para no duplicarla con authController.js" 
+huellasController.js
+, y efectivamente usa exactamente las mismas 3 utilidades (metodoAsistenciaActivo, validarUbicacionServidor, asegurarColumnasUbicacion de asistenciaHelper.js, y validarAccesoMDM de mdmValidator.js) 
+huellasController.js +2
+ . Esto confirma al 100% lo que ya habíamos anotado: arreglar esos 2 archivos de utilidades beneficia automáticamente a 4 controladores (authController.js, usuarioController.js, huellasController.js, y por relación equipoController.js/asistenciaConfigController.js en la escritura).
+Hallazgo nuevo y particular de este archivo — colisión de "challenges" en memoria. El objeto challengesConfig usa claves como USR_123 o CLI_456 (basadas solo en el ID numérico) 
+huellasController.js
+, guardado en memoria del proceso, no en base de datos. Esto no requiere empresa_id en sí, pero sí es una alerta para la fase de implementación: si dos negocios distintos tienen simultáneamente un usuario_id = 123 (muy probable tras unificar las bases), sus registros/logins de huella en proceso podrían pisarse mutuamente en memoria durante la ventana del desafío WebAuthn. La solución sería prefijar las claves con empresa_id también (ej. USR_{empresa_id}_{usuario_id}).
+Consideración arquitectónica nueva (WebAuthn y dominios): el rpID (Relying Party ID) se toma de una variable de entorno fija (process.env.RP_ID) 
+huellasController.js
+. Como decidiste mantener los 5 frontends en dominios/subdominios separados de Vercel, cada uno tiene su propio dominio — WebAuthn ata criptográficamente las credenciales al dominio donde se registraron. Esto es importante: si cada negocio usa un dominio distinto, sus huellas seguirán funcionando bien de forma aislada (sin fuga entre negocios, lo cual es positivo), pero habrá que confirmar en la fase de implementación si el backend único puede manejar un rpID/expectedOrigin dinámico por request, o si se requiere una lista de orígenes permitidos por empresa.
+Patrón de seguridad en capas correctamente diseñado, se preserva intacto: verificarAutenticacion() primero valida la huella criptográficamente (WebAuthn), luego aplica MDM, luego valida asistencia por GPS/IP — todo en el orden correcto y sin bloquear el login por ubicación (solo omite el registro de asistencia) 
+huellasController.js
+. Esta lógica de negocio no se toca, solo se añade el filtro de empresa a las consultas de soporte.
+✅ Prioridad: Crítica (cierra la cadena completa de autenticación — login tradicional y biométrico ahora comparten exactamente las mismas dependencias críticas identificadas).
+
+📄 Auditoría: repartidorController.js
+¡Recibido! Este es el primer archivo del Grupo 6 — Logística y distribución B2B. Es un controlador denso en lógica de auditoría financiera (liquidación de efectivo de repartidores) y confirma varias dependencias ya vistas. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+pedidos (SELECT, UPDATE — múltiples funciones)
+clientes (LEFT JOIN de solo lectura)
+configuracion (CROSS JOIN — SELECT gps_ciudad_estado/gps_direccion_local — mismo singleton WHERE id = 1 ya documentado) 
+repartidorController.js
+usuarios (SELECT nombre del repartidor, JOIN en auditoría)
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerPedidosDisponiblesParaReparto()
+WHERE p.estado_preparacion='Listo' AND tipo_consumo='Domicilio' AND repartidor_id IS NULL sin filtro de empresa 
+repartidorController.js
+🔴🔴 Crítico — el "pool" de pedidos disponibles para repartidores mostraría pedidos de domicilio de los 5 negocios mezclados; un repartidor de "Casa Amae" podría tomar y entregar un pedido de "Chito House"
+tomarPedidoRepartidor()
+:id del pedido sin validar empresa; además consulta usuarios WHERE id = $1 sin validar que el repartidor pertenezca al mismo negocio 
+repartidorController.js
+🔴🔴 Crítico — mismo Patrón 9, pero aquí con consecuencia operativa grave: un repartidor podría auto-asignarse una entrega de un negocio distinto al suyo
+entregarPedidoRepartidor()
+:id sin validar ownership 
+repartidorController.js
+🔴 Alto
+obtenerMisViajesActivos(), obtenerHistorialRepartidor()
+Filtran solo por repartidor_id, sin empresa_id 
+repartidorController.js
+🟠 Medio-Alto — si un repartidor_id coincide entre negocios tras la migración, se mezclarían sus rutas activas
+obtenerRepartidoresAuditoria()
+JOIN pedidos agrupado por usuarios.id sin filtro de empresa, con SUM(p.total) de efectivo acumulado 
+repartidorController.js
+🔴🔴 Crítico — mismo nivel de gravedad que corteController.js: mostraría el efectivo acumulado de repartidores de todos los negocios mezclados, dato financiero real
+obtenerPedidosAuditoria(), liquidarAuditoria()
+Filtran solo por repartidor_id/pedido_ids (ANY($2::int[])), sin empresa_id 
+repartidorController.js
+🔴🔴 Crítico — la variante masiva (ANY) del Patrón 9, igual que vimos en proveedorController.js: podría liquidar como "pagados" pedidos de efectivo de otro negocio si los IDs coinciden
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Confirmación número 4 del patrón singleton de configuracion vía CROSS JOIN: aquí aparece una variante nueva — en vez de WHERE id = 1, usa CROSS JOIN (SELECT ... FROM configuracion WHERE id = 1) AS conf 
+repartidorController.js
+, repetido en 3 funciones (obtenerPedidosDisponiblesParaReparto, obtenerMisViajesActivos, obtenerHistorialRepartidor). Mismo riesgo ya documentado: los 5 negocios compartirían la misma dirección GPS de referencia para calcular rutas en Google Maps.
+Hallazgo crítico nuevo: liquidación financiera masiva sin aislamiento. liquidarAuditoria() ejecuta una transacción (BEGIN/COMMIT/ROLLBACK correctamente implementada) que cambia el estado de múltiples pedidos a 'Liquidado' de golpe vía id = ANY($2::int[]) 
+repartidorController.js
+. Si no se valida empresa_id, un cajero podría (incluso sin mala intención, solo por una colisión de IDs tras la migración) liquidar pedidos de efectivo que pertenecen a otro negocio, cerrando contablemente dinero que nunca fue entregado a esa caja.
+Confirmación de arquitectura de reparto "pool compartido" (no por asignación directa): el diseño actual es de tipo "cualquier repartidor disponible puede tomar cualquier pedido listo" (similar a Uber Eats) 
+repartidorController.js
+. Esto es importante para la fase de implementación: el filtro de empresa_id debe aplicarse de forma que un repartidor solo vea y pueda tomar pedidos de la empresa a la que pertenece, preservando intacta la mecánica de "primero en tomarlo, se lo asigna" (if (pedido.repartidor_id) return error...).
+Buena práctica de concurrencia ya existente, se preserva intacta: la validación anti-colisión en tomarPedidoRepartidor() (¿ya fue tomado por otro repartidor?) 
+repartidorController.js
+ es un patrón correcto que no debe tocarse, solo reforzarse con el filtro de empresa.
+Socket en tiempo real bien dirigido (a diferencia de otros módulos): los eventos reparto:pedido_tomado y reparto:pedido_entregado 
+repartidorController.js
+ son más específicos que los genéricos catalogo_actualizado/pedido_actualizado vistos en otros archivos, pero siguen siendo broadcast global (io.emit, no io.to('empresa_X').emit) — mismo patrón pendiente de migrar a rooms por empresa.
+✅ Prioridad: CRÍTICA (por el pool de pedidos compartido entre negocios y por la liquidación financiera masiva sin aislamiento — mismo nivel de gravedad que corteController.js y proveedorController.js).
+
+📄 Auditoría: Módulo de Distribución B2B (3 archivos)
+distribucionController.js (Catálogo de artículos de mayoreo)
+Tablas: dist_articulos (CREATE TABLE, SELECT, INSERT, UPDATE, DELETE) 
+distribucionController.js
+
+FUNCIÓN
+PROBLEMA
+obtenerArticulos()
+SELECT * FROM dist_articulos WHERE activo = true sin filtro de empresa 
+distribucionController.js
+crearArticulo()
+INSERT sin empresa_id 
+distribucionController.js
+actualizarArticulo(), eliminarArticulo()
+:id sin validar ownership — Patrón 9 
+distribucionController.js
+
+
+distClientesController.js (Directorio B2B y crédito)
+Tablas: dist_configuracion (singleton WHERE id=1, con credenciales SMTP — 4ta tabla con este patrón), dist_clientes (CRUD completo) 
+distClientesController.js
+
+FUNCIÓN
+PROBLEMA
+obtenerConfiguracion()/actualizarConfiguracion()
+Patrón 1 (singleton) + Patrón 25 (SMTP compartido) 
+distClientesController.js
+obtenerClientes()
+Sin filtro de empresa 
+distClientesController.js
+crearCliente()
+INSERT sin empresa_id 
+distClientesController.js
+actualizarCliente(), eliminarCliente()
+:id sin validar ownership 
+distClientesController.js
+enviarCodigoVerificacion()
+Mismo patrón de código 2FA ya visto en clienteController.js, aquí para crédito comercial 
+distClientesController.js
+
+
+distVentasController.js (Ventas de mayoreo)
+Tablas: dist_pedidos (CREATE, SELECT, INSERT, UPDATE), dist_articulos, dist_clientes, dist_configuracion 
+distVentasController.js
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+crearVenta()
+SELECT COALESCE(MAX(numero_pedido), 0) + 1 ... WHERE fecha_creacion::DATE = CURRENT_DATE sin empresa_id 
+distVentasController.js
+🔴🔴 Crítico — confirma el Patrón 11 (numeración de folios compartida) en un segundo módulo distinto a pedidoController.js
+obtenerVentas()
+SELECT * FROM dist_pedidos ... LIMIT 200 sin filtro 
+distVentasController.js
+🔴 Alto — historial de ventas B2B mezclado entre negocios
+actualizarEstado()
+:id sin validar ownership 
+distVentasController.js
+🔴 Alto
+
+
+🧩 Nota importante: confirma el Patrón 11 en un segundo lugar del sistema — ya no es exclusivo de pedidoController.js, así que la corrección del "número de folio por empresa" deberá aplicarse en ambos módulos de forma coordinada.
+
+✅ Prioridad del bloque: Alta — mismo patrón ya visto repetidamente (singleton SMTP, folios compartidos, Patrón 9), nada estructuralmente nuevo salvo la confirmación cruzada.
+
+📄 Auditoría: reporteController.js
+¡Recibido! Este es el primer archivo del Grupo 7 — Soporte, y confirma varias dependencias clave que veníamos arrastrando desde el Grupo 1 (Factor Luz/Agua) y el motor de costeo recursivo del Grupo 4. Es uno de los archivos más densos en lógica de negocio. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+configuracion (SELECT horarios_semana, precio_gasolina — mismo singleton WHERE id = 1 ya documentado muchas veces; UPDATE precio_gasolina) 
+reporteController.js
+configuracion_financiera (SELECT porcentaje del factor Luz/Agua — singleton por clave) 
+reporteController.js
+productos, recetas, insumos (motor de costeo recursivo, igual al visto en recetaController.js) 
+reporteController.js
+pedidos (SELECT masivo para calcular ventas, comparativas y proyecciones) 
+reporteController.js
+usuarios (SELECT/UPDATE vehiculo, rendimiento_km_l para el módulo de combustible) 
+reporteController.js
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerReporteVentas()
+SELECT horarios_semana FROM configuracion WHERE id = 1 
+reporteController.js
+🔴 Alto — confirma el patrón singleton una vez más: todos los negocios compartirían el mismo horario operativo para calcular "ventas fuera de horario"
+obtenerReporteVentas()
+SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1 
+reporteController.js
+🔴🔴 Crítico — confirma al 100% la dependencia cruzada que dejamos anotada desde configFinancieraController.js (Patrón 7): este archivo es justo el consumidor que sospechábamos. Sin empresa_id, los 5 negocios compartirían el mismo % de Luz/Agua en sus reportes de costeo
+obtenerReporteVentas() → motor de costeo recursivo
+Las 3 CTEs (EmpaquesCosto, Explosion) no filtran por empresa en ningún nivel 
+reporteController.js
+🔴🔴 Crítico — misma vulnerabilidad del motor de costeo ya detectada en recetaController.js, ahora confirmada en un segundo archivo: el reporte de ventas podría calcular costos reales mezclando recetas/insumos de otra empresa
+obtenerReporteVentas()
+SELECT id, nombre FROM productos (sin filtro, para construir diccionario de nombres) 
+reporteController.js
+🔴 Alto — el diccionario de productos usado para "limpiar" nombres en el reporte mezclaría productos de los 5 negocios, pudiendo generar coincidencias falsas de nombre
+obtenerReporteVentas()
+La consulta principal de pedidos (SELECT ... FROM pedidos p WHERE estado_preparacion != 'Cancelado' ...) no filtra por empresa 
+reporteController.js
+🔴🔴 Crítico — el reporte de ventas, ingresos, comparativas y proyecciones mezclaría las ventas de los 5 negocios en un solo cálculo — es de los hallazgos más graves para la operación financiera diaria
+obtenerReporteVentas() → proyecciones de "meta de mañana"
+Subquery adicional a pedidos sin filtro 
+reporteController.js
+🔴 Alto — mismo problema, en el módulo de metas/proyecciones
+obtenerReporteCombustible()
+ALTER TABLE usuarios/configuracion, SELECT precio_gasolina FROM configuracion WHERE id = 1 
+reporteController.js
+🔴 Alto — confirma otra variante del patrón singleton: el precio de gasolina de referencia sería compartido entre los 5 negocios
+obtenerReporteCombustible()
+JOIN usuarios u ON p.repartidor_id = u.id sin filtro de empresa 
+reporteController.js
+🔴 Alto — el reporte de rendimiento de combustible mezclaría viajes y vehículos de repartidores de distintos negocios
+guardarConfigFlotilla()
+UPDATE configuracion SET precio_gasolina = $1 WHERE id = 1 y UPDATE usuarios SET vehiculo = $1... WHERE id = $3 sin validar ownership 
+reporteController.js
+🔴 Alto — mismo singleton + Patrón 9: se podría actualizar el vehículo de un repartidor de otro negocio
+🧩 Casos especiales / notas muy importantes:
+
+CIERRE OFICIAL de la dependencia cruzada del Factor Luz/Agua (Patrón 7). Desde el Grupo 1 habíamos dejado anotado que configFinancieraController.js era consumido por reporteController.js 
+configFinancieraController.js
+, y ahora lo confirmamos línea por línea: SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1 
+reporteController.js
+. Ambos archivos deben corregirse en conjunto.
+CUARTA confirmación del motor de costeo recursivo (WITH RECURSIVE Explosion). Ya lo habíamos visto en pedidoController.js (x4), mermaController.js (x1) y recetaController.js (x1) — aquí aparece una sexta ocurrencia, con una variante que agrega un campo depth para control de profundidad 
+reporteController.js
+. Esto refuerza fuertemente el Patrón 12: es indispensable llevar una checklist exhaustiva de todas las copias de este motor al momento de implementar el filtro de empresa_id, ya que cualquier copia que se omita generará costeos financieros cruzados entre negocios.
+Excelente práctica de caché que debe preservarse con cuidado adicional: el comparativasCache (Map en memoria, mismo patrón que iaController.js según el propio comentario) 
+reporteController.js
+ cachea periodos históricos cerrados. Alerta para la fase de implementación: las claves de este caché deberán incluir el empresa_id, o de lo contrario el reporte cacheado de un negocio podría servirse por error a otro negocio que consulte el mismo periodo.
+Lógica de negocio muy elaborada que debe preservarse intacta: el sistema de "metas y proyecciones" (comparar ventas actuales contra bases históricas, calcular estado de meta, generar mensajes motivacionales) 
+reporteController.js
+ es una funcionalidad valiosa y compleja — no se toca su lógica, solo se protege cada consulta subyacente con el filtro de empresa.
+Nueva tabla/columnas descubiertas: usuarios.vehiculo y usuarios.rendimiento_km_l 
+reporteController.js
+ — confirma que la tabla usuarios sigue siendo una de las más "tocadas" transversalmente por el sistema (ya iba por auth, asistencia, nómina, y ahora combustible).
+Normalización de nombres de productos para el reporte (manejo de paréntesis, variaciones como "Grande"/"Mediano", limpieza de prefijos) 
+reporteController.js
+ es lógica de presentación pura, no toca la seguridad multi-tenant directamente, pero depende del diccionario de productos que si debe filtrarse por empresa (punto 4 de la tabla de riesgos).
+✅ Prioridad: CRÍTICA (cierra 2 dependencias cruzadas muy importantes ya sospechadas desde grupos anteriores: el Factor Luz/Agua y el motor de costeo recursivo, además de ser el reporte financiero principal del negocio).
+
+📄 Auditoría: impresionController.js
+¡Recibido! Este archivo es diferente a todos los que hemos auditado hasta ahora — es el primero que no toca la base de datos en absoluto. Solo recibe datos ya calculados y los envía a una impresora térmica por red (TCP/IP). Aquí está el análisis:
+
+🗂️ Tablas detectadas:
+
+Ninguna. imprimirTicketIP() recibe pedido y configGlobal directamente en el req.body 
+impresionController.js
+ — no hace ningún db.query(). Toda la información ya viene pre-cargada desde el frontend (Caja), que a su vez la obtuvo de pedidoController.js y configController.js.
+⚠️ Riesgo de empresa_id:
+
+ASPECTO
+ANÁLISIS
+Conexión directa a hardware
+interface: tcp://${configGlobal.ticket_impresora_ip}:${configGlobal.ticket_impresora_puerto} 
+impresionController.js
+ — la IP de la impresora llega ya resuelta en el payload
+Dependencia indirecta
+Como configGlobal viene de configController.js (ya auditado, singleton WHERE id=1), una vez que esa tabla pase a ser multi-tenant correctamente, este archivo heredará automáticamente la IP/puerto de impresora correcta de cada empresa, sin necesitar ningún cambio aquí
+
+
+🧩 Casos especiales / notas importantes:
+
+Este archivo no requiere ningún cambio de empresa_id. Es "tonto" por diseño: solo imprime lo que le llega. Su seguridad multi-tenant depende 100% de que configController.js (ya auditado) entregue la IP de impresora correcta según la empresa del solicitante.
+Confirma un dato operativo importante sobre impresión de tickets: cada negocio necesitará su propia ticket_impresora_ip almacenada en su fila de configuracion — esto ya estaba contemplado en el Patrón 1/singleton que documentamos desde el Grupo 1, así que no es un hallazgo nuevo, solo una confirmación de que la arquitectura ya prevista cubre este caso correctamente.
+Nota de arquitectura relevante (no es un problema, es informativo): dado que la impresora es un dispositivo físico en la red local de cada sucursal, esto refuerza por qué cada empresa necesita su propia configuración de impresión independiente — exactamente el comportamiento que tendremos una vez resuelto configController.js.
+Buen manejo defensivo de caracteres especiales (stripEmojis) para evitar que la impresora térmica falle al procesar emojis 
+impresionController.js
+ — lógica de presentación pura, no se toca.
+✅ Prioridad: Ninguna acción requerida — es el primer archivo de toda la auditoría que no necesita ningún cambio de empresa_id directamente, gracias a que ya depende de una tabla que será corregida en otro punto del sistema.
+
+📄 Auditoría: iaController.js
+¡Recibido! Este es el último de los 34 controladores — con este cerramos oficialmente toda la auditoría archivo por archivo. Es un módulo complejo (Admin IA / Copiloto) con múltiples proveedores de IA, generación de imágenes y un sistema de caché/historial de chat. Aquí está el análisis completo:
+
+🗂️ Tablas detectadas:
+
+ia_configuracion (singleton WHERE id = 1, con llaves API de Gemini/OpenAI/Claude, contexto_negocio, límites de uso diario) 
+iaController.js
+ia_conversaciones (historial de chat con UNIQUE(usuario_id, contexto), reinicio diario) 
+iaController.js
+usuarios (SELECT para analizar rendimiento de personal) 
+iaController.js
+pedidos, reporte_mermas, insumos (consumidos indirectamente para los análisis de ventas/empleados — mencionados en el contexto aunque no se vieron las queries completas)
+⚠️ Queries de riesgo (necesitan empresa_id sí o sí):
+
+FUNCIÓN
+PROBLEMA
+RIESGO
+obtenerConfigIA()
+SELECT * FROM ia_configuracion WHERE id = 1 
+iaController.js
+🔴🔴 Crítico — el hallazgo más grave de este archivo: las llaves API de Gemini/OpenAI/Claude son credenciales reales y de pago. Sin empresa_id, los 5 negocios compartirían las mismas llaves de IA, lo que significa que el consumo/gasto de un negocio en OpenAI se cobraría a la cuenta configurada por cualquiera de los otros
+actualizarConfiguracionIA()
+UPDATE ia_configuracion ... WHERE id = 1 
+iaController.js
+🔴 Alto — si "Casa Amae" cambia su proveedor de IA o sus llaves, se las cambiaría a los otros 4 negocios también
+analizarVentas(), analizarEmpleados()
+Dependen de pedidos, usuarios, reporte_mermas, insumos sin filtro de empresa (heredado de los riesgos ya documentados en esos módulos) 
+iaController.js
+🔴 Alto — el "Director de RH" o "Analista Financiero" de IA mezclaría datos reales de los 5 negocios en su análisis, generando recomendaciones basadas en información ajena
+generarImagen() → límite "1 imagen por día"
+UPDATE ia_configuracion SET ultima_imagen_ia = ... WHERE id = 1 
+iaController.js
+🔴 Alto — el candado de "solo 1 imagen DALL-E por día" sería compartido entre los 5 negocios, no por negocio individual — si Casa Amae ya generó su imagen del día, los otros 4 quedarían bloqueados
+generarRespuestaTexto() → caché (mencionado en comentarios)
+cacheKeyStr no incluye empresa_id 
+iaController.js
+🔴 Alto — mismo patrón de riesgo ya anotado en reporteController.js: el caché de respuestas de IA podría servir la respuesta de un negocio a otro si consultan el mismo periodo/prompt
+ia_conversaciones
+UNIQUE(usuario_id, contexto) sin empresa_id 
+iaController.js
+🟠 Medio — si usuario_id coincide entre negocios tras la migración, el historial de chat de IA podría mezclarse
+
+
+🧩 Casos especiales / notas muy importantes:
+
+Este es el caso más grave de "credenciales compartidas" de toda la auditoría, incluso más delicado que las credenciales SMTP ya vistas 4 veces (configuracion, configuracion_proveedores, configuracion_biometria, dist_configuracion). Aquí no es solo "el correo sale con el nombre equivocado" — es gasto monetario real y directo: cada llamada a OpenAI/Gemini/Claude tiene costo, y con llaves compartidas, el negocio que pague la suscripción de IA estaría subsidiando sin saberlo el consumo de los otros 4.
+Candado de seguridad bien diseñado que debe preservarse intacto: el sistema valida que no se pueda "habilitar" un proveedor de IA sin tener antes una llave guardada (if (gemini_habilitado && !tieneLlaveGemini) return res.status(400)...) 
+iaController.js
+ — esta lógica de negocio no se toca, solo se le agrega el filtro de empresa para que cada negocio tenga sus propias llaves y su propio estado de habilitación.
+Confirmación cruzada importante: el comentario del propio código en reporteController.js ya mencionaba que su caché (comparativasCache) sigue "el mismo patrón que iaController.js" 
+reporteController.js
+ — ahora confirmamos que ambos archivos comparten el mismo riesgo de caché sin aislar por empresa, y ambos deben corregirse con el mismo criterio (incluir empresa_id en la clave del caché).
+Buena práctica de seguridad ya existente: el enmascaramiento de llaves API antes de enviarlas al frontend (maskKey) 
+iaController.js
+ es una práctica correcta que se preserva intacta — el riesgo no está en exponer las llaves al navegador, sino en que las llaves sean las mismas para los 5 negocios.
+Historial de chat con diseño inteligente de "auto-limpieza": la tabla ia_conversaciones usa UNIQUE(usuario_id, contexto) con upsert diario para no crecer indefinidamente 
+iaController.js
+ — buen diseño que se preserva, solo se amplía la restricción a UNIQUE(usuario_id, contexto, empresa_id).
+Límite de "1 imagen DALL-E por día" como control de costos: es una medida de negocio inteligente para controlar gasto 
+iaController.js
+, pero al ser global (singleton), en vez de proteger a cada negocio individualmente, termina racionando un recurso compartido entre los 5 — cuando se corrija con empresa_id, cada negocio tendrá su propio límite diario independiente, que es el comportamiento correcto esperado.
+✅ Prioridad: CRÍTICA (el caso más severo de credenciales compartidas de toda la auditoría — implica gasto monetario real cruzado entre negocios, no solo exposición de datos).
+
+
+
+📘 DOCUMENTO MAESTRO DE CONSOLIDACIÓN — Migración Multi-Tenant (empresa_id)
+Con los 34 controladores + utilidades ya auditados, aquí está el consolidado completo que sintetiza todo el trabajo. Este documento es la base directa para diseñar el plan de migración (Tarea 36).
+
+1️⃣ INVENTARIO COMPLETO DE TABLAS
+🔴 Categoría A — Tablas "Singleton" (una sola fila para todo el sistema, deben pasar a 1 fila por empresa)
+TABLA
+IDENTIFICADOR ACTUAL
+CONTROLADOR DUEÑO
+DATO SENSIBLE QUE GUARDA
+configuracion
+id SERIAL, fijo en WHERE id=1
+configController.js
+Marca blanca completa: colores, logo, WhatsApp, puntos, SMTP, PIN maestro Kiosco 
+configController.js
+configuracion_financiera
+clave VARCHAR UNIQUE ('factor_luz_agua')
+configFinancieraController.js
+% de costeo Luz/Agua 
+configFinancieraController.js
+configuracion_operativa
+id INT PRIMARY KEY DEFAULT 1 (el más rígido, requiere redefinir PK)
+configOperativaCtrl.js
+Bandera usa_cocina, mesa_obligatoria 
+configOperativaCtrl.js
+configuracion_asistencia
+id SERIAL, fijo en WHERE id=1
+asistenciaConfigController.js
+Métodos de checado activos, reglas IP/GPS 
+asistenciaConfigController.js
+configuracion_biometria
+id SERIAL, fijo en WHERE id=1
+equipoController.js / huellasController.js
+Reglas MDM, SMTP biométrico 
+equipoController.js +1
+configuracion_proveedores
+id SERIAL, fijo en WHERE id=1
+proveedorController.js
+SMTP para correos a proveedores 
+proveedorController.js
+dist_configuracion
+id SERIAL, fijo en WHERE id=1
+distClientesController.js
+SMTP B2B, % de puntos de mayoreo 
+distClientesController.js
+ia_configuracion
+id SERIAL, fijo en WHERE id=1
+iaController.js
+🔴🔴 Llaves API reales de pago (Gemini/OpenAI/Claude) 
+iaController.js
+surtidos_borrador
+id SERIAL, fijo en WHERE id=1
+insumoController.js
+Borrador del botón "Surtir" 
+insumoController.js
+
+
+6 de estas 9 tablas singleton guardan credenciales reales (SMTP x5, APIs de IA x1) — es el hallazgo transversal más grave de toda la auditoría.
+
+🟠 Categoría B — Tablas "operativas singleton" (no son configuración, son estado de negocio que hoy solo permite una instancia activa en todo el sistema)
+TABLA
+PROBLEMA
+CONTROLADOR
+auditorias_inventario
+Solo puede existir una auditoría activa en todo el sistema (WHERE estado != 'completada') 
+insumoController.js
+insumoController.js
+
+
+🟢 Categoría C — Tablas de catálogo/negocio (requieren columna empresa_id simple + UNIQUE compuesto)
+TABLA
+CONTROLADOR(ES) QUE LA TOCAN
+RESTRICCIÓN UNIQUE A MIGRAR
+usuarios
+authController.js, usuarioController.js, nominaController.js, huellasController.js, reporteController.js
+usuario, telefono, pin, nfc_uid → compuestas con empresa_id 
+authController.js +2
+clientes
+authController.js, clienteController.js, pedidoController.js
+telefono → UNIQUE(telefono, empresa_id) 
+authController.js +1
+productos
+productoController.js, recetaController.js, clasificacionController.js, pedidoController.js
+Sin UNIQUE hoy, pero es tabla vertebral 
+productoController.js +1
+clasificaciones
+clasificacionController.js, cocinaOperativaController.js
+— 
+clasificacionController.js +1
+catalogo_ingredientes
+ingredienteController.js, pedidoController.js
+Validación de duplicado sin filtro 
+ingredienteController.js
+recetas
+recetaController.js, pedidoController.js, mermaController.js
+— 
+recetaController.js
+insumos
+insumoController.js, pedidoController.js, mermaController.js, proveedorController.js (4 controladores escriben aquí)
+Validación de duplicado sin filtro 
+insumoController.js
+sub_recetas
+recetaController.js
+— 
+recetaController.js
+combos
+comboController.js
+FK real a productos con ON DELETE CASCADE 
+comboController.js
+promociones
+promocionController.js, configController.js
+— 
+configController.js +1
+cupones
+configController.js
+codigo → UNIQUE(codigo, empresa_id) 
+configController.js
+mesas
+mesaController.js
+numero_mesa → UNIQUE(numero_mesa, empresa_id) 
+mesaController.js
+pedidos
+pedidoController.js (el más denso), mesaController.js, repartidorController.js, corteController.js, reporteController.js
+numero_pedido → folio compartido, requiere filtro en MAX()+1 
+pedidoController.js +2
+historico_cortes
+corteController.js
+— 
+corteController.js
+reporte_mermas
+mermaController.js
+— 
+mermaController.js
+compras_insumos
+insumoController.js
+— 
+insumoController.js
+gastos_proveedores / proveedores
+proveedorController.js
+— 
+proveedorController.js
+historico_nominas
+usuarioController.js, nominaController.js
+— 
+usuarioController.js +1
+mensajes_empleados
+mensajeController.js
+— 
+mensajeController.js
+suscripciones_push
+notificacionController.js, usado por 4 controladores más
+Filtro por empresa_id crítico para notificaciones 
+notificacionController.js
+estaciones_cocina / estacion_clasificacion
+cocinaOperativaController.js
+clasificacion_id UNIQUE → compuesta 
+cocinaOperativaController.js
+log_produccion_items
+cocinaOperativaController.js (escrito desde pedidoController.js)
+— 
+cocinaOperativaController.js +1
+empleados_dispositivos
+authController.js
+usuario_id UNIQUE, dispositivo_id UNIQUE → revisar caso por caso 
+authController.js
+equipos_autorizados
+equipoController.js, validado en mdmValidator.js
+device_id UNIQUE → compuesta 
+mdmValidator.js +1
+credenciales_biometricas
+huellasController.js
+credential_id UNIQUE (riesgo bajo, es criptográfico) 
+huellasController.js
+asistencia_ips / asistencia_ubicaciones
+asistenciaConfigController.js, leído en asistenciaHelper.js
+ip UNIQUE → compuesta 
+asistenciaHelper.js +1
+Módulo B2B completo: dist_articulos, dist_clientes, dist_pedidos
+distribucionController.js, distClientesController.js, distVentasController.js
+numero_pedido en dist_pedidos repite el Patrón 11 
+distVentasController.js +2
+
+
+⚪ Categoría D — Código descartado / sin acción requerida
+ARCHIVO
+ESTADO
+catalogoController.js
+🪦 Código muerto, no referenciado en api.js — excluido de la migración 
+catalogoController.js +1
+impresionController.js
+✅ No toca BD, hereda seguridad de configController.js automáticamente 
+impresionController.js
+
+
+2️⃣ LOS 26 PATRONES DE RIESGO IDENTIFICADOS (síntesis)
+#
+PATRÓN
+ALCANCE
+1/8
+Tabla singleton WHERE id=1
+9 tablas (ver Categoría A)
+7/23
+Singleton por clave o LIMIT 1 (sin ni siquiera depender de un id fijo)
+configuracion_financiera, 3 queries en proveedorController.js 
+configFinancieraController.js +1
+9
+Ownership sin validar (:id sin empresa_id)
+Presente en prácticamente los 34 controladores — el patrón más extendido
+10/14/24
+Restricciones UNIQUE globales que deben ser compuestas
+usuarios, mesas, asistencia_ips, equipos_autorizados, cupones
+11
+Numeración de folios compartida (MAX()+1 sin filtro)
+pedidos.numero_pedido 
+pedidoController.js
+ y dist_pedidos.numero_pedido 
+distVentasController.js
+ — 2 módulos distintos
+12
+Motor de explosión de recetas duplicado 6 veces (WITH RECURSIVE Explosion)
+pedidoController.js (x4), mermaController.js (x1), reporteController.js (x1) 
+pedidoController.js +2
+13
+Notificaciones push cruzadas (origen: suscripciones_push sin empresa_id)
+Confirmado en 4 copias de notificarStaff: pedidoController.js, insumoController.js, mensajeController.js, proveedorController.js 
+pedidoController.js +4
+15
+Validación de nombre duplicado sin filtro de empresa
+catalogo_ingredientes, insumos 
+catalogoController.js +1
+16
+Cascada por coincidencia de texto (no por relación/ID)
+clasificacionController.js → afecta productos.categoria y promociones.categoria_trigger; confirmado en vivo en cocinaOperativaController.js (producción KDS) 
+clasificacionController.js +2
+18/19
+Autenticación secundaria de cliente (NIP) y CRM sin aislar
+clienteController.js 
+clienteController.js
+20
+Dispositivo físico sin contexto de empresa (checador biométrico)
+biometricoController.js — requiere estrategia de resolución distinta (por IP/equipo) 
+biometricoController.js
+22
+Singleton operativo (bloquea una operación de negocio real entre empresas)
+auditorias_inventario 
+insumoController.js
+25
+Credenciales SMTP compartidas
+5 tablas distintas: configuracion, configuracion_biometria, configuracion_proveedores, dist_configuracion + llaves de IA en ia_configuracion
+26
+Límite de uso compartido en vez de por-negocio
+ia_configuracion.ultima_imagen_ia (1 imagen DALL-E/día compartida entre los 5) 
+iaController.js
+
+
+3️⃣ TOP 5 HALLAZGOS MÁS CRÍTICOS (orden de prioridad para implementación)
+🔴🔴🔴 obtenerHistorialAuditoria() (pedidoController.js) y obtenerHistorial() sin fecha (corteController.js) — exponen el historial completo de pedidos y cortes de caja de los 5 negocios sin ningún filtro. Rutas confirmadas activas en api.js 
+pedidoController.js +2
+ .
+🔴🔴 Motor de explosión de recetas (Patrón 12, 6 ocurrencias) — riesgo de descuento de inventario cruzado entre empresas si hay coincidencia de IDs.
+🔴🔴 Checador biométrico ZKTeco (biometricoController.js) — único caso sin contexto de empresa disponible en el payload, requiere diseño especial.
+🔴🔴 Llaves API de IA compartidas (ia_configuracion) — único caso con impacto de gasto monetario real entre negocios.
+🔴🔴 Cron de verificarAlertasStock (proveedorController.js) — envía correos reales a proveedores externos con datos potencialmente cruzados.

@@ -8,6 +8,7 @@ import {
 
 import { useNFC } from '../../hooks/useNFC';
 import { useValidadorAsistencia } from '../admin/asistencia/useValidadorAsistencia';
+import { apiFetch } from '../../utils/apiFetch';
 
 const TopNavCaja = ({
   user, onLogout, configGlobal, toggleEstadoNegocio,
@@ -49,7 +50,7 @@ const TopNavCaja = ({
               setAlertaNFC({ tipo: 'loading', msj: 'Registrando asistencia...' });
               try {
                   const dispositivo_id = localStorage.getItem('pos_device_id');
-                  const res = await fetch(`${apiUrlLocal}/usuarios/asistencia-nfc`, {
+                  const res = await apiFetch(`${apiUrlLocal}/usuarios/asistencia-nfc`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ nfc_uid: nfcData, dispositivo_id })
@@ -96,7 +97,7 @@ const TopNavCaja = ({
   useEffect(() => {
       const fetchConfigAsistencia = async () => {
           try {
-              const res = await fetch(`${apiUrlLocal}/asistencia/configuracion?t=${Date.now()}`);
+              const res = await apiFetch(`${apiUrlLocal}/asistencia/configuracion?t=${Date.now()}`);
               if (res.ok) {
                   const data = await res.json();
                   let tipos = [];
@@ -132,7 +133,7 @@ const TopNavCaja = ({
     const evaluarHorario = async () => {
       try {
         const apiUrl = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:4000/api' : '/api');
-        const res = await fetch(`${apiUrl}/configuracion?t=${Date.now()}`);
+        const res = await apiFetch(`${apiUrl}/configuracion?t=${Date.now()}`);
         if (!res.ok) return;
         const configEnVivo = await res.json();
 

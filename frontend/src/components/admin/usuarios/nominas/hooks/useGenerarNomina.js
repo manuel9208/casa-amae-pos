@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { procesarMotorNomina } from '../utils/motorNominaLFT';
 import { auditarCumplimientoOperativo, procesarBonosPorCumplimiento } from '../utils/auditorOperativo';
+import { apiFetch } from '../../../../../utils/apiFetch';
 
 export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
     const [fechaInicio, setFechaInicio] = useState('');
@@ -34,14 +35,14 @@ export const useGenerarNomina = (apiUrl, usuariosVisibles, showAlert) => {
 
         setIsCalculating(true);
         try {
-            const resHist = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
+            const resHist = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
             const dataHist = resHist.ok ? await resHist.json() : {};
             
             const historialCompleto = (dataHist.historialAsistencias || []).map(h => ({
                 ...h, fecha_corta: h.fecha ? h.fecha.split('T')[0] : ''
             }));
             
-            const resConfig = await fetch(`${apiUrl}/configuracion`);
+            const resConfig = await apiFetch(`${apiUrl}/configuracion`);
             const dataConfig = resConfig.ok ? await resConfig.json() : {};
             
             const matrizLimpieza = typeof dataConfig.matriz_limpieza === 'string' ? JSON.parse(dataConfig.matriz_limpieza || '{}') : (dataConfig.matriz_limpieza || {});

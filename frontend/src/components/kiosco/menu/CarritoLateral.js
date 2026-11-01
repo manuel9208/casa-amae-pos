@@ -1,6 +1,6 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react'; 
-import DescuentosCart from './DescuentosCart';  
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import DescuentosCart from './DescuentosCart';
 
 const CarritoLateral = ({
   carrito, pedidoEditandoId, cambiarCantidadCart, editarItem, quitarDelCarrito, isOffline,
@@ -9,20 +9,29 @@ const CarritoLateral = ({
   descuentoCuponDinero, descuentoPuntosDinero, calcularSubtotal, calcularTotal, isCerrado, setPantallaActual,
   guardarEdicionDirecta,
   isSubmitting,
-  bloqueoPuntosActivo 
+  bloqueoPuntosActivo,
+  vistaMobile = 'menu', // 👈 NUEVO: 'menu' | 'carrito' (controla visibilidad SOLO en mobile)
+  setVistaMobile // 👈 NUEVO: para el botón "Volver al Menú" en mobile
 }) => {
   return (
-    <div className="w-full lg:w-1/3 bg-white rounded-3xl md:rounded-[40px] shadow-xl p-5 md:p-8 border flex flex-col h-[60vh] lg:h-full shrink-0 relative animate-in slide-in-from-right duration-300">
-      
+    <div className={`w-full lg:w-1/3 bg-white rounded-3xl md:rounded-[40px] shadow-xl p-5 md:p-8 border flex-col h-[60vh] lg:h-full shrink-0 relative animate-in slide-in-from-right duration-300 ${vistaMobile === 'carrito' ? 'flex fixed inset-0 z-40 rounded-none lg:relative lg:inset-auto lg:z-auto lg:rounded-[40px] pb-24 lg:pb-8' : 'hidden lg:flex'}`}>
+
       {pedidoEditandoId && (
         <div className="absolute top-0 left-0 right-0 bg-orange-500 text-white text-center py-1 md:py-2 rounded-t-3xl md:rounded-t-[40px] text-[10px] md:text-xs font-black uppercase tracking-widest shadow-md">
           Editando Orden Activa
         </div>
-      )}  
+      )}
 
-      <h2 className={`text-xl md:text-2xl font-black mb-4 md:mb-6 border-b pb-3 md:pb-4 text-slate-800 shrink-0 ${pedidoEditandoId ? 'mt-4' : ''}`}>
-        Tu Orden
-      </h2>  
+      <div className={`flex items-center gap-3 mb-4 md:mb-6 border-b pb-3 md:pb-4 shrink-0 ${pedidoEditandoId ? 'mt-4' : ''}`}>
+        {setVistaMobile && (
+          <button onClick={() => setVistaMobile('menu')} className="lg:hidden p-2 -ml-2 text-slate-400 hover:text-slate-700 transition shrink-0">
+            <ArrowLeft size={22} />
+          </button>
+        )}
+        <h2 className="text-xl md:text-2xl font-black text-slate-800">
+          Tu Orden
+        </h2>
+      </div>
 
       <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
         {carrito.length === 0 ? (

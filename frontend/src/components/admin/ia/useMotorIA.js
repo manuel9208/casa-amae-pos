@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 export const useMotorIA = (apiUrl) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -9,7 +10,7 @@ export const useMotorIA = (apiUrl) => {
   const consultarIA = useCallback(async (ruta, prompt, proveedor = null, extraParams = {}) => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}${ruta}`, {
+      const res = await apiFetch(`${apiUrl}${ruta}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, proveedor, ...extraParams })

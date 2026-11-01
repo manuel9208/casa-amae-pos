@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import FormularioCombo from './FormularioCombo';
 import ListaCombos from './ListaCombos';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorCombos = ({ productos, clasificaciones, promociones, apiUrl, showAlert, showConfirm }) => {
     const [combos, setCombos] = useState([]);
@@ -8,7 +9,7 @@ const GestorCombos = ({ productos, clasificaciones, promociones, apiUrl, showAle
 
     const cargarCombos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/combos`);
+            const res = await apiFetch(`${apiUrl}/combos`);
             if (res.ok) {
                 const data = await res.json();
                 setCombos(Array.isArray(data) ? data : []);

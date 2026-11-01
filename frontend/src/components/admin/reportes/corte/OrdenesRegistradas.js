@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ShoppingBag, Printer, Eye, User, Store, Package } from 'lucide-react';
 import TicketImpresionMayoreo from '../../../caja/modales/PuntoDeVenta/distribucion/TicketImpresionMayoreo';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const deserializarCarrito = (carritoRaw) => {
     if (Array.isArray(carritoRaw)) return carritoRaw;
@@ -21,7 +22,7 @@ const OrdenesRegistradas = ({
     useEffect(() => {
         if (apiUrl) {
             const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-            fetch(`${apiBase}/distribucion/configuracion`)
+           apiFetch(`${apiBase}/distribucion/configuracion`)
                 .then(res => res.json())
                 .then(data => {
                     if (!data.error) {

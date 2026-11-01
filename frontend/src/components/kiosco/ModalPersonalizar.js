@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CheckSquare, Square, ArrowLeft } from 'lucide-react';
+import { apiFetch } from '../../utils/apiFetch';
 
 const ModalPersonalizar = ({ 
   productoEnEspera, setProductoEnEspera, 
@@ -40,7 +41,7 @@ const ModalPersonalizar = ({
   useEffect(() => {
     if (promocionesActivas && promocionesActivas.length > 0) return;
     const apiUrlLocal = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-    fetch(`${apiUrlLocal}/promociones`)
+   apiFetch(`${apiUrlLocal}/promociones`)
       .then(res => res.json())
       .then(data => setPromocionesLocales(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -753,6 +754,9 @@ const ModalPersonalizar = ({
                 onClick={() => {
                 if(isSubmitting) return;
                 setIsSubmitting(true); 
+
+                // 👇 NUEVO: Vibración háptica breve al confirmar (si el dispositivo la soporta)
+                if (navigator.vibrate) navigator.vibrate(50);
 
                 const extrasFinales = [];
                 

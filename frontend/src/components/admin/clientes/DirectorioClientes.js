@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Search, PlusCircle, Edit2, Trash2, MapPin, Key, Award } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
-const DirectorioClientes = ({ clientes, formaterMoneda, apiUrl, refrescarDatos, showAlert }) => {
+const DirectorioClientes = ({ clientes, formaterMoneda, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [filtroGeneral, setFiltroGeneral] = useState('');
   const [modalCliente, setModalCliente] = useState(false);
   const [modoEdicion, setModoEdicion] = useState(false);
@@ -52,7 +53,7 @@ const DirectorioClientes = ({ clientes, formaterMoneda, apiUrl, refrescarDatos, 
     try {
       const url = modoEdicion ? `${apiUrl}/clientes/${clienteEditandoId}` : `${apiUrl}/clientes/registro`;
       const method = modoEdicion ? 'PUT' : 'POST';  
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -71,19 +72,21 @@ const DirectorioClientes = ({ clientes, formaterMoneda, apiUrl, refrescarDatos, 
     setIsSubmitting(false);
   };  
 
-  const eliminarCliente = async (id) => {
-    if (!window.confirm("¿Estás seguro de eliminar este cliente? Se perderán sus puntos y beneficios.")) return;
-    try {
-      const res = await fetch(`${apiUrl}/clientes/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        showAlert("Eliminado", "El cliente ha sido eliminado.", "success");
-        refrescarDatos();
-      } else {
-        showAlert("Error", "No se pudo eliminar.", "error");
+  const eliminarCliente = (id) => {
+    showConfirm("Eliminar Cliente", "¿Estás seguro de eliminar este cliente? Se perderán sus puntos y beneficios.", async () => {
+      try {
+        const res = await apiFetch(`${apiUrl}/clientes/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+          showAlert("Eliminado", "El cliente ha sido eliminado.", "success");
+          refrescarDatos();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showAlert("Error", data.error || "No se pudo eliminar.", "error");
+        }
+      } catch (e) {
+        showAlert("Error", "Error de red al eliminar.", "error");
       }
-    } catch (e) {
-      showAlert("Error", "Error de red al eliminar.", "error");
-    }
+    });
   };  
 
   return (

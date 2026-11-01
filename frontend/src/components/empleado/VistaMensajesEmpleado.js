@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, CheckCircle2, Clock } from 'lucide-react';
+import { apiFetch } from '../../utils/apiFetch';
 
 const VistaMensajesEmpleado = ({ user, apiUrl }) => {
   const [mensajes, setMensajes] = useState([]);
@@ -7,7 +8,7 @@ const VistaMensajesEmpleado = ({ user, apiUrl }) => {
   // 👇 SOLUCIÓN: Envolvemos la función en useCallback
   const cargarMensajes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/mensajes/empleado/${user.id}`);
+      const res = await apiFetch(`${apiUrl}/mensajes/empleado/${user.id}`);
       if (res.ok) setMensajes(await res.json());
     } catch(e) {}
   }, [apiUrl, user.id]);
@@ -19,7 +20,7 @@ const VistaMensajesEmpleado = ({ user, apiUrl }) => {
 
   const marcarEnterado = async (id) => {
     try {
-      const res = await fetch(`${apiUrl}/mensajes/${id}/leer`, { method: 'PUT' });
+      const res = await apiFetch(`${apiUrl}/mensajes/${id}/leer`, { method: 'PUT' });
       if (res.ok) cargarMensajes();
     } catch(e) {}
   };
@@ -37,7 +38,7 @@ const VistaMensajesEmpleado = ({ user, apiUrl }) => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {mensajes.map(msg => (
-            <div key={msg.id} className={`p-6 rounded-[32px] border-2 shadow-sm transition-all flex flex-col justify-between ${msg.leido ? 'bg-white border-slate-200' : 'bg-blue-50 border-blue-400 shadow-blue-500/20'}`}>
+            <div key={msg.id} className={`p-6 rounded-[32px] border-2 shadow-sm transition-all flex flex-col justify-between ${msg.leido ? 'bg-white border-slate-200' : 'bg-[color-mix(in_srgb,var(--c-primario)_8%,var(--c-tarjetas))] border-[color-mix(in_srgb,var(--c-primario)_45%,transparent)] shadow-blue-500/20'}`}>
               <div>
                 <div className="flex justify-between items-center mb-4">
                   <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg ${msg.leido ? 'bg-slate-100 text-slate-500' : 'bg-blue-600 text-white animate-pulse'}`}>

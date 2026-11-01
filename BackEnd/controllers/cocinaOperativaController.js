@@ -52,11 +52,11 @@ const ROLES_COCINA = ['cocina', 'ayudante_cocina', 'jefe', 'gerente', 'admin'];
 
 // 👇 Log append-only: nunca se actualiza, solo se inserta. Fuente de verdad para
 // reconstruir segmentos de tiempo por persona (espera/preparación) más adelante.
-exports.registrarEventoProduccion = async (pedido_id, item_index, usuario_id, accion) => {
+exports.registrarEventoProduccion = async (pedido_id, item_index, usuario_id, accion, empresaId) => { // 🆕 TENANT: nuevo parámetro empresaId
     try {
         await db.query(
-            'INSERT INTO log_produccion_items (pedido_id, item_index, usuario_id, accion) VALUES ($1, $2, $3, $4)',
-            [pedido_id, item_index, usuario_id || null, accion]
+            'INSERT INTO log_produccion_items (pedido_id, item_index, usuario_id, accion, empresa_id) VALUES ($1, $2, $3, $4, $5)', // 🆕 TENANT
+            [pedido_id, item_index, usuario_id || null, accion, empresaId]
         );
     } catch (error) {
         console.error("Error al registrar evento de producción:", error.message);
@@ -65,20 +65,22 @@ exports.registrarEventoProduccion = async (pedido_id, item_index, usuario_id, ac
 
 // 👇 FASE 1: Personal presente según el criterio configurado (asistencia/horario/ambos)
 exports.obtenerPersonalPresente = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        const confRes = await db.query('SELECT criterio_presencia_cocina FROM configuracion_operativa WHERE id = 1');
+        const confRes = await db.query('SELECT criterio_presencia_cocina FROM configuracion_operativa WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
         const criterio = confRes.rows[0]?.criterio_presencia_cocina || 'asistencia';
 
         const placeholders = ROLES_COCINA.map((_, i) => `$${i + 1}`).join(',');
         const usuariosRes = await db.query(
-            `SELECT id, nombre, rol, horario_semanal FROM usuarios WHERE LOWER(TRIM(rol)) IN (${placeholders})`,
-            ROLES_COCINA
+            `SELECT id, nombre, rol, horario_semanal FROM usuarios WHERE LOWER(TRIM(rol)) IN (${placeholders}) AND empresa_id = $${ROLES_COCINA.length + 1}`, // 🔒 FILTRO EMPRESA
+            [...ROLES_COCINA, empresaId]
         );
         const usuarios = usuariosRes.rows;
 
         // Asistencia abierta de HOY (con entrada, sin salida)
         const asistenciaRes = await db.query(
-            `SELECT usuario_id FROM registro_asistencias WHERE fecha = CURRENT_DATE AND hora_entrada IS NOT NULL AND hora_salida IS NULL`
+            `SELECT usuario_id FROM registro_asistencias WHERE fecha = CURRENT_DATE AND hora_entrada IS NOT NULL AND hora_salida IS NULL AND empresa_id = $1`, // 🔒 FILTRO EMPRESA
+            [empresaId]
         );
         const idsConAsistenciaAbierta = new Set(asistenciaRes.rows.map(r => r.usuario_id));
 
@@ -124,14 +126,14 @@ exports.obtenerPersonalPresente = async (req, res) => {
 // la tabla "clasificaciones" (ajena, sin tocarla) y, si alguna clasificación
 // todavía no tiene Estación asignada, le crea una por defecto usando su ID.
 // Se invoca de forma perezosa desde los propios endpoints de Cocina.
-exports.sincronizarEstacionesFaltantes = async () => {
+exports.sincronizarEstacionesFaltantes = async (empresaId) => { // 🆕 TENANT: nuevo parámetro empresaId
     try {
-        const clasifs = await db.query('SELECT id, nombre FROM clasificaciones');
+        const clasifs = await db.query('SELECT id, nombre FROM clasificaciones WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
 
         for (const clasif of clasifs.rows) {
             const yaExiste = await db.query(
-                'SELECT id FROM estacion_clasificacion WHERE clasificacion_id = $1',
-                [clasif.id]
+                'SELECT id FROM estacion_clasificacion WHERE clasificacion_id = $1 AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+                [clasif.id, empresaId]
             );
             if (yaExiste.rows.length > 0) continue; // Ya tiene estación (manual o automática)
 
@@ -140,23 +142,23 @@ exports.sincronizarEstacionesFaltantes = async () => {
             let ventana = 15;
             try {
                 const tiempoRes = await db.query(
-                    'SELECT AVG(tiempo_preparacion) as promedio FROM productos WHERE categoria = $1 AND tiempo_preparacion IS NOT NULL',
-                    [clasif.nombre]
+                    'SELECT AVG(tiempo_preparacion) as promedio FROM productos WHERE categoria = $1 AND tiempo_preparacion IS NOT NULL AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+                    [clasif.nombre, empresaId]
                 );
                 const promedio = Number(tiempoRes.rows[0]?.promedio);
                 if (promedio > 0) ventana = Math.round(promedio);
             } catch (e) { /* si falla, se queda el default de 15 */ }
 
             const nuevaEstacion = await db.query(
-                `INSERT INTO estaciones_cocina (nombre, capacidad_maxima_paralela, ventana_minutos, es_automatica)
-                 VALUES ($1, 5, $2, true) RETURNING id`,
-                [`${clasif.nombre} (Auto)`, ventana]
+                `INSERT INTO estaciones_cocina (nombre, capacidad_maxima_paralela, ventana_minutos, es_automatica, empresa_id)
+                 VALUES ($1, 5, $2, true, $3) RETURNING id`, // 🆕 TENANT
+                [`${clasif.nombre} (Auto)`, ventana, empresaId]
             );
             const estacionId = nuevaEstacion.rows[0].id;
 
             await db.query(
-                'INSERT INTO estacion_clasificacion (estacion_id, clasificacion_id) VALUES ($1, $2) ON CONFLICT (clasificacion_id) DO NOTHING',
-                [estacionId, clasif.id]
+                'INSERT INTO estacion_clasificacion (estacion_id, clasificacion_id, empresa_id) VALUES ($1, $2, $3) ON CONFLICT (clasificacion_id) DO NOTHING', // 🆕 TENANT
+                [estacionId, clasif.id, empresaId]
             );
         }
     } catch (error) {
@@ -167,18 +169,19 @@ exports.sincronizarEstacionesFaltantes = async () => {
 // 🏭 FASE 5: Producción en vivo por Estación (cuenta unidades activas en TODOS los
 // pedidos Pendiente/Preparando, cruzadas contra la capacidad configurada de cada estación).
 exports.obtenerProduccionEnVivo = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         // Self-healing: garantiza que toda clasificación tenga Estación antes de calcular
-        await exports.sincronizarEstacionesFaltantes();
+        await exports.sincronizarEstacionesFaltantes(empresaId); // 🆕 TENANT
 
         const mapaEstacionesRes = await db.query(`
             SELECT c.nombre as clasificacion_nombre, e.id as estacion_id, e.nombre as estacion_nombre,
                    e.capacidad_maxima_paralela, e.ventana_minutos
             FROM estacion_clasificacion ec
-            JOIN estaciones_cocina e ON ec.estacion_id = e.id
-            JOIN clasificaciones c ON ec.clasificacion_id = c.id
-            WHERE e.activo = true
-        `);
+            JOIN estaciones_cocina e ON ec.estacion_id = e.id AND e.empresa_id = $1
+            JOIN clasificaciones c ON ec.clasificacion_id = c.id AND c.empresa_id = $1
+            WHERE e.activo = true AND ec.empresa_id = $1
+        `, [empresaId]); // 🔒 FILTRO EMPRESA
 
         // Cuenta unidades activas (Pendiente/Preparando) por clasificación, leyendo
         // directamente el carrito JSONB de los pedidos — sin tocar ninguna tabla ajena.
@@ -187,8 +190,9 @@ exports.obtenerProduccionEnVivo = async (req, res) => {
             FROM pedidos p, jsonb_array_elements(p.carrito) obj
             WHERE p.estado_preparacion IN ('Pendiente', 'Preparando')
               AND COALESCE(obj->>'estado', 'Pendiente') NOT IN ('Listo', 'Finalizado')
+              AND p.empresa_id = $1
             GROUP BY categoria
-        `);
+        `, [empresaId]); // 🔒 FILTRO EMPRESA
 
         const conteoPorClasificacion = {};
         conteoRes.rows.forEach(r => { conteoPorClasificacion[r.categoria] = Number(r.total) || 0; });
@@ -213,16 +217,18 @@ exports.obtenerProduccionEnVivo = async (req, res) => {
 
 // 🏭 FASE 4: CRUD de Estaciones de Cocina (gestión manual desde el Admin)
 exports.obtenerEstaciones = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         // Self-healing: garantiza que ninguna clasificación quede huérfana antes de listar
-        await exports.sincronizarEstacionesFaltantes();
+        await exports.sincronizarEstacionesFaltantes(empresaId); // 🆕 TENANT
 
-        const estacionesRes = await db.query('SELECT * FROM estaciones_cocina WHERE activo = true ORDER BY id ASC');
+        const estacionesRes = await db.query('SELECT * FROM estaciones_cocina WHERE activo = true AND empresa_id = $1 ORDER BY id ASC', [empresaId]); // 🔒 FILTRO EMPRESA
         const relacionesRes = await db.query(`
             SELECT ec.estacion_id, c.id as clasificacion_id, c.nombre as clasificacion_nombre
             FROM estacion_clasificacion ec
-            JOIN clasificaciones c ON ec.clasificacion_id = c.id
-        `);
+            JOIN clasificaciones c ON ec.clasificacion_id = c.id AND c.empresa_id = $1
+            WHERE ec.empresa_id = $1
+        `, [empresaId]); // 🔒 FILTRO EMPRESA
 
         const estaciones = estacionesRes.rows.map(e => ({
             ...e,
@@ -240,13 +246,14 @@ exports.obtenerEstaciones = async (req, res) => {
 
 exports.crearEstacion = async (req, res) => {
     const { nombre, capacidad_maxima_paralela, ventana_minutos } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     if (!nombre || String(nombre).trim() === '') return res.status(400).json({ error: 'El nombre es obligatorio' });
 
     try {
         const result = await db.query(
-            `INSERT INTO estaciones_cocina (nombre, capacidad_maxima_paralela, ventana_minutos, es_automatica)
-             VALUES ($1, $2, $3, false) RETURNING *`,
-            [nombre.trim(), Number(capacidad_maxima_paralela) || 5, Number(ventana_minutos) || 15]
+            `INSERT INTO estaciones_cocina (nombre, capacidad_maxima_paralela, ventana_minutos, es_automatica, empresa_id)
+             VALUES ($1, $2, $3, false, $4) RETURNING *`, // 🆕 TENANT
+            [nombre.trim(), Number(capacidad_maxima_paralela) || 5, Number(ventana_minutos) || 15, empresaId]
         );
         const io = req.app.get('io');
         if (io) io.emit('cocina_estaciones_actualizadas');
@@ -260,6 +267,7 @@ exports.crearEstacion = async (req, res) => {
 exports.actualizarEstacion = async (req, res) => {
     const { id } = req.params;
     const { nombre, capacidad_maxima_paralela, ventana_minutos } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await db.query(
             `UPDATE estaciones_cocina SET
@@ -267,8 +275,8 @@ exports.actualizarEstacion = async (req, res) => {
                 capacidad_maxima_paralela = COALESCE($2, capacidad_maxima_paralela),
                 ventana_minutos = COALESCE($3, ventana_minutos),
                 es_automatica = false
-             WHERE id = $4 RETURNING *`,
-            [nombre, capacidad_maxima_paralela, ventana_minutos, id]
+             WHERE id = $4 AND empresa_id = $5 RETURNING *`, // 🔒 FILTRO EMPRESA
+            [nombre, capacidad_maxima_paralela, ventana_minutos, id, empresaId]
         );
         if (result.rows.length === 0) return res.status(404).json({ error: 'Estación no encontrada' });
         const io = req.app.get('io');
@@ -282,10 +290,11 @@ exports.actualizarEstacion = async (req, res) => {
 
 exports.eliminarEstacion = async (req, res) => {
     const { id } = req.params;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         // ON DELETE CASCADE ya definido en estacion_clasificacion libera las clasificaciones,
         // que recibirán una estación automática nueva en la próxima sincronización.
-        await db.query('DELETE FROM estaciones_cocina WHERE id = $1', [id]);
+        await db.query('DELETE FROM estaciones_cocina WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
         const io = req.app.get('io');
         if (io) io.emit('cocina_estaciones_actualizadas');
         res.json({ success: true });
@@ -298,16 +307,30 @@ exports.eliminarEstacion = async (req, res) => {
 exports.asignarClasificacion = async (req, res) => {
     const { id } = req.params; // estacion_id destino
     const { clasificacion_id } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     if (!clasificacion_id) return res.status(400).json({ error: 'clasificacion_id es obligatorio' });
 
     try {
+        // 🔒 FILTRO EMPRESA: verificamos que TANTO la estación destino COMO la
+        // clasificación a mover pertenezcan a la empresa de la petición. Sin esto,
+        // alguien podría enlazar una clasificación de OTRA empresa (ids adivinables)
+        // a una estación propia.
+        const estacionCheck = await db.query('SELECT id FROM estaciones_cocina WHERE id = $1 AND empresa_id = $2', [id, empresaId]);
+        if (estacionCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Estación no encontrada.' });
+        }
+        const clasifCheck = await db.query('SELECT id FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [clasificacion_id, empresaId]);
+        if (clasifCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Clasificación no encontrada.' });
+        }
+
         // Al ser clasificacion_id UNIQUE, esto mueve la clasificación de su estación
         // anterior (si tenía una) hacia la nueva, sin dejar registros duplicados.
         await db.query(
-            `INSERT INTO estacion_clasificacion (estacion_id, clasificacion_id)
-             VALUES ($1, $2)
-             ON CONFLICT (clasificacion_id) DO UPDATE SET estacion_id = EXCLUDED.estacion_id`,
-            [id, clasificacion_id]
+            `INSERT INTO estacion_clasificacion (estacion_id, clasificacion_id, empresa_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (clasificacion_id) DO UPDATE SET estacion_id = EXCLUDED.estacion_id`, // 🆕 TENANT
+            [id, clasificacion_id, empresaId]
         );
         const io = req.app.get('io');
         if (io) io.emit('cocina_estaciones_actualizadas');

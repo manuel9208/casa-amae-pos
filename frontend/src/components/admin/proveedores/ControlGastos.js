@@ -6,6 +6,7 @@ import {
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import io from 'socket.io-client'; // 👈 FIX: Restaurada la importación de Sockets
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], productos = [], configGlobal = {} }) => {
   const [gastos, setGastos] = useState([]);
@@ -38,7 +39,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
 
   const cargarGastos = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/gastos-proveedores`);
+      const res = await apiFetch(`${apiUrl}/gastos-proveedores`);
       if (res.ok) {
         const data = await res.json();
         setGastos(data);
@@ -49,7 +50,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
 
   const cargarProveedores = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/proveedores`);
+      const res = await apiFetch(`${apiUrl}/proveedores`);
       if (res.ok) {
         const data = await res.json();
         setProveedoresLista(data);
@@ -59,7 +60,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
 
   const cargarConfigSMTP = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/proveedores/configuracion`);
+      const res = await apiFetch(`${apiUrl}/proveedores/configuracion`);
       if (res.ok) {
         const data = await res.json();
         let cuentas = [];
@@ -187,7 +188,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
       showConfirm(`Procesar ${facturasSeleccionadas.length} Facturas`, `¿Estás seguro de ${accionTxt} masivamente de estas facturas?\n\nEl sistema agrupará la información y notificará al proveedor en un solo correo.`, async () => {
           setIsSubmitting(true);
           try {
-              const res = await fetch(`${apiUrl}/gastos-proveedores/bulk/estado`, {
+              const res = await apiFetch(`${apiUrl}/gastos-proveedores/bulk/estado`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ ids: facturasSeleccionadas, estado: nuevoEstado })
@@ -220,7 +221,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
     showConfirm(titulo, mensaje, async () => {
       setIsSubmitting(true);
       try {
-        const res = await fetch(`${apiUrl}/gastos-proveedores/${gasto.id}/estado`, {
+        const res = await apiFetch(`${apiUrl}/gastos-proveedores/${gasto.id}/estado`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: nuevoEstado })
         });
         if (res.ok) {
@@ -237,7 +238,7 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
     showConfirm("Eliminar Factura", `¿Estás seguro de borrar permanentemente esta factura de ${gasto.empresa}?${advExtra}`, async () => {
       setIsSubmitting(true);
       try {
-        const res = await fetch(`${apiUrl}/gastos-proveedores/${gasto.id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/gastos-proveedores/${gasto.id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminada", "La factura ha sido borrada y el stock ajustado.", "success");
           cargarGastos();
@@ -275,12 +276,12 @@ const ControlGastos = ({ apiUrl, showAlert, showConfirm, insumosDB = [], product
         }))
       };
 
-      const res = await fetch(`${apiUrl}/gastos-proveedores`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const res = await apiFetch(`${apiUrl}/gastos-proveedores`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 
       if (res.ok) {
         const nuevoGasto = await res.json();
         if (formFactura.estado === 'Aprobado' || formFactura.estado === 'Pagado') {
-          await fetch(`${apiUrl}/gastos-proveedores/${nuevoGasto.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: formFactura.estado }) });
+          await apiFetch(`${apiUrl}/gastos-proveedores/${nuevoGasto.id}/estado`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado: formFactura.estado }) });
           showAlert("¡Factura Registrada!", "Inventario y estado actualizado correctamente.", "success");
         } else {
           showAlert("Factura Pendiente", "Compra registrada. Queda a la espera de pago/recepción.", "info");

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
     // 1. Catálogo de reglas (Ej. "Llevar uniforme completo", "Apagar luces")
@@ -22,7 +23,7 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
     // =========================================================================
     const cargarDatos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/configuracion`);
+            const res = await apiFetch(`${apiUrl}/configuracion`);
             if (res.ok) {
                 const data = await res.json();
                 const matriz = typeof data.matriz_observaciones === 'string'
@@ -58,7 +59,7 @@ export const useAuditoriaObservaciones = (apiUrl, showAlert) => {
             const formData = new FormData();
             formData.append('matriz_observaciones', JSON.stringify(payload));
 
-            const res = await fetch(`${apiUrl}/configuracion`, {
+            const res = await apiFetch(`${apiUrl}/configuracion`, {
                 method: 'PUT',
                 body: formData
             });

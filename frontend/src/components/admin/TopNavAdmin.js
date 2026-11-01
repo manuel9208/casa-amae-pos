@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ShoppingCart, Fingerprint, LogOut, LayoutGrid, ClipboardList, BookOpen, Settings,
-  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase, MapPin, Sparkles, Workflow
+  Users, TrendingUp, Gift, Map, MonitorSmartphone, Truck, Briefcase, MapPin, Sparkles, Workflow, KeyRound
 } from 'lucide-react';
 
 const TopNavAdmin = ({
@@ -9,7 +9,7 @@ const TopNavAdmin = ({
   canViewMenu, canViewInventario, canViewCatalogos, canViewUsuarios,
   canViewConfig, canViewClientes, canViewReportes, canViewPromociones, canViewMesas,
   canViewProveedores, canViewDistribucion, canViewHuellas, canViewAsistencia, canViewIA,
-  canViewConfigOperativa
+  canViewConfigOperativa, canViewEmpresas
 }) => {
   return (
     <div className="bg-white border-b border-slate-200 shadow-sm z-40 shrink-0 flex flex-col w-full">
@@ -153,6 +153,13 @@ const TopNavAdmin = ({
             {canViewConfigOperativa && (
                <button onClick={() => setSeccion('config_operativa')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition whitespace-nowrap select-none ${seccion === 'config_operativa' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-orange-600 border border-orange-200 hover:bg-orange-50'}`}>
                   <Workflow size={18}/> Flujo Operativo
+               </button>
+            )}
+
+            {/* 👑 NUEVO BOTÓN: Admin Empresas — Exclusivo Admin Global, visualmente distinto (candado dorado) */}
+            {canViewEmpresas && (
+               <button onClick={() => setSeccion('empresas')} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-sm transition whitespace-nowrap select-none border ${seccion === 'empresas' ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white border-transparent shadow-lg shadow-amber-500/30' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
+               <KeyRound size={18}/> Admin Empresas
                </button>
             )}
 

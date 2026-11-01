@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { LayoutGrid, CheckCircle2, XCircle, Map, Save } from 'lucide-react';
 import ListaMesasQR from './mesas/ListaMesasQR';
 import PlanoMesas2D from './mesas/PlanoMesas2D';
+import { apiFetch } from '../../utils/apiFetch';
 
 const AdminMesas = ({ apiUrl }) => {
   const [mesas, setMesas] = useState([]);
@@ -11,7 +12,7 @@ const AdminMesas = ({ apiUrl }) => {
 
   const cargarMesas = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/mesas`);
+      const res = await apiFetch(`${apiUrl}/mesas`);
       if (res.ok) {
         const data = await res.json();
         const mesasMapeadas = (Array.isArray(data) ? data : []).map(m => ({
@@ -39,7 +40,7 @@ const AdminMesas = ({ apiUrl }) => {
     setIsSubmitting(true);
     try {
       const payload = mesas.map(m => ({ id: m.id, pos_x: m.pos_x, pos_y: m.pos_y }));
-      const res = await fetch(`${apiUrl}/mesas/posiciones`, {
+      const res = await apiFetch(`${apiUrl}/mesas/posiciones`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

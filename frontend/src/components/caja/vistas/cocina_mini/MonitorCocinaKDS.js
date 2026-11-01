@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChefHat } from 'lucide-react';  
 import SelectorPersonalCocina from './SelectorPersonalCocina';
 import TarjetaComandaCocina from './TarjetaComandaCocina'; 
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const MonitorCocinaKDS = ({
   user,
@@ -82,7 +83,7 @@ const MonitorCocinaKDS = ({
       const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;  
 
       // Disparar a la API
-      await fetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
+      await apiFetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

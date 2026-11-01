@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Printer, Edit, MapPin, Phone, User, Clock, Trash2, Eye, ClipboardList, AlertTriangle, Store, Package, MessageCircle, Wallet } from 'lucide-react';
 import TarjetaComandaMayoreo from './TarjetaComandaMayoreo';  
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const GestorComandasPrincipal = ({
     pedidos,
@@ -27,7 +28,7 @@ const GestorComandasPrincipal = ({
     const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');  
 
     useEffect(() => {
-        fetch(`${apiBase}/distribucion/configuracion`)
+       apiFetch(`${apiBase}/distribucion/configuracion`)
             .then(res => res.json())
             .then(data => {
                 if (!data.error) {
@@ -42,7 +43,7 @@ const GestorComandasPrincipal = ({
 
     const cargarPedidosB2B = useCallback(() => {
         setCargandoB2B(true);
-        fetch(`${apiBase}/distribucion/ventas`)
+       apiFetch(`${apiBase}/distribucion/ventas`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {

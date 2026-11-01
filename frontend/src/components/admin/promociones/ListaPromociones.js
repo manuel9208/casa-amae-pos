@@ -1,12 +1,13 @@
 import React from 'react';
 import { Trash2, Edit, Gift, Tag, Clock, Layers, Settings2 } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfirm, refrescarDatos, isSubmitting, setPromoAEditar }) => {  
   const formatDinero = (val) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);  
 
   const toggleEstado = async (id, estadoActual) => {
     try {
-      const res = await fetch(`${apiUrl}/promociones/${id}/estado`, {
+      const res = await apiFetch(`${apiUrl}/promociones/${id}/estado`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !estadoActual })
       });
       if (res.ok) refrescarDatos();
@@ -18,7 +19,7 @@ const ListaPromociones = ({ promociones, productos, apiUrl, showAlert, showConfi
   const eliminarPromocion = (id) => {
     showConfirm("Eliminar Promoción", "¿Estás seguro de que deseas borrar esta regla permanentemente?", async () => {
       try {
-        const res = await fetch(`${apiUrl}/promociones/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/promociones/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminada", "Promoción borrada del sistema.", "success");
           refrescarDatos();

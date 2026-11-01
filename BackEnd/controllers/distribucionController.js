@@ -62,12 +62,13 @@ const borrarDeCloudinary = (urlVieja) => {
 // 📦 RUTAS CRUD: CATÁLOGO DE ARTÍCULOS
 // ==========================================
 exports.obtenerArticulos = async (req, res) => {
+  const { empresa_id } = req;
   try {
     // Escudo de Auto-Migración por si la tabla ya existía antes de estos cambios
     await db.query('ALTER TABLE dist_articulos ADD COLUMN IF NOT EXISTS descripcion TEXT DEFAULT \'\';').catch(() => null);
     await db.query('ALTER TABLE dist_articulos ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
     
-    const result = await db.query('SELECT * FROM dist_articulos WHERE activo = true ORDER BY categoria ASC, nombre ASC');
+    const result = await db.query('SELECT * FROM dist_articulos WHERE activo = true AND empresa_id = $1 ORDER BY categoria ASC, nombre ASC', [empresa_id]);
     res.json(result.rows);
   } catch (error) {
     console.error("Error BD al obtener artículos:", error);
@@ -76,6 +77,7 @@ exports.obtenerArticulos = async (req, res) => {
 };
 
 exports.crearArticulo = async (req, res) => {
+  const { empresa_id } = req;
   const {
     nombre, descripcion, categoria, unidad_medida, equivalencia, costo_inversion,
     disponible, genera_puntos, permite_canje, permite_credito, usa_stock, stock_actual, stock_minimo_alerta, 
@@ -100,9 +102,9 @@ exports.crearArticulo = async (req, res) => {
   try {
     const result = await db.query(
       `INSERT INTO dist_articulos 
-      (nombre, descripcion, categoria, unidad_medida, equivalencia, costo_inversion, disponible, genera_puntos, permite_canje, permite_credito, usa_stock, stock_actual, stock_minimo_alerta, precios, emoji, imagen_url) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-      [nombre, descripcion || '', categoria, unidad_medida, eqParsed, costoParsed, isDisponible, isGeneraPuntos, isPermiteCanje, isPermiteCredito, isUsaStock, stockAct, stockMin, preciosParsed, emoji || '📦', imagen_url]
+      (nombre, descripcion, categoria, unidad_medida, equivalencia, costo_inversion, disponible, genera_puntos, permite_canje, permite_credito, usa_stock, stock_actual, stock_minimo_alerta, precios, emoji, imagen_url, empresa_id) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+      [nombre, descripcion || '', categoria, unidad_medida, eqParsed, costoParsed, isDisponible, isGeneraPuntos, isPermiteCanje, isPermiteCredito, isUsaStock, stockAct, stockMin, preciosParsed, emoji || '📦', imagen_url, empresa_id]
     );
 
     // Aviso en vivo a las demás pantallas para refrescar el catálogo
@@ -118,6 +120,7 @@ exports.crearArticulo = async (req, res) => {
 
 exports.actualizarArticulo = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const {
     nombre, descripcion, categoria, unidad_medida, equivalencia, costo_inversion,
     disponible, genera_puntos, permite_canje, permite_credito, usa_stock, stock_actual, stock_minimo_alerta, 
@@ -141,7 +144,7 @@ exports.actualizarArticulo = async (req, res) => {
 
   try {
     if (imagen_url) {
-      const artActual = await db.query('SELECT imagen_url FROM dist_articulos WHERE id = $1', [id]);
+      const artActual = await db.query('SELECT imagen_url FROM dist_articulos WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
       if (artActual.rows.length > 0 && artActual.rows[0].imagen_url) {
         borrarDeCloudinary(artActual.rows[0].imagen_url);
       }
@@ -152,9 +155,13 @@ exports.actualizarArticulo = async (req, res) => {
       nombre=$1, descripcion=$2, categoria=$3, unidad_medida=$4, equivalencia=$5, costo_inversion=$6, 
       disponible=$7, genera_puntos=$8, permite_canje=$9, permite_credito=$10, usa_stock=$11, stock_actual=$12, stock_minimo_alerta=$13, precios=$14, emoji=$15,
       imagen_url = COALESCE($16, imagen_url)
-      WHERE id=$17 RETURNING *`,
-      [nombre, descripcion || '', categoria, unidad_medida, eqParsed, costoParsed, isDisponible, isGeneraPuntos, isPermiteCanje, isPermiteCredito, isUsaStock, stockAct, stockMin, preciosParsed, emoji, imagen_url, id]
+      WHERE id=$17 AND empresa_id=$18 RETURNING *`,
+      [nombre, descripcion || '', categoria, unidad_medida, eqParsed, costoParsed, isDisponible, isGeneraPuntos, isPermiteCanje, isPermiteCredito, isUsaStock, stockAct, stockMin, preciosParsed, emoji, imagen_url, id, empresa_id]
     );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Artículo no encontrado o no pertenece a tu negocio.' });
+    }
 
     const io = req.app.get('io');
     if (io) io.emit('catalogo_actualizado');
@@ -168,14 +175,19 @@ exports.actualizarArticulo = async (req, res) => {
 
 exports.eliminarArticulo = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   try {
-    const artActual = await db.query('SELECT imagen_url FROM dist_articulos WHERE id = $1', [id]);
+    const artActual = await db.query('SELECT imagen_url FROM dist_articulos WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
     if (artActual.rows.length > 0 && artActual.rows[0].imagen_url) {
       borrarDeCloudinary(artActual.rows[0].imagen_url);
     }
     
     // Lo borramos físicamente
-    await db.query('DELETE FROM dist_articulos WHERE id = $1', [id]);
+    const result = await db.query('DELETE FROM dist_articulos WHERE id = $1 AND empresa_id = $2 RETURNING id', [id, empresa_id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Artículo no encontrado o no pertenece a tu negocio.' });
+    }
 
     const io = req.app.get('io');
     if (io) io.emit('catalogo_actualizado');

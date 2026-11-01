@@ -5,6 +5,7 @@ import PantallaMesa from './checkout/PantallaMesa';
 import PantallaDomicilio from './checkout/PantallaDomicilio';
 import PantallaPago from './checkout/PantallaPago';
 import PantallaExito from './checkout/PantallaExito';  
+import { apiFetch } from '../../utils/apiFetch';
 
 const CheckoutFlujo = ({
   pantallaActual, setPantallaActual, tipoConsumo, setTipoConsumo, direccionEntrega, setDireccionEntrega,
@@ -39,7 +40,7 @@ const CheckoutFlujo = ({
   
   useEffect(() => {
     if ((esPersonalInterno || isTerminalFisica) && !isOffline) {
-      fetch(`${apiUrl}/mesas`)
+     apiFetch(`${apiUrl}/mesas`)
         .then(res => res.json())
         .then(data => setMesasDisponibles(Array.isArray(data) ? data : []))
         .catch(e => console.error("Error cargando mesas:", e));
@@ -257,7 +258,7 @@ const CheckoutFlujo = ({
     
     try {
       const url = idRealEdicion ? `${apiUrl}/pedidos/${idRealEdicion}` : `${apiUrl}/pedidos`;
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: idRealEdicion ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paquete)
@@ -270,11 +271,11 @@ const CheckoutFlujo = ({
         if (extractedId) setIdCreadoLocal(extractedId);
 
         if (cuponActivo && cuponActivo.id) {
-          try { await fetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
+          try { await apiFetch(`${apiUrl}/cupones/${cuponActivo.id}/uso`, { method: 'PUT' }); } catch(e) {}
         }  
         if (idClienteAGuardar && tipoReal === 'Domicilio' && direccionFinalConAviso) {
           const dirLimpia = direccionFinalConAviso.split(' | TEL:')[0].split(' | (Llevar')[0].trim();
-          fetch(`${apiUrl}/clientes/${idClienteAGuardar}`, {
+         apiFetch(`${apiUrl}/clientes/${idClienteAGuardar}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ direccion: dirLimpia })
@@ -371,7 +372,7 @@ const seleccionarPago = async (metodo, montoEfectivo = null, tipoBypass = null, 
           }
 
           try {
-              await fetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
+              await apiFetch(`${apiUrl}/pedidos/${idRealEdicion}/estado`, {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

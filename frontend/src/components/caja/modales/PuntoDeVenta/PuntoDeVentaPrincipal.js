@@ -11,6 +11,7 @@ import OfertaUpselling from './OfertaUpselling';
 import { useBuscadorClientes } from '../../useBuscadorClientes';
 import ModalArmarCombo from './ModalArmarCombo';
 import PuntoDeVentaMayoreo from './distribucion/PuntoDeVentaMayoreo';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const PuntoDeVentaPrincipal = ({
     modalPuntoVenta, setModalPuntoVenta, ordenEditandoRapida, user, configGlobal,
@@ -25,7 +26,7 @@ const PuntoDeVentaPrincipal = ({
 
     useEffect(() => {
         if (modalPuntoVenta) {
-            fetch(`${apiUrl}/distribucion/configuracion`)
+           apiFetch(`${apiUrl}/distribucion/configuracion`)
                 .then(res => res.json())
                 .then(data => {
                     if (!data.error) {
@@ -94,7 +95,7 @@ const PuntoDeVentaPrincipal = ({
     useEffect(() => {
         const cargarPromociones = async () => {
             try {
-                const res = await fetch(`${apiUrl}/promociones`);
+                const res = await apiFetch(`${apiUrl}/promociones`);
                 if (res.ok) {
                     const data = await res.json();
                     setPromocionesActivas(Array.isArray(data) ? data : []);
@@ -141,7 +142,7 @@ const PuntoDeVentaPrincipal = ({
         // 👇 FIX 2: Búsqueda estricta de Puntos usando el Teléfono
         const recuperarPuntosReales = async () => {
             try {
-            const res = await fetch(`${apiUrl}/clientes`);
+            const res = await apiFetch(`${apiUrl}/clientes`);
             if (res.ok) {
                 const clientes = await res.json();
                 let cReal = null;
@@ -264,7 +265,7 @@ const PuntoDeVentaPrincipal = ({
 
             // 2. 👇 FIX DEFINITIVO: Rompedor de Caché (Cache-Busting) con timestamp
             try {
-                const res = await fetch(`${apiUrl}/clientes/${sug.cliente_id}?t=${Date.now()}`);
+                const res = await apiFetch(`${apiUrl}/clientes/${sug.cliente_id}?t=${Date.now()}`);
                 if (res.ok) {
                     const data = await res.json();
                     
@@ -631,7 +632,7 @@ const PuntoDeVentaPrincipal = ({
         if (nipInput.length !== 4) return setErrorNip('Ingresa 4 dígitos.');
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/clientes/verificar-nip`, {
+            const res = await apiFetch(`${apiUrl}/clientes/verificar-nip`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cliente_id: clienteAsignado.id, nip: nipInput })
             });
@@ -650,7 +651,7 @@ const PuntoDeVentaPrincipal = ({
         if(!cuponInput.trim()) return;
         setMsgCupon({ texto: 'Verificando...', tipo: 'info' });
         try {
-            const res = await fetch(`${apiUrl}/cupones`);
+            const res = await apiFetch(`${apiUrl}/cupones`);
             const data = await res.json();
             if(Array.isArray(data)) {
                 const cup = data.find(c => c.codigo.toUpperCase() === cuponInput.trim().toUpperCase());
@@ -763,13 +764,13 @@ const generarPedidoBD = async (metodoAcelerado, detallesCuentaAbierta = null, sk
         const url = ordenEditandoRapida ? `${apiUrl}/pedidos/${ordenEditandoRapida.id}` : `${apiUrl}/pedidos`;
         const metodoHttp = ordenEditandoRapida ? 'PUT' : 'POST';  
         try {
-          const res = await fetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
+          const res = await apiFetch(url, { method: metodoHttp, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paquete) });
           if (res.ok) {
             const data = await res.json();
             if (clienteAsignado?.id && tipoConsumo === 'Domicilio' && stringDireccion) {
               const dirLimpia = notaOpcional.trim();
               if (dirLimpia && dirLimpia !== 'Pendiente de dirección') {
-                fetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
+               apiFetch(`${apiUrl}/clientes/${clienteAsignado.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ direccion: dirLimpia }) }).catch(() => {});
               }
             }
             refrescarDatosCaja();

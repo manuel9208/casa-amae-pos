@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Sparkles, Palmtree, LogOut, ArrowLeft, DollarSign, Clock } from 'lucide-react';
 import VistaAsistencia from './empleado/VistaAsistencia';
+import { apiFetch } from '../utils/apiFetch';
 
 const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
     const [vistaActiva, setVistaActiva] = useState('asistencia');
@@ -9,7 +10,7 @@ const Empleado = ({ user, apiUrl, onLogout, onVolver }) => {
 
     useEffect(() => {
         if (!user?.id) return;
-        fetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
+       apiFetch(`${apiUrl}/usuarios`).then(r => r.json()).then(data => {
             const myData = data.find(u => u.id === user.id);
             if (myData) setUserData(myData);
         }).catch(()=>{});

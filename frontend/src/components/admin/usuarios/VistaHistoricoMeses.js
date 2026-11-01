@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { History, Calendar, CheckCircle2, XCircle, Sparkles } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
   const [mesFiltro, setMesFiltro] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
@@ -20,7 +21,7 @@ const VistaHistoricoMeses = ({ usuariosDB, apiUrl }) => {
   const cargarHistorico = useCallback(async () => {
     setCargando(true);
     try {
-      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=mes&fecha=${mesFiltro}-01`);
+      const res = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=mes&fecha=${mesFiltro}-01`);
       if (res.ok) {
         const data = await res.json();
         const cortes = data.cortesNomina || [];  

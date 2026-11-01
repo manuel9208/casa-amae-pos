@@ -2,13 +2,13 @@ const db = require('../config/db');
 
 exports.registrarMerma = async (req, res) => {
   const { tipo, item_id, nombre_item, cantidad, costo_perdido, usuario_id, origen } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   if (!tipo || !item_id || !cantidad) {
     return res.status(400).json({ error: 'Faltan datos obligatorios para reportar la merma.' });
   }
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    // 1. Asegurarnos de que la tabla exista (Se ejecuta de forma segura)
     await client.query(`
       CREATE TABLE IF NOT EXISTS reporte_mermas (
         id SERIAL PRIMARY KEY,
@@ -25,31 +25,29 @@ exports.registrarMerma = async (req, res) => {
     const cantMerma = parseFloat(cantidad);
 
     // ========================================================
-    // FLUJO 1: MERMA DE INSUMO DIRECTO
+    // FLUJO 1: MERMA DE INSUMO DIRECTO (sin cambios)
     // ========================================================
     if (tipo === 'Insumo') {
       await client.query(
-        'UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2',
-        [cantMerma, item_id]
+        'UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2 AND empresa_id = $3',
+        [cantMerma, item_id, empresaId]
       );
     }
 
     // ========================================================
-    // FLUJO 2: MERMA DE RECETA BASE O PLATILLO PREPARADO
+    // FLUJO 2A: MERMA DE PLATILLO PREPARADO (sin cambios — sigue en "productos")
     // ========================================================
-    if (tipo === 'Receta' || tipo === 'Platillo') {
-      const prodRes = await client.query('SELECT usa_stock, stock_preparado, rendimiento FROM productos WHERE id = $1', [item_id]);
+    if (tipo === 'Platillo') {
+      const prodRes = await client.query('SELECT usa_stock, stock_preparado, rendimiento FROM productos WHERE id = $1 AND empresa_id = $2', [item_id, empresaId]);
       if (prodRes.rows.length > 0) {
         const row = prodRes.rows[0];
         const isUsaStock = row.usa_stock === true || String(row.usa_stock) === 'true';
         if (isUsaStock) {
-          // Solo descontar stock preparado si lo controla
           await client.query(
-            'UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2',
-            [cantMerma, item_id]
+            'UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2 AND empresa_id = $3',
+            [cantMerma, item_id, empresaId]
           );
         } else {
-          // Ejecutar el motor de explosión recursiva (Misma lógica que la venta)
           const rendimiento = parseFloat(row.rendimiento) || 1;
           let lotesADescontar = 0;
           if (rendimiento <= 1) {
@@ -61,33 +59,71 @@ exports.registrarMerma = async (req, res) => {
             const recursiveQuery = `
               WITH RECURSIVE Explosion AS (
                 SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
-                FROM recetas r WHERE r.producto_id = $2
+                FROM recetas r WHERE r.producto_id = $2 AND r.empresa_id = $3
                 UNION ALL
                 SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
-                FROM Explosion e JOIN productos p ON e.sub_producto_id = p.id JOIN recetas r ON r.producto_id = p.id
+                FROM Explosion e
+                JOIN productos p ON e.sub_producto_id = p.id AND p.empresa_id = $3
+                JOIN recetas r ON r.producto_id = p.id AND r.empresa_id = $3
                 WHERE e.sub_producto_id IS NOT NULL
               )
               UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
                 SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
-              ) calc WHERE insumos.id = calc.insumo_id;
+              ) calc WHERE insumos.id = calc.insumo_id AND insumos.empresa_id = $3;
             `;
-            await client.query(recursiveQuery, [lotesADescontar, item_id]);
+            await client.query(recursiveQuery, [lotesADescontar, item_id, empresaId]);
           }
         }
       }
     }
 
     // ========================================================
-    // 3. REGISTRAR LA MERMA EN LA TABLA HISTÓRICA
+    // 🆕 FLUJO 2B: MERMA DE SUB-RECETA / BASE — ahora apunta a "sub_recetas"
+    // (antes consultaba erróneamente "productos", tabla que ya no se usa
+    // para sub-recetas). El motor recursivo ahora ancla por "sub_receta_id",
+    // igual patrón que ya usa recetaController.obtenerReceta.
+    // ========================================================
+    if (tipo === 'Receta') {
+      const subRecetaRes = await client.query('SELECT rendimiento FROM sub_recetas WHERE id = $1 AND empresa_id = $2', [item_id, empresaId]);
+      if (subRecetaRes.rows.length > 0) {
+        const rendimiento = parseFloat(subRecetaRes.rows[0].rendimiento) || 1;
+        let lotesADescontar = 0;
+        if (rendimiento <= 1) {
+          lotesADescontar = cantMerma;
+        } else {
+          lotesADescontar = cantMerma / rendimiento;
+        }
+        if (lotesADescontar > 0) {
+          const recursiveQuerySubReceta = `
+            WITH RECURSIVE Explosion AS (
+              SELECT r.insumo_id, r.sub_producto_id, (r.cantidad_usada::numeric * $1::numeric) AS qty_factor
+              FROM recetas r WHERE r.sub_receta_id = $2 AND r.empresa_id = $3
+              UNION ALL
+              SELECT r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric
+              FROM Explosion e
+              JOIN productos p ON e.sub_producto_id = p.id AND p.empresa_id = $3
+              JOIN recetas r ON r.producto_id = p.id AND r.empresa_id = $3
+              WHERE e.sub_producto_id IS NOT NULL
+            )
+            UPDATE insumos SET stock_actual = stock_actual - calc.total_descontar FROM (
+              SELECT insumo_id, SUM(qty_factor) as total_descontar FROM Explosion WHERE insumo_id IS NOT NULL GROUP BY insumo_id
+            ) calc WHERE insumos.id = calc.insumo_id AND insumos.empresa_id = $3;
+          `;
+          await client.query(recursiveQuerySubReceta, [lotesADescontar, item_id, empresaId]);
+        }
+      }
+    }
+
+    // ========================================================
+    // 3. REGISTRAR LA MERMA EN LA TABLA HISTÓRICA (sin cambios)
     // ========================================================
     const insertRes = await client.query(
-      `INSERT INTO reporte_mermas (tipo, item_id, nombre_item, cantidad, costo_perdido, usuario_id, origen)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [tipo, item_id, nombre_item, cantMerma, costo_perdido || 0, usuario_id || null, origen || 'Sistema']
+      `INSERT INTO reporte_mermas (tipo, item_id, nombre_item, cantidad, costo_perdido, usuario_id, origen, empresa_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [tipo, item_id, nombre_item, cantMerma, costo_perdido || 0, usuario_id || null, origen || 'Sistema', empresaId]
     );
     await client.query('COMMIT');
 
-    // 👇 EMITIR ACTUALIZACIÓN GLOBAL (Para que Caja y Kiosco refresquen inventario)
     const io = req.app.get('io');
     if (io) {
       io.emit('catalogo_actualizado');
@@ -103,28 +139,30 @@ exports.registrarMerma = async (req, res) => {
   }
 };
 
-// 👇 NUEVA LÓGICA DE FILTRADO COMPLETA
 exports.obtenerMermas = async (req, res) => {
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0], tipo = 'Todos' } = req.query;
+  const empresaId = req.empresa_id;
   try {
     let query = `
       SELECT m.*, u.nombre as usuario_nombre
       FROM reporte_mermas m
       LEFT JOIN usuarios u ON m.usuario_id = u.id
-      WHERE 1=1
+      WHERE m.empresa_id = $1
     `;
-    let params = [fecha];
+    let params = [empresaId];
     let paramIndex = 2;
 
     if (periodo === 'dia') {
-      query += ` AND m.fecha_creacion::DATE = $1::DATE`;
+      query += ` AND m.fecha_creacion::DATE = $${paramIndex}::DATE`;
     } else if (periodo === 'semana') {
-      query += ` AND m.fecha_creacion >= DATE_TRUNC('week', $1::TIMESTAMP) AND m.fecha_creacion < DATE_TRUNC('week', $1::TIMESTAMP) + INTERVAL '1 week'`;
+      query += ` AND m.fecha_creacion >= DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) AND m.fecha_creacion < DATE_TRUNC('week', $${paramIndex}::TIMESTAMP) + INTERVAL '1 week'`;
     } else if (periodo === 'mes') {
-      query += ` AND DATE_TRUNC('month', m.fecha_creacion::TIMESTAMP) = DATE_TRUNC('month', $1::TIMESTAMP)`;
+      query += ` AND DATE_TRUNC('month', m.fecha_creacion::TIMESTAMP) = DATE_TRUNC('month', $${paramIndex}::TIMESTAMP)`;
     } else if (periodo === 'anio') {
-      query += ` AND DATE_TRUNC('year', m.fecha_creacion::TIMESTAMP) = DATE_TRUNC('year', $1::TIMESTAMP)`;
+      query += ` AND DATE_TRUNC('year', m.fecha_creacion::TIMESTAMP) = DATE_TRUNC('year', $${paramIndex}::TIMESTAMP)`;
     }
+    params.push(fecha);
+    paramIndex++;
 
     if (tipo !== 'Todos') {
       query += ` AND m.tipo = $${paramIndex}`;

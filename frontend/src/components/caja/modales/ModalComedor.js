@@ -1,6 +1,7 @@
 // Archivo: ModalComedor.js
 import React, { useState, useEffect, useMemo } from 'react';
 import { ChefHat, XCircle, ShoppingBag, CheckSquare, Square, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalComedor = ({
     modalComedor, setModalComedor, empleadosPOS, pedidos, configGlobal,
@@ -262,7 +263,7 @@ const ModalComedor = ({
         };
 
         try {
-            const res = await fetch(`${apiUrl}/pedidos`, { 
+            const res = await apiFetch(`${apiUrl}/pedidos`, { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' }, 
                 body: JSON.stringify(paquete) 

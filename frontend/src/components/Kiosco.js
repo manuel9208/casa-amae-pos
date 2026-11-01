@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
+import { apiFetch } from '../utils/apiFetch';
 import { useBiometria } from '../hooks/useBiometria'; // 👈 NUEVO
 
 // ✅ CORRECTO (Asegúrate de que Fingerprint esté aquí)
@@ -11,11 +12,12 @@ import CheckoutFlujo from './kiosco/CheckoutFlujo';
 import MisPedidos from './kiosco/MisPedidos';
 import OfertaUpselling from './kiosco/OfertaUpselling'; 
 import ModalArmarCombo from './kiosco/ModalArmarCombo';
+import ImagenCachada from './ImagenCachada';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
 
-const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, modoKiosco = 'web', mesaQR = null }) => {
+const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, modoKiosco = 'web', mesaQR = null, onIrAIdentificarse }) => {
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [pedidosOfflinePendientes, setPedidosOfflinePendientes] = useState(0);
@@ -72,6 +74,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
 
   const [combosActivos, setCombosActivos] = useState([]);
   const [comboEnEspera, setComboEnEspera] = useState(null);
+  const [productosPopulares, setProductosPopulares] = useState([]); // 👈 NUEVO: Badge de Popularidad
+const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animaciones del Kiosco (Lottie + Video Premium) por categoría
 
   const mostrarAlerta = useCallback((mensaje, tipo = 'info') => {
     setAlertaGeneral({ mensaje, tipo });
@@ -106,7 +110,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
 
   useEffect(() => {
     if (!isOffline) {
-        fetch(`${apiUrl}/combos`)
+       apiFetch(`${apiUrl}/combos`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
@@ -115,12 +119,28 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
             })
             .catch(e => console.error("Error al cargar combos en Kiosco:", e));
             
-        fetch(`${apiUrl}/promociones`)
+       apiFetch(`${apiUrl}/promociones`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) setPromocionesActivas(data);
             })
             .catch(e => console.error("Error al cargar promos:", e));
+
+       // 👇 NUEVO: Badge de Popularidad — ranking ligero de los 3 más vendidos hoy
+       apiFetch(`${apiUrl}/reportes/populares-hoy`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setProductosPopulares(data.ranking || []);
+            })
+            .catch(e => console.error("Error al cargar popularidad:", e));
+
+       // 🆕 Animaciones del Kiosco — qué Lottie/Video eligió el negocio para cada categoría.
+       apiFetch(`${apiUrl}/kiosco-animaciones/empresa`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setAnimacionesKiosco(data.animaciones || []);
+            })
+            .catch(e => console.error("Error al cargar animaciones del Kiosco:", e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOffline]);
@@ -160,7 +180,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       }
     };
 
-    fetch(`${apiUrl}/productos`)
+   apiFetch(`${apiUrl}/productos`)
       .then(r => r.json())
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
@@ -168,7 +188,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
       })
       .catch(console.error); 
 
-    fetch(`${apiUrl}/clasificaciones`)
+   apiFetch(`${apiUrl}/clasificaciones`)
       .then(r => r.json())
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
@@ -181,11 +201,11 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   useEffect(() => { 
     fetchCatalogoCompleto();
       
-    fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
+   apiFetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(data => setCatalogoIngredientes(Array.isArray(data) ? data : [])).catch(console.error);
     
     const fetchConfig = () => {
       if (!navigator.onLine) return; 
-      fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`)
+     apiFetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`)
         .then(r => r.json())
         .then(data => { if(data && !data.error) setConfigGlobal(data); })
         .catch(console.error);
@@ -206,7 +226,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const verificarMisPedidos = useCallback(async (isInitial = false) => {
     if (!clienteActivo || ordenExterna || !navigator.onLine) return;
     try { 
-      const r = await fetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
+      const r = await apiFetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
       const data = await r.json(); 
       const nuevosPedidos = Array.isArray(data) ? data : [];
       
@@ -420,7 +440,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     }
 
     try { 
-      const res = await fetch(`${apiUrl}/clientes/verificar-nip`, { 
+      const res = await apiFetch(`${apiUrl}/clientes/verificar-nip`, { 
           method: 'POST', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ cliente_id: clienteActivo.id, nip: nipInput }) 
@@ -467,7 +487,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     setIsSubmittingRecuperacion(true);
 
     try {
-        const res = await fetch(`${apiUrl}/clientes/recuperar-nip`, {
+        const res = await apiFetch(`${apiUrl}/clientes/recuperar-nip`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cliente_id: clienteActivo.id, correo: correoRecuperacion })
@@ -514,7 +534,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
            delete payloadSincronizacion.numero_pedido_offline;
            delete payloadSincronizacion.fecha_guardado_local;
 
-           const res = await fetch(`${apiUrl}/pedidos`, {
+           const res = await apiFetch(`${apiUrl}/pedidos`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
                body: JSON.stringify(payloadSincronizacion)
@@ -578,7 +598,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
     };
 
     try {
-      const res = await fetch(`${apiUrl}/pedidos/${pedidoEditandoId}`, {
+      const res = await apiFetch(`${apiUrl}/pedidos/${pedidoEditandoId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paquete)
@@ -604,8 +624,21 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-4 md:p-8 relative overflow-x-hidden">
-      
+    <div className="min-h-screen bg-gray-50 text-slate-800 font-sans p-3 sm:p-5 md:p-8 relative overflow-x-hidden">
+
+      {/* 👇 NUEVO: Logo de fondo (marca de agua) — puramente decorativo.
+          pointer-events-none evita que interfiera con cualquier clic,
+          y -z-10 lo mantiene siempre en la capa más profunda posible. */}
+      {configGlobal.logo_url && (
+        <div className="fixed inset-0 -z-10 pointer-events-none flex items-center justify-center opacity-[0.04]" aria-hidden="true">
+          <ImagenCachada
+            src={configGlobal.logo_url?.startsWith('http') ? configGlobal.logo_url : `${baseUrl}${configGlobal.logo_url}`}
+            alt=""
+            className="w-[70vw] max-w-[600px] object-contain select-none"
+          />
+        </div>
+      )}
+
       {alertaGeneral && (
         <div className="fixed top-24 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300 pointer-events-none">
             <div className={`bg-white border-2 ${alertaGeneral.tipo === 'error' ? 'border-red-500' : 'border-emerald-500'} rounded-full shadow-2xl px-8 py-4 flex items-center gap-4`}>
@@ -684,7 +717,20 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
                 </div>
             </div> 
             ) : ( 
-            <div className="bg-white px-6 py-3 rounded-full shadow-sm border"><p className="text-sm font-bold text-slate-400">{ordenExterna ? `Editando orden` : 'Invitado'}</p></div> 
+            <div className="bg-white px-4 py-2 rounded-full shadow-sm border flex items-center gap-3 sm:gap-4">
+              <p className="text-xs sm:text-sm font-bold text-slate-400 pl-1">
+                {ordenExterna ? `Editando orden` : 'Invitado'}
+              </p>
+              {!ordenExterna && onIrAIdentificarse && (
+                <button
+                  onClick={onIrAIdentificarse}
+                  className="flex items-center gap-1.5 text-[11px] sm:text-xs font-black bg-blue-50 text-blue-600 px-2.5 py-1.5 rounded-lg hover:bg-blue-100 transition active:scale-95 whitespace-nowrap"
+                >
+                  <span className="text-sm">👤</span>
+                  <span>Identificarme</span>
+                </button>
+              )}
+            </div>
             )}
 
             {mesaQR && (
@@ -721,6 +767,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           setComboEnEspera={setComboEnEspera}
           combosActivos={combosActivos}
           promociones={promocionesActivas}
+          popularidadHoy={productosPopulares}
+          animacionesKiosco={animacionesKiosco}
+          onIrAPerfil={() => clienteActivo ? setPantallaActual('mis_pedidos') : (onIrAIdentificarse && onIrAIdentificarse())}
         />
       )}
 

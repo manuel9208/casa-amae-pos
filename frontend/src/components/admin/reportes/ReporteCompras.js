@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShoppingCart, Calendar, Printer, RefreshCw } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
   const [cargando, setCargando] = useState(false);
@@ -11,7 +12,7 @@ const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
   const cargarCompras = useCallback(async () => {
     setCargando(true);
     try {
-      const res = await fetch(`${apiUrl}/insumos/compras/reporte?periodo=${filtroPeriodo}&fecha=${fechaFiltro}`);
+      const res = await apiFetch(`${apiUrl}/insumos/compras/reporte?periodo=${filtroPeriodo}&fecha=${fechaFiltro}`);
       if (res.ok) {
         const data = await res.json();
         setCompras(data);

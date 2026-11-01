@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { History, Printer, Trash2, Calendar, Users, Filter } from 'lucide-react';
-import ReciboNomina from './ReciboNomina';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../../utils/apiFetch';
+import { generarPDFReciboNomina } from './utils/generarReciboNominaPDF';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
 const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) => {
     const [historicoNominas, setHistoricoNominas] = useState([]);
     const [cargando, setCargando] = useState(true);
-    const [reciboPrint, setReciboPrint] = useState(null);
     const [configGlobal, setConfigGlobal] = useState({});
     const [filtroEmpleado, setFiltroEmpleado] = useState('');
     const [filtroPeriodo, setFiltroPeriodo] = useState('');
@@ -28,7 +28,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
     }).filter(Boolean))];
 
     useEffect(() => {
-        fetch(`${apiUrl}/configuracion`)
+       apiFetch(`${apiUrl}/configuracion`)
             .then(res => res.json())
             .then(data => {
                 if (data) setConfigGlobal(data);
@@ -40,7 +40,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         setCargando(true);
         try {
             const hoyStr = new Date().toISOString().split('T')[0];
-            const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0, 4)}-01-01`);
+            const res = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0, 4)}-01-01`);
             if (res.ok) {
                 const data = await res.json();
                 const nominas = (data.cortesNomina || []).filter(c => {
@@ -59,22 +59,6 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
         cargarHistorico();
     }, [cargarHistorico]);
 
-    // Lógica para asegurar impresión en móviles y PC
-    useEffect(() => {
-        if (reciboPrint) {
-            const timer = setTimeout(() => {
-                window.print();
-                const handleAfterPrint = () => {
-                    setReciboPrint(null);
-                    window.removeEventListener('afterprint', handleAfterPrint);
-                };
-                window.addEventListener('afterprint', handleAfterPrint);
-                setTimeout(handleAfterPrint, 10000); // Respaldo 10s para celulares
-            }, 1500); // 1.5s para asegurar renderizado de fuentes y logos
-            return () => clearTimeout(timer);
-        }
-    }, [reciboPrint]);
-
     // Función de Eliminación Blindada y Reversible
     const eliminarNomina = (id, datosCorte) => {
         showConfirm(
@@ -83,11 +67,11 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
             async () => {
                 try {
                     // 👇 FIX: SE CORRIGIÓ LA RUTA A /nominas/:id
-                    const res = await fetch(`${apiUrl}/nominas/${id}`, { method: 'DELETE' });
+                    const res = await apiFetch(`${apiUrl}/nominas/${id}`, { method: 'DELETE' });
 
                     if (res.ok) {
                         // 2. Obtener usuarios frescos para revertir los estados exactos
-                        const resUsuarios = await fetch(`${apiUrl}/usuarios`);
+                        const resUsuarios = await apiFetch(`${apiUrl}/usuarios`);
                         if (resUsuarios.ok) {
                             const usuariosActualizados = await resUsuarios.json();
                             const recibos = datosCorte.recibos || [];
@@ -138,7 +122,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
 
                                 // 3. Enviar actualizaciones revertidas al servidor
                                 if (huboCambioHorario) {
-                                    await fetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
+                                    await apiFetch(`${apiUrl}/usuarios/${emp.id}/horario`, {
                                         method: 'PUT',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ horario_semanal: horActual })
@@ -146,7 +130,7 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                                 }
 
                                 if (huboCambioPrestaciones) {
-                                    await fetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, {
+                                    await apiFetch(`${apiUrl}/usuarios/${emp.id}/prestaciones`, {
                                         method: 'PUT',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ 
@@ -296,23 +280,21 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">{r.rol}</p>
                                                 <p className="text-3xl font-black text-emerald-600">{formaterMoneda(r.neto)}</p>
                                             </div>
-                                            <button
-                                                onClick={() => {
-                                                    setReciboPrint({
-                                                        ...r,
-                                                        metadata: metadata,
-                                                        ingresos_base: r.ingresos_base || [],
-                                                        adicionales_ingresos: r.nuevos_ingresos || r.adicionales_ingresos || [],
-                                                        egresos_base: r.egresos_base || [],
-                                                        adicionales_egresos: r.nuevos_egresos || r.adicionales_egresos || [],
-                                                        total_ingresos: r.total_ingresos || r.ingresos || 0,
-                                                        total_egresos: r.total_egresos || r.egresos || 0,
-                                                        neto: r.neto || 0
-                                                    });
-                                                }}
+                                                <button
+                                                onClick={() => generarPDFReciboNomina({
+                                                    ...r,
+                                                    metadata: metadata,
+                                                    ingresos_base: r.ingresos_base || [],
+                                                    adicionales_ingresos: r.nuevos_ingresos || r.adicionales_ingresos || [],
+                                                    egresos_base: r.egresos_base || [],
+                                                    adicionales_egresos: r.nuevos_egresos || r.adicionales_egresos || [],
+                                                    total_ingresos: r.total_ingresos || r.ingresos || 0,
+                                                    total_egresos: r.total_egresos || r.egresos || 0,
+                                                    neto: r.neto || 0
+                                                }, configGlobal, apiUrl).catch(() => showAlert('Error', 'No se pudo generar el PDF del recibo.', 'error'))}
                                                 className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 md:py-4 rounded-xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95"
-                                            >
-                                                <Printer size={16} /> Imprimir / PDF
+                                                >
+                                                <Printer size={16} /> Descargar PDF
                                             </button>
                                         </div>
                                     ))}
@@ -323,74 +305,8 @@ const NominaHistorial = ({ usuariosDB = [], apiUrl, showAlert, showConfirm }) =>
                 </div>
             )}
 
-            {/* ÁREA DE IMPRESIÓN EXCLUSIVA */}
-            {reciboPrint && (
-                <div className="print-receipt-wrapper">
-                    <ReciboNomina recibo={reciboPrint} configGlobal={configGlobal} />
-                </div>
-            )}
-
-            {/* 👇 🛡️ BLINDAJE DE IMPRESIÓN MÓVIL ESTRICTO */}
-            <style>{`
-                @media screen {
-                    .print-receipt-wrapper { display: none !important; }
-                }
-                @media print {
-                    .print-hidden, header, nav, aside, footer, button, .tabs-container {
-                        display: none !important;
-                    }
-                    html, body, #root, main, .main-container-nomina, .h-screen, .min-h-screen, .overflow-hidden, .overflow-y-auto {
-                        height: auto !important;
-                        min-height: 100% !important;
-                        width: 100% !important;
-                        overflow: visible !important;
-                        position: static !important;
-                        display: block !important;
-                        background: #ffffff !important;
-                        box-shadow: none !important;
-                        border: none !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-                    body > *:not(#root) { display: none !important; }
-                    .print-receipt-wrapper {
-                        display: block !important;
-                        position: absolute !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                        width: 100% !important;
-                        padding: 5mm !important;
-                        background-color: #ffffff !important;
-                        z-index: 9999999 !important;
-                    }
-                    .print-receipt-wrapper * {
-                        visibility: visible !important;
-                        color: #000000 !important;
-                        opacity: 1 !important;
-                    }
-                    .print-receipt-wrapper table {
-                        display: table !important;
-                        width: 100% !important;
-                        border-collapse: collapse !important;
-                        page-break-inside: auto !important;
-                    }
-                    .print-receipt-wrapper tr {
-                        display: table-row !important;
-                        page-break-inside: avoid !important;
-                        page-break-after: auto !important;
-                    }
-                    .print-receipt-wrapper th,
-                    .print-receipt-wrapper td {
-                        display: table-cell !important;
-                    }
-                    @page {
-                        size: auto;
-                        margin: 5mm;
-                    }
-                }
-            `}</style>
+                {/* El recibo ahora se genera y descarga como PDF real con generarPDFReciboNomina().
+                Ya no se usa impresión de pantalla ni CSS print:. */}
         </div>
     );
 };

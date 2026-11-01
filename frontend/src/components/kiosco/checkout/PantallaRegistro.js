@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { UserPlus } from 'lucide-react';  
+import { UserPlus } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';  
 
 const PantallaRegistro = ({
   pantallaActual, pasoTelefono, setPasoTelefono, tipoConsumo, isSubmitting, telefonoRecoger, setTelefonoRecoger,
@@ -24,7 +25,7 @@ const PantallaRegistro = ({
     if (!datosNuevoCliente.nombre.trim() || !datosNuevoCliente.apellido.trim() || datosNuevoCliente.nip.length !== 4) return setErrorRegistro('Nombre, Apellido y NIP son obligatorios.');
     setIsSubmittingLocal(true);
     try {
-      const res = await fetch(`${apiUrl}/clientes/registro`, {
+      const res = await apiFetch(`${apiUrl}/clientes/registro`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ telefono: telefonoRecoger, ...datosNuevoCliente })

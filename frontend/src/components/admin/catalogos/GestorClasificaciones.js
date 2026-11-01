@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Edit, Trash2, Star, Image as ImageIcon, Gift, Clock, CalendarDays, Copy, ChevronRight, ChevronLeft } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorClasificaciones = ({
   clasificaciones, catalogoIngredientes = [], productos = [],
@@ -89,7 +90,7 @@ const GestorClasificaciones = ({
         imagen_url_previa: clasifOrigen.imagen_url
       };
 
-      const res = await fetch(`${apiUrl}/clasificaciones/clonar`, {
+      const res = await apiFetch(`${apiUrl}/clasificaciones/clonar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -169,7 +170,7 @@ const GestorClasificaciones = ({
 
     try {
       const url = editandoClasifId ? `${apiUrl}/clasificaciones/${editandoClasifId}` : `${apiUrl}/clasificaciones`;
-      const res = await fetch(url, { method: editandoClasifId ? 'PUT' : 'POST', body: formData });
+      const res = await apiFetch(url, { method: editandoClasifId ? 'PUT' : 'POST', body: formData });
       if (res.ok) {
         showAlert("¡Éxito!", editandoClasifId ? "Clasificación actualizada." : "Clasificación guardada.", "success");
         cancelarEdicionClasif();
@@ -185,7 +186,7 @@ const GestorClasificaciones = ({
   const eliminarClasif = (id) => {
     showConfirm("Eliminar Clasificación", "¿Estás seguro que deseas borrar esta clasificación? Sus platillos pasarán a quedar 'Sin Categoría'.", async () => {
       try {
-        const res = await fetch(`${apiUrl}/clasificaciones/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/clasificaciones/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminada", "La clasificación fue borrada y los platillos ajustados.", "success");
           refrescarDatos();

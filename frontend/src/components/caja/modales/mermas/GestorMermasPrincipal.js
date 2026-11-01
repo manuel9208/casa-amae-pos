@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { XCircle, Trash2, Utensils, Layers, PackageMinus } from 'lucide-react';
 import MermaPlatillo from './MermaPlatillo';
 import MermaReceta from './MermaReceta';
 import MermaInsumo from './MermaInsumo';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const GestorMermasPrincipal = ({ 
     modalMermas, setModalMermas, insumosDB, productos, clasificaciones, 
@@ -10,6 +11,18 @@ const GestorMermasPrincipal = ({
 }) => {
     const [tipoMerma, setTipoMerma] = useState(null); // 'Platillo', 'Receta', 'Insumo'
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [subRecetas, setSubRecetas] = useState([]); // 🆕 Catálogo real de sub_recetas
+
+    // 🆕 Carga perezosa: solo consulta /sub-recetas cuando el cajero/cocinero
+    // entra realmente al paso "Sub-Receta / Base", sin tocar ningún otro flujo.
+    useEffect(() => {
+        if (tipoMerma === 'Receta' && apiUrl) {
+            apiFetch(`${apiUrl}/sub-recetas`)
+                .then(r => r.json())
+                .then(data => setSubRecetas(Array.isArray(data) ? data : []))
+                .catch(() => setSubRecetas([]));
+        }
+    }, [tipoMerma, apiUrl]);
 
     if (!modalMermas) return null;
 
@@ -17,7 +30,7 @@ const GestorMermasPrincipal = ({
         if(isSubmitting) return;
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/mermas`, {
+            const res = await apiFetch(`${apiUrl}/mermas`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({...payload, usuario_id: user.id, origen: 'Caja'})
@@ -86,7 +99,7 @@ const GestorMermasPrincipal = ({
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-white custom-scrollbar">
                             {tipoMerma === 'Platillo' && <MermaPlatillo productos={productos} clasificaciones={clasificaciones} procesarMerma={procesarMermaAlBackend} isSubmitting={isSubmitting}/>}
-                            {tipoMerma === 'Receta' && <MermaReceta productos={productos} procesarMerma={procesarMermaAlBackend} isSubmitting={isSubmitting}/>}
+                            {tipoMerma === 'Receta' && <MermaReceta subRecetas={subRecetas} procesarMerma={procesarMermaAlBackend} isSubmitting={isSubmitting}/>}
                             {tipoMerma === 'Insumo' && <MermaInsumo insumosDB={insumosDB} procesarMerma={procesarMermaAlBackend} isSubmitting={isSubmitting}/>}
                         </div>
                     </div>

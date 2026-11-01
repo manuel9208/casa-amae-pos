@@ -13,12 +13,9 @@ const inicializarTablas = async () => {
                 correos_smtp JSON DEFAULT '[]',
                 ajustes_extra JSON DEFAULT '{}'
             );
-        `);  
-
-        await db.query(`
-            INSERT INTO configuracion_proveedores (id, correos_smtp, ajustes_extra)
-            SELECT 1, '[]', '{}' WHERE NOT EXISTS (SELECT 1 FROM configuracion_proveedores WHERE id = 1);
-        `);  
+        `);
+        // 🆕 Ya no se siembra una fila fija id=1: ahora es 1 fila por empresa,
+        // creada automáticamente al primer guardado (ver actualizarConfiguracion con UPSERT).
 
         await db.query(`
             CREATE TABLE IF NOT EXISTS proveedores (
@@ -69,8 +66,9 @@ inicializarTablas();
 // ⚙️ MÓDULO: CONFIGURACIÓN EXCLUSIVA DE PROVEEDORES
 // ==========================================
 exports.obtenerConfiguracion = async (req, res) => {
+    const { empresa_id } = req;
     try {
-        const result = await db.query('SELECT * FROM configuracion_proveedores WHERE id = 1');
+        const result = await db.query('SELECT * FROM configuracion_proveedores WHERE empresa_id = $1', [empresa_id]);
         res.json(result.rows[0] || { correos_smtp: [], ajustes_extra: {} });
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener la configuración de proveedores.' });
@@ -78,13 +76,15 @@ exports.obtenerConfiguracion = async (req, res) => {
 };  
 
 exports.actualizarConfiguracion = async (req, res) => {
+    const { empresa_id } = req;
     const { correos_smtp, ajustes_extra } = req.body;
     try {
         const result = await db.query(
-            `UPDATE configuracion_proveedores 
-             SET correos_smtp = $1, ajustes_extra = $2 
-             WHERE id = 1 RETURNING *`,
-            [JSON.stringify(correos_smtp || []), JSON.stringify(ajustes_extra || {})]
+            `INSERT INTO configuracion_proveedores (empresa_id, correos_smtp, ajustes_extra)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (empresa_id) DO UPDATE SET correos_smtp = $2, ajustes_extra = $3
+             RETURNING *`,
+            [empresa_id, JSON.stringify(correos_smtp || []), JSON.stringify(ajustes_extra || {})]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -96,6 +96,7 @@ exports.actualizarConfiguracion = async (req, res) => {
 // 🔔 MOTOR DE ALERTAS PUSH / SOCKETS PARA ADMINS
 // ==========================================
 const alertarAdministradores = async (req, titulo, mensaje) => {
+    const empresaId = req.empresa_id;
     try {
         const io = req.app.get('io');
         if (io) {
@@ -114,8 +115,8 @@ const alertarAdministradores = async (req, titulo, mensaje) => {
                 SELECT sp.suscripcion 
                 FROM suscripciones_push sp 
                 JOIN usuarios u ON sp.usuario_id = u.id 
-                WHERE u.rol IN ('admin', 'gerente')
-            `);  
+                WHERE u.rol IN ('admin', 'gerente') AND u.empresa_id = $1
+            `, [empresaId]);  
 
             if (subsRes.rows.length > 0) {
                 const payload = JSON.stringify({
@@ -147,8 +148,9 @@ const alertarAdministradores = async (req, titulo, mensaje) => {
 // 🚚 MÓDULO: DIRECTORIO DE PROVEEDORES
 // ==========================================
 exports.obtenerProveedores = async (req, res) => {
+    const { empresa_id } = req;
     try {
-        const result = await db.query('SELECT * FROM proveedores ORDER BY id DESC');
+        const result = await db.query('SELECT * FROM proveedores WHERE empresa_id = $1 ORDER BY id DESC', [empresa_id]);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener los proveedores.' });
@@ -156,6 +158,7 @@ exports.obtenerProveedores = async (req, res) => {
 };  
 
 exports.crearProveedor = async (req, res) => {
+    const { empresa_id } = req;
     const {
         empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc,
         merma_esperada, stock_minimo_alerta, enviar_email, enviar_wa, articulos_suministrados
@@ -164,12 +167,12 @@ exports.crearProveedor = async (req, res) => {
     try {
         const result = await db.query(
             `INSERT INTO proveedores 
-            (empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc, merma_esperada, stock_minimo_alerta, enviar_email, enviar_wa, articulos_suministrados) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+            (empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc, merma_esperada, stock_minimo_alerta, enviar_email, enviar_wa, articulos_suministrados, empresa_id) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
             [
                 empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc, 
                 merma_esperada || 0, stock_minimo_alerta || 0, enviar_email || false, enviar_wa || false,
-                JSON.stringify(articulos_suministrados || [])
+                JSON.stringify(articulos_suministrados || []), empresa_id
             ]
         );
         res.status(201).json(result.rows[0]);
@@ -180,6 +183,7 @@ exports.crearProveedor = async (req, res) => {
 
 exports.actualizarProveedor = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     const {
         empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc,
         merma_esperada, stock_minimo_alerta, enviar_email, enviar_wa, articulos_suministrados
@@ -190,13 +194,16 @@ exports.actualizarProveedor = async (req, res) => {
             `UPDATE proveedores SET 
             empresa=$1, telefono_empresa=$2, correo=$3, contacto=$4, telefono_contacto=$5, rfc=$6, 
             merma_esperada=$7, stock_minimo_alerta=$8, enviar_email=$9, enviar_wa=$10, articulos_suministrados=$11 
-            WHERE id=$12 RETURNING *`,
+            WHERE id=$12 AND empresa_id=$13 RETURNING *`,
             [
                 empresa, telefono_empresa, correo, contacto, telefono_contacto, rfc, 
                 merma_esperada || 0, stock_minimo_alerta || 0, enviar_email || false, enviar_wa || false,
-                JSON.stringify(articulos_suministrados || []), id
+                JSON.stringify(articulos_suministrados || []), id, empresa_id
             ]
         );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Proveedor no encontrado o no pertenece a tu negocio.' });
+        }
         res.json(result.rows[0]);
     } catch (error) {
         res.status(500).json({ error: 'Error al actualizar el proveedor.' });
@@ -204,8 +211,12 @@ exports.actualizarProveedor = async (req, res) => {
 };  
 
 exports.eliminarProveedor = async (req, res) => {
+    const { empresa_id } = req;
     try {
-        await db.query('DELETE FROM proveedores WHERE id = $1', [req.params.id]);
+        const result = await db.query('DELETE FROM proveedores WHERE id = $1 AND empresa_id = $2 RETURNING id', [req.params.id, empresa_id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Proveedor no encontrado o no pertenece a tu negocio.' });
+        }
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: 'Error al eliminar el proveedor. Verifica que no tenga facturas activas.' });
@@ -216,13 +227,15 @@ exports.eliminarProveedor = async (req, res) => {
 // 💵 MÓDULO: GASTOS Y FACTURAS
 // ==========================================
 exports.obtenerGastos = async (req, res) => {
+    const { empresa_id } = req;
     try {
         const result = await db.query(`
             SELECT gp.*, p.empresa, p.contacto, p.telefono_contacto, p.correo 
             FROM gastos_proveedores gp
-            JOIN proveedores p ON gp.proveedor_id = p.id
+            JOIN proveedores p ON gp.proveedor_id = p.id AND p.empresa_id = gp.empresa_id
+            WHERE gp.empresa_id = $1
             ORDER BY gp.fecha_compra DESC
-        `);
+        `, [empresa_id]);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener el historial de facturas.' });
@@ -240,6 +253,7 @@ const generarFolio = (proveedorId) => {
 };
 
 exports.registrarGasto = async (req, res) => {
+    const { empresa_id } = req;
     const { proveedor_id, cantidad_recibida, total_pago, origen, estado, usuario_id, articulos_comprados } = req.body;  
     
     try {
@@ -247,11 +261,11 @@ exports.registrarGasto = async (req, res) => {
 
         const result = await db.query(
             `INSERT INTO gastos_proveedores 
-            (proveedor_id, cantidad_recibida, total_pago, origen, estado, usuario_id, articulos_comprados, folio) 
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            (proveedor_id, cantidad_recibida, total_pago, origen, estado, usuario_id, articulos_comprados, folio, empresa_id) 
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
             [
                 proveedor_id, cantidad_recibida || 0, total_pago || 0, origen || 'Caja', estado || 'Pendiente', 
-                usuario_id || null, JSON.stringify(articulos_comprados || []), folio
+                usuario_id || null, JSON.stringify(articulos_comprados || []), folio, empresa_id
             ]
         );  
 
@@ -266,26 +280,27 @@ exports.registrarGasto = async (req, res) => {
 
 exports.eliminarGasto = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     const client = await db.connect();  
     
     try {
         await client.query('BEGIN');
-        const gastoRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = $1', [id]);
-        if (gastoRes.rows.length === 0) throw new Error("Factura no encontrada");
+        const gastoRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
+        if (gastoRes.rows.length === 0) throw new Error("Factura no encontrada o no pertenece a tu negocio");
         const gasto = gastoRes.rows[0];  
 
         if (gasto.estado === 'Aprobado' || gasto.estado === 'Pagado') {
             const articulos = typeof gasto.articulos_comprados === 'string' ? JSON.parse(gasto.articulos_comprados) : (gasto.articulos_comprados || []);
             for (const art of articulos) {
                 if (art.tipo === 'insumo') {
-                    await client.query('UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2', [art.cantidad, art.id]);
+                    await client.query('UPDATE insumos SET stock_actual = stock_actual - $1 WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                 } else if (art.tipo === 'producto') {
-                    await client.query('UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2', [art.cantidad, art.id]);
+                    await client.query('UPDATE productos SET stock_preparado = stock_preparado - $1 WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                 }
             }
         }
         
-        await client.query('DELETE FROM gastos_proveedores WHERE id = $1', [id]);
+        await client.query('DELETE FROM gastos_proveedores WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
         await client.query('COMMIT');
         
         const io = req.app.get('io');
@@ -303,12 +318,12 @@ exports.eliminarGasto = async (req, res) => {
 // ==========================================
 // 📧 MOTOR DE CORREOS CON SOPORTE MULTI-CUENTAS Y ESTADOS
 // ==========================================
-const enviarCorreoProveedor = async (proveedor, gasto) => {
+const enviarCorreoProveedor = async (proveedor, gasto, empresaId) => {
     try {
-        const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion LIMIT 1');
+        const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]);
         const nombreNegocio = negocioRes.rows[0]?.nombre_negocio || 'Administración';  
 
-        const confRes = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE id = 1');
+        const confRes = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE empresa_id = $1', [empresaId]);
         if (confRes.rows.length === 0) return;  
 
         let cuentasSMTP = [];
@@ -377,12 +392,12 @@ const enviarCorreoProveedor = async (proveedor, gasto) => {
 // ==========================================
 // 📧 MOTOR DE CORREOS AGRUPADOS (BULK)
 // ==========================================
-const enviarCorreoBulkProveedor = async (proveedor, gastosAgrupados, granTotal, estado) => {
+const enviarCorreoBulkProveedor = async (proveedor, gastosAgrupados, granTotal, estado, empresaId) => {
     try {
-        const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion LIMIT 1');
+        const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]);
         const nombreNegocio = negocioRes.rows[0]?.nombre_negocio || 'Administración';  
 
-        const confRes = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE id = 1');
+        const confRes = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE empresa_id = $1', [empresaId]);
         if (confRes.rows.length === 0) return;  
 
         let cuentasSMTP = [];
@@ -467,34 +482,35 @@ const enviarCorreoBulkProveedor = async (proveedor, gastosAgrupados, granTotal, 
 // ==========================================
 exports.actualizarEstadoGasto = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     const { estado } = req.body;
     const client = await db.connect(); 
     
     try {
         await client.query('BEGIN');
         
-        const gastoRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = $1', [id]);
-        if (gastoRes.rows.length === 0) throw new Error("Gasto no encontrado");
+        const gastoRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
+        if (gastoRes.rows.length === 0) throw new Error("Gasto no encontrado o no pertenece a tu negocio");
         const gasto = gastoRes.rows[0];
 
-        const provRes = await client.query('SELECT * FROM proveedores WHERE id = $1', [gasto.proveedor_id]);
+        const provRes = await client.query('SELECT * FROM proveedores WHERE id = $1 AND empresa_id = $2', [gasto.proveedor_id, empresa_id]);
         const proveedor = provRes.rows[0];
 
-        const updateGasto = await client.query('UPDATE gastos_proveedores SET estado = $1 WHERE id = $2 RETURNING *', [estado, id]);
+        const updateGasto = await client.query('UPDATE gastos_proveedores SET estado = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', [estado, id, empresa_id]);
 
         if ((estado === 'Aprobado' || estado === 'Pagado') && gasto.estado === 'Pendiente') {
             const articulos = typeof gasto.articulos_comprados === 'string' ? JSON.parse(gasto.articulos_comprados) : (gasto.articulos_comprados || []);
 
             for (const art of articulos) {
                 if (art.tipo === 'insumo') {
-                    await client.query('UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2', [art.cantidad, art.id]);
+                    await client.query('UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                 } else if (art.tipo === 'producto') {
-                    await client.query('UPDATE productos SET stock_preparado = stock_preparado + $1, usa_stock = true WHERE id = $2', [art.cantidad, art.id]);
+                    await client.query('UPDATE productos SET stock_preparado = stock_preparado + $1, usa_stock = true WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                 }
             }
             
             if (proveedor.enviar_email) {
-                enviarCorreoProveedor(proveedor, updateGasto.rows[0]);
+                enviarCorreoProveedor(proveedor, updateGasto.rows[0], empresa_id);
             }
 
             const estadoTxt = estado === 'Pagado' ? 'Pagada' : 'Aprobada';
@@ -503,7 +519,7 @@ exports.actualizarEstadoGasto = async (req, res) => {
         // Si la factura pasó de Aprobado a Pagado, solo enviamos el correo (sin sumar stock otra vez)
         else if (estado === 'Pagado' && gasto.estado === 'Aprobado') {
             if (proveedor.enviar_email) {
-                enviarCorreoProveedor(proveedor, updateGasto.rows[0]);
+                enviarCorreoProveedor(proveedor, updateGasto.rows[0], empresa_id);
             }
             alertarAdministradores(req, `✅ Deuda Liquidada`, `Se ha liquidado el pago a ${proveedor.empresa} por $${gasto.total_pago}.`);
         }
@@ -524,25 +540,26 @@ exports.actualizarEstadoGasto = async (req, res) => {
 
 // ACTUALIZACIÓN MASIVA (BULK)
 exports.actualizarEstadoGastoBulk = async (req, res) => {
+    const { empresa_id } = req;
     const { ids, estado } = req.body;
     const client = await db.connect();
     
     try {
         await client.query('BEGIN');
         
-        const gastosRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = ANY($1::int[])', [ids]);
+        const gastosRes = await client.query('SELECT * FROM gastos_proveedores WHERE id = ANY($1::int[]) AND empresa_id = $2', [ids, empresa_id]);
         const gastos = gastosRes.rows;
 
-        if(gastos.length === 0) throw new Error("Facturas no encontradas");
+        if(gastos.length === 0) throw new Error("Facturas no encontradas o no pertenecen a tu negocio");
 
-        const provRes = await client.query('SELECT * FROM proveedores WHERE id = $1', [gastos[0].proveedor_id]);
+        const provRes = await client.query('SELECT * FROM proveedores WHERE id = $1 AND empresa_id = $2', [gastos[0].proveedor_id, empresa_id]);
         const proveedor = provRes.rows[0];
 
         let totalGlobal = 0;
         let gastosProcesados = [];
 
         for(const gasto of gastos) {
-            const updateGasto = await client.query('UPDATE gastos_proveedores SET estado = $1 WHERE id = $2 RETURNING *', [estado, gasto.id]);
+            const updateGasto = await client.query('UPDATE gastos_proveedores SET estado = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', [estado, gasto.id, empresa_id]);
             gastosProcesados.push(updateGasto.rows[0]);
             totalGlobal += Number(gasto.total_pago);
 
@@ -550,16 +567,16 @@ exports.actualizarEstadoGastoBulk = async (req, res) => {
                 const articulos = typeof gasto.articulos_comprados === 'string' ? JSON.parse(gasto.articulos_comprados) : (gasto.articulos_comprados || []);
                 for (const art of articulos) {
                     if (art.tipo === 'insumo') {
-                        await client.query('UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2', [art.cantidad, art.id]);
+                        await client.query('UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                     } else if (art.tipo === 'producto') {
-                        await client.query('UPDATE productos SET stock_preparado = stock_preparado + $1, usa_stock = true WHERE id = $2', [art.cantidad, art.id]);
+                        await client.query('UPDATE productos SET stock_preparado = stock_preparado + $1, usa_stock = true WHERE id = $2 AND empresa_id = $3', [art.cantidad, art.id, empresa_id]);
                     }
                 }
             }
         }
 
         if (proveedor.enviar_email) {
-            enviarCorreoBulkProveedor(proveedor, gastosProcesados, totalGlobal, estado);
+            enviarCorreoBulkProveedor(proveedor, gastosProcesados, totalGlobal, estado, empresa_id);
         }
 
         const estadoTxt = estado === 'Pagado' ? 'Pagadas' : 'Aprobadas';
@@ -588,15 +605,27 @@ exports.verificarAlertasStock = async (io) => {
         const provRes = await db.query('SELECT * FROM proveedores WHERE enviar_email = true OR enviar_wa = true');
         if (provRes.rows.length === 0) return;
 
-        const confRes = await db.query('SELECT nombre_negocio FROM configuracion LIMIT 1');
-        const nombreNegocio = confRes.rows[0]?.nombre_negocio || 'Administración';
-        
-        const confProv = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE id = 1');
-        let cuentasSMTP = [];
-        try { cuentasSMTP = typeof confProv.rows[0]?.correos_smtp === 'string' ? JSON.parse(confProv.rows[0].correos_smtp) : (confProv.rows[0]?.correos_smtp || []); } catch(e){}
-        const cuentaActiva = cuentasSMTP[0];
+        // 🔒 Patrón 23 corregido: antes se tomaba "LIMIT 1" (una fila al azar)
+        // para TODOS los proveedores del sistema. Ahora se resuelve nombre/SMTP
+        // por la empresa dueña de cada proveedor, con caché para no repetir
+        // la consulta si varios proveedores pertenecen a la misma empresa.
+        const cacheEmpresa = {};
+        const obtenerDatosEmpresa = async (empresaId) => {
+            if (cacheEmpresa[empresaId]) return cacheEmpresa[empresaId];
+
+            const confRes = await db.query('SELECT nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]);
+            const nombreNegocio = confRes.rows[0]?.nombre_negocio || 'Administración';
+
+            const confProv = await db.query('SELECT correos_smtp FROM configuracion_proveedores WHERE empresa_id = $1', [empresaId]);
+            let cuentasSMTP = [];
+            try { cuentasSMTP = typeof confProv.rows[0]?.correos_smtp === 'string' ? JSON.parse(confProv.rows[0].correos_smtp) : (confProv.rows[0]?.correos_smtp || []); } catch(e){}
+
+            cacheEmpresa[empresaId] = { nombreNegocio, cuentaActiva: cuentasSMTP[0] };
+            return cacheEmpresa[empresaId];
+        };
 
         for (const prov of provRes.rows) {
+            const { nombreNegocio, cuentaActiva } = await obtenerDatosEmpresa(prov.empresa_id);
             let articulos = [];
             try { articulos = typeof prov.articulos_suministrados === 'string' ? JSON.parse(prov.articulos_suministrados) : prov.articulos_suministrados; } catch(e){}
             
@@ -610,14 +639,14 @@ exports.verificarAlertasStock = async (io) => {
                     let nombreArt = 'Artículo';
                     
                     if (art.tipo_vinculo === 'insumo') {
-                        const ins = await db.query('SELECT stock_actual, nombre, unidad_medida FROM insumos WHERE id = $1', [art.vinculo_id]);
+                        const ins = await db.query('SELECT stock_actual, nombre, unidad_medida FROM insumos WHERE id = $1 AND empresa_id = $2', [art.vinculo_id, prov.empresa_id]);
                         if (ins.rows.length > 0) { 
                             stockReal = Number(ins.rows[0].stock_actual); 
                             nombreArt = ins.rows[0].nombre; 
                             art.unidad_medida = ins.rows[0].unidad_medida; 
                         }
                     } else {
-                        const prod = await db.query('SELECT stock_preparado, nombre FROM productos WHERE id = $1', [art.vinculo_id]);
+                        const prod = await db.query('SELECT stock_preparado, nombre FROM productos WHERE id = $1 AND empresa_id = $2', [art.vinculo_id, prov.empresa_id]);
                         if (prod.rows.length > 0) { 
                             stockReal = Number(prod.rows[0].stock_preparado); 
                             nombreArt = prod.rows[0].nombre; 
@@ -641,7 +670,7 @@ exports.verificarAlertasStock = async (io) => {
 
             if (alertasAEnviar.length > 0) {
                 if (huboCambios) {
-                    await db.query('UPDATE proveedores SET articulos_suministrados = $1 WHERE id = $2', [JSON.stringify(articulos), prov.id]);
+                    await db.query('UPDATE proveedores SET articulos_suministrados = $1 WHERE id = $2 AND empresa_id = $3', [JSON.stringify(articulos), prov.id, prov.empresa_id]);
                 }
 
                 if (prov.enviar_email && cuentaActiva && prov.correo) {
@@ -688,7 +717,8 @@ exports.verificarAlertasStock = async (io) => {
                     io.emit('alerta_admin', { 
                         titulo: '📉 Alerta de Stock Crítico', 
                         mensaje: `El sistema acaba de notificar automáticamente a ${prov.empresa} para resurtir ${alertasAEnviar.length} artículos agotándose.`, 
-                        fecha: new Date() 
+                        fecha: new Date(),
+                        empresa_id: prov.empresa_id
                     });
                 }
             }

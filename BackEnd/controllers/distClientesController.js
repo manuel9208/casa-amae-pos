@@ -29,11 +29,15 @@ exports.inicializarTablas = async () => {
         await db.query(`ALTER TABLE dist_configuracion ADD COLUMN IF NOT EXISTS puntos_porcentaje NUMERIC(10,2) DEFAULT 10;`).catch(()=>null);
         await db.query(`ALTER TABLE dist_configuracion ADD COLUMN IF NOT EXISTS puntos_valor_peso NUMERIC(10,2) DEFAULT 1;`).catch(()=>null);
 
-        // Inserción de la fila base de configuración si no existe
-        await db.query(`
-            INSERT INTO dist_configuracion (id)
-            SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM dist_configuracion WHERE id = 1);
-        `);
+        // 🔒 FIX (Patrón D): la tabla nació sin restricción única sobre empresa_id,
+        // pero actualizarConfiguracion() depende de un ON CONFLICT (empresa_id).
+        // Sin este índice, el UPSERT truena con "no unique or exclusion constraint
+        // matching the ON CONFLICT specification" en cuanto haya más de un registro.
+        await db.query(`ALTER TABLE dist_configuracion ADD COLUMN IF NOT EXISTS empresa_id INTEGER;`).catch(()=>null);
+        await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS dist_configuracion_empresa_id_key ON dist_configuracion(empresa_id);`).catch(()=>null);
+
+        // 🆕 Ya no se siembra una fila fija id=1: ahora es 1 fila por empresa,
+        // creada automáticamente al primer guardado (ver actualizarConfiguracion con UPSERT).
 
         // Tabla del Directorio de Clientes B2B
         await db.query(`
@@ -91,8 +95,9 @@ const borrarDeCloudinary = (urlVieja) => {
 // ⚙️ RUTAS: CONFIGURACIÓN B2B Y SMTP
 // ==========================================
 exports.obtenerConfiguracion = async (req, res) => {
+    const { empresa_id } = req;
     try {
-        const result = await db.query('SELECT * FROM dist_configuracion WHERE id = 1');
+        const result = await db.query('SELECT * FROM dist_configuracion WHERE empresa_id = $1', [empresa_id]);
         res.json(result.rows[0] || {});
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener la configuración de distribución.' });
@@ -100,6 +105,7 @@ exports.obtenerConfiguracion = async (req, res) => {
 };
 
 exports.actualizarConfiguracion = async (req, res) => {
+    const { empresa_id } = req;
     const { 
         distribucion_activa, distribucion_nombre, host, puerto, email, password,
         puntos_activos, puntos_porcentaje, puntos_valor_peso
@@ -116,22 +122,33 @@ exports.actualizarConfiguracion = async (req, res) => {
     }
 
     try {
-        // Usamos COALESCE para que actualice solo lo que nos mandan en el body sin borrar lo demás
+        // Primero verificamos si ya existe fila para esta empresa, para hacer
+        // el mismo COALESCE manual que ya traía el UPDATE original (no borrar
+        // lo que no llega en el body), ya que INSERT...ON CONFLICT no admite
+        // COALESCE contra la fila previa de forma tan directa como UPDATE solo.
+        const existente = await db.query('SELECT * FROM dist_configuracion WHERE empresa_id = $1', [empresa_id]);
+        const actual = existente.rows[0] || {};
+
+        const finalActiva = activaParseada !== null ? activaParseada : (actual.distribucion_activa ?? false);
+        const finalNombre = distribucion_nombre !== undefined ? distribucion_nombre : (actual.distribucion_nombre ?? '28:20');
+        const finalHost = host !== undefined ? host : (actual.smtp_host ?? 'smtp.gmail.com');
+        const finalPuerto = puerto !== undefined ? puerto : (actual.smtp_puerto ?? '465');
+        const finalEmail = email !== undefined ? email : (actual.smtp_email ?? '');
+        const finalPassword = password !== undefined ? password : (actual.smtp_password ?? '');
+        const finalPtsActivos = ptsActivosParseados !== null ? ptsActivosParseados : (actual.puntos_activos ?? true);
+        const finalPtsPorcentaje = puntos_porcentaje !== undefined ? puntos_porcentaje : (actual.puntos_porcentaje ?? 10);
+        const finalPtsValorPeso = puntos_valor_peso !== undefined ? puntos_valor_peso : (actual.puntos_valor_peso ?? 1);
+
         const result = await db.query(
-            `UPDATE dist_configuracion
-             SET 
-                distribucion_activa = COALESCE($1, distribucion_activa),
-                distribucion_nombre = COALESCE($2, distribucion_nombre),
-                smtp_host = COALESCE($3, smtp_host),
-                smtp_puerto = COALESCE($4, smtp_puerto),
-                smtp_email = COALESCE($5, smtp_email),
-                smtp_password = COALESCE($6, smtp_password),
-                puntos_activos = COALESCE($7, puntos_activos),
-                puntos_porcentaje = COALESCE($8, puntos_porcentaje),
-                puntos_valor_peso = COALESCE($9, puntos_valor_peso),
-                actualizado_en = CURRENT_TIMESTAMP
-             WHERE id = 1 RETURNING *`,
-            [activaParseada, distribucion_nombre, host, puerto, email, password, ptsActivosParseados, puntos_porcentaje, puntos_valor_peso]
+            `INSERT INTO dist_configuracion
+                (empresa_id, distribucion_activa, distribucion_nombre, smtp_host, smtp_puerto, smtp_email, smtp_password, puntos_activos, puntos_porcentaje, puntos_valor_peso, actualizado_en)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP)
+             ON CONFLICT (empresa_id) DO UPDATE SET
+                distribucion_activa = $2, distribucion_nombre = $3, smtp_host = $4, smtp_puerto = $5,
+                smtp_email = $6, smtp_password = $7, puntos_activos = $8, puntos_porcentaje = $9,
+                puntos_valor_peso = $10, actualizado_en = CURRENT_TIMESTAMP
+             RETURNING *`,
+            [empresa_id, finalActiva, finalNombre, finalHost, finalPuerto, finalEmail, finalPassword, finalPtsActivos, finalPtsPorcentaje, finalPtsValorPeso]
         );
         res.json(result.rows[0]);
     } catch (error) {
@@ -143,11 +160,12 @@ exports.actualizarConfiguracion = async (req, res) => {
 // 📧 ENVIAR CÓDIGO DE VERIFICACIÓN
 // ==========================================
 exports.enviarCodigoVerificacion = async (req, res) => {
+    const { empresa_id } = req;
     const { correo, empresa } = req.body;
     if (!correo) return res.status(400).json({ error: 'Falta el correo electrónico.' });
 
     try {
-        const configRes = await db.query('SELECT * FROM dist_configuracion WHERE id = 1');
+        const configRes = await db.query('SELECT * FROM dist_configuracion WHERE empresa_id = $1', [empresa_id]);
         const conf = configRes.rows[0] || {};
 
         if (!conf.smtp_email || !conf.smtp_password) {
@@ -196,8 +214,9 @@ exports.enviarCodigoVerificacion = async (req, res) => {
 // 📦 RUTAS CRUD: CLIENTES B2B
 // ==========================================
 exports.obtenerClientes = async (req, res) => {
+    const { empresa_id } = req;
     try {
-        const result = await db.query('SELECT * FROM dist_clientes ORDER BY empresa ASC');
+        const result = await db.query('SELECT * FROM dist_clientes WHERE empresa_id = $1 ORDER BY empresa ASC', [empresa_id]);
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener el directorio.' });
@@ -205,6 +224,7 @@ exports.obtenerClientes = async (req, res) => {
 };
 
 exports.crearCliente = async (req, res) => {
+    const { empresa_id } = req;
     const { 
         empresa, nombre_contacto, telefono, correo, rfc, direccion, fecha_nacimiento, 
         puntos_acumulados, tiene_credito, limite_credito, dias_credito, recordatorios_activos, correo_verificado 
@@ -221,14 +241,14 @@ exports.crearCliente = async (req, res) => {
             `INSERT INTO dist_clientes 
             (empresa, nombre_contacto, telefono, correo, rfc, direccion, fecha_nacimiento, puntos, 
              tiene_credito, limite_credito, dias_credito, recordatorios_activos, correo_verificado, 
-             ine_frente_url, ine_reverso_url, comprobante_url) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+             ine_frente_url, ine_reverso_url, comprobante_url, empresa_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
             [
                 empresa, nombre_contacto, telefono, correo || null, rfc || null, direccion, 
                 fecha_nacimiento || null, Number(puntos_acumulados) || 0, 
                 tiene_credito === 'true', Number(limite_credito) || 0, Number(dias_credito) || 0, 
                 recordatorios_activos !== 'false', correo_verificado === 'true',
-                ineFrenteUrl, ineReversoUrl, comprobanteUrl
+                ineFrenteUrl, ineReversoUrl, comprobanteUrl, empresa_id
             ]
         );
         res.status(201).json(result.rows[0]);
@@ -240,6 +260,7 @@ exports.crearCliente = async (req, res) => {
 
 exports.actualizarCliente = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     const { 
         empresa, nombre_contacto, telefono, correo, rfc, direccion, fecha_nacimiento, 
         puntos_acumulados, tiene_credito, limite_credito, dias_credito, recordatorios_activos, correo_verificado 
@@ -251,7 +272,7 @@ exports.actualizarCliente = async (req, res) => {
     const comprobanteUrl = archivos['comprobante_domicilio'] ? archivos['comprobante_domicilio'][0].path : null;
 
     try {
-        const clienteAntiguo = await db.query('SELECT ine_frente_url, ine_reverso_url, comprobante_url FROM dist_clientes WHERE id = $1', [id]);
+        const clienteAntiguo = await db.query('SELECT ine_frente_url, ine_reverso_url, comprobante_url FROM dist_clientes WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
         
         // Purga de archivos si se reemplazaron
         if (ineFrenteUrl && clienteAntiguo.rows[0]?.ine_frente_url) borrarDeCloudinary(clienteAntiguo.rows[0].ine_frente_url);
@@ -265,15 +286,18 @@ exports.actualizarCliente = async (req, res) => {
              ine_frente_url = COALESCE($14, ine_frente_url), 
              ine_reverso_url = COALESCE($15, ine_reverso_url), 
              comprobante_url = COALESCE($16, comprobante_url)
-             WHERE id=$17 RETURNING *`,
+             WHERE id=$17 AND empresa_id=$18 RETURNING *`,
             [
                 empresa, nombre_contacto, telefono, correo || null, rfc || null, direccion, 
                 fecha_nacimiento || null, Number(puntos_acumulados) || 0, 
                 tiene_credito === 'true', Number(limite_credito) || 0, Number(dias_credito) || 0, 
                 recordatorios_activos !== 'false', correo_verificado === 'true',
-                ineFrenteUrl, ineReversoUrl, comprobanteUrl, id
+                ineFrenteUrl, ineReversoUrl, comprobanteUrl, id, empresa_id
             ]
         );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado o no pertenece a tu negocio.' });
+        }
         res.json(result.rows[0]);
     } catch (error) {
         console.error("Error BD Editar Cliente:", error);
@@ -283,14 +307,18 @@ exports.actualizarCliente = async (req, res) => {
 
 exports.eliminarCliente = async (req, res) => {
     const { id } = req.params;
+    const { empresa_id } = req;
     try {
-        const clienteAct = await db.query('SELECT ine_frente_url, ine_reverso_url, comprobante_url FROM dist_clientes WHERE id = $1', [id]);
+        const clienteAct = await db.query('SELECT ine_frente_url, ine_reverso_url, comprobante_url FROM dist_clientes WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
         if (clienteAct.rows.length > 0) {
             if (clienteAct.rows[0].ine_frente_url) borrarDeCloudinary(clienteAct.rows[0].ine_frente_url);
             if (clienteAct.rows[0].ine_reverso_url) borrarDeCloudinary(clienteAct.rows[0].ine_reverso_url);
             if (clienteAct.rows[0].comprobante_url) borrarDeCloudinary(clienteAct.rows[0].comprobante_url);
         }
-        await db.query('DELETE FROM dist_clientes WHERE id = $1', [id]);
+        const result = await db.query('DELETE FROM dist_clientes WHERE id = $1 AND empresa_id = $2 RETURNING id', [id, empresa_id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado o no pertenece a tu negocio.' });
+        }
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: 'Error al eliminar cliente. Puede tener historial de pedidos vinculado.' });

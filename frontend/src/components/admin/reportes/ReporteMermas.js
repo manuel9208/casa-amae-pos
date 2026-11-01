@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, Calendar, Printer, RefreshCw, Filter } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
   const [cargando, setCargando] = useState(false);
@@ -12,7 +13,7 @@ const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
   const cargarMermas = useCallback(async () => {
     setCargando(true);
     try {
-      const res = await fetch(`${apiUrl}/mermas?periodo=${filtroPeriodo}&fecha=${fechaFiltro}&tipo=${filtroCategoria}`);
+      const res = await apiFetch(`${apiUrl}/mermas?periodo=${filtroPeriodo}&fecha=${fechaFiltro}&tipo=${filtroCategoria}`);
       if (res.ok) {
         const data = await res.json();
         setMermas(data);

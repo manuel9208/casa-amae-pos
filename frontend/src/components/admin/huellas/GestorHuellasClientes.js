@@ -1,33 +1,38 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Search, Fingerprint, Trash2, AlertCircle } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
-const GestorHuellasClientes = ({ apiUrl, showAlert }) => {
+const GestorHuellasClientes = ({ apiUrl, showAlert, showConfirm }) => {
     const [clientes, setClientes] = useState([]);
     const [busqueda, setBusqueda] = useState('');
 
     const cargarClientes = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/clientes`);
+            const res = await apiFetch(`${apiUrl}/clientes`);
             if (res.ok) setClientes(await res.json());
         } catch (error) { console.error("Error al cargar clientes", error); }
     }, [apiUrl]);
 
     useEffect(() => { cargarClientes(); }, [cargarClientes]);
 
-    const eliminarHuella = async (cliente) => {
-        if (!window.confirm(`¿Estás seguro de resetear la huella de ${cliente.nombre}? Tendrá que volver a registrarla desde su celular en su próxima visita.`)) return;
-
-        try {
-            const res = await fetch(`${apiUrl}/huellas/cliente/${cliente.id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showAlert('Huella Reseteada', 'Se ha eliminado la credencial biométrica del cliente.', 'success');
-                cargarClientes();
-            } else {
-                showAlert('Error', 'No se pudo eliminar la huella.', 'error');
+    const eliminarHuella = (cliente) => {
+        showConfirm(
+            'Resetear Huella',
+            `¿Estás seguro de resetear la huella de ${cliente.nombre}? Tendrá que volver a registrarla desde su celular en su próxima visita.`,
+            async () => {
+                try {
+                    const res = await apiFetch(`${apiUrl}/huellas/cliente/${cliente.id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showAlert('Huella Reseteada', 'Se ha eliminado la credencial biométrica del cliente.', 'success');
+                        cargarClientes();
+                    } else {
+                        showAlert('Error', 'No se pudo eliminar la huella.', 'error');
+                    }
+                } catch (error) {
+                    showAlert('Error', 'Fallo de conexión.', 'error');
+                }
             }
-        } catch (error) {
-            showAlert('Error', 'Fallo de conexión.', 'error');
-        }
+        );
     };
 
     const filtrados = clientes.filter(c => 

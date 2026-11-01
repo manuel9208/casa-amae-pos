@@ -1,11 +1,12 @@
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import { apiFetch } from '../utils/apiFetch';
 
 export const useBiometria = (apiUrl, showAlert) => {
     
     // 1. FUNCIÓN PARA DAR DE ALTA UNA HUELLA NUEVA (Enrolar)
     const registrarHuella = async (usuario_id = null, cliente_id = null) => {
         try {
-            const resOpt = await fetch(`${apiUrl}/huellas/generar-registro`, {
+            const resOpt = await apiFetch(`${apiUrl}/huellas/generar-registro`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ usuario_id, cliente_id })
@@ -29,7 +30,7 @@ export const useBiometria = (apiUrl, showAlert) => {
                 throw err;
             }
 
-            const resVer = await fetch(`${apiUrl}/huellas/verificar-registro`, {
+            const resVer = await apiFetch(`${apiUrl}/huellas/verificar-registro`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -74,7 +75,7 @@ export const useBiometria = (apiUrl, showAlert) => {
     const iniciarSesionConHuella = async () => {
         try {
         // A. Pedimos el reto criptográfico genérico para login
-        const resOpt = await fetch(`${apiUrl}/huellas/generar-login`, { method: 'POST' });
+        const resOpt = await apiFetch(`${apiUrl}/huellas/generar-login`, { method: 'POST' });
         const options = await resOpt.json();
 
         if (options.error) {
@@ -97,7 +98,7 @@ export const useBiometria = (apiUrl, showAlert) => {
         // 👇 FIX: Capturamos lat/lon (best effort) para el auto-checado de asistencia
         const { lat, lon } = await obtenerUbicacionSilenciosa();
 
-        const resVer = await fetch(`${apiUrl}/huellas/verificar-login`, {
+        const resVer = await apiFetch(`${apiUrl}/huellas/verificar-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ credencial, dispositivo_id, lat, lon })

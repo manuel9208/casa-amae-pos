@@ -22,7 +22,7 @@ const ModalesCaja = ({
   accionAlerta, setAccionAlerta, ingredienteReemplazo, setIngredienteReemplazo, enviarRespuestaCocina, catalogoIngredientes,
   modalPago, setModalPago, montoRecibido, setMontoRecibido, procesarPago, configGlobal, modalZonaEnvio, setModalZonaEnvio,
   confirmarPedidoDomicilio, modalCompraRapida, setModalCompraRapida, insumosDB, insumoComprar, setInsumoComprar,
-  paquetesComprados, setPaquetesComprados, registrarCompraRapida, alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra,
+  paquetesComprados, setPaquetesComprados, registrarCompraRapida, registrarGastoCajaLibre, alertaCaja, setAlertaCaja, modalAgregarExtra, setModalAgregarExtra,
   confirmarAgregarExtra, alertaCobroExtra, setAlertaCobroExtra, apiUrl, lanzarImpresion, modalEditarPedido, setModalEditarPedido,
   guardarEdicionPedido, isSubmitting, modalVerDetalle, setModalVerDetalle, modalIdentificar, setModalIdentificar, pasoIdentificar,
   setPasoIdentificar, telClienteNuevo, setTelClienteNuevo, datosNuevoCliente, setDatosNuevoCliente, buscarClienteParaPedido,
@@ -113,7 +113,7 @@ const ModalesCaja = ({
       />  
 
       <ModalIdentificar modalIdentificar={modalIdentificar} setModalIdentificar={setModalIdentificar} pasoIdentificar={pasoIdentificar} setPasoIdentificar={setPasoIdentificar} telClienteNuevo={telClienteNuevo} setTelClienteNuevo={setTelClienteNuevo} datosNuevoCliente={datosNuevoCliente} setDatosNuevoCliente={setDatosNuevoCliente} buscarClienteParaPedido={buscarClienteParaPedido} registrarClienteParaPedido={registrarClienteParaPedido} isSubmitting={isSubmitting} onGoToKiosco={onGoToKiosco} />
-      <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} isSubmitting={isSubmitting} />
+      <ModalCompraRapida modalCompraRapida={modalCompraRapida} setModalCompraRapida={setModalCompraRapida} insumosDB={insumosDB} insumoComprar={insumoComprar} setInsumoComprar={setInsumoComprar} paquetesComprados={paquetesComprados} setPaquetesComprados={setPaquetesComprados} registrarCompraRapida={registrarCompraRapida} registrarGastoCajaLibre={registrarGastoCajaLibre} isSubmitting={isSubmitting} />
       <ModalAgregarExtra modalAgregarExtra={modalAgregarExtra} setModalAgregarExtra={setModalAgregarExtra} confirmarAgregarExtra={confirmarAgregarExtra} catalogoIngredientes={catalogoIngredientes} isSubmitting={isSubmitting} />
       <ModalZonaEnvio modalZonaEnvio={modalZonaEnvio} setModalZonaEnvio={setModalZonaEnvio} confirmarPedidoDomicilio={confirmarPedidoDomicilio} configGlobal={configGlobal} isSubmitting={isSubmitting} />
       <ModalResolver modalResolver={modalResolver} setModalResolver={setModalResolver} itemAfectadoIdx={itemAfectadoIdx} setItemAfectadoIdx={setItemAfectadoIdx} accionAlerta={accionAlerta} setAccionAlerta={setAccionAlerta} ingredienteReemplazo={ingredienteReemplazo} setIngredienteReemplazo={setIngredienteReemplazo} enviarRespuestaCocina={enviarRespuestaCocina} catalogoIngredientes={catalogoIngredientes} clasificaciones={clasificaciones} isSubmitting={isSubmitting} />  

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Image as ImageIcon, Sparkles, Download, Wand2, Zap } from 'lucide-react';
 import { useMotorIA } from './useMotorIA';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GeneradorImagenes = ({ apiUrl, showAlert }) => {
   const { consultarIA, isLoading } = useMotorIA(apiUrl);
@@ -19,7 +20,7 @@ const GeneradorImagenes = ({ apiUrl, showAlert }) => {
   useEffect(() => {
     const cargarProveedoresImg = async () => {
       try {
-        const res = await fetch(`${apiUrl}/ia/configuracion`);
+        const res = await apiFetch(`${apiUrl}/ia/configuracion`);
         const data = await res.json();
         if (data.success) {
           const modo = data.imagen_proveedor || 'gemini';

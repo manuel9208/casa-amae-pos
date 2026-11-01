@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MessageSquare, Send, CheckCheck, Clock, Trash2, Users } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
-const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
+const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
   const [mensajes, setMensajes] = useState([]);
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState('');
   const [nuevoMensaje, setNuevoMensaje] = useState('');
@@ -14,7 +15,7 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
 
   const cargarMensajes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/mensajes/admin`);
+      const res = await apiFetch(`${apiUrl}/mensajes/admin`);
       if (res.ok) setMensajes(await res.json());
     } catch(e) {}
   }, [apiUrl]);  
@@ -29,7 +30,7 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
     setIsSubmitting(true);
     try {
       const userObj = JSON.parse(localStorage.getItem('pos_sesion') || '{}').data || {};
-      const res = await fetch(`${apiUrl}/mensajes`, {
+      const res = await apiFetch(`${apiUrl}/mensajes`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ admin_id: userObj.id, empleado_id: empleadoSeleccionado, mensaje: nuevoMensaje })
       });
@@ -41,12 +42,13 @@ const VistaMensajesAdmin = ({ usuariosDB, apiUrl, showAlert }) => {
     setIsSubmitting(false);
   };  
 
-  const eliminarMensaje = async (id) => {
-    if(!window.confirm("¿Borrar este mensaje del historial?")) return;
-    try {
-      const res = await fetch(`${apiUrl}/mensajes/${id}`, { method: 'DELETE' });
-      if(res.ok) cargarMensajes();
-    } catch(e) {}
+  const eliminarMensaje = (id) => {
+    showConfirm("Eliminar Mensaje", "¿Borrar este mensaje del historial?", async () => {
+      try {
+        const res = await apiFetch(`${apiUrl}/mensajes/${id}`, { method: 'DELETE' });
+        if(res.ok) cargarMensajes();
+      } catch(e) {}
+    });
   };  
 
   return (

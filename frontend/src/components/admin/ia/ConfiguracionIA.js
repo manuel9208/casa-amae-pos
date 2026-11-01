@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Database, Zap, KeyRound, Sparkles, Save, Bot, Image as ImageIcon, Lock } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ConfiguracionIA = ({ apiUrl, showAlert }) => {
   const [config, setConfig] = useState({
@@ -24,7 +25,7 @@ const ConfiguracionIA = ({ apiUrl, showAlert }) => {
   useEffect(() => {
     const cargarConfig = async () => {
       try {
-        const res = await fetch(`${apiUrl}/ia/configuracion`);
+        const res = await apiFetch(`${apiUrl}/ia/configuracion`);
         const data = await res.json();
         if (data.success) {
           setConfig(prev => ({ ...prev, ...data }));
@@ -90,7 +91,7 @@ const ConfiguracionIA = ({ apiUrl, showAlert }) => {
   const guardarConfiguracion = async () => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${apiUrl}/ia/configuracion`, {
+      const res = await apiFetch(`${apiUrl}/ia/configuracion`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

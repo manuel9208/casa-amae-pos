@@ -3,6 +3,7 @@ import {
     DollarSign, CreditCard, Smartphone, Wallet, Star, Copy, MessageCircle, 
     ArrowLeft, XCircle, CheckCircle2, AlertTriangle, FileText, Package
 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalPago = ({
     modalPago,
@@ -165,7 +166,7 @@ const ModalPago = ({
         if (apiUrl) {
             const fetchClienteReal = async () => {
                 try {
-                    const res = await fetch(`${apiUrl}/clientes`);
+                    const res = await apiFetch(`${apiUrl}/clientes`);
                     if (res.ok) {
                         const clientes = await res.json();
                         let clienteBD = null;
@@ -302,7 +303,7 @@ const ModalPago = ({
         setValidandoNip(true);
         setErrorNip('');
         try {
-            const res = await fetch(`${apiUrl}/clientes/verificar-nip`, {
+            const res = await apiFetch(`${apiUrl}/clientes/verificar-nip`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ cliente_id: modalPago.cliente_id, nip: nipCliente })
@@ -354,14 +355,14 @@ const ModalPago = ({
 
             if (monto > 0) {
                 const baseUrl = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-                const resInsumos = await fetch(`${baseUrl}/insumos`);
+                const resInsumos = await apiFetch(`${baseUrl}/insumos`);
                 const insumos = await resInsumos.json();
                 const insumoRepartidor = insumos.find(i => String(i.nombre).trim().toLowerCase() === 'repartidor externo');
 
                 if (!insumoRepartidor) {
                     faltaInsumo = true;
                 } else {
-                    await fetch(`${baseUrl}/insumos/${insumoRepartidor.id}/comprar`, {
+                    await apiFetch(`${baseUrl}/insumos/${insumoRepartidor.id}/comprar`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({

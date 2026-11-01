@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CheckCircle2, Bike, Store, Package } from 'lucide-react';  
 import TarjetaRepartidor from './TarjetaRepartidor';
 import ResumenAcumuladoReparto from './ResumenAcumuladoReparto';  
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const LiquidacionRepartidoresPrincipal = ({
     pedidosEnReparto,
@@ -22,7 +23,7 @@ const LiquidacionRepartidoresPrincipal = ({
     const apiBase = apiUrl || (typeof window !== 'undefined' && window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
 
     useEffect(() => {
-        fetch(`${apiBase}/distribucion/configuracion`)
+       apiFetch(`${apiBase}/distribucion/configuracion`)
             .then(res => res.json())
             .then(data => {
                 if (!data.error) {
@@ -37,7 +38,7 @@ const LiquidacionRepartidoresPrincipal = ({
 
     const cargarPedidosMayoreo = useCallback(() => {
         setCargandoMayoreo(true);
-        fetch(`${apiBase}/distribucion/ventas`)
+       apiFetch(`${apiBase}/distribucion/ventas`)
             .then(res => res.json())
             .then(data => {
                 if (Array.isArray(data)) {
@@ -67,7 +68,7 @@ const LiquidacionRepartidoresPrincipal = ({
         const idsArray = Array.isArray(pedidoIds) ? pedidoIds : [pedidoIds];
         try {
             const promesas = idsArray.map(id =>
-                fetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
+               apiFetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -87,7 +88,7 @@ const LiquidacionRepartidoresPrincipal = ({
     const actualizarEstadoMayoreo = async (id, nuevoEstado, extraData = {}) => {
         try {
             let payload = { estado_preparacion: nuevoEstado, ...extraData };
-            await fetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
+            await apiFetch(`${apiBase}/distribucion/ventas/${id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

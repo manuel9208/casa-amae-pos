@@ -14,6 +14,9 @@ exports.inicializarInsumos = async () => {
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_stock_activa BOOLEAN DEFAULT false;`);
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_stock_minimo NUMERIC DEFAULT 0;`);
         await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS alerta_ya_enviada BOOLEAN DEFAULT false;`);
+        // 🆕 Gastos de Caja: concepto libre que el cajero escribe (Vasos, Cocaloca, etc.)
+        // Nunca rompe INSERT/SELECT existentes porque todos usan columnas explícitas.
+        await db.query(`ALTER TABLE compras_insumos ADD COLUMN IF NOT EXISTS concepto_gasto VARCHAR(255);`);
         console.log("✅ Columnas de empaques inteligentes y sustitutos creadas en la BD.");  
 
                 // 👇 NUEVO: Tabla singleton para el borrador del botón "Surtir"
@@ -24,21 +27,42 @@ exports.inicializarInsumos = async () => {
                 fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
-        const checkBorrador = await db.query('SELECT id FROM surtidos_borrador WHERE id = 1');
-        if (checkBorrador.rows.length === 0) {
-            await db.query(`INSERT INTO surtidos_borrador (id, datos) VALUES (1, '{}')`);
-        }
         console.log("✅ Tabla de 'surtidos_borrador' verificada/creada en la BD.");
+        // 🆕 Ya no se siembra una fila fija id=1 — ahora es 1 fila por empresa,
+        // creada automáticamente al primer guardado (ver guardarBorradorSurtido con UPSERT).
 
-        // 👇 AUTO-INYECCIÓN: Crea el Insumo Fantasma si no existe en la BD
-        const checkRepartidor = await db.query("SELECT id FROM insumos WHERE LOWER(nombre) = 'repartidor externo'");
-        if (checkRepartidor.rows.length === 0) {
-            await db.query(`
-                INSERT INTO insumos 
-                (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, factor_rendimiento) 
-                VALUES ('Repartidor Externo', 'Viaje', 1, 0, 0, false, 'Directo', 1)
-            `);
-            console.log("✅ Insumo fantasma 'Repartidor Externo' creado automáticamente para cuadre de caja.");
+        // 👇 AUTO-INYECCIÓN: Crea el Insumo Fantasma "Repartidor Externo" POR CADA EMPRESA ACTIVA
+        const empresasActivas = await db.query('SELECT id FROM empresas WHERE activo = true');
+        for (const empresa of empresasActivas.rows) {
+            const checkRepartidor = await db.query(
+                "SELECT id FROM insumos WHERE LOWER(nombre) = 'repartidor externo' AND empresa_id = $1",
+                [empresa.id]
+            );
+            if (checkRepartidor.rows.length === 0) {
+                await db.query(`
+                    INSERT INTO insumos 
+                    (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, factor_rendimiento, empresa_id) 
+                    VALUES ('Repartidor Externo', 'Viaje', 1, 0, 0, false, 'Directo', 1, $1)
+                `, [empresa.id]);
+                console.log(`✅ Insumo fantasma 'Repartidor Externo' creado para la empresa ${empresa.id}.`);
+            }
+
+            // 🆕 AUTO-INYECCIÓN: Insumo Fantasma único "GASTO DE CAJA" por empresa.
+            // Ancla fija para todos los gastos libres del cajero (Vasos, Cocaloca, etc.).
+            // Nunca se usa en recetas, nunca descuenta stock — el nombre real que
+            // escriba el cajero se guarda aparte en compras_insumos.concepto_gasto.
+            const checkGastoCaja = await db.query(
+                "SELECT id FROM insumos WHERE LOWER(nombre) = 'gasto de caja' AND empresa_id = $1",
+                [empresa.id]
+            );
+            if (checkGastoCaja.rows.length === 0) {
+                await db.query(`
+                    INSERT INTO insumos 
+                    (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, factor_rendimiento, empresa_id) 
+                    VALUES ('GASTO DE CAJA', 'Unidad', 1, 0, 0, false, 'Directo', 1, $1)
+                `, [empresa.id]);
+                console.log(`✅ Insumo fantasma 'GASTO DE CAJA' creado para la empresa ${empresa.id}.`);
+            }
         }
     } catch (error) {
         console.error("❌ Error al inicializar insumos:", error);
@@ -46,8 +70,9 @@ exports.inicializarInsumos = async () => {
 };
 
 exports.obtenerInsumos = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const result = await db.query('SELECT * FROM insumos ORDER BY nombre ASC');
+    const result = await db.query('SELECT * FROM insumos WHERE empresa_id = $1 ORDER BY nombre ASC', [empresa_id]);
     const insumosLimpios = result.rows.map(ins => ({
       ...ins,
       stock_actual: isNaN(parseFloat(ins.stock_actual)) ? 0 : parseFloat(ins.stock_actual),
@@ -71,12 +96,13 @@ exports.obtenerInsumos = async (req, res) => {
 };  
 
 exports.crearInsumo = async (req, res) => {
+  const { empresa_id } = req;
   const {
       nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
       es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
       insumo_sustituto_id,
       descontar_solo_llevando, es_empaque_global, regla_empaque_global,
-      alerta_stock_activa, alerta_stock_minimo // 👈 NUEVO: alerta de stock bajo desde el Alta
+      alerta_stock_activa, alerta_stock_minimo
   } = req.body;  
 
   try {
@@ -84,7 +110,7 @@ exports.crearInsumo = async (req, res) => {
     await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumo_sustituto_id INTEGER;`).catch(()=>null);
 
     const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
-        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1)', [nombreLimpio]);
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND empresa_id = $2', [nombreLimpio, empresa_id]);
         if (check.rows.length > 0) {
             return res.status(400).json({ error: 'Ya existe un insumo o empaque con ese nombre exacto.' });
         }
@@ -101,9 +127,9 @@ exports.crearInsumo = async (req, res) => {
 
     const result = await db.query(
       `INSERT INTO insumos
-      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id, descontar_solo_llevando, es_empaque_global, regla_empaque_global, alerta_stock_activa, alerta_stock_minimo)
-      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0]
+      (nombre, unidad_medida, cantidad_presentacion, costo_presentacion, stock_actual, es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio, factor_rendimiento, insumo_sustituto_id, descontar_solo_llevando, es_empaque_global, regla_empaque_global, alerta_stock_activa, alerta_stock_minimo, empresa_id)
+      VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, empresa_id]
     );
     res.status(201).json(result.rows[0]);
   } catch(e) {
@@ -114,6 +140,7 @@ exports.crearInsumo = async (req, res) => {
 
 exports.actualizarInsumo = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const {
     nombre, unidad_medida, cantidad_presentacion, costo_presentacion,
     es_empaque, tipo_rendimiento, peso_prueba_crudo, peso_prueba_limpio,
@@ -126,7 +153,7 @@ exports.actualizarInsumo = async (req, res) => {
     await db.query(`ALTER TABLE insumos ADD COLUMN IF NOT EXISTS insumo_sustituto_id INTEGER;`).catch(()=>null);
 
     const nombreLimpio = String(nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
-        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND id != $2', [nombreLimpio, id]);
+        const check = await db.query('SELECT id FROM insumos WHERE LOWER(nombre) = LOWER($1) AND id != $2 AND empresa_id = $3', [nombreLimpio, id, empresa_id]);
         if (check.rows.length > 0) {
             return res.status(400).json({ error: 'Ya existe OTRO insumo con ese nombre.' });
         }
@@ -146,9 +173,12 @@ exports.actualizarInsumo = async (req, res) => {
       nombre=$1, unidad_medida=$2, cantidad_presentacion=$3, costo_presentacion=$4, es_empaque=$5,
       tipo_rendimiento=$6, peso_prueba_crudo=$7, peso_prueba_limpio=$8, factor_rendimiento=$9, insumo_sustituto_id=$10,
       descontar_solo_llevando=$11, es_empaque_global=$12, regla_empaque_global=$13, alerta_stock_activa=$14, alerta_stock_minimo=$15
-      WHERE id=$16 RETURNING *`,
-      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id]
+      WHERE id=$16 AND empresa_id=$17 RETURNING *`,
+      [nombreLimpio, unidad_medida, parseFloat(cantidad_presentacion), parseFloat(costo_presentacion), Boolean(es_empaque), tipo, peso_prueba_crudo || null, peso_prueba_limpio || null, factor_rendimiento, sustitutoFinal, Boolean(descontar_solo_llevando), Boolean(es_empaque_global), JSON.stringify(regla_empaque_global || {}), Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id, empresa_id]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Insumo no encontrado o no pertenece a tu negocio.' });
+    }
     res.json(result.rows[0]);
   } catch (error) {
     console.error("Error al editar insumo:", error);
@@ -158,6 +188,7 @@ exports.actualizarInsumo = async (req, res) => {
 
 exports.comprarInsumo = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   let paquetes_comprados = req.body.paquetes_comprados !== undefined ? req.body.paquetes_comprados : req.body.paquetes;
   let nuevo_costo_paquete = req.body.nuevo_costo_paquete !== undefined ? req.body.nuevo_costo_paquete : req.body.costo_unitario;
   let origen = req.body.origen || 'Caja';
@@ -165,7 +196,7 @@ exports.comprarInsumo = async (req, res) => {
   try {
     await db.query(`ALTER TABLE compras_insumos ADD COLUMN IF NOT EXISTS usuario_id INTEGER;`).catch(()=>null);  
     await db.query('BEGIN');
-    const ins = await db.query('SELECT cantidad_presentacion, costo_presentacion, stock_actual, factor_rendimiento FROM insumos WHERE id = $1', [id]);
+    const ins = await db.query('SELECT cantidad_presentacion, costo_presentacion, stock_actual, factor_rendimiento FROM insumos WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
     if (ins.rows.length === 0) throw new Error(`Insumo no encontrado: ${id}`);  
     
     const cant_paquete = parseFloat(ins.rows[0].cantidad_presentacion) || 1;
@@ -183,13 +214,13 @@ exports.comprarInsumo = async (req, res) => {
     const nuevo_stock_total = stock_actual_real + stock_agregado;  
     
     const result = await db.query(
-      'UPDATE insumos SET stock_actual = $1, costo_presentacion = $2 WHERE id = $3 RETURNING *',
-      [nuevo_stock_total, costo_uni, id]
+      'UPDATE insumos SET stock_actual = $1, costo_presentacion = $2 WHERE id = $3 AND empresa_id = $4 RETURNING *',
+      [nuevo_stock_total, costo_uni, id, empresa_id]
     );  
     
     await db.query(
-      'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen, usuario_id) VALUES ($1, $2, $3, $4, $5, $6)',
-      [id, paquetes, costo_uni, costo_total, origen, usuario_id]
+      'INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen, usuario_id, empresa_id) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, paquetes, costo_uni, costo_total, origen, usuario_id, empresa_id]
     );  
     await db.query('COMMIT');
     res.json(result.rows[0]);
@@ -200,14 +231,61 @@ exports.comprarInsumo = async (req, res) => {
   }
 };  
 
+// 🆕 Registrar un Gasto de Caja libre (Vasos, pago a proveedor varios, etc.)
+// Jamás toca insumos.stock_actual ni insumos.costo_presentacion — solo inserta
+// en compras_insumos apuntando al insumo fantasma "GASTO DE CAJA".
+exports.registrarGastoCajaLibre = async (req, res) => {
+  const { empresa_id } = req;
+  const { concepto, cantidad, costo, usuario_id } = req.body;
+
+  try {
+    const nombreConcepto = String(concepto || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (!nombreConcepto) {
+      return res.status(400).json({ error: 'El nombre del gasto es obligatorio.' });
+    }
+
+    const cant = parseFloat(cantidad) || 0;
+    const costoUnitario = parseFloat(costo) || 0;
+    if (cant <= 0 || costoUnitario <= 0) {
+      return res.status(400).json({ error: 'Cantidad y costo deben ser mayores a cero.' });
+    }
+
+    const costoTotal = cant * costoUnitario;
+
+    const fantasma = await db.query(
+      "SELECT id FROM insumos WHERE LOWER(nombre) = 'gasto de caja' AND empresa_id = $1",
+      [empresa_id]
+    );
+    if (fantasma.rows.length === 0) {
+      return res.status(500).json({ error: 'No se encontró el insumo de anclaje "Gasto de Caja". Reinicia el backend.' });
+    }
+    const insumoFantasmaId = fantasma.rows[0].id;
+
+    const result = await db.query(
+      `INSERT INTO compras_insumos (insumo_id, paquetes, costo_unitario, costo_total, origen, usuario_id, empresa_id, concepto_gasto)
+       VALUES ($1, $2, $3, $4, 'Caja', $5, $6, $7) RETURNING *`,
+      [insumoFantasmaId, cant, costoUnitario, costoTotal, usuario_id || null, empresa_id, nombreConcepto]
+    );
+
+    res.status(201).json({ success: true, gasto: result.rows[0] });
+  } catch (e) {
+    console.error("Error al registrar gasto de caja libre:", e);
+    res.status(500).json({ error: 'Error al registrar el gasto de caja.' });
+  }
+};
+
 exports.fijarStockExacto = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { stock_real } = req.body; 
   try {
     const result = await db.query(
-      'UPDATE insumos SET stock_actual = $1 WHERE id = $2 RETURNING *',
-      [parseFloat(stock_real), id]
+      'UPDATE insumos SET stock_actual = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *',
+      [parseFloat(stock_real), id, empresa_id]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Insumo no encontrado o no pertenece a tu negocio.' });
+    }
     res.json(result.rows[0]);
   } catch(e) {
     console.error("Error al fijar stock exacto:", e);
@@ -216,13 +294,14 @@ exports.fijarStockExacto = async (req, res) => {
 };
 
 exports.obtenerComprasHoy = async (req, res) => {
+  const { empresa_id } = req;
   try {
     const result = await db.query(`
-      SELECT ci.id, ci.costo_total, i.nombre, ci.usuario_id, ci.fecha_compra as created_at
+      SELECT ci.id, ci.costo_total, COALESCE(ci.concepto_gasto, i.nombre) as nombre, ci.concepto_gasto, ci.usuario_id, ci.fecha_compra as created_at
       FROM compras_insumos ci
-      JOIN insumos i ON ci.insumo_id = i.id
-      WHERE DATE(ci.fecha_compra) = CURRENT_DATE AND ci.origen = 'Caja'
-    `);
+      JOIN insumos i ON ci.insumo_id = i.id AND i.empresa_id = ci.empresa_id
+      WHERE DATE(ci.fecha_compra) = CURRENT_DATE AND ci.origen = 'Caja' AND ci.empresa_id = $1
+    `, [empresa_id]);
     res.json(result.rows);
   } catch (e) {
     res.status(500).json({error: 'Error al obtener compras de hoy'});
@@ -230,16 +309,17 @@ exports.obtenerComprasHoy = async (req, res) => {
 };  
 
 exports.obtenerReporteCompras = async (req, res) => {
+  const { empresa_id } = req;
   const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
   try {
     let query = `
       SELECT ci.id, ci.costo_total, ci.costo_unitario, ci.paquetes, ci.fecha_compra, ci.origen,
-      i.nombre as insumo_nombre, i.unidad_medida
+      COALESCE(ci.concepto_gasto, i.nombre) as insumo_nombre, i.unidad_medida
       FROM compras_insumos ci
-      JOIN insumos i ON ci.insumo_id = i.id
-      WHERE 1=1
+      JOIN insumos i ON ci.insumo_id = i.id AND i.empresa_id = ci.empresa_id
+      WHERE ci.empresa_id = $2
     `;
-    let params = [fecha];  
+    let params = [fecha, empresa_id];  
     if (periodo === 'dia') {
       query += ` AND ci.fecha_compra::DATE = $1::DATE`;
     } else if (periodo === 'semana') {
@@ -276,8 +356,9 @@ exports.inicializarTablasAuditoria = async () => {
 };
 
 exports.obtenerAuditoriaActiva = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const result = await db.query(`SELECT * FROM auditorias_inventario WHERE estado != 'completada' ORDER BY id DESC LIMIT 1`);
+    const result = await db.query(`SELECT * FROM auditorias_inventario WHERE estado != 'completada' AND empresa_id = $1 ORDER BY id DESC LIMIT 1`, [empresa_id]);
     res.json(result.rows[0] || null);
   } catch(e) {
     res.status(500).json({error: 'Error al obtener auditoría activa'});
@@ -285,11 +366,12 @@ exports.obtenerAuditoriaActiva = async (req, res) => {
 };
 
 exports.solicitarAuditoria = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const activa = await db.query(`SELECT id FROM auditorias_inventario WHERE estado != 'completada'`);
+    const activa = await db.query(`SELECT id FROM auditorias_inventario WHERE estado != 'completada' AND empresa_id = $1`, [empresa_id]);
     if (activa.rows.length > 0) return res.status(400).json({error: 'Ya hay un inventario en curso.'});
 
-    const result = await db.query(`INSERT INTO auditorias_inventario (estado, datos) VALUES ('solicitada', '{}') RETURNING *`);
+    const result = await db.query(`INSERT INTO auditorias_inventario (estado, datos, empresa_id) VALUES ('solicitada', '{}', $1) RETURNING *`, [empresa_id]);
     const io = req.app.get('io');
     if (io) io.emit('auditoria_actualizada');
 
@@ -301,13 +383,17 @@ exports.solicitarAuditoria = async (req, res) => {
 
 exports.guardarProgresoAuditoria = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { datos, enviar_a_revision } = req.body;
   try {
     const estado = enviar_a_revision ? 'revision' : 'en_progreso';
     const result = await db.query(
-      `UPDATE auditorias_inventario SET datos = $1, estado = $2 WHERE id = $3 RETURNING *`,
-      [JSON.stringify(datos), estado, id]
+      `UPDATE auditorias_inventario SET datos = $1, estado = $2 WHERE id = $3 AND empresa_id = $4 RETURNING *`,
+      [JSON.stringify(datos), estado, id, empresa_id]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Auditoría no encontrada o no pertenece a tu negocio.' });
+    }
 
     const io = req.app.get('io');
     if (io) io.emit('auditoria_actualizada');
@@ -320,20 +406,25 @@ exports.guardarProgresoAuditoria = async (req, res) => {
 
 exports.resolverAuditoria = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { accion } = req.body; 
   try {
     await db.query('BEGIN');
-    const auditoria = await db.query(`SELECT datos FROM auditorias_inventario WHERE id = $1`, [id]);
-    
+    const auditoria = await db.query(`SELECT datos FROM auditorias_inventario WHERE id = $1 AND empresa_id = $2`, [id, empresa_id]);
+    if (auditoria.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({ error: 'Auditoría no encontrada o no pertenece a tu negocio.' });
+    }
+
     if (accion === 'rechazar') {
-      await db.query(`UPDATE auditorias_inventario SET estado = 'en_progreso' WHERE id = $1`, [id]);
+      await db.query(`UPDATE auditorias_inventario SET estado = 'en_progreso' WHERE id = $1 AND empresa_id = $2`, [id, empresa_id]);
     } 
     else if (accion === 'aprobar') {
       const datos = auditoria.rows[0].datos;
       for (const [insumoId, cantidad] of Object.entries(datos)) {
-        await db.query(`UPDATE insumos SET stock_actual = $1 WHERE id = $2`, [parseFloat(cantidad), insumoId]);
+        await db.query(`UPDATE insumos SET stock_actual = $1 WHERE id = $2 AND empresa_id = $3`, [parseFloat(cantidad), insumoId, empresa_id]);
       }
-      await db.query(`UPDATE auditorias_inventario SET estado = 'completada', fecha_cierre = CURRENT_TIMESTAMP WHERE id = $1`, [id]);
+      await db.query(`UPDATE auditorias_inventario SET estado = 'completada', fecha_cierre = CURRENT_TIMESTAMP WHERE id = $1 AND empresa_id = $2`, [id, empresa_id]);
     }
     await db.query('COMMIT');
 
@@ -352,8 +443,12 @@ exports.resolverAuditoria = async (req, res) => {
 
 exports.reiniciarStock = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   try {
-    const result = await db.query('UPDATE insumos SET stock_actual = 0 WHERE id = $1 RETURNING *', [id]);
+    const result = await db.query('UPDATE insumos SET stock_actual = 0 WHERE id = $1 AND empresa_id = $2 RETURNING *', [id, empresa_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Insumo no encontrado o no pertenece a tu negocio.' });
+    }
     res.json(result.rows[0]);
   } catch(e) {
     res.status(500).json({error: 'Error al reiniciar stock'});
@@ -361,8 +456,12 @@ exports.reiniciarStock = async (req, res) => {
 };  
 
 exports.eliminarInsumo = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    await db.query('DELETE FROM insumos WHERE id = $1', [req.params.id]);
+    const result = await db.query('DELETE FROM insumos WHERE id = $1 AND empresa_id = $2 RETURNING id', [req.params.id, empresa_id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Insumo no encontrado o no pertenece a tu negocio.' });
+    }
     res.json({success: true});
   } catch(e) {
     res.status(500).json({error: 'Error al eliminar insumo'});
@@ -374,12 +473,16 @@ exports.eliminarInsumo = async (req, res) => {
 // =========================================================
 exports.actualizarAlertaStock = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { alerta_stock_activa, alerta_stock_minimo } = req.body;
   try {
     const result = await db.query(
-      `UPDATE insumos SET alerta_stock_activa = $1, alerta_stock_minimo = $2, alerta_ya_enviada = false WHERE id = $3 RETURNING *`,
-      [Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id]
+      `UPDATE insumos SET alerta_stock_activa = $1, alerta_stock_minimo = $2, alerta_ya_enviada = false WHERE id = $3 AND empresa_id = $4 RETURNING *`,
+      [Boolean(alerta_stock_activa), parseFloat(alerta_stock_minimo) || 0, id, empresa_id]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Insumo no encontrado o no pertenece a tu negocio.' });
+    }
     res.json(result.rows[0]);
   } catch (e) {
     console.error("Error al actualizar alerta de stock:", e);
@@ -393,7 +496,7 @@ exports.actualizarAlertaStock = async (req, res) => {
 exports.verificarAlertasStockPersonalizado = async (io) => {
   try {
     const result = await db.query(`
-      SELECT id, nombre, stock_actual, unidad_medida, alerta_stock_minimo, alerta_ya_enviada
+      SELECT id, nombre, stock_actual, unidad_medida, alerta_stock_minimo, alerta_ya_enviada, empresa_id
       FROM insumos
       WHERE alerta_stock_activa = true
     `);
@@ -404,17 +507,18 @@ exports.verificarAlertasStockPersonalizado = async (io) => {
       const yaEnviada = ins.alerta_ya_enviada === true;
 
       if (stockActual <= minimo && !yaEnviada) {
-        // 👇 Dispara el push UNA SOLA VEZ y marca el candado
+        // 👇 Dispara el push UNA SOLA VEZ y marca el candado (ahora aislado por empresa)
         await notificarStaff(
           null,
           '⚠️ Stock Bajo',
-          `${ins.nombre} está en ${stockActual} ${ins.unidad_medida} (mínimo configurado: ${minimo}).`
+          `${ins.nombre} está en ${stockActual} ${ins.unidad_medida} (mínimo configurado: ${minimo}).`,
+          ins.empresa_id
         );
-        await db.query(`UPDATE insumos SET alerta_ya_enviada = true WHERE id = $1`, [ins.id]);
-        if (io) io.emit('alerta_stock_insumo', { id: ins.id, nombre: ins.nombre });
+        await db.query(`UPDATE insumos SET alerta_ya_enviada = true WHERE id = $1 AND empresa_id = $2`, [ins.id, ins.empresa_id]);
+        if (io) io.emit('alerta_stock_insumo', { id: ins.id, nombre: ins.nombre, empresa_id: ins.empresa_id });
       } else if (stockActual > minimo && yaEnviada) {
         // 👇 Se reabasteció: rearma el candado para la próxima caída
-        await db.query(`UPDATE insumos SET alerta_ya_enviada = false WHERE id = $1`, [ins.id]);
+        await db.query(`UPDATE insumos SET alerta_ya_enviada = false WHERE id = $1 AND empresa_id = $2`, [ins.id, ins.empresa_id]);
       }
     }
   } catch (e) {
@@ -427,17 +531,41 @@ exports.verificarAlertasStockPersonalizado = async (io) => {
 // confirmada: evita tocar ese archivo y el riesgo de romper el flujo de pedidos)
 // =========================================================
 const webpush = require('web-push');
-const notificarStaff = async (rolesArray, titulo, cuerpo) => {
+const { resolverVariables } = require('../utils/envResolver'); // 🆕 MULTI-TENANT
+
+// 🆕 Mismo mecanismo que pedidoController.js (duplicado intencional,
+// consistente con la decisión original de este archivo de no importar
+// nada de pedidoController.js).
+const configurarVapidPorEmpresa = async (empresaId) => {
     try {
-        let query = "SELECT s.suscripcion FROM suscripciones_push s JOIN usuarios u ON s.usuario_id = u.id";
-        let subs;
-        if (rolesArray && rolesArray.length > 0) {
-            const placeholders = rolesArray.map((_, i) => `$${i+1}`).join(',');
-            query += ` WHERE u.rol IN (${placeholders})`;
-            subs = await db.query(query, rolesArray);
-        } else {
-            subs = await db.query(query);
+        const vars = await resolverVariables(empresaId, ['VAPID_EMAIL', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']);
+        const email = vars.VAPID_EMAIL || 'soporte@pos.com';
+        const publicKey = vars.VAPID_PUBLIC_KEY;
+        const privateKey = vars.VAPID_PRIVATE_KEY;
+        if (publicKey && privateKey) {
+            webpush.setVapidDetails(`mailto:${email}`, publicKey, privateKey);
+            return true;
         }
+        return false;
+    } catch (e) {
+        console.log("No se pudieron configurar las llaves VAPID para la empresa:", empresaId, e.message);
+        return false;
+    }
+};
+
+const notificarStaff = async (rolesArray, titulo, cuerpo, empresaId) => {
+    try {
+        const vapidListo = await configurarVapidPorEmpresa(empresaId); // 🆕 por empresa, antes de enviar
+        if (!vapidListo) return;
+
+        let query = "SELECT s.suscripcion FROM suscripciones_push s JOIN usuarios u ON s.usuario_id = u.id WHERE u.empresa_id = $1";
+        let params = [empresaId];
+        if (rolesArray && rolesArray.length > 0) {
+            const placeholders = rolesArray.map((_, i) => `$${i+2}`).join(',');
+            query += ` AND u.rol IN (${placeholders})`;
+            params = params.concat(rolesArray);
+        }
+        const subs = await db.query(query, params);
         const payload = JSON.stringify({ title: titulo, body: cuerpo });
         for(let row of subs.rows) {
             const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
@@ -450,8 +578,9 @@ const notificarStaff = async (rolesArray, titulo, cuerpo) => {
 // SURTIDO DIARIO (Botón "Surtir") — Borrador único + aplicación en bloque
 // =========================================================
 exports.obtenerBorradorSurtido = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const result = await db.query('SELECT datos FROM surtidos_borrador WHERE id = 1');
+    const result = await db.query('SELECT datos FROM surtidos_borrador WHERE empresa_id = $1', [empresa_id]);
     const datos = result.rows.length > 0 ? result.rows[0].datos : {};
     res.json({ success: true, datos: datos || {} });
   } catch (e) {
@@ -461,11 +590,13 @@ exports.obtenerBorradorSurtido = async (req, res) => {
 };
 
 exports.guardarBorradorSurtido = async (req, res) => {
+  const { empresa_id } = req;
   const { datos } = req.body;
   try {
     await db.query(
-      `UPDATE surtidos_borrador SET datos = $1, fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = 1`,
-      [JSON.stringify(datos || {})]
+      `INSERT INTO surtidos_borrador (empresa_id, datos, fecha_actualizacion) VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (empresa_id) DO UPDATE SET datos = $2, fecha_actualizacion = CURRENT_TIMESTAMP`,
+      [empresa_id, JSON.stringify(datos || {})]
     );
     res.json({ success: true });
   } catch (e) {
@@ -475,6 +606,7 @@ exports.guardarBorradorSurtido = async (req, res) => {
 };
 
 exports.aplicarSurtido = async (req, res) => {
+  const { empresa_id } = req;
   const { datos } = req.body;
   const client = await db.connect();
   try {
@@ -484,13 +616,13 @@ exports.aplicarSurtido = async (req, res) => {
 
     for (const [insumoId, cantidad] of entradas) {
       await client.query(
-        'UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2',
-        [parseFloat(cantidad), insumoId]
+        'UPDATE insumos SET stock_actual = stock_actual + $1 WHERE id = $2 AND empresa_id = $3',
+        [parseFloat(cantidad), insumoId, empresa_id]
       );
     }
 
     // Vaciamos el borrador: el surtido ya quedó aplicado de golpe
-    await client.query(`UPDATE surtidos_borrador SET datos = '{}', fecha_actualizacion = CURRENT_TIMESTAMP WHERE id = 1`);
+    await client.query(`UPDATE surtidos_borrador SET datos = '{}', fecha_actualizacion = CURRENT_TIMESTAMP WHERE empresa_id = $1`, [empresa_id]);
 
     await client.query('COMMIT');
 

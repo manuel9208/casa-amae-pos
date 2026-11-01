@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { LayoutGrid, PlusCircle, Trash2, QrCode, MapPin, AlertTriangle } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting, setIsSubmitting }) => {
   const [nuevaMesa, setNuevaMesa] = useState('');
@@ -14,7 +15,7 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`${apiUrl}/mesas`, {
+      const res = await apiFetch(`${apiUrl}/mesas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ numero_mesa: nuevaMesa.trim(), zona: nuevaZona.trim() })
@@ -39,7 +40,7 @@ const ListaMesasQR = ({ mesas, apiUrl, cargarMesas, mostrarAlerta, isSubmitting,
     if (!mesaAEliminar) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/mesas/${mesaAEliminar.id}`, { method: 'DELETE' });
+      const res = await apiFetch(`${apiUrl}/mesas/${mesaAEliminar.id}`, { method: 'DELETE' });
       if (res.ok) {
         mostrarAlerta('Eliminada', `La mesa ${mesaAEliminar.numero_mesa} fue borrada.`);
         cargarMesas();

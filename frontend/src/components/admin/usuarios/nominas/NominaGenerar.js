@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calculator, Calendar, CheckSquare, Square, AlertTriangle, Filter, Save, CheckCircle2, Lock, PlusCircle, MinusCircle, Trash2, ShieldAlert, Clock, Camera, ShieldCheck, User, XCircle, DollarSign } from 'lucide-react';
 import { useGenerarNomina } from './hooks/useGenerarNomina';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
@@ -46,7 +47,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
         const fetchPagados = async () => {
             try {
                 const year = new Date().getFullYear();
-                const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${year}-01-01`);
+                const res = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${year}-01-01`);
                 if (res.ok) {
                     const data = await res.json();
                     let pagados = new Set();
@@ -115,7 +116,7 @@ const NominaGenerar = ({ usuariosDB, apiUrl, showAlert, showConfirm }) => {
                     usuario_admin_id: userObj.id,
                     datos_corte: { metadata: { fecha_inicio: fechaInicio, fecha_fin: fechaFin, es_nomina: true }, recibos: preNomina }
                 };
-                const res = await fetch(`${apiUrl}/nominas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const res = await apiFetch(`${apiUrl}/nominas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (res.ok) {
                     showAlert('¡Nómina Exitosa!', 'La nómina ha sido generada.', 'success');
                     setPreNomina([]); setFechaInicio(''); setFechaFin('');

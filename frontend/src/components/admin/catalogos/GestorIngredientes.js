@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Edit, Trash2 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorIngredientes = ({
   clasificaciones, catalogoIngredientes, apiUrl, refrescarDatos, showAlert, showConfirm
@@ -29,7 +30,7 @@ const GestorIngredientes = ({
     
     try { 
       const url = editandoIngId ? `${apiUrl}/ingredientes/${editandoIngId}` : `${apiUrl}/ingredientes`; 
-      const res = await fetch(url, { method: editandoIngId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoIng) }); 
+      const res = await apiFetch(url, { method: editandoIngId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(nuevoIng) }); 
       if (res.ok) { 
         showAlert("¡Éxito!", editandoIngId ? "Actualizado correctamente." : "Guardado correctamente.", "success");
         cancelarEdicionIngrediente(); 
@@ -43,7 +44,7 @@ const GestorIngredientes = ({
   const eliminarIng = (id) => { 
     showConfirm("Eliminar", "¿Estás seguro de borrar este ingrediente o extra?", async () => { 
       try {
-        await fetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); 
+        await apiFetch(`${apiUrl}/ingredientes/${id}`, { method: 'DELETE' }); 
         refrescarDatos(); 
         showAlert("Eliminado", "Borrado correctamente.", "success");
       } catch (error) {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Mail, Key, Eye, EyeOff, Info, Server, Hash, Save, PlusCircle, Trash2 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 // 👇 FIX: Recibimos cerrarModal en las props
 const ConfigProveedores = ({ apiUrl, showAlert, cerrarModal }) => {
@@ -10,7 +11,7 @@ const ConfigProveedores = ({ apiUrl, showAlert, cerrarModal }) => {
 
   const cargarConfiguracion = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/proveedores/configuracion`);
+      const res = await apiFetch(`${apiUrl}/proveedores/configuracion`);
       if (res.ok) {
         const data = await res.json();
         let parseadas = [];
@@ -51,7 +52,7 @@ const ConfigProveedores = ({ apiUrl, showAlert, cerrarModal }) => {
     const validas = cuentasSMTP.filter(c => c.host && c.email && c.password);
 
     try {
-      const res = await fetch(`${apiUrl}/proveedores/configuracion`, {
+      const res = await apiFetch(`${apiUrl}/proveedores/configuracion`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ correos_smtp: validas, ajustes_extra: {} })

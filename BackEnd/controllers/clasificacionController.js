@@ -1,15 +1,13 @@
 const db = require('../config/db');  
 
 exports.obtenerClasificaciones = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    // 👇 AUTO-MIGRACIÓN: Crea las columnas de horarios y la nueva de DISPONIBLE
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
-
-    const result = await db.query('SELECT * FROM clasificaciones ORDER BY id ASC');
+    // NOTA: los ALTER TABLE de usa_horario/dias_disponibles/hora_inicio/hora_fin/
+    // disponible ya NO se hacen aquí (ni en crearClasificacion/actualizarClasificacion,
+    // donde estaban duplicados 3 veces) — ya viven centralizados en
+    // config/migracionMultiTenant.js.
+    const result = await db.query('SELECT * FROM clasificaciones WHERE empresa_id = $1 ORDER BY id ASC', [empresaId]); // 🔒 FILTRO EMPRESA
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener clasificaciones' });
@@ -21,6 +19,7 @@ exports.crearClasificacion = async (req, res) => {
     nombre, destino, emoji, genera_puntos, permite_canje, disponible,
     usa_horario, dias_disponibles, hora_inicio, hora_fin 
   } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
@@ -33,17 +32,11 @@ exports.crearClasificacion = async (req, res) => {
   const hFin = hora_fin || '23:59';
 
   try {
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
-
     const result = await db.query(
       `INSERT INTO clasificaciones 
-      (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje, disponible, usa_horario, dias_disponibles, hora_inicio, hora_fin) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin]
+      (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje, disponible, usa_horario, dias_disponibles, hora_inicio, hora_fin, empresa_id) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`, // 🆕 TENANT
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin, empresaId]
     );  
     
     const io = req.app.get('io');
@@ -61,6 +54,7 @@ exports.actualizarClasificacion = async (req, res) => {
     nombre, destino, emoji, genera_puntos, permite_canje, disponible,
     usa_horario, dias_disponibles, hora_inicio, hora_fin 
   } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   
   const imagen_url = req.file ? req.file.path : null;
   const isGeneraPuntos = genera_puntos === undefined ? true : (genera_puntos === 'true' || genera_puntos === true);
@@ -73,15 +67,9 @@ exports.actualizarClasificacion = async (req, res) => {
   const hFin = hora_fin || '23:59';
 
   try {
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS usa_horario BOOLEAN DEFAULT false;').catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS dias_disponibles VARCHAR(100) DEFAULT '[1,2,3,4,5,6,7]';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_inicio TIME DEFAULT '00:00';").catch(() => null);
-    await db.query("ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS hora_fin TIME DEFAULT '23:59';").catch(() => null);
-    await db.query('ALTER TABLE clasificaciones ADD COLUMN IF NOT EXISTS disponible BOOLEAN DEFAULT true;').catch(() => null);
-
     await db.query('BEGIN'); 
     
-    const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1', [id]);
+    const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
     if (oldRes.rows.length === 0) throw new Error("Clasificación no encontrada");
     const nombreAnterior = oldRes.rows[0].nombre;  
     
@@ -89,13 +77,13 @@ exports.actualizarClasificacion = async (req, res) => {
       `UPDATE clasificaciones SET 
         nombre=$1, destino=$2, emoji=$3, imagen_url=COALESCE($4, imagen_url), 
         genera_puntos=$5, permite_canje=$6, disponible=$7, usa_horario=$8, dias_disponibles=$9, hora_inicio=$10, hora_fin=$11 
-      WHERE id=$12 RETURNING *`,
-      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin, id]
+      WHERE id=$12 AND empresa_id=$13 RETURNING *`, // 🔒 FILTRO EMPRESA
+      [nombre, destino, emoji, imagen_url, isGeneraPuntos, isPermiteCanje, isDisponible, isUsaHorario, diasDisp, hInicio, hFin, id, empresaId]
     );  
     
     if (nombreAnterior !== nombre) {
-      await db.query('UPDATE productos SET categoria = $1 WHERE categoria = $2', [nombre, nombreAnterior]);
-      await db.query('UPDATE promociones SET categoria_trigger = $1 WHERE categoria_trigger = $2', [nombre, nombreAnterior]);
+      await db.query('UPDATE productos SET categoria = $1 WHERE categoria = $2 AND empresa_id = $3', [nombre, nombreAnterior, empresaId]); // 🔒 FILTRO EMPRESA
+      await db.query('UPDATE promociones SET categoria_trigger = $1 WHERE categoria_trigger = $2 AND empresa_id = $3', [nombre, nombreAnterior, empresaId]); // 🔒 FILTRO EMPRESA
     }  
     
     await db.query('COMMIT');  
@@ -111,16 +99,17 @@ exports.actualizarClasificacion = async (req, res) => {
 };  
 
 exports.eliminarClasificacion = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     await db.query('BEGIN');  
     
-    const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1', [req.params.id]);
+    const oldRes = await db.query('SELECT nombre FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [req.params.id, empresaId]); // 🔒 FILTRO EMPRESA
     if (oldRes.rows.length > 0) {
       const nombreAnterior = oldRes.rows[0].nombre;
-      await db.query("UPDATE productos SET categoria = 'Sin Categoría' WHERE categoria = $1", [nombreAnterior]);
+      await db.query("UPDATE productos SET categoria = 'Sin Categoría' WHERE categoria = $1 AND empresa_id = $2", [nombreAnterior, empresaId]); // 🔒 FILTRO EMPRESA
     }  
     
-    await db.query('DELETE FROM clasificaciones WHERE id = $1', [req.params.id]);  
+    await db.query('DELETE FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [req.params.id, empresaId]); // 🔒 FILTRO EMPRESA
     
     await db.query('COMMIT');  
     
@@ -138,10 +127,11 @@ exports.actualizarDisponibilidad = async (req, res) => {
   try {
     const { id } = req.params;
     const { disponible } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     
     const result = await db.query(
-      'UPDATE clasificaciones SET disponible = $1 WHERE id = $2 RETURNING *',
-      [disponible, id]
+      'UPDATE clasificaciones SET disponible = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', // 🔒 FILTRO EMPRESA
+      [disponible, id, empresaId]
     );  
     
     const io = req.app.get('io');
@@ -158,6 +148,7 @@ exports.actualizarDisponibilidad = async (req, res) => {
 // ==========================================
 exports.clonarClasificacion = async (req, res) => {
   const { origen_id, nueva_clasificacion, ingredientes_ids, productos_ids, modo_clon, imagen_url_previa } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   const client = await db.connect(); 
 
   try {
@@ -165,8 +156,8 @@ exports.clonarClasificacion = async (req, res) => {
 
     // 1. Insertar la nueva clasificación
     const insertClasif = await client.query(
-      `INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje, disponible, usa_horario, dias_disponibles, hora_inicio, hora_fin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      `INSERT INTO clasificaciones (nombre, destino, emoji, imagen_url, genera_puntos, permite_canje, disponible, usa_horario, dias_disponibles, hora_inicio, hora_fin, empresa_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`, // 🆕 TENANT
       [
         nueva_clasificacion.nombre,
         nueva_clasificacion.destino || 'Cocina',
@@ -178,7 +169,8 @@ exports.clonarClasificacion = async (req, res) => {
         nueva_clasificacion.usa_horario === true,
         nueva_clasificacion.dias_disponibles || '[1,2,3,4,5,6,7]',
         nueva_clasificacion.hora_inicio || '00:00',
-        nueva_clasificacion.hora_fin || '23:59'
+        nueva_clasificacion.hora_fin || '23:59',
+        empresaId
       ]
     );
     const nuevaClasifDB = insertClasif.rows[0];
@@ -188,14 +180,14 @@ exports.clonarClasificacion = async (req, res) => {
     let nombresIngredientesCopiados = new Set();
     
     if (ingredientes_ids && ingredientes_ids.length > 0) {
-      const ingQuery = `SELECT * FROM catalogo_ingredientes WHERE clasificacion_id = $1 AND id = ANY($2::int[])`;
-      const ingsToCopy = await client.query(ingQuery, [origen_id, ingredientes_ids]);
+      const ingQuery = `SELECT * FROM catalogo_ingredientes WHERE clasificacion_id = $1 AND id = ANY($2::int[]) AND empresa_id = $3`; // 🔒 FILTRO EMPRESA
+      const ingsToCopy = await client.query(ingQuery, [origen_id, ingredientes_ids, empresaId]);
 
       for (const ing of ingsToCopy.rows) {
         await client.query(
-          `INSERT INTO catalogo_ingredientes (clasificacion_id, nombre, tipo, precio_extra, permite_extra)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [nuevoClasifId, ing.nombre, ing.tipo, ing.precio_extra, ing.permite_extra]
+          `INSERT INTO catalogo_ingredientes (clasificacion_id, nombre, tipo, precio_extra, permite_extra, empresa_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`, // 🆕 TENANT
+          [nuevoClasifId, ing.nombre, ing.tipo, ing.precio_extra, ing.permite_extra, empresaId]
         );
         nombresIngredientesCopiados.add(String(ing.nombre).trim().toLowerCase());
       }
@@ -203,8 +195,8 @@ exports.clonarClasificacion = async (req, res) => {
 
     // 3. Copiar los Productos seleccionados re-asignando la categoría y evaluando el "Modo"
     if (productos_ids && productos_ids.length > 0) {
-      const prodQuery = `SELECT * FROM productos WHERE id = ANY($1::int[])`;
-      const prodsToCopy = await client.query(prodQuery, [productos_ids]);
+      const prodQuery = `SELECT * FROM productos WHERE id = ANY($1::int[]) AND empresa_id = $2`; // 🔒 FILTRO EMPRESA
+      const prodsToCopy = await client.query(prodQuery, [productos_ids, empresaId]);
 
       for (const prod of prodsToCopy.rows) {
         let nuevasOpciones = [];
@@ -233,15 +225,15 @@ exports.clonarClasificacion = async (req, res) => {
 
         await client.query(
           `INSERT INTO productos
-          (nombre, descripcion, precio_base, emoji, categoria, opciones, imagen_url, tiempo_preparacion, rendimiento, disponible, genera_puntos, permite_canje, usa_stock, stock_preparado, usa_horario, dias_disponibles, hora_inicio, hora_fin)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+          (nombre, descripcion, precio_base, emoji, categoria, opciones, imagen_url, tiempo_preparacion, rendimiento, disponible, genera_puntos, permite_canje, usa_stock, stock_preparado, usa_horario, dias_disponibles, hora_inicio, hora_fin, empresa_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`, // 🆕 TENANT
           [
             prod.nombre, prod.descripcion, prod.precio_base, prod.emoji, 
             nuevaClasifDB.nombre, 
             JSON.stringify(nuevasOpciones), prod.imagen_url, 
             prod.tiempo_preparacion, prod.rendimiento, prod.disponible, 
             prod.genera_puntos, prod.permite_canje, nuevoUsaStock, nuevoStock,
-            nuevoUsaHorario, nuevosDias, nuevaHoraInicio, nuevaHoraFin
+            nuevoUsaHorario, nuevosDias, nuevaHoraInicio, nuevaHoraFin, empresaId
           ]
         );
       }

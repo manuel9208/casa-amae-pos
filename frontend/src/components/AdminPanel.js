@@ -12,11 +12,13 @@ import AdminReportes from './admin/AdminReportes';
 import AdminPromociones from './admin/AdminPromociones';
 import AdminMesas from './admin/AdminMesas';  
 import AdminProveedores from './admin/AdminProveedores';
+import { apiFetch } from '../utils/apiFetch';
 import AdminDistribucion from './admin/AdminDistribucion'; // 👈 RUTA CORREGIDA
 import AdminBiometria from './admin/AdminBiometria';
 import AdminAsistencia from './admin/AdminAsistencia';
 import AdminIA from './admin/AdminIA';
 import AdminConfigOperativa from './admin/AdminConfigOperativa';
+import AdminEmpresas from './admin/AdminEmpresas'; // 👈 NUEVO: Panel exclusivo Admin Global
 
 const EMOJIS_POR_GIRO = {
   "☕ Cafetería & Bebidas": ["☕", "🍵", "🥤", "🧋", "🧃", "🧉", "🥛", "🍺", "🍷", "🥂", "🍹", "🍸", "🍶", "🧊"],
@@ -57,6 +59,9 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const canViewAsistencia = isGlobalAdmin || user?.permisos?.asistencia === true;
   const canViewIA = isGlobalAdmin || user?.permisos?.ia === true;
   const canViewConfigOperativa = isGlobalAdmin || user?.permisos?.configuracion === true;
+// 👇 NUEVO: Admin Empresas es EXCLUSIVO del Admin Global — sin override por permisos,
+// a propósito, para que nadie más pueda habilitarlo aunque tenga todos los permisos activos.
+const canViewEmpresas = isGlobalAdmin;
   
   const [modalUI, setModalUI] = useState({ isOpen: false, tipo: 'info', titulo: '', mensaje: '', onConfirm: null });  
 
@@ -75,7 +80,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
   const cargarDatos = useCallback(async () => {
     const fetchSeguro = async (ruta, setter) => {
       try {
-        const res = await fetch(`${apiUrl}/${ruta}`);
+        const res = await apiFetch(`${apiUrl}/${ruta}`);
         if (res.ok) {
           const data = await res.json();
           setter(Array.isArray(data) ? data : []);
@@ -91,7 +96,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
 
     if (canViewConfig || canViewMenu) {
       try {
-        const resConf = await fetch(`${apiUrl}/configuracion`);
+        const resConf = await apiFetch(`${apiUrl}/configuracion`);
         if (resConf.ok) {
           const dataConf = await resConf.json();
           if (dataConf && !dataConf.error) setConfigGlobal(dataConf);
@@ -127,7 +132,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
     let intervalo;
     if (seccion === 'inventario' && canViewInventario) {
       intervalo = setInterval(() => {
-        fetch(`${apiUrl}/insumos`)
+       apiFetch(`${apiUrl}/insumos`)
           .then(r => r.json())
           .then(data => setInsumosDB(Array.isArray(data) ? data : []))
           .catch(e => console.error("Error silenciado auto-refresh inventario", e));
@@ -142,7 +147,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
       'Esto forzará a que todos los dispositivos (Cajas, Cocinas, TV) recarguen la aplicación instantáneamente para obtener la última versión de Vercel.',
       async () => {
         try {
-          const res = await fetch(`${apiUrl}/configuracion/actualizar-sistema`, { method: 'POST' });
+          const res = await apiFetch(`${apiUrl}/configuracion/actualizar-sistema`, { method: 'POST' });
           if (res.ok) {
             showAlert('¡Enviado!', 'Orden de actualización enviada a todos los dispositivos.', 'success');
           } else {
@@ -184,6 +189,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           canViewAsistencia={canViewAsistencia}
           canViewIA={canViewIA}
           canViewConfigOperativa={canViewConfigOperativa}
+          canViewEmpresas={canViewEmpresas}
         />  
       </div>
 
@@ -264,6 +270,7 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
           <AdminClientes
             apiUrl={apiUrl}
             showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         )}  
         {seccion === 'reportes' && canViewReportes && (
@@ -287,6 +294,14 @@ const AdminPanel = ({ user, onLogout, onGoToKiosco }) => {
         {seccion === 'mesas' && canViewMesas && (
           <AdminMesas
             apiUrl={apiUrl}
+          />
+        )}
+        {/* 👇 NUEVO ESPACIO: Admin Empresas (exclusivo Admin Global) */}
+        {seccion === 'empresas' && canViewEmpresas && (
+          <AdminEmpresas
+            apiUrl={apiUrl}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
           />
         )}
       </main>  

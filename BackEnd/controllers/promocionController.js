@@ -14,16 +14,18 @@ const asegurarMigracionPromociones = async () => {
 
 exports.obtenerPromociones = async (req, res) => {
     await asegurarMigracionPromociones();
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         const result = await db.query(`
             SELECT p.*,
             t.nombre AS trigger_nombre,
             o.nombre AS oferta_nombre, o.imagen_url AS oferta_imagen
             FROM promociones p
-            LEFT JOIN productos t ON p.producto_trigger_id = t.id
-            LEFT JOIN productos o ON p.producto_oferta_id = o.id
+            LEFT JOIN productos t ON p.producto_trigger_id = t.id AND t.empresa_id = $1
+            LEFT JOIN productos o ON p.producto_oferta_id = o.id AND o.empresa_id = $1
+            WHERE p.empresa_id = $1
             ORDER BY p.activo DESC, p.id DESC
-        `);
+        `, [empresaId]); // 🔒 FILTRO EMPRESA
         res.json(result.rows);
     } catch (error) {
         res.status(500).json({ error: 'Error al obtener promociones' });
@@ -33,6 +35,7 @@ exports.obtenerPromociones = async (req, res) => {
 exports.crearPromocion = async (req, res) => {
     await asegurarMigracionPromociones();
     const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
         const configOfertaParsed = config_oferta ? (typeof config_oferta === 'string' ? config_oferta : JSON.stringify(config_oferta)) : null;
@@ -42,9 +45,9 @@ exports.crearPromocion = async (req, res) => {
 
         const result = await db.query(
             `INSERT INTO promociones
-            (nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb) RETURNING *`,
-            [nombre, tipo || 'upselling', producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valorDescuentoLimpio, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed]
+            (nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta, empresa_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12) RETURNING *`, // 🆕 TENANT
+            [nombre, tipo || 'upselling', producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valorDescuentoLimpio, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed, empresaId]
         );
 
         // Aviso en Tiempo Real al Kiosco/Pantallas
@@ -61,9 +64,14 @@ exports.crearPromocion = async (req, res) => {
 exports.actualizarEstadoPromocion = async (req, res) => {
     const { id } = req.params;
     const { activo } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        const result = await db.query('UPDATE promociones SET activo = $1 WHERE id = $2 RETURNING *', [activo, id]);
-        
+        const result = await db.query('UPDATE promociones SET activo = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', [activo, id, empresaId]); // 🔒 FILTRO EMPRESA
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Promoción no encontrada o no pertenece a tu negocio.' });
+        }
+
         const io = req.app.get('io');
         if (io) io.emit('catalogo_actualizado');
         
@@ -74,9 +82,14 @@ exports.actualizarEstadoPromocion = async (req, res) => {
 };
 
 exports.eliminarPromocion = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        await db.query('DELETE FROM promociones WHERE id = $1', [req.params.id]);
-        
+        const result = await db.query('DELETE FROM promociones WHERE id = $1 AND empresa_id = $2 RETURNING id', [req.params.id, empresaId]); // 🔒 FILTRO EMPRESA
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Promoción no encontrada o no pertenece a tu negocio.' });
+        }
+
         const io = req.app.get('io');
         if (io) io.emit('catalogo_actualizado');
         
@@ -90,6 +103,7 @@ exports.actualizarPromocion = async (req, res) => {
     await asegurarMigracionPromociones();
     const { id } = req.params;
     const { nombre, tipo, producto_trigger_id, categoria_trigger, producto_oferta_id, tipo_descuento, valor_descuento, dias_aplicables, hora_inicio, hora_fin, config_oferta } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     
     try {
         const configOfertaParsed = config_oferta ? (typeof config_oferta === 'string' ? config_oferta : JSON.stringify(config_oferta)) : null;
@@ -102,8 +116,8 @@ exports.actualizarPromocion = async (req, res) => {
             nombre = $1, tipo = $2, producto_trigger_id = $3, categoria_trigger = $4,
             producto_oferta_id = $5, tipo_descuento = $6, valor_descuento = $7,
             dias_aplicables = $8::jsonb, hora_inicio = $9, hora_fin = $10, config_oferta = $11::jsonb
-            WHERE id = $12 RETURNING *`,
-            [nombre, tipo || 'upselling', producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valorDescuentoLimpio, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed, id]
+            WHERE id = $12 AND empresa_id = $13 RETURNING *`, // 🔒 FILTRO EMPRESA
+            [nombre, tipo || 'upselling', producto_trigger_id || null, categoria_trigger || null, producto_oferta_id || null, tipo_descuento, valorDescuentoLimpio, JSON.stringify(dias_aplicables), hora_inicio, hora_fin, configOfertaParsed, id, empresaId]
         );
 
         if (result.rows.length === 0) return res.status(404).json({ error: 'Promoción no encontrada' });

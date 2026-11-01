@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send, User, Sparkles, TrendingUp, Users, Lightbulb, Zap, BarChart3 } from 'lucide-react';
 import { useMotorIA } from './useMotorIA';
 import ModalGraficas from './ModalGraficas';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ChatCopiloto = ({ apiUrl, user, showAlert }) => {
   const { consultarIA, isLoading } = useMotorIA(apiUrl);
@@ -57,7 +58,7 @@ const ChatCopiloto = ({ apiUrl, user, showAlert }) => {
         return;
       }
       try {
-        const res = await fetch(`${apiUrl}/ia/historial?usuario_id=${user.id}&contexto=${encodeURIComponent(contextoActivo)}`);
+        const res = await apiFetch(`${apiUrl}/ia/historial?usuario_id=${user.id}&contexto=${encodeURIComponent(contextoActivo)}`);
         const data = await res.json();
 
         if (data.success && Array.isArray(data.mensajes) && data.mensajes.length > 0) {
@@ -83,7 +84,7 @@ const ChatCopiloto = ({ apiUrl, user, showAlert }) => {
   const guardarHistorial = async (listaMensajes) => {
     if (!user?.id) return;
     try {
-      await fetch(`${apiUrl}/ia/historial`, {
+      await apiFetch(`${apiUrl}/ia/historial`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ usuario_id: user.id, contexto: contextoActivo, mensajes: listaMensajes })
@@ -99,7 +100,7 @@ const ChatCopiloto = ({ apiUrl, user, showAlert }) => {
   useEffect(() => {
     const cargarProveedores = async () => {
       try {
-        const res = await fetch(`${apiUrl}/ia/configuracion`);
+        const res = await apiFetch(`${apiUrl}/ia/configuracion`);
         const data = await res.json();
         if (data.success) {
           const lista = [];

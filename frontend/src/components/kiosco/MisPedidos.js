@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingBag, CheckCircle2, User, Save, MapPin, Mail, Calendar, Phone, Award, Lock, ShieldCheck, Fingerprint, Trash2 } from 'lucide-react';
 import { useBiometria } from '../../hooks/useBiometria'; 
+import { apiFetch } from '../../utils/apiFetch';
 
 const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteActivo, apiUrl, configGlobal }) => {
   const [tab, setTab] = useState('activas'); // 'activas' | 'finalizadas' | 'perfil'
@@ -99,7 +100,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     };
 
     try {
-      const res = await fetch(`${apiUrl}/clientes/${clienteActivo.id}`, {
+      const res = await apiFetch(`${apiUrl}/clientes/${clienteActivo.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -130,7 +131,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     else { setFlujoCorreo('solicitando'); setMensajeCorreo(null); }
 
     try {
-      const res = await fetch(`${apiUrl}/clientes/solicitar-codigo-nip`, { 
+      const res = await apiFetch(`${apiUrl}/clientes/solicitar-codigo-nip`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteActivo.id })
@@ -154,7 +155,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     setFlujoNip('solicitando');
     setMensajeNip(null);
     try {
-      const res = await fetch(`${apiUrl}/clientes/cambiar-nip-codigo`, {
+      const res = await apiFetch(`${apiUrl}/clientes/cambiar-nip-codigo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteActivo.id, codigo: codigoVerificacion, nuevoNip: nuevoNip })
@@ -177,7 +178,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     setFlujoCorreo('solicitando');
     setMensajeCorreo(null);
     try {
-      const res = await fetch(`${apiUrl}/clientes/cambiar-correo-codigo`, {
+      const res = await apiFetch(`${apiUrl}/clientes/cambiar-correo-codigo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cliente_id: clienteActivo.id, codigo: codigoVerificacionCorreo, nuevoCorreo: nuevoCorreo })
@@ -206,7 +207,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
     }
     setIsSubmitting(true);
     try {
-        const resNip = await fetch(`${apiUrl}/clientes/verificar-nip`, {
+        const resNip = await apiFetch(`${apiUrl}/clientes/verificar-nip`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cliente_id: clienteActivo.id, nip: nipHuella })
@@ -229,7 +230,7 @@ const MisPedidos = ({ misPedidos, setPantallaActual, modificarPedido, clienteAct
                 setTimeout(() => setMensajeHuella(null), 5000);
             }
         } else if (accionHuella === 'eliminar') {
-            const resDel = await fetch(`${apiUrl}/huellas/cliente/${clienteActivo.id}`, { method: 'DELETE' });
+            const resDel = await apiFetch(`${apiUrl}/huellas/cliente/${clienteActivo.id}`, { method: 'DELETE' });
             if (resDel.ok) {
                 clienteActivo.tiene_huella = false;
                 const sesion = JSON.parse(localStorage.getItem('pos_sesion') || '{}');

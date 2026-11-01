@@ -1,4 +1,5 @@
-import React, { useState } from 'react';  
+import React, { useState } from 'react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ProgramaLealtad = ({ configGlobal, setConfigGlobal, apiUrl, showAlert }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);  
@@ -22,7 +23,7 @@ const ProgramaLealtad = ({ configGlobal, setConfigGlobal, apiUrl, showAlert }) =
     formData.append('puntos_valor_peso', configGlobal.puntos_valor_peso !== undefined ? configGlobal.puntos_valor_peso : 1.00);
 
     try {
-      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      const res = await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
       if (res.ok) {
         showAlert("¡Éxito!", "Programa de lealtad actualizado correctamente.", "success");
       } else {

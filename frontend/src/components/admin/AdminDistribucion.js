@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Users, Wallet, TrendingUp, Gift, Settings, XCircle, CheckCircle2, Store, Mail, Eye, EyeOff, Star } from 'lucide-react';
+import { apiFetch } from '../../utils/apiFetch';
 
 // Importamos los componentes del módulo
 import CatalogoArticulos from './distribucion/CatalogoArticulos';
@@ -31,7 +32,7 @@ const AdminDistribucion = ({ apiUrl, baseUrl, refrescarDatos, showAlert, showCon
     useEffect(() => {
         const cargarConfigDistribucion = async () => {
             try {
-                const res = await fetch(`${apiUrl}/distribucion/configuracion`);
+                const res = await apiFetch(`${apiUrl}/distribucion/configuracion`);
                 if (res.ok) {
                     const data = await res.json();
                     setConfigDist({
@@ -57,7 +58,7 @@ const AdminDistribucion = ({ apiUrl, baseUrl, refrescarDatos, showAlert, showCon
         e.preventDefault();
         setIsSubmittingConfig(true);
         try {
-            const res = await fetch(`${apiUrl}/distribucion/configuracion`, {
+            const res = await apiFetch(`${apiUrl}/distribucion/configuracion`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(configDist)

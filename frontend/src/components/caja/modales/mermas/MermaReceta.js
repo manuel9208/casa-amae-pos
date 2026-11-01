@@ -1,41 +1,37 @@
 import React, { useState } from 'react';
 import { Search, CheckCircle2 } from 'lucide-react';
 
-const MermaReceta = ({ productos, procesarMerma, isSubmitting }) => {
+const MermaReceta = ({ subRecetas, procesarMerma, isSubmitting }) => {
     const [busqueda, setBusqueda] = useState('');
-    const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+    const [subRecetaSeleccionada, setSubRecetaSeleccionada] = useState(null);
     const [cantidad, setCantidad] = useState('');
 
-    // Filtramos solo las bases/sub-recetas (las que no están disponibles al público)
-    const bases = productos.filter(p => p.disponible === false || p.disponible === 'false' || p.disponible === 0);
-
-    const basesVisibles = bases.filter(p => p.nombre.toLowerCase().includes(busqueda.toLowerCase()));
+    // 🆕 Ya no se filtra "disponible === false" de productos — la tabla
+    // sub_recetas es dedicada, todo lo que haya ahí es una base/preparación real.
+    const basesVisibles = (subRecetas || []).filter(sr =>
+        sr.nombre.toLowerCase().includes(busqueda.toLowerCase())
+    );
 
     const handleSumbit = (e) => {
         e.preventDefault();
-        if (!productoSeleccionado || !cantidad || Number(cantidad) <= 0) return;
-        
+        if (!subRecetaSeleccionada || !cantidad || Number(cantidad) <= 0) return;
+
         procesarMerma({
             tipo: 'Receta',
-            item_id: productoSeleccionado.id,
-            nombre_item: productoSeleccionado.nombre,
+            item_id: subRecetaSeleccionada.id,
+            nombre_item: subRecetaSeleccionada.nombre,
             cantidad: Number(cantidad)
         });
     };
 
-    if (productoSeleccionado) {
-        let unidad = 'PZ';
-        if (productoSeleccionado.opciones) {
-            const ops = typeof productoSeleccionado.opciones === 'string' ? JSON.parse(productoSeleccionado.opciones) : productoSeleccionado.opciones;
-            const opt = ops.find(o => o.categoria === 'UnidadRendimiento');
-            if (opt) unidad = opt.nombre;
-        }
+    if (subRecetaSeleccionada) {
+        const unidad = subRecetaSeleccionada.unidad_rendimiento || 'PZ';
 
         return (
             <form onSubmit={handleSumbit} className="max-w-md mx-auto animate-in fade-in zoom-in-95 space-y-6">
                 <div className="text-center mb-6 border-b border-slate-100 pb-6">
-                    <span className="text-6xl mb-4 block drop-shadow-sm">{productoSeleccionado.emoji || '🥣'}</span>
-                    <h3 className="text-2xl font-black text-slate-800">{productoSeleccionado.nombre}</h3>
+                    <span className="text-6xl mb-4 block drop-shadow-sm">🥣</span>
+                    <h3 className="text-2xl font-black text-slate-800">{subRecetaSeleccionada.nombre}</h3>
                     <p className="text-purple-500 font-bold text-sm bg-purple-50 px-3 py-1 rounded-lg inline-block mt-2">Sub-Receta / Base</p>
                 </div>
 
@@ -53,7 +49,7 @@ const MermaReceta = ({ productos, procesarMerma, isSubmitting }) => {
                 </div>
 
                 <div className="flex gap-4 pt-4">
-                    <button type="button" onClick={() => {setProductoSeleccionado(null); setCantidad('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
+                    <button type="button" onClick={() => {setSubRecetaSeleccionada(null); setCantidad('');}} className="flex-1 py-4 bg-slate-100 text-slate-600 font-black rounded-2xl hover:bg-slate-200 transition">Cancelar</button>
                     <button type="submit" disabled={!cantidad || isSubmitting} className="flex-[2] py-4 bg-red-500 text-white font-black text-lg rounded-2xl hover:bg-red-600 shadow-lg shadow-red-500/30 transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2">
                         <CheckCircle2 size={20}/> Confirmar Merma
                     </button>
@@ -76,14 +72,14 @@ const MermaReceta = ({ productos, procesarMerma, isSubmitting }) => {
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {basesVisibles.map(p => (
+                {basesVisibles.map(sr => (
                     <button 
-                        key={p.id} 
-                        onClick={() => setProductoSeleccionado(p)}
+                        key={sr.id} 
+                        onClick={() => setSubRecetaSeleccionada(sr)}
                         className="bg-white border border-slate-200 hover:border-purple-400 hover:shadow-md rounded-2xl p-4 flex flex-col items-center text-center transition-all group active:scale-95"
                     >
-                        <span className="text-4xl mb-2 group-hover:scale-110 transition-transform">{p.emoji || '🥣'}</span>
-                        <span className="font-bold text-sm text-slate-700 leading-tight">{p.nombre}</span>
+                        <span className="text-4xl mb-2 group-hover:scale-110 transition-transform">🥣</span>
+                        <span className="font-bold text-sm text-slate-700 leading-tight">{sr.nombre}</span>
                     </button>
                 ))}
             </div>

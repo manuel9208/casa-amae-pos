@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { XCircle, Star, ListChecks, Trash2, Gift, Clock, CalendarDays } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const FormularioProducto = ({
   productos, clasificaciones, catalogoIngredientes, EMOJIS_POR_GIRO,
@@ -379,7 +380,7 @@ const FormularioProducto = ({
     const formData = new FormData();
     formData.append('nombre', nombre);
     formData.append('descripcion', descripcion);
-    formData.append('precio_base', (aplicaTamanos || aplicaSabores) && (!precio) ? 0 : precio);
+    formData.append('precio_base', (aplicaTamanos || aplicaSabores) ? 0 : precio);
     formData.append('tiempo_preparacion', tiempoPreparacion);
     formData.append('emoji', emoji);
     formData.append('categoria', nombreCategoria);
@@ -402,9 +403,9 @@ const FormularioProducto = ({
     try {
       let res;
       if (productoEditando) {
-        res = await fetch(`${apiUrl}/productos/${productoEditando.id}`, { method: 'PUT', body: formData });
+        res = await apiFetch(`${apiUrl}/productos/${productoEditando.id}`, { method: 'PUT', body: formData });
       } else {
-        res = await fetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
+        res = await apiFetch(`${apiUrl}/productos`, { method: 'POST', body: formData });
       }
       if (res.ok) {
         showAlert("Éxito", productoEditando ? "Platillo actualizado correctamente." : "Platillo creado exitosamente.", "success");
@@ -415,6 +416,7 @@ const FormularioProducto = ({
         showAlert("Error", errData.error || "Error al procesar la solicitud.", "error");
       }
     } catch (error) {
+      console.error("🚨 [guardarProducto] Error real capturado:", error); // 👈 ÚNICO AGREGADO
       showAlert("Error", "Error de red al conectar con el servidor.", "error");
     }
   };
@@ -474,7 +476,7 @@ const FormularioProducto = ({
           </div>
           <div>
             <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Precio Base ($)</label>
-            <input type="number" step="0.01" disabled={aplicaTamanos} placeholder={aplicaTamanos ? "Fijado por Tamaños" : "0.00"} required={!aplicaTamanos} value={precio} onChange={e => setPrecio(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-2xl p-4 outline-none focus:border-blue-500 transition-all placeholder-slate-300 disabled:opacity-50 disabled:bg-slate-100" />
+            <input type="number" step="0.01" disabled={aplicaTamanos || aplicaSabores} placeholder={(aplicaTamanos || aplicaSabores) ? "Definido por Tamaño/Sabor" : "0.00"} required={!aplicaTamanos && !aplicaSabores} value={precio} onChange={e => setPrecio(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-700 font-bold rounded-2xl p-4 outline-none focus:border-blue-500 transition-all placeholder-slate-300 disabled:opacity-50 disabled:bg-slate-100" />
           </div>
         </div>
 
@@ -581,7 +583,7 @@ const FormularioProducto = ({
 
         <div className="bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
           <label className="flex items-center gap-3 font-bold text-blue-900 cursor-pointer text-lg">
-            <input type="checkbox" checked={aplicaTamanos} onChange={e => setAplicaTamanos(e.target.checked)} className="w-6 h-6 accent-blue-600" /> ¿Aplica Tamaños Fijos? (Chico/Med/Gde/Jumbo)
+            <input type="checkbox" checked={aplicaTamanos} onChange={e => { setAplicaTamanos(e.target.checked); if (e.target.checked) setPrecio(''); }} className="w-6 h-6 accent-blue-600" /> ¿Aplica Tamaños Fijos? (Chico/Med/Gde/Jumbo)
           </label>
           {aplicaTamanos && (
             <div className="space-y-3 mt-4 bg-white p-5 rounded-2xl border border-slate-200">
@@ -599,8 +601,8 @@ const FormularioProducto = ({
         
         <div className="bg-blue-50/30 p-6 rounded-3xl border border-blue-100">
           <label className="flex items-center gap-3 font-bold text-blue-900 cursor-pointer mb-4 text-lg">
-            <input type="checkbox" checked={aplicaSabores} onChange={e => setAplicaSabores(e.target.checked)} className="w-6 h-6 accent-blue-600" /> ¿Lleva Sabores Libres? (Ej. Papas Gajo)
-          </label>  
+            <input type="checkbox" checked={aplicaSabores} onChange={e => { setAplicaSabores(e.target.checked); if (e.target.checked) setPrecio(''); }} className="w-6 h-6 accent-blue-600" /> ¿Lleva Sabores Libres? (Ej. Papas Gajo)
+          </label> 
           {aplicaSabores && (
             <div className="mt-4 bg-white p-5 rounded-2xl border border-blue-200 space-y-4">
               <div className="space-y-3">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Wifi, MapPin, Trash2, Plus, ShieldCheck, Settings } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../utils/apiFetch';
 
 // Importamos el Modal de Configuración que me compartiste
 import ModalConfigAsistencia from './ModalConfigAsistencia';
@@ -20,7 +21,7 @@ const GestorRedesGPS = ({ apiUrl, showAlert, showConfirm }) => {
 
     const cargarDatos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/asistencia/configuracion?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/asistencia/configuracion?t=${Date.now()}`);
             if (res.ok) {
                 const data = await res.json();
                 setIps(Array.isArray(data.ips) ? data.ips : []);
@@ -55,7 +56,7 @@ const GestorRedesGPS = ({ apiUrl, showAlert, showConfirm }) => {
         if (!ipInput.trim()) return;
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/asistencia/ips`, {
+            const res = await apiFetch(`${apiUrl}/asistencia/ips`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ip: ipInput.trim(), descripcion: descIpInput })
@@ -75,7 +76,7 @@ const GestorRedesGPS = ({ apiUrl, showAlert, showConfirm }) => {
     const handleEliminarIP = (id, ip) => {
         showConfirm('¿Eliminar IP?', `¿Estás seguro de desautorizar la IP ${ip}?`, async () => {
             try {
-                const res = await fetch(`${apiUrl}/asistencia/ips/${id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/asistencia/ips/${id}`, { method: 'DELETE' });
                 if (res.ok) { showAlert('Eliminado', 'IP removida.', 'success'); cargarDatos(); }
             } catch (e) { showAlert('Error', 'No se pudo eliminar la IP.', 'error'); }
         });
@@ -86,7 +87,7 @@ const GestorRedesGPS = ({ apiUrl, showAlert, showConfirm }) => {
         if (!latInput || !lngInput) return;
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/asistencia/ubicaciones`, {
+            const res = await apiFetch(`${apiUrl}/asistencia/ubicaciones`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ latitud: latInput, longitud: lngInput, descripcion: descGpsInput })
@@ -106,7 +107,7 @@ const GestorRedesGPS = ({ apiUrl, showAlert, showConfirm }) => {
     const handleEliminarGPS = (id) => {
         showConfirm('¿Eliminar Geocerca?', '¿Eliminar esta ubicación GPS?', async () => {
             try {
-                const res = await fetch(`${apiUrl}/asistencia/ubicaciones/${id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/asistencia/ubicaciones/${id}`, { method: 'DELETE' });
                 if (res.ok) { showAlert('Eliminado', 'Ubicación removida.', 'success'); cargarDatos(); }
             } catch (e) { showAlert('Error', 'No se pudo eliminar la ubicación.', 'error'); }
         });

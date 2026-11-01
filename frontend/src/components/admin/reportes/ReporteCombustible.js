@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Fuel, MapPin, TrendingUp, Calendar, Info, RefreshCw, Search, Settings, Car, Save, CheckCircle2, AlertTriangle, Users, List } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
     const [cargando, setCargando] = useState(false);
@@ -38,7 +39,7 @@ const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
     const cargarRendimiento = useCallback(async () => {
         setCargando(true);
         try {
-            const res = await fetch(`${apiUrl}/reportes/combustible?periodo=${periodoFiltro}&fecha=${fechaFiltro}`);
+            const res = await apiFetch(`${apiUrl}/reportes/combustible?periodo=${periodoFiltro}&fecha=${fechaFiltro}`);
             if (res.ok) {
                 const data = await res.json();
                 setViajesCrudos(data.viajes || []);
@@ -75,7 +76,7 @@ const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
                     id, vehiculo: conf.vehiculo, rendimiento: conf.rendimiento
                 }))
             };
-            const res = await fetch(`${apiUrl}/reportes/combustible/config`, {
+            const res = await apiFetch(`${apiUrl}/reportes/combustible/config`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });

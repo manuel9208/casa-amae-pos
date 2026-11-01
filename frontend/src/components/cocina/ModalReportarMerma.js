@@ -14,7 +14,7 @@ const ModalReportarMerma = ({ setModalMerma, catalogoIngredientes, apiUrl, refre
      
      try {
        // Buscamos si podemos descontar o mandar bitácora
-       const res = await fetch(`${apiUrl}/insumos/merma`, {
+       const res = await apiFetch(`${apiUrl}/insumos/merma`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ nombre: insumoSelect, cantidad: Number(cantidad) || 1, motivo })
        });

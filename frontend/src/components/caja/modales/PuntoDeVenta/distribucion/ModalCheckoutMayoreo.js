@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Users, Trash2, CheckCircle2, DollarSign, CreditCard, Truck, Store, XCircle, Plus, Minus, Smartphone, ArrowLeft, ArrowRight, AlertTriangle, User, Phone, Mail, MapPin, Clock, Copy, MessageCircle, Wallet } from 'lucide-react';
 import TicketImpresionMayoreo from './TicketImpresionMayoreo'; 
+import { apiFetch } from '../../../../../utils/apiFetch';
 
 const normalizarTexto = (texto) => {
     if (!texto) return '';
@@ -44,12 +45,12 @@ const ModalCheckoutMayoreo = ({
 
     useEffect(() => {
         if (isOpen) {
-            fetch(`${apiUrl}/configuracion`)
+           apiFetch(`${apiUrl}/configuracion`)
                 .then(res => res.json())
                 .then(data => setConfigLocal(data))
                 .catch(err => console.error("Error cargando config local:", err));
 
-            fetch(`${apiUrl}/usuarios`)
+           apiFetch(`${apiUrl}/usuarios`)
                 .then(res => res.json())
                 .then(data => {
                     const reps = data.filter(u => u.rol === 'repartidor');
@@ -203,7 +204,7 @@ const ModalCheckoutMayoreo = ({
         };
 
         try {
-            const res = await fetch(`${apiUrl}/distribucion/ventas`, {
+            const res = await apiFetch(`${apiUrl}/distribucion/ventas`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(paquete)

@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 // ==========================================
 // 💡 HELPER: Resuelve URLs de Cloudinary o relativas del backend,
@@ -27,7 +28,7 @@ const resolverUrlImagen = (url, apiUrl) => {
 const cargarImagenBase64 = (url) => {
   return new Promise((resolve) => {
     if (!url) return resolve(null);
-    fetch(url)
+   apiFetch(url)
       .then(res => res.blob())
       .then(blob => {
         const reader = new FileReader();
@@ -74,7 +75,7 @@ export const generarPDFReporte = async ({ reporte, filtros, apiUrl, formaterMone
   let logoBase64 = null;
   let nombreNegocio = 'Reporte Financiero';
   try {
-    const confRes = await fetch(`${apiUrl}/configuracion`);
+    const confRes = await apiFetch(`${apiUrl}/configuracion`);
     const confData = await confRes.json();
     nombreNegocio = confData?.nombre_negocio || nombreNegocio;
     if (confData?.logo_url) {

@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const cloudinary = require('cloudinary').v2;
+const { resolverVariable } = require('../utils/envResolver'); // 🆕 MULTI-TENANT: Variables de Entorno por Empresa
 
 // 👇 FIX 1: Extractor Robusto (Limpia parámetros basura '?v=...' y procesa extensiones)
 const extraerPublicId = (url) => {
@@ -23,7 +24,10 @@ const extraerPublicId = (url) => {
 };
 
 // 👇 FIX 2: Borrado Inteligente (Distingue Video/Imagen y purga la caché)
-const borrarDeCloudinary = async (urlVieja) => {
+// 🆕 MULTI-TENANT: acepta empresaId opcional para usar las credenciales
+// propias de esa empresa (con fallback automático al .env global si esa
+// empresa aún no configuró su propio Cloudinary en Admin Empresas).
+const borrarDeCloudinary = async (urlVieja, empresaId = null) => {
   const publicId = extraerPublicId(urlVieja);
   if (publicId) {
       try {
@@ -33,6 +37,16 @@ const borrarDeCloudinary = async (urlVieja) => {
               resource_type: esVideo ? 'video' : 'image', 
               invalidate: true // 👈 Purgar de la CDN (Internet) de inmediato
           };
+
+          if (empresaId) {
+            const { resolverVariables } = require('../utils/envResolver');
+            const creds = await resolverVariables(empresaId, [
+              'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'
+            ]);
+            options.cloud_name = creds.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME;
+            options.api_key = creds.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY;
+            options.api_secret = creds.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET;
+          }
           
           await cloudinary.uploader.destroy(publicId, options);
           console.log(`✅ Archivo basura eliminado de Cloudinary (${options.resource_type}): ${publicId}`);
@@ -43,8 +57,11 @@ const borrarDeCloudinary = async (urlVieja) => {
 };
 
 exports.obtenerConfiguracion = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     // 👇 AUTO-MIGRACIÓN: Se agregaron los DROP COLUMN para limpiar la tabla en la nube automáticamente
+    // NOTA: el ADD COLUMN de empresa_id ya NO se hace aquí; vive centralizado
+    // en config/migracionMultiTenant.js (Bloque B) para no repetirlo por archivo.
     await db.query(`
       ALTER TABLE configuracion
       ADD COLUMN IF NOT EXISTS horarios_semana JSONB DEFAULT '{}'::jsonb,
@@ -70,11 +87,16 @@ exports.obtenerConfiguracion = async (req, res) => {
       DROP COLUMN IF EXISTS asistencia_login,
       DROP COLUMN IF EXISTS asistencia_huella;
     `);
+    // 🆕 TENANT: garantiza 1 sola fila de configuración por empresa (reemplaza el singleton id=1)
+    await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_configuracion_empresa_unica ON configuracion(empresa_id)`);
 
-    let result = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    let result = await db.query('SELECT * FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     if (result.rows.length === 0) {
-      await db.query("INSERT INTO configuracion (id, nombre_negocio) VALUES (1, 'Mi Restaurante') ON CONFLICT (id) DO NOTHING");
-      result = await db.query('SELECT * FROM configuracion WHERE id = 1');
+      await db.query(
+        "INSERT INTO configuracion (empresa_id, nombre_negocio) VALUES ($1, $2) ON CONFLICT (empresa_id) DO NOTHING", // 🔒 FILTRO EMPRESA
+        [empresaId, req.empresa_nombre || 'Mi Restaurante']
+      );
+      result = await db.query('SELECT * FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     }
 
     let config = result.rows[0] || {};
@@ -94,9 +116,17 @@ exports.obtenerConfiguracion = async (req, res) => {
       FROM promociones p
       LEFT JOIN productos t ON p.producto_trigger_id = t.id
       LEFT JOIN productos o ON p.producto_oferta_id = o.id
-      WHERE p.activo = true
-    `);
+      WHERE p.activo = true AND p.empresa_id = $1
+    `, [empresaId]); // 🔒 FILTRO EMPRESA
     config.promociones = promoRes.rows;
+
+    // 🆕 MULTI-TENANT: se expone la llave pública VAPID resuelta por empresa
+    // (empresas.variables, con fallback automático al .env global si esa
+    // empresa aún no la configuró). Esto permite que pushManager.js
+    // (frontend) deje de depender de REACT_APP_VAPID_PUBLIC_KEY fijo en el
+    // build de Vercel — así puedes cambiar la llave de un cliente sin
+    // tener que re-desplegar su frontend.
+    config.vapid_public_key = await resolverVariable(empresaId, 'VAPID_PUBLIC_KEY');
 
     res.json(config);
   } catch (error) {
@@ -106,9 +136,10 @@ exports.obtenerConfiguracion = async (req, res) => {
 };
 
 exports.actualizarConfiguracion = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   let configActual = {};
   try {
-    const resActual = await db.query('SELECT * FROM configuracion WHERE id = 1');
+    const resActual = await db.query('SELECT * FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     if (resActual.rows.length > 0) {
       configActual = resActual.rows[0];
     } else {
@@ -153,11 +184,11 @@ exports.actualizarConfiguracion = async (req, res) => {
 
   if (req.files && req.files.length > 0) {
     req.files.forEach(file => {
-      if (file.fieldname === 'logo') { logo_url = file.path; if (configActual.logo_url) borrarDeCloudinary(configActual.logo_url); }
-      if (file.fieldname === 'tv_imagen_1') { tv_imagen_1 = file.path; if (configActual.tv_imagen_1) borrarDeCloudinary(configActual.tv_imagen_1); }
-      if (file.fieldname === 'tv_imagen_2') { tv_imagen_2 = file.path; if (configActual.tv_imagen_2) borrarDeCloudinary(configActual.tv_imagen_2); }
-      if (file.fieldname === 'tv_imagen_3') { tv_imagen_3 = file.path; if (configActual.tv_imagen_3) borrarDeCloudinary(configActual.tv_imagen_3); }
-      if (file.fieldname === 'tv_video') { tv_video = file.path; if (configActual.tv_video) borrarDeCloudinary(configActual.tv_video); }
+      if (file.fieldname === 'logo') { logo_url = file.path; if (configActual.logo_url) borrarDeCloudinary(configActual.logo_url, empresaId); } // 🆕 MULTI-TENANT
+      if (file.fieldname === 'tv_imagen_1') { tv_imagen_1 = file.path; if (configActual.tv_imagen_1) borrarDeCloudinary(configActual.tv_imagen_1, empresaId); } // 🆕 MULTI-TENANT
+      if (file.fieldname === 'tv_imagen_2') { tv_imagen_2 = file.path; if (configActual.tv_imagen_2) borrarDeCloudinary(configActual.tv_imagen_2, empresaId); } // 🆕 MULTI-TENANT
+      if (file.fieldname === 'tv_imagen_3') { tv_imagen_3 = file.path; if (configActual.tv_imagen_3) borrarDeCloudinary(configActual.tv_imagen_3, empresaId); } // 🆕 MULTI-TENANT
+      if (file.fieldname === 'tv_video') { tv_video = file.path; if (configActual.tv_video) borrarDeCloudinary(configActual.tv_video, empresaId); } // 🆕 MULTI-TENANT
     });
   }
 
@@ -202,7 +233,7 @@ exports.actualizarConfiguracion = async (req, res) => {
     // 👇 Comodines SQL reajustados ($63) para compensar las columnas eliminadas
     await db.query(`
       INSERT INTO configuracion (
-        id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
+        empresa_id, nombre_negocio, whatsapp, banco, cuenta, titular, logo_url,
         color_primario, color_secundario, color_fondo, color_fondo_tarjetas,
         color_texto_principal, color_texto_secundario, fuente_titulos, fuente_textos,
         kiosco_mensaje, color_texto_kiosco, tv_msg_cola, tv_msg_progreso, tv_msg_listo,
@@ -222,7 +253,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         kiosco_pin_maestro,
         smtp_email, smtp_password, smtp_host, smtp_port
       ) VALUES (
-        1, $1, $2, $3, $4, $5, $6,
+        $64, $1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10,
         $11, $12, $13, $14,
         $15, $16, $17, $18, $19,
@@ -241,7 +272,7 @@ exports.actualizarConfiguracion = async (req, res) => {
         $58,
         $59,
         $60, $61, $62, $63
-      ) ON CONFLICT (id) DO UPDATE SET
+      ) ON CONFLICT (empresa_id) DO UPDATE SET
         nombre_negocio = EXCLUDED.nombre_negocio,
         whatsapp = EXCLUDED.whatsapp,
         banco = EXCLUDED.banco,
@@ -323,7 +354,8 @@ exports.actualizarConfiguracion = async (req, res) => {
       gps_ciudad_estado || '', gps_direccion_local || '', gps_api_key || '',
       matrizObsParsed,
       kiosco_pin_maestro || '1234',
-      smtp_email || '', smtp_password || '', smtp_host || '', smtp_port || ''
+      smtp_email || '', smtp_password || '', smtp_host || '', smtp_port || '',
+      empresaId // 🆕 TENANT: corresponde al placeholder $64
     ]);
 
     const io = req.app.get('io');
@@ -337,13 +369,14 @@ exports.actualizarConfiguracion = async (req, res) => {
 };
 
 exports.subirEvidenciaLimpieza = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     const { area, fecha } = req.body;
     let imgUrl = null;
     if (req.files && req.files.length > 0) { imgUrl = req.files[0].path; }
     if (!imgUrl) return res.status(400).json({ error: 'No se procesó la imagen en Cloudinary' });
 
-    const resConf = await db.query('SELECT matriz_limpieza FROM configuracion WHERE id = 1');
+    const resConf = await db.query('SELECT matriz_limpieza FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     let matriz = {};
     if (resConf.rows.length > 0 && resConf.rows[0].matriz_limpieza) {
       matriz = typeof resConf.rows[0].matriz_limpieza === 'string' ? JSON.parse(resConf.rows[0].matriz_limpieza) : resConf.rows[0].matriz_limpieza;
@@ -354,7 +387,7 @@ exports.subirEvidenciaLimpieza = async (req, res) => {
 
     matriz.evidencias[area][fecha] = imgUrl;
 
-    await db.query('UPDATE configuracion SET matriz_limpieza = $1 WHERE id = 1', [JSON.stringify(matriz)]);
+    await db.query('UPDATE configuracion SET matriz_limpieza = $1 WHERE empresa_id = $2', [JSON.stringify(matriz), empresaId]); // 🔒 FILTRO EMPRESA
     res.json({ success: true, url: imgUrl, matriz });
 
   } catch (error) {
@@ -364,8 +397,9 @@ exports.subirEvidenciaLimpieza = async (req, res) => {
 };
 
 exports.obtenerCupones = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try { 
-    res.json((await db.query('SELECT * FROM cupones ORDER BY id DESC')).rows); 
+    res.json((await db.query('SELECT * FROM cupones WHERE empresa_id = $1 ORDER BY id DESC', [empresaId])).rows); // 🔒 FILTRO EMPRESA
   } catch (error) { 
     res.status(500).json({ error: 'Error al obtener cupones' }); 
   }
@@ -373,11 +407,12 @@ exports.obtenerCupones = async (req, res) => {
 
 exports.crearCupon = async (req, res) => {
   const { codigo, tipo, valor, limite_usos, fecha_vencimiento } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     const codigoLimpio = String(codigo).toUpperCase().replace(/\s+/g, '');
     const result = await db.query(
-      'INSERT INTO cupones (codigo, tipo, valor, limite_usos, fecha_vencimiento) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [codigoLimpio, tipo, valor, limite_usos || null, fecha_vencimiento || null]
+      'INSERT INTO cupones (codigo, tipo, valor, limite_usos, fecha_vencimiento, empresa_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', // 🆕 TENANT
+      [codigoLimpio, tipo, valor, limite_usos || null, fecha_vencimiento || null, empresaId]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -387,16 +422,18 @@ exports.crearCupon = async (req, res) => {
 };
 
 exports.actualizarCuponEstado = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try { 
-    res.json((await db.query('UPDATE cupones SET activo=$1 WHERE id=$2 RETURNING *', [req.body.activo, req.params.id])).rows[0]); 
+    res.json((await db.query('UPDATE cupones SET activo=$1 WHERE id=$2 AND empresa_id=$3 RETURNING *', [req.body.activo, req.params.id, empresaId])).rows[0]); // 🔒 FILTRO EMPRESA
   } catch (error) { 
     res.status(500).json({ error: 'Error al actualizar cupón' }); 
   }
 };
 
 exports.eliminarCupon = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try { 
-    await db.query('DELETE FROM cupones WHERE id=$1', [req.params.id]); 
+    await db.query('DELETE FROM cupones WHERE id=$1 AND empresa_id=$2', [req.params.id, empresaId]); // 🔒 FILTRO EMPRESA
     res.json({ success: true }); 
   } catch (error) { 
     res.status(500).json({ error: 'Error al eliminar' }); 
@@ -404,8 +441,12 @@ exports.eliminarCupon = async (req, res) => {
 };
 
 exports.validarCupon = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
-    const result = await db.query('SELECT * FROM cupones WHERE codigo=$1', [String(req.body.codigo).toUpperCase().replace(/\s+/g, '')]);
+    const result = await db.query(
+      'SELECT * FROM cupones WHERE codigo=$1 AND empresa_id=$2', // 🔒 FILTRO EMPRESA: evita que un código de otra empresa se canjee aquí
+      [String(req.body.codigo).toUpperCase().replace(/\s+/g, ''), empresaId]
+    );
     
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cupón no encontrado' });
     
@@ -453,13 +494,14 @@ exports.webhookVercelDeploy = (req, res) => {
 
 exports.eliminarArchivosCloudinary = async (req, res) => {
   const { urls } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
   if (!urls || !Array.isArray(urls)) {
     return res.status(400).json({ error: 'Se requiere un array de URLs' });
   }
 
   try {
     // Usamos el borrado inteligente que ahora detecta videos y limpia la caché
-    const promises = urls.map(url => borrarDeCloudinary(url));
+    const promises = urls.map(url => borrarDeCloudinary(url, empresaId)); // 🆕 MULTI-TENANT
 
     await Promise.all(promises);
     res.json({ success: true, message: 'Archivos eliminados permanentemente de Cloudinary.' });

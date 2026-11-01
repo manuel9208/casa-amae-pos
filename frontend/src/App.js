@@ -9,6 +9,7 @@ import Repartidor from './components/Repartidor';
 import PortalEmpleado from './components/empleado/PortalEmpleado';
 import { suscribirANotificaciones } from './pushManager';
 import { useBiometria } from './hooks/useBiometria';
+import { apiFetch } from './utils/apiFetch';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -19,7 +20,7 @@ const App = () => {
   // ==========================================
   const [usuarioActivo, setUsuarioActivo] = useState(null);
   const [clienteActivo, setClienteActivo] = useState(null);
-  const [modoInvitado, setModoInvitado] = useState(false);
+  const [modoInvitado, setModoInvitado] = useState(true); // 👈 BYPASS: el cliente entra directo al menú, sin pantalla de login previa
   const [vistaAdmin, setVistaAdmin] = useState('panel');
   const [vistaTV, setVistaTV] = useState(false);
 
@@ -77,6 +78,23 @@ const App = () => {
   const prevDentroDeHorario = useRef(null);
   const socketRef = useRef(null);
 
+  // 👇 NUEVO: Modo Oscuro Automático (Fase final del rediseño UX del Kiosco)
+  const [horaActualTick, setHoraActualTick] = useState(Date.now());
+
+  useEffect(() => {
+    const intervaloReloj = setInterval(() => setHoraActualTick(Date.now()), 60000); // revisa cada minuto
+    return () => clearInterval(intervaloReloj);
+  }, []);
+
+  const esModoOscuroActivo = () => {
+    const pref = configGlobal.modo_oscuro_preferencia || 'automatico';
+    if (pref === 'siempre_oscuro') return true;
+    if (pref === 'siempre_claro') return false;
+    // 'automatico': entre 19:00 (7pm) y 07:00 (7am) hora local del dispositivo
+    const horaLocal = new Date(horaActualTick).getHours();
+    return horaLocal >= 19 || horaLocal < 7;
+  };
+
   // ==========================================
   // HELPERS VISUALES Y SESIÓN
   // ==========================================
@@ -111,7 +129,7 @@ const App = () => {
     if (idUsuarioCerrar) {
       try {
         const dispositivo_id = localStorage.getItem('pos_device_id');
-        await fetch(`${apiUrl}/logout`, {
+        await apiFetch(`${apiUrl}/logout`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ usuario_id: idUsuarioCerrar, dispositivo_id })
@@ -225,7 +243,7 @@ const App = () => {
 
     const cargarConfig = async () => {
       try {
-        const res = await fetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
+        const res = await apiFetch(`${apiUrl}/configuracion?t=${new Date().getTime()}`);
         const data = await res.json();
         if (data && !data.error) {
           setConfigGlobal(data);
@@ -239,7 +257,10 @@ const App = () => {
             linkApple.href = iconUrl;
           }
         }
-      } catch (err) {}
+      } 
+       catch (err) {
+        console.error('🚩 [cargarConfig] FALLÓ:', err);
+      }
     };  
 
     cargarConfig();
@@ -247,7 +268,7 @@ const App = () => {
     // 👇 3. CARGAR MDM (ahora trae roles_restringidos con excepciones de pantalla)
     const cargarMDM = async () => {
       try {
-        const confRes = await fetch(`${apiUrl}/biometria/configuracion`);
+        const confRes = await apiFetch(`${apiUrl}/biometria/configuracion`);
         const configMdm = await confRes.json();
         
         if (configMdm.control_dispositivos_activo) {
@@ -258,7 +279,7 @@ const App = () => {
              rolesRestringidos: Array.isArray(configMdm.roles_restringidos) ? configMdm.roles_restringidos : []
           });
           
-          const devRes = await fetch(`${apiUrl}/biometria/equipos`);
+          const devRes = await apiFetch(`${apiUrl}/biometria/equipos`);
           const equipos = await devRes.json();
           const miId = localStorage.getItem('pos_device_id');
           const miEquipo = equipos.find(e => e.device_id === miId);
@@ -403,7 +424,7 @@ const App = () => {
           if (configGlobal.negocio_abierto === true || String(configGlobal.negocio_abierto) === 'true') {
             const formData = new FormData();
             formData.append('negocio_abierto', 'false');
-            await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+            await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
           }
         }
         prevDentroDeHorario.current = dentro;
@@ -462,7 +483,7 @@ const App = () => {
     }
     
     try {
-      const res = await fetch(`${apiUrl}/identificar`, { 
+      const res = await apiFetch(`${apiUrl}/identificar`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ telefono }) 
@@ -495,7 +516,7 @@ const App = () => {
   const handleRegistro = async (e) => {
     e.preventDefault(); setError('');
     try {
-      const res = await fetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreNuevo, apellido: apellidoNuevo, telefono, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
+      const res = await apiFetch(`${apiUrl}/clientes/registro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreNuevo, apellido: apellidoNuevo, telefono, correo: correoNuevo, fecha_nacimiento: fechaNacNuevo, nip: nipNuevo }) });
       const data = await res.json();
       if (res.ok) {
         setNecesitaRegistro(false);
@@ -526,7 +547,7 @@ const App = () => {
     // la geocerca/IP del auto-checado de asistencia (sin bloquear el login).
     const { lat, lon } = await obtenerUbicacionSilenciosaLogin();
     try {
-      const res = await fetch(`${apiUrl}/login`, {
+      const res = await apiFetch(`${apiUrl}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ usuario: empleadoFase2.usuario, password, dispositivo_id, lat, lon })
@@ -576,7 +597,7 @@ const App = () => {
     if (op.id === 'caja' && configGlobal && configGlobal.negocio_abierto === false) {
       const formData = new FormData();
       formData.append('negocio_abierto', 'true');
-      fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData })
+     apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData })
         .then(r => r.json())
         .then(d => {
           if(!d.error) setConfigGlobal(prev => ({...prev, negocio_abierto: true}));
@@ -637,9 +658,19 @@ const App = () => {
   };
 
   const inyectarEstilos = () => {
+    const modoOscuro = esModoOscuroActivo();
+
+    // 👇 En modo oscuro invertimos SOLO fondo/tarjetas/textos — el color de marca
+    // (--c-primario / --c-secundario) se mantiene igual, tal como se definió en el plan.
+    const colorFondo = modoOscuro ? '#0f172a' : (configGlobal.color_fondo || '#f1f5f9');
+    const colorTarjetas = modoOscuro ? '#1e293b' : (configGlobal.color_fondo_tarjetas || '#ffffff');
+    const colorTextoPrin = modoOscuro ? '#f1f5f9' : (configGlobal.color_texto_principal || '#1e293b');
+    const colorTextoSec = modoOscuro ? '#94a3b8' : (configGlobal.color_texto_secundario || '#64748b');
+    const colorTextoKiosco = modoOscuro ? '#f1f5f9' : (configGlobal.color_texto_kiosco || '#1e293b');
+
     return `
-    :root { --c-primario: ${configGlobal.color_primario || '#2563eb'}; --c-secundario: ${configGlobal.color_secundario || '#10b981'}; --c-fondo: ${configGlobal.color_fondo || '#f1f5f9'}; --c-tarjetas: ${configGlobal.color_fondo_tarjetas || '#ffffff'}; --c-texto-prin: ${configGlobal.color_texto_principal || '#1e293b'}; --c-texto-sec: ${configGlobal.color_texto_secundario || '#64748b'}; --c-texto-kiosco: ${configGlobal.color_texto_kiosco || '#1e293b'}; --f-titulos: ${configGlobal.fuente_titulos || 'system-ui, sans-serif'}; --f-textos: ${configGlobal.fuente_textos || 'system-ui, sans-serif'}; }
-    body { background-color: var(--c-fondo); font-family: var(--f-textos); color: var(--c-texto-prin); margin: 0; padding: 0; }
+    :root { --c-primario: ${configGlobal.color_primario || '#2563eb'}; --c-secundario: ${configGlobal.color_secundario || '#10b981'}; --c-fondo: ${colorFondo}; --c-tarjetas: ${colorTarjetas}; --c-texto-prin: ${colorTextoPrin}; --c-texto-sec: ${colorTextoSec}; --c-texto-kiosco: ${colorTextoKiosco}; --f-titulos: ${configGlobal.fuente_titulos || 'system-ui, sans-serif'}; --f-textos: ${configGlobal.fuente_textos || 'system-ui, sans-serif'}; }
+    body { background-color: var(--c-fondo); font-family: var(--f-textos); color: var(--c-texto-prin); margin: 0; padding: 0; transition: background-color 0.6s ease, color 0.6s ease; }
     h1, h2, h3, h4, h5, h6 { font-family: var(--f-titulos) !important; }
     .bg-blue-600 { background-color: var(--c-primario) !important; }
     .text-blue-600 { color: var(--c-primario) !important; }
@@ -656,6 +687,14 @@ const App = () => {
     .tema-cliente .bg-slate-100, .tema-cliente .bg-gray-50 { background-color: var(--c-fondo) !important; }
     .tema-cliente .bg-white { background-color: var(--c-tarjetas) !important; border-color: color-mix(in srgb, var(--c-texto-prin) 10%, transparent) !important; }
     .tema-cliente .bg-slate-50 { background-color: color-mix(in srgb, var(--c-tarjetas) 95%, black) !important; border-color: color-mix(in srgb, var(--c-texto-prin) 10%, transparent) !important; }
+    ${modoOscuro ? `
+    .tema-cliente.text-slate-800, .tema-cliente .text-slate-800, .tema-cliente .text-slate-700, .tema-cliente .text-slate-600 { color: var(--c-texto-prin) !important; }
+    .tema-cliente.text-slate-500, .tema-cliente .text-slate-500, .tema-cliente.text-slate-400, .tema-cliente .text-slate-400 { color: var(--c-texto-sec) !important; }
+    .tema-cliente .texto-destacado { color: var(--c-texto-prin) !important; }
+    .tema-cliente .border-slate-100, .tema-cliente .border-slate-200 { border-color: color-mix(in srgb, var(--c-texto-prin) 18%, transparent) !important; }
+    .tema-cliente input, .tema-cliente textarea { color: var(--c-texto-prin) !important; }
+    .tema-cliente input::placeholder, .tema-cliente textarea::placeholder { color: var(--c-texto-sec) !important; opacity: 0.7; }
+    ` : ''}
     `;
   };
 
@@ -822,7 +861,7 @@ const App = () => {
   // RENDER: KIOSCO ACTIVO (CLIENTE LOGUEADO O INVITADO)
   if (clienteActivo || modoInvitado) {
     // AQUÍ PROPAGAMOS LOS NUEVOS PROPS HACIA EL KIOSCO
-    return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} modoKiosco={modoKiosco} mesaQR={mesaQR} onLogout={() => cerrarSesion()} /></div></>;
+    return <><style dangerouslySetInnerHTML={{__html: inyectarEstilos()}} /><div className="tema-cliente"><Kiosco user={null} clienteActivo={clienteActivo} modoKiosco={modoKiosco} mesaQR={mesaQR} onLogout={() => cerrarSesion()} onIrAIdentificarse={() => setModoInvitado(false)} /></div></>;
   }
 
 
@@ -937,7 +976,7 @@ const App = () => {
               {configGlobal.nombre_negocio && configGlobal.nombre_negocio !== 'Mi Restaurante' ? configGlobal.nombre_negocio : 'Bienvenido'}
             </h1>
             <p className={`font-medium mb-8 texto-destacado ${isTerminalFisica ? 'text-2xl' : 'text-lg'}`}>
-              {empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Ingresa tu número para continuar')}
+              {empleadoFase2 ? 'Acceso Seguro' : (necesitaRegistro ? 'Crea tu cuenta' : 'Inicia sesión o regístrate con tu celular')}
             </p>
 
             {empleadoFase2 ? (
@@ -1030,11 +1069,11 @@ const App = () => {
               <div className="mt-8 flex flex-col gap-4">
                 {isTerminalFisica ? (
                    <button onClick={() => setModoInvitado(true)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-8 rounded-2xl font-black text-2xl border-2 border-slate-200 transition-all active:scale-95">
-                     Entrar directo como Invitado
+                     Regresar al Menú
                    </button>
                 ) : (
                    <button onClick={() => setModoInvitado(true)} className="text-slate-400 hover:text-slate-500 font-bold text-sm transition-colors underline">
-                     Entrar directo como Invitado
+                     Regresar al Menú
                    </button>
                 )}
               </div>

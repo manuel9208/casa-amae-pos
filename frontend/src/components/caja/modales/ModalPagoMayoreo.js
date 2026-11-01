@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DollarSign, CreditCard, Smartphone, CheckCircle2, XCircle, Copy, MessageCircle, Wallet, AlertTriangle, Users } from 'lucide-react';
 import TicketImpresionMayoreo from './PuntoDeVenta/distribucion/TicketImpresionMayoreo'; 
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalPagoMayoreo = ({
     modalPago,
@@ -94,7 +95,7 @@ const ModalPagoMayoreo = ({
         setIsSubmitting(true);
         try {
             const apiBase = apiUrl || (window.location.origin.includes('localhost') ? 'http://localhost:4000/api' : '/api');
-            const res = await fetch(`${apiBase}/distribucion/ventas/${modalPago.id}/estado`, {
+            const res = await apiFetch(`${apiBase}/distribucion/ventas/${modalPago.id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

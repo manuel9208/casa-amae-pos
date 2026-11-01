@@ -11,6 +11,15 @@ const http = require('http'); // 🆕 Requerido para envolver express y acoplar 
 const { Server } = require('socket.io'); // 🆕 Motor WebSockets de alto rendimiento
 const apiRoutes = require('./routes/api');
 
+// 🆕 [MULTI-TENANT] Importación del módulo de migración centralizada.
+// Nombres confirmados directamente en config/migracionMultiTenant.js:
+//   - crearTablasBaseSiNoExisten  (Bloque A: CREATE TABLE IF NOT EXISTS)
+//   - agregarEmpresaIdATablas     (Bloque B: ALTER TABLE ... ADD COLUMN empresa_id)
+const {
+  crearTablasBaseSiNoExisten,
+  agregarEmpresaIdATablas
+} = require('./config/migracionMultiTenant');
+
 const app = express();
 
 // 👇 FIX CRÍTICO: Render (y la mayoría de los hostings en la nube) entregan
@@ -30,7 +39,7 @@ const io = new Server(server, {
   cors: {
     origin: '*', // Permite conexiones descentralizadas de marcas blancas
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Empresa-Slug']
   }
 });
 
@@ -66,9 +75,9 @@ app.set('io', io);
 
 // --- CONFIGURACIÓN DE CORS GENERAL ---
 app.use(cors({
-  origin: '*', 
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Empresa-Slug', 'X-Superadmin-Key']
 }));
 
 app.use(express.json());
@@ -97,7 +106,34 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const PORT = process.env.PORT || 4000;
 
-// 🌟 CORRECCIÓN CRÍTICA: Arrancamos con server.listen en lugar de app.listen para levantar Sockets e HTTP juntos
-server.listen(PORT, () => {
-  console.log(`🚀 Servidor e hilos de Socket.io corriendo en puerto ${PORT}`);
-});
+// =========================================================================
+// 🆕 [MULTI-TENANT] ARRANQUE BLINDADO: la migración se ejecuta ANTES de
+// aceptar tráfico. Ambos bloques (A y B) usan "IF NOT EXISTS" en su SQL,
+// por lo tanto son 100% idempotentes: se pueden correr en cada arranque
+// sin riesgo de duplicar tablas, columnas ni romper datos existentes.
+//
+// Si la migración falla, se detiene el arranque (process.exit(1)) para
+// evitar levantar el servidor contra una base de datos en estado
+// inconsistente (ej. controladores esperando "empresa_id" que no existe).
+// =========================================================================
+async function iniciarServidor() {
+  try {
+    console.log('🔧 [MULTI-TENANT] Verificando/aplicando migración de base de datos...');
+
+    await crearTablasBaseSiNoExisten(); // Bloque A: tablas nuevas completas
+    await agregarEmpresaIdATablas();    // Bloque B: empresa_id en tablas existentes
+
+    console.log('✅ [MULTI-TENANT] Base de datos verificada correctamente. Procediendo a levantar el servidor...');
+
+    // 🌟 CORRECCIÓN CRÍTICA: Arrancamos con server.listen en lugar de app.listen para levantar Sockets e HTTP juntos
+    server.listen(PORT, () => {
+      console.log(`🚀 Servidor e hilos de Socket.io corriendo en puerto ${PORT}`);
+    });
+
+  } catch (error) {
+    console.error('🚨 [MULTI-TENANT] Error crítico durante la migración. El servidor NO se levantará para proteger la integridad de los datos:', error);
+    process.exit(1);
+  }
+}
+
+iniciarServidor();

@@ -10,30 +10,35 @@ const db = require('../config/db');
 // reporteController.js, GestorRecetas.js y PanelTamanosFijos.js.
 exports.inicializarTablaConfigFinanciera = async () => {
   try {
+    // 🔒 FILTRO EMPRESA: "clave" dejó de ser UNIQUE por sí sola (bloqueaba a las
+    // demás empresas de tener su propia fila "factor_luz_agua"). Ahora la
+    // unicidad real es el PAR (clave, empresa_id) mediante el índice de abajo.
     await db.query(`
       CREATE TABLE IF NOT EXISTS configuracion_financiera (
         id SERIAL PRIMARY KEY,
-        clave VARCHAR(50) UNIQUE,
+        clave VARCHAR(50),
         nombre_servicio VARCHAR(100) NOT NULL,
         monto_mensual NUMERIC(12,2) DEFAULT 0,
         porcentaje NUMERIC(5,2) DEFAULT 0,
         categoria VARCHAR(50) DEFAULT 'Servicios',
         activo BOOLEAN DEFAULT true,
         fecha_creacion TIMESTAMP DEFAULT NOW(),
-        fecha_actualizacion TIMESTAMP DEFAULT NOW()
+        fecha_actualizacion TIMESTAMP DEFAULT NOW(),
+        empresa_id INTEGER REFERENCES empresas(id) -- 🆕 TENANT
       );
     `);
-
-    // 👇 Semilla inicial: mantiene el 15% actual como valor por defecto,
-    // para que ningún negocio (nuevo o existente) quede con el factor en 0
-    // y sus costos reales se vean distorsionados al desplegar este cambio.
     await db.query(`
-      INSERT INTO configuracion_financiera (clave, nombre_servicio, porcentaje, categoria)
-      VALUES ('factor_luz_agua', 'Luz y Agua (Factor de Costeo)', 15.00, 'Servicios')
-      ON CONFLICT (clave) DO NOTHING;
-    `);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_config_financiera_clave_empresa
+      ON configuracion_financiera(clave, empresa_id);
+    `); // 🔒 FILTRO EMPRESA: unicidad real ahora es (clave + empresa_id)
 
-    console.log("✅ Tabla 'configuracion_financiera' verificada/creada en la BD (Factor Luz/Agua sembrado al 15%).");
+    // NOTA: ya NO se siembra aquí el 15% global, porque esta función corre UNA
+    // SOLA VEZ al arrancar el servidor, sin saber a qué empresa pertenece. En su
+    // lugar, obtenerFactorLuzAgua() y actualizarFactorLuzAgua() ya se encargan
+    // de crear la fila con el valor por defecto la primera vez que cada empresa
+    // la consulte o la edite (mismo patrón "lazy creation" que configController.js).
+
+    console.log("✅ Tabla 'configuracion_financiera' verificada/creada en la BD.");
   } catch (error) {
     console.error("❌ Error al inicializar configuracion_financiera:", error);
   }
@@ -44,9 +49,11 @@ exports.inicializarTablaConfigFinanciera = async () => {
 // GestorRecetas.js y PanelTamanosFijos.js)
 // =========================================================
 exports.obtenerFactorLuzAgua = async (req, res) => {
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     const result = await db.query(
-      `SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1`
+      `SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' AND empresa_id = $1 LIMIT 1`, // 🔒 FILTRO EMPRESA
+      [empresaId]
     );
 
     // 👇 Blindaje: si por alguna razón la fila no existe (instalación nueva
@@ -63,6 +70,7 @@ exports.obtenerFactorLuzAgua = async (req, res) => {
 
 exports.actualizarFactorLuzAgua = async (req, res) => {
   const { porcentaje } = req.body;
+  const empresaId = req.empresa_id; // 🆕 TENANT
 
   if (porcentaje === undefined || porcentaje === null || isNaN(Number(porcentaje))) {
     return res.status(400).json({ error: 'El porcentaje enviado no es un número válido.' });
@@ -72,20 +80,20 @@ exports.actualizarFactorLuzAgua = async (req, res) => {
     const result = await db.query(
       `UPDATE configuracion_financiera
        SET porcentaje = $1, fecha_actualizacion = NOW()
-       WHERE clave = 'factor_luz_agua'
-       RETURNING porcentaje`,
-      [Number(porcentaje)]
+       WHERE clave = 'factor_luz_agua' AND empresa_id = $2
+       RETURNING porcentaje`, // 🔒 FILTRO EMPRESA
+      [Number(porcentaje), empresaId]
     );
 
-    // 👇 Blindaje: si la fila no existía (caso extremo), la creamos en
-    // vez de fallar silenciosamente, para que el ajuste del cliente nunca
-    // se pierda.
+    // 👇 Blindaje: si la fila no existía para ESTA empresa (caso extremo o
+    // primera vez que la toca), la creamos en vez de fallar silenciosamente,
+    // para que el ajuste del cliente nunca se pierda.
     if (result.rows.length === 0) {
       const inserted = await db.query(
-        `INSERT INTO configuracion_financiera (clave, nombre_servicio, porcentaje, categoria)
-         VALUES ('factor_luz_agua', 'Luz y Agua (Factor de Costeo)', $1, 'Servicios')
-         RETURNING porcentaje`,
-        [Number(porcentaje)]
+        `INSERT INTO configuracion_financiera (clave, nombre_servicio, porcentaje, categoria, empresa_id)
+         VALUES ('factor_luz_agua', 'Luz y Agua (Factor de Costeo)', $1, 'Servicios', $2)
+         RETURNING porcentaje`, // 🆕 TENANT
+        [Number(porcentaje), empresaId]
       );
       return res.json({ success: true, porcentaje: Number(inserted.rows[0].porcentaje) });
     }

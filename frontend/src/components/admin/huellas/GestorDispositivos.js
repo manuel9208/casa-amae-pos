@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Smartphone, Monitor, ShieldAlert, CheckCircle2, Trash2, Edit3, Save, XCircle, Users } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
-const GestorDispositivos = ({ apiUrl, showAlert }) => {
+const GestorDispositivos = ({ apiUrl, showAlert, showConfirm }) => {
     const [equipos, setEquipos] = useState([]);
     const [miId] = useState(localStorage.getItem('pos_device_id') || '');
     const [editandoId, setEditandoId] = useState(null);
@@ -12,7 +13,7 @@ const GestorDispositivos = ({ apiUrl, showAlert }) => {
 
     const cargarEquipos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/biometria/equipos`);
+            const res = await apiFetch(`${apiUrl}/biometria/equipos`);
             if (res.ok) setEquipos(await res.json());
         } catch (error) { console.error(error); }
     }, [apiUrl]);
@@ -21,7 +22,7 @@ const GestorDispositivos = ({ apiUrl, showAlert }) => {
 
     const registrarEsteEquipo = async () => {
         try {
-            const res = await fetch(`${apiUrl}/biometria/equipos`, {
+            const res = await apiFetch(`${apiUrl}/biometria/equipos`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -55,7 +56,7 @@ const GestorDispositivos = ({ apiUrl, showAlert }) => {
     const guardarEdicion = async () => {
         if (!equipoTemporal.alias.trim()) return showAlert('Error', 'El equipo debe tener un nombre', 'error');
         try {
-            const res = await fetch(`${apiUrl}/biometria/equipos/${equipoTemporal.id}`, {
+            const res = await apiFetch(`${apiUrl}/biometria/equipos/${equipoTemporal.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(equipoTemporal)
@@ -67,12 +68,22 @@ const GestorDispositivos = ({ apiUrl, showAlert }) => {
         } catch (error) { showAlert('Error', 'Fallo al actualizar el equipo', 'error'); }
     };
 
-    const eliminarEquipo = async (id, alias) => {
-        if (!window.confirm(`¿Estás seguro de eliminar "${alias}"?`)) return;
-        try {
-            const res = await fetch(`${apiUrl}/biometria/equipos/${id}`, { method: 'DELETE' });
-            if (res.ok) cargarEquipos();
-        } catch (error) { showAlert('Error', 'No se pudo eliminar.', 'error'); }
+    const eliminarEquipo = (id, alias) => {
+        showConfirm(
+            'Eliminar Equipo',
+            `¿Estás seguro de eliminar "${alias}"? Este dispositivo perderá sus permisos de pantallas y roles asignados.`,
+            async () => {
+                try {
+                    const res = await apiFetch(`${apiUrl}/biometria/equipos/${id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showAlert('Eliminado', `El equipo "${alias}" fue eliminado correctamente.`, 'success');
+                        cargarEquipos();
+                    } else {
+                        showAlert('Error', 'No se pudo eliminar.', 'error');
+                    }
+                } catch (error) { showAlert('Error', 'No se pudo eliminar.', 'error'); }
+            }
+        );
     };
 
     return (

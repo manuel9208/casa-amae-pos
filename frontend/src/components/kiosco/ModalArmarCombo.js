@@ -98,6 +98,9 @@ const ModalArmarCombo = ({
     const agregarAlCarrito = () => {
         if (isSubmitting) return;
         setIsSubmitting(true); 
+
+        // 👇 NUEVO: Vibración háptica breve al confirmar (si el dispositivo la soporta)
+        if (navigator.vibrate) navigator.vibrate(50);
         
         // Creamos el ID de Grupo que amarra al Padre con los Hijos
         const comboGroupId = itemAEditar?._comboGroupId || (Date.now().toString() + Math.random().toString(36).substr(2, 5));

@@ -88,6 +88,22 @@ const BrandingGlobal = ({ configGlobal, setConfigGlobal, isSubmitting }) => {
             </div>
           </div>
         </div>
+
+        {/* 👇 NUEVO: Modo Oscuro Automático del Kiosco */}
+        <div className="border-t border-blue-100 pt-4 mt-2">
+          <p className="text-xs font-black text-blue-600 uppercase tracking-widest mb-3">🌙 Modo Oscuro del Kiosco</p>
+          <select
+            disabled={isSubmitting}
+            value={configGlobal.modo_oscuro_preferencia || 'automatico'}
+            onChange={e => setConfigGlobal({...configGlobal, modo_oscuro_preferencia: e.target.value})}
+            className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-700 shadow-sm"
+          >
+            <option value="automatico">Automático (7pm a 7am)</option>
+            <option value="siempre_claro">Siempre Claro</option>
+            <option value="siempre_oscuro">Siempre Oscuro</option>
+          </select>
+          <p className="text-[10px] text-slate-400 mt-2 font-bold">Los colores de tu marca (primario/secundario) se mantienen igual; solo cambian los fondos y textos.</p>
+        </div>
       </div>
     </div>
   );

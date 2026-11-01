@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, XCircle, Smartphone, Mail, Save, Users, Lock, ChevronDown } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 // 👇 FIX WARNING ESLint: Se saca PANTALLAS_POR_ROL fuera del componente porque
 // es un objeto estático (no depende de props/state). Al vivir a nivel de módulo,
@@ -52,7 +53,7 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
 
     const cargarConfiguracion = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/biometria/configuracion`);
+            const res = await apiFetch(`${apiUrl}/biometria/configuracion`);
             if (res.ok) {
                 const data = await res.json();
                 if (data) {
@@ -90,7 +91,7 @@ const ModalConfigSeguridad = ({ apiUrl, showAlert, onClose }) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/biometria/configuracion`, {
+            const res = await apiFetch(`${apiUrl}/biometria/configuracion`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(configuracion)

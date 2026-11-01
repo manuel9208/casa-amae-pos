@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { CalendarDays, X, CheckSquare, Square, Printer } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
+
 
 // Importación de Módulos (Hijos)
 import TurnosCaja from './corte/TurnosCaja';
@@ -59,10 +61,10 @@ const VistaCortesHistorico = ({ apiUrl }) => {
         setCargando(true);
         try {
             const [resPed, resCorte, resCompras, resUsu] = await Promise.all([
-                fetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`),
-                periodo === 'dia' ? fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`) : Promise.resolve({ ok: false }),
-                fetch(`${apiUrl}/insumos/compras/reporte?periodo=${periodo}&fecha=${fechaFiltro}`),
-                fetch(`${apiUrl}/usuarios`)
+               apiFetch(`${apiUrl}/pedidos/historial?periodo=${periodo}&fecha=${fechaFiltro}`),
+                periodo === 'dia' ?apiFetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true`) : Promise.resolve({ ok: false }),
+               apiFetch(`${apiUrl}/insumos/compras/reporte?periodo=${periodo}&fecha=${fechaFiltro}`),
+               apiFetch(`${apiUrl}/usuarios`)
             ]);
 
             if (resUsu.ok) { const usuData = await resUsu.json(); setUsuarios(Array.isArray(usuData) ? usuData : []); }

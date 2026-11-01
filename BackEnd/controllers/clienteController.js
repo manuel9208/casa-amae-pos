@@ -3,10 +3,11 @@ const nodemailer = require('nodemailer');
 
 exports.registrar = async (req, res) => {
   const { telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion } = req.body;
+  const { empresa_id } = req; // 🆕 TENANT
   try {
     const result = await db.query(
-      'INSERT INTO clientes (telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [ telefono, nombre, apellido || '', correo || null, fecha_nacimiento || null, nip || '0000', direccion || null ]
+      'INSERT INTO clientes (telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion, empresa_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', // 🆕 TENANT
+      [ telefono, nombre, apellido || '', correo || null, fecha_nacimiento || null, nip || '0000', direccion || null, empresa_id ]
     );
     res.json({ cliente: result.rows[0] });
   } catch (error) {
@@ -16,9 +17,10 @@ exports.registrar = async (req, res) => {
 };
 
 exports.verificarNip = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id, nip } = req.body;
   try {
-    const result = await db.query('SELECT nip FROM clientes WHERE id = $1', [cliente_id]);
+    const result = await db.query('SELECT nip FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length > 0) {
       const dbNip = String(result.rows[0].nip).trim();
       const inputNip = String(nip).trim();
@@ -31,6 +33,7 @@ exports.verificarNip = async (req, res) => {
 };
 
 exports.recuperarNip = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id, correo } = req.body;
 
   if (!cliente_id || !correo) {
@@ -41,8 +44,8 @@ exports.recuperarNip = async (req, res) => {
     await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_email TEXT, ADD COLUMN IF NOT EXISTS smtp_password TEXT, ADD COLUMN IF NOT EXISTS smtp_host TEXT, ADD COLUMN IF NOT EXISTS smtp_port TEXT;`);
 
     const result = await db.query(
-      'UPDATE clientes SET correo = $1 WHERE id = $2 RETURNING *',
-      [correo, cliente_id]
+      'UPDATE clientes SET correo = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *',
+      [correo, cliente_id, empresa_id]
     );
 
     if (result.rows.length === 0) {
@@ -52,7 +55,7 @@ exports.recuperarNip = async (req, res) => {
     const cliente = result.rows[0];
     const nipCliente = cliente.nip;
 
-    const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE id = 1');
+    const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresa_id]);
     const configData = configRes.rows[0] || {};
     
     if (!configData.smtp_email || !configData.smtp_password) {
@@ -115,6 +118,7 @@ exports.recuperarNip = async (req, res) => {
 // ==========================================
 
 exports.solicitarCodigoNip = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id } = req.body;
   if (!cliente_id) return res.status(400).json({ error: 'ID de cliente requerido.' });
 
@@ -122,7 +126,7 @@ exports.solicitarCodigoNip = async (req, res) => {
     await db.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_verificacion VARCHAR(10);`);
     await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_email TEXT, ADD COLUMN IF NOT EXISTS smtp_password TEXT, ADD COLUMN IF NOT EXISTS smtp_host TEXT, ADD COLUMN IF NOT EXISTS smtp_port TEXT;`);
 
-    const result = await db.query('SELECT nombre, correo FROM clientes WHERE id = $1', [cliente_id]);
+    const result = await db.query('SELECT nombre, correo FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
     const cliente = result.rows[0];
@@ -133,9 +137,9 @@ exports.solicitarCodigoNip = async (req, res) => {
 
     const codigo = Math.floor(100000 + Math.random() * 900000).toString();
 
-    await db.query('UPDATE clientes SET codigo_verificacion = $1 WHERE id = $2', [codigo, cliente_id]);
+    await db.query('UPDATE clientes SET codigo_verificacion = $1 WHERE id = $2 AND empresa_id = $3', [codigo, cliente_id, empresa_id]);
 
-    const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE id = 1');
+    const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresa_id]);
     const configData = configRes.rows[0] || {};
     
     if (!configData.smtp_email || !configData.smtp_password) {
@@ -194,6 +198,7 @@ exports.solicitarCodigoNip = async (req, res) => {
 };
 
 exports.cambiarNipConCodigo = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id, codigo, nuevoNip } = req.body;
 
   if (!cliente_id || !codigo || !nuevoNip) {
@@ -205,7 +210,7 @@ exports.cambiarNipConCodigo = async (req, res) => {
   }
 
   try {
-    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1', [cliente_id]);
+    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
     const dbCodigo = result.rows[0].codigo_verificacion;
@@ -214,7 +219,7 @@ exports.cambiarNipConCodigo = async (req, res) => {
       return res.status(401).json({ error: 'El código de verificación es incorrecto o ya expiró.' });
     }
 
-    await db.query('UPDATE clientes SET nip = $1, codigo_verificacion = NULL WHERE id = $2', [nuevoNip, cliente_id]);
+    await db.query('UPDATE clientes SET nip = $1, codigo_verificacion = NULL WHERE id = $2 AND empresa_id = $3', [nuevoNip, cliente_id, empresa_id]);
 
     res.json({ success: true, mensaje: 'Tu NIP ha sido actualizado correctamente.' });
   } catch (error) {
@@ -225,6 +230,7 @@ exports.cambiarNipConCodigo = async (req, res) => {
 
 // 👇 NUEVA FUNCIÓN: Cambiar correo con el mismo sistema 2FA
 exports.cambiarCorreoConCodigo = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id, codigo, nuevoCorreo } = req.body;
 
   if (!cliente_id || !codigo || !nuevoCorreo) {
@@ -232,7 +238,7 @@ exports.cambiarCorreoConCodigo = async (req, res) => {
   }
 
   try {
-    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1', [cliente_id]);
+    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
     const dbCodigo = result.rows[0].codigo_verificacion;
@@ -241,13 +247,13 @@ exports.cambiarCorreoConCodigo = async (req, res) => {
       return res.status(401).json({ error: 'El código de verificación es incorrecto o ya expiró.' });
     }
 
-    // Comprobamos que el nuevo correo no esté ya en uso por otro cliente
-    const checkEmail = await db.query('SELECT id FROM clientes WHERE correo = $1 AND id != $2', [nuevoCorreo, cliente_id]);
+    // Comprobamos que el nuevo correo no esté ya en uso por otro cliente DE LA MISMA EMPRESA
+    const checkEmail = await db.query('SELECT id FROM clientes WHERE correo = $1 AND id != $2 AND empresa_id = $3', [nuevoCorreo, cliente_id, empresa_id]);
     if (checkEmail.rows.length > 0) {
       return res.status(400).json({ error: 'Ese correo ya está registrado en otra cuenta.' });
     }
 
-    await db.query('UPDATE clientes SET correo = $1, codigo_verificacion = NULL WHERE id = $2', [nuevoCorreo, cliente_id]);
+    await db.query('UPDATE clientes SET correo = $1, codigo_verificacion = NULL WHERE id = $2 AND empresa_id = $3', [nuevoCorreo, cliente_id, empresa_id]);
 
     res.json({ success: true, mensaje: 'Tu correo ha sido actualizado correctamente.' });
   } catch (error) {
@@ -261,8 +267,9 @@ exports.cambiarCorreoConCodigo = async (req, res) => {
 // ==========================================
 
 exports.obtenerClientes = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const result = await db.query('SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella FROM clientes c ORDER BY id DESC');
+    const result = await db.query('SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id AND cb.empresa_id = c.empresa_id) as tiene_huella FROM clientes c WHERE c.empresa_id = $1 ORDER BY id DESC', [empresa_id]);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener clientes' });
@@ -272,10 +279,11 @@ exports.obtenerClientes = async (req, res) => {
 // 🆕 FIX 404: Obtener un solo cliente por ID (usado para refrescar puntos en tiempo real desde Caja)
 exports.obtenerClientePorId = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   try {
     const result = await db.query(
-      'SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id) as tiene_huella FROM clientes c WHERE c.id = $1',
-      [id]
+      'SELECT c.*, EXISTS(SELECT 1 FROM credenciales_biometricas cb WHERE cb.cliente_id = c.id AND cb.empresa_id = c.empresa_id) as tiene_huella FROM clientes c WHERE c.id = $1 AND c.empresa_id = $2',
+      [id, empresa_id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
     res.json(result.rows[0]);
@@ -287,12 +295,14 @@ exports.obtenerClientePorId = async (req, res) => {
 
 // 🔍 NUEVO: Buscador optimizado en servidor (reemplaza la descarga masiva del frontend)
 exports.buscarClientes = async (req, res) => {
+  const { empresa_id } = req;
   const termino = String(req.query.q || '').trim();
   if (termino.length < 2) return res.json({ registrados: [], invitados: [] });
 
   try {
     const terminos = termino.split(/\s+/).filter(Boolean).slice(0, 5);
     const valores = terminos.map(t => `%${t}%`);
+    const empresaPos = valores.length + 1;
 
     // 1. Clientes registrados (match por nombre+apellido o teléfono)
     const condicionesCliente = terminos.map((_, i) =>
@@ -302,10 +312,10 @@ exports.buscarClientes = async (req, res) => {
     const registradosRes = await db.query(
       `SELECT id, nombre, apellido, telefono, direccion, puntos
        FROM clientes
-       WHERE ${condicionesCliente}
+       WHERE ${condicionesCliente} AND empresa_id = $${empresaPos}
        ORDER BY id DESC
        LIMIT 8`,
-      valores
+      [...valores, empresa_id]
     );
 
     // 2. Historial de invitados (sin cliente_id) — excluye el carrito pesado y limita resultados
@@ -316,10 +326,10 @@ exports.buscarClientes = async (req, res) => {
     const invitadosRes = await db.query(
       `SELECT p.direccion_entrega
       FROM pedidos p
-      WHERE p.cliente_id IS NULL AND (${condicionesPedido})
+      WHERE p.cliente_id IS NULL AND (${condicionesPedido}) AND p.empresa_id = $${empresaPos}
       ORDER BY p.id DESC
       LIMIT 30`,
-      valores
+      [...valores, empresa_id]
     );
 
     res.json({ registrados: registradosRes.rows, invitados: invitadosRes.rows });
@@ -331,10 +341,11 @@ exports.buscarClientes = async (req, res) => {
 
 exports.actualizarCliente = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   const { nombre, apellido, telefono, correo, puntos, nip, direccion, fecha_nacimiento } = req.body;
   
   try {
-    const curr = await db.query('SELECT * FROM clientes WHERE id = $1', [id]);
+    const curr = await db.query('SELECT * FROM clientes WHERE id = $1 AND empresa_id = $2', [id, empresa_id]);
     if (curr.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
     
     const c = curr.rows[0];
@@ -349,8 +360,8 @@ exports.actualizarCliente = async (req, res) => {
     const nFechaNacimiento = fecha_nacimiento !== undefined ? fecha_nacimiento : c.fecha_nacimiento; 
 
     const result = await db.query(
-      'UPDATE clientes SET nombre=$1, apellido=$2, telefono=$3, correo=$4, puntos=$5, nip=$6, direccion=$7, fecha_nacimiento=$8 WHERE id=$9 RETURNING *',
-      [nNombre, nApellido, nTelefono, nCorreo, nPuntos, nNip, nDireccion, nFechaNacimiento, id]
+      'UPDATE clientes SET nombre=$1, apellido=$2, telefono=$3, correo=$4, puntos=$5, nip=$6, direccion=$7, fecha_nacimiento=$8 WHERE id=$9 AND empresa_id=$10 RETURNING *',
+      [nNombre, nApellido, nTelefono, nCorreo, nPuntos, nNip, nDireccion, nFechaNacimiento, id, empresa_id]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -360,18 +371,19 @@ exports.actualizarCliente = async (req, res) => {
 };
 
 exports.obtenerReportes = async (req, res) => {
+  const { empresa_id } = req;
   try {
-    const edadRes = await db.query("SELECT ROUND(AVG(EXTRACT(YEAR FROM age(CURRENT_DATE, fecha_nacimiento)))) as promedio_edad FROM clientes WHERE fecha_nacimiento IS NOT NULL");
-    const topPuntos = await db.query("SELECT nombre, apellido, puntos FROM clientes ORDER BY puntos DESC LIMIT 5");
-    const antiguos = await db.query("SELECT nombre, apellido, fecha_registro FROM clientes ORDER BY fecha_registro ASC LIMIT 5");
-    const pagos = await db.query("SELECT metodo_pago, COUNT(*) as cantidad FROM pedidos WHERE cliente_id IS NOT NULL GROUP BY metodo_pago ORDER BY cantidad DESC");
-    const origenes = await db.query("SELECT origen, COUNT(*) as cantidad FROM pedidos WHERE cliente_id IS NOT NULL GROUP BY origen ORDER BY cantidad DESC");
+    const edadRes = await db.query("SELECT ROUND(AVG(EXTRACT(YEAR FROM age(CURRENT_DATE, fecha_nacimiento)))) as promedio_edad FROM clientes WHERE fecha_nacimiento IS NOT NULL AND empresa_id = $1", [empresa_id]);
+    const topPuntos = await db.query("SELECT nombre, apellido, puntos FROM clientes WHERE empresa_id = $1 ORDER BY puntos DESC LIMIT 5", [empresa_id]);
+    const antiguos = await db.query("SELECT nombre, apellido, fecha_registro FROM clientes WHERE empresa_id = $1 ORDER BY fecha_registro ASC LIMIT 5", [empresa_id]);
+    const pagos = await db.query("SELECT metodo_pago, COUNT(*) as cantidad FROM pedidos WHERE cliente_id IS NOT NULL AND empresa_id = $1 GROUP BY metodo_pago ORDER BY cantidad DESC", [empresa_id]);
+    const origenes = await db.query("SELECT origen, COUNT(*) as cantidad FROM pedidos WHERE cliente_id IS NOT NULL AND empresa_id = $1 GROUP BY origen ORDER BY cantidad DESC", [empresa_id]);
     const platillos = await db.query(`
       SELECT obj->>'nombre' as platillo, sum(CAST(obj->>'cantidad' AS INTEGER)) as total
       FROM pedidos p, jsonb_array_elements(p.carrito) obj
-      WHERE p.cliente_id IS NOT NULL
+      WHERE p.cliente_id IS NOT NULL AND p.empresa_id = $1
       GROUP BY platillo ORDER BY total DESC LIMIT 5
-    `);
+    `, [empresa_id]);
 
     res.json({
       promedioEdad: edadRes.rows[0]?.promedio_edad || 0,
@@ -384,5 +396,20 @@ exports.obtenerReportes = async (req, res) => {
   } catch (error) {
     console.error("Error en reportes CRM:", error);
     res.status(500).json({ error: 'Error al generar reportes' });
+  }
+};
+
+exports.eliminarCliente = async (req, res) => {
+  const { id } = req.params;
+  const { empresa_id } = req;
+  try {
+    const result = await db.query('DELETE FROM clientes WHERE id = $1 AND empresa_id = $2 RETURNING id', [id, empresa_id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado o no pertenece a tu negocio.' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error al eliminar cliente:", error);
+    res.status(500).json({ error: 'Error al eliminar el cliente.' });
   }
 };

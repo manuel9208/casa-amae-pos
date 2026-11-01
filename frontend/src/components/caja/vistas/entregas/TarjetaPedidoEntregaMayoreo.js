@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { MapPin, Phone, User, Bike, CheckCircle2, DollarSign, XCircle, Package, AlertTriangle, Banknote, PackageCheck } from 'lucide-react';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const TarjetaPedidoEntregaMayoreo = ({
     pedido,
@@ -64,7 +65,7 @@ const TarjetaPedidoEntregaMayoreo = ({
         setProcesandoLocal(true);
         
         try {
-            await fetch(`${apiUrl}/distribucion/ventas/${pedido.id}/estado`, {
+            await apiFetch(`${apiUrl}/distribucion/ventas/${pedido.id}/estado`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ estado_preparacion: nuevoEstado, ...extras })

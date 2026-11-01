@@ -10,8 +10,11 @@ const { metodoAsistenciaActivo, validarUbicacionServidor, asegurarColumnasUbicac
 const { validarAccesoMDM } = require('../utils/mdmValidator');
 
 const rpName = 'Sistema POS';
-const rpID = process.env.RP_ID || 'localhost';
-const expectedOrigin = process.env.FRONTEND_URL || `http://localhost:3000`;
+// 🆕 MULTI-TENANT: RP_ID y FRONTEND_URL ya NO se leen una sola vez al
+// arrancar el servidor (eso forzaría que TODAS las empresas compartieran
+// el mismo dominio para WebAuthn). Ahora se resuelven por request dentro
+// de cada función, usando req.empresa_id (ver envResolver.js).
+const { resolverVariable } = require('../utils/envResolver');
 
 const challengesConfig = {};
 
@@ -29,8 +32,8 @@ exports.inicializarTablas = async () => {
         correo_remitente TEXT
       );
 
-      INSERT INTO configuracion_biometria (id, control_dispositivos_activo)
-      VALUES (1, false) ON CONFLICT (id) DO NOTHING;
+      -- 🆕 Ya no se siembra una fila fija id=1: configuracion_biometria ahora
+      -- es 1 fila por empresa (ver equipoController.js -> actualizarConfiguracion con UPSERT).
 
       CREATE TABLE IF NOT EXISTS equipos_autorizados (
         id SERIAL PRIMARY KEY,
@@ -60,10 +63,14 @@ exports.inicializarTablas = async () => {
 
 // 2. ENVÍO DE CÓDIGO POR CORREO
 exports.enviarCodigoVerificacion = async (req, res) => {
+  const { empresa_id } = req;
   const { cliente_id, correo } = req.body;
   try {
-    const confRes = await db.query('SELECT * FROM configuracion_biometria WHERE id = 1');
+    const confRes = await db.query('SELECT * FROM configuracion_biometria WHERE empresa_id = $1', [empresa_id]);
     const config = confRes.rows[0];
+    if (!config) {
+      return res.status(500).json({ error: 'Servidor de correos no configurado.' });
+    }
 
     if (!config.smtp_host || !config.smtp_user || !config.smtp_pass) {
       return res.status(400).json({ error: 'Servidor de correos no configurado.' });
@@ -94,18 +101,20 @@ exports.enviarCodigoVerificacion = async (req, res) => {
 
 // 3. REGISTRO DE HUELLA (ENROLAMIENTO)
 exports.generarOpcionesRegistro = async (req, res) => {
+  const { empresa_id } = req;
   const { usuario_id, cliente_id } = req.body;
   try {
+    const rpID = await resolverVariable(empresa_id, 'RP_ID') || 'localhost'; // 🆕 por empresa
     let userID, userName, userDisplayName;
 
     if (usuario_id) {
-      const userRes = await db.query('SELECT usuario, nombre FROM usuarios WHERE id = $1', [usuario_id]);
+      const userRes = await db.query('SELECT usuario, nombre FROM usuarios WHERE id = $1 AND empresa_id = $2', [usuario_id, empresa_id]);
       if (userRes.rows.length === 0) return res.status(404).json({ error: 'Empleado no encontrado' });
       userID = `USR_${usuario_id}`;
       userName = userRes.rows[0].usuario;
       userDisplayName = userRes.rows[0].nombre;
     } else if (cliente_id) {
-      const cliRes = await db.query('SELECT telefono, nombre FROM clientes WHERE id = $1', [cliente_id]);
+      const cliRes = await db.query('SELECT telefono, nombre FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
       if (cliRes.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
       userID = `CLI_${cliente_id}`;
       userName = cliRes.rows[0].telefono;
@@ -128,7 +137,10 @@ exports.generarOpcionesRegistro = async (req, res) => {
       }
     });
 
-    challengesConfig[userID] = options.challenge;
+    // 🔒 Patrón 20 corregido: se prefija con empresa_id para que 2 negocios
+    // con el mismo usuario_id/cliente_id no se pisen el challenge en memoria
+    // durante la ventana de enrolamiento WebAuthn.
+    challengesConfig[`${empresa_id}_${userID}`] = options.challenge;
     res.json(options);
   } catch (error) {
     console.error("🚨 Error al generar opciones biométricas:", error);
@@ -137,13 +149,18 @@ exports.generarOpcionesRegistro = async (req, res) => {
 };
 
 exports.verificarRegistro = async (req, res) => {
+  const { empresa_id } = req;
   const { usuario_id, cliente_id, credencial, dispositivo_nombre } = req.body;
   const userID = usuario_id ? `USR_${usuario_id}` : `CLI_${cliente_id}`;
+  const cacheKey = `${empresa_id}_${userID}`;
 
   try {
-    const expectedChallenge = challengesConfig[userID];
+    const expectedChallenge = challengesConfig[cacheKey];
     if (!expectedChallenge) return res.status(400).json({ error: 'Reto caducado. Intenta de nuevo.' });
 
+    // 🆕 Resueltos por empresa (antes eran constantes globales del módulo)
+    const rpID = await resolverVariable(empresa_id, 'RP_ID') || 'localhost';
+    const expectedOrigin = await resolverVariable(empresa_id, 'FRONTEND_URL') || 'http://localhost:3000';
     const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
     const cleanRPID = rpID.trim();
 
@@ -162,18 +179,19 @@ exports.verificarRegistro = async (req, res) => {
       const credIDString = credencial.id;
 
       await db.query(
-        `INSERT INTO credenciales_biometricas (usuario_id, cliente_id, credential_id, public_key, dispositivo)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO credenciales_biometricas (usuario_id, cliente_id, credential_id, public_key, dispositivo, empresa_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           usuario_id || null,
           cliente_id || null,
           credIDString,
           Buffer.from(publicKey).toString('base64'),
-          dispositivo_nombre || 'Dispositivo Desconocido'
+          dispositivo_nombre || 'Dispositivo Desconocido',
+          empresa_id
         ]
       );
 
-      delete challengesConfig[userID];
+      delete challengesConfig[cacheKey];
       res.json({ success: true, message: 'Huella vinculada exitosamente.' });
     } else {
       res.status(400).json({ error: 'No se pudo verificar la huella.' });
@@ -189,13 +207,21 @@ exports.verificarRegistro = async (req, res) => {
 // ==============================================================
 
 exports.generarOpcionesAutenticacion = async (req, res) => {
+  const { empresa_id } = req;
   try {
+    const rpID = await resolverVariable(empresa_id, 'RP_ID') || 'localhost'; // 🆕 por empresa
+
     const options = await generateAuthenticationOptions({
       rpID,
       userVerification: 'preferred',
     });
 
-    challengesConfig['login_global'] = options.challenge;
+    // 🐞 FIX DE REGALO: antes 'login_global' era UNA sola llave compartida
+    // por las 5 empresas en memoria del proceso — si dos empleados de
+    // negocios distintos pedían login con huella casi al mismo tiempo, el
+    // segundo reto pisaba al primero. Ahora se prefija por empresa, mismo
+    // patrón que ya usa generarOpcionesRegistro.
+    challengesConfig[`login_global_${empresa_id}`] = options.challenge;
     res.json(options);
   } catch (error) {
     console.error("🚨 Error en generarOpcionesAutenticacion:", error);
@@ -204,16 +230,21 @@ exports.generarOpcionesAutenticacion = async (req, res) => {
 };
 
 exports.verificarAutenticacion = async (req, res) => {
+  const { empresa_id } = req;
   const { credencial, dispositivo_id, lat, lon } = req.body;
   try {
-    const expectedChallenge = challengesConfig['login_global'];
+    // 🆕 Se busca con el mismo prefijo de empresa usado al generar el reto
+    const expectedChallenge = challengesConfig[`login_global_${empresa_id}`];
     if (!expectedChallenge) return res.status(400).json({ error: 'Tiempo de espera agotado. Vuelve a intentarlo.' });
 
-    const credRes = await db.query('SELECT * FROM credenciales_biometricas WHERE credential_id = $1', [credencial.id]);
+    const credRes = await db.query('SELECT * FROM credenciales_biometricas WHERE credential_id = $1 AND empresa_id = $2', [credencial.id, empresa_id]);
     if (credRes.rows.length === 0) return res.status(404).json({ error: 'Huella no reconocida en la base de datos.' });
 
     const credGuardada = credRes.rows[0];
 
+    // 🆕 Resueltos por empresa (antes eran constantes globales del módulo)
+    const rpID = await resolverVariable(empresa_id, 'RP_ID') || 'localhost';
+    const expectedOrigin = await resolverVariable(empresa_id, 'FRONTEND_URL') || 'http://localhost:3000';
     const cleanOrigin = expectedOrigin.trim().replace(/\/$/, "");
     const cleanRPID = rpID.trim();
 
@@ -234,8 +265,9 @@ exports.verificarAutenticacion = async (req, res) => {
       await db.query('UPDATE credenciales_biometricas SET counter = $1 WHERE id = $2', [verification.authenticationInfo.newCounter, credGuardada.id]);
 
       if (credGuardada.usuario_id) {
-        const userRes = await db.query('SELECT * FROM usuarios WHERE id = $1', [credGuardada.usuario_id]);
+        const userRes = await db.query('SELECT * FROM usuarios WHERE id = $1 AND empresa_id = $2', [credGuardada.usuario_id, empresa_id]);
         const user = userRes.rows[0];
+        if (!user) return res.status(404).json({ error: 'Empleado no encontrado o no pertenece a tu negocio.' });
 
         // BLOQUEO MDM (Equipo Oficial siempre manda; Rol Restringido ya no bloquea
         // login, solo limita pantallas cuando el equipo es foráneo). Lógica
@@ -264,9 +296,9 @@ exports.verificarAutenticacion = async (req, res) => {
             const latGuardar = (lat !== undefined && lat !== null) ? Number(lat) : null;
             const lonGuardar = (lon !== undefined && lon !== null) ? Number(lon) : null;
 
-            const turnoAbierto = await db.query('SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE', [user.id]);
+            const turnoAbierto = await db.query('SELECT id FROM registro_asistencias WHERE usuario_id = $1 AND hora_salida IS NULL AND fecha = CURRENT_DATE AND empresa_id = $2', [user.id, empresa_id]);
             if (turnoAbierto.rows.length === 0) {
-              await db.query('INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada, lat_registro, lon_registro) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP, $2, $3)', [user.id, latGuardar, lonGuardar]);
+              await db.query('INSERT INTO registro_asistencias (usuario_id, fecha, hora_entrada, lat_registro, lon_registro, empresa_id) VALUES ($1, CURRENT_DATE, CURRENT_TIMESTAMP, $2, $3, $4)', [user.id, latGuardar, lonGuardar, empresa_id]);
             }
           } else {
             avisoAsistencia = validacionUbicacion.error;
@@ -277,7 +309,7 @@ exports.verificarAutenticacion = async (req, res) => {
         let devices = (user.dispositivo_id || '').split(',').filter(Boolean);
         if (dispositivo_id && !devices.includes(dispositivo_id)) {
           devices.push(dispositivo_id);
-          await db.query('UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2', [devices.join(','), user.id]);
+          await db.query('UPDATE usuarios SET dispositivo_id = $1, ultimo_acceso = CURRENT_TIMESTAMP WHERE id = $2 AND empresa_id = $3', [devices.join(','), user.id, empresa_id]);
         }
         const es_secundaria = devices.indexOf(dispositivo_id) > 0;
 
@@ -285,7 +317,7 @@ exports.verificarAutenticacion = async (req, res) => {
       }
 
       if (credGuardada.cliente_id) {
-        const cliRes = await db.query('SELECT * FROM clientes WHERE id = $1', [credGuardada.cliente_id]);
+        const cliRes = await db.query('SELECT * FROM clientes WHERE id = $1 AND empresa_id = $2', [credGuardada.cliente_id, empresa_id]);
         if (cliRes.rows.length > 0) {
           const clienteData = cliRes.rows[0];
           clienteData.tiene_huella = true;
@@ -304,8 +336,12 @@ exports.verificarAutenticacion = async (req, res) => {
 
 exports.eliminarHuellaCliente = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   try {
-    await db.query('DELETE FROM credenciales_biometricas WHERE cliente_id = $1', [id]);
+    const result = await db.query('DELETE FROM credenciales_biometricas WHERE cliente_id = $1 AND empresa_id = $2 RETURNING id', [id, empresa_id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Huella no encontrada o no pertenece a tu negocio.' });
+    }
     res.json({ success: true, message: 'Huella eliminada correctamente.' });
   } catch (error) {
     console.error("🚨 Error al eliminar huella de cliente:", error);
@@ -315,8 +351,12 @@ exports.eliminarHuellaCliente = async (req, res) => {
 
 exports.eliminarHuellaEmpleado = async (req, res) => {
   const { id } = req.params;
+  const { empresa_id } = req;
   try {
-    await db.query('DELETE FROM credenciales_biometricas WHERE usuario_id = $1', [id]);
+    const result = await db.query('DELETE FROM credenciales_biometricas WHERE usuario_id = $1 AND empresa_id = $2 RETURNING id', [id, empresa_id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Huella no encontrada o no pertenece a tu negocio.' });
+    }
     res.json({ success: true, message: 'Huella de empleado desvinculada correctamente.' });
   } catch (error) {
     console.error("🚨 Error al eliminar huella de empleado:", error);

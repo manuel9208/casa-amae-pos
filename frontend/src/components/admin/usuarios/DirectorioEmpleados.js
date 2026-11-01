@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Filter, Edit, Trash2, XCircle, Eye, EyeOff } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, showConfirm, user }) => {
     const isGlobalAdmin = user?.usuario === 'admin';
@@ -117,7 +118,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
             };
             if (uPass) bodyPayload.password = uPass;
 
-            const res = await fetch(url, {
+            const res = await apiFetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(bodyPayload)
@@ -138,7 +139,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     const eliminarUsuario = (id) => {
         showConfirm("Eliminar Empleado", "¿Estás seguro de que deseas eliminar este empleado? Perderá acceso inmediatamente.", async () => {
             try {
-                const res = await fetch(`${apiUrl}/usuarios/${id}`, { method: 'DELETE' });
+                const res = await apiFetch(`${apiUrl}/usuarios/${id}`, { method: 'DELETE' });
                 if (res.ok) {
                     showAlert("Eliminado", "Empleado borrado del sistema.", "success");
                     if (editandoUsuarioId === id) cancelarEdicionUsuario();
@@ -167,7 +168,7 @@ const DirectorioEmpleados = ({ usuariosDB, apiUrl, refrescarDatos, showAlert, sh
     const forzarLogoutRemoto = (id) => {
         showConfirm("Cerrar Sesión Remota", "¿Estás seguro de forzar el cierre de sesión de este empleado? Tendrá que volver a ingresar con su contraseña si quiere entrar.", async () => {
             try {
-                const res = await fetch(`${apiUrl}/usuarios/${id}/forzar-logout`, { method: 'POST' });
+                const res = await apiFetch(`${apiUrl}/usuarios/${id}/forzar-logout`, { method: 'POST' });
                 if (res.ok) {
                     showAlert("Comando Enviado", "Se ha cerrado la sesión del empleado en todos los equipos.", "success");
                     refrescarDatos();

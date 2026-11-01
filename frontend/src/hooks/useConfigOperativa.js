@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
+import { apiFetch } from '../utils/apiFetch';
 
 // ==========================================
 // 🍳 HOOK AISLADO: CONFIGURACIÓN OPERATIVA (Flujo Cocina Sí/No)
@@ -19,7 +20,7 @@ export const useConfigOperativa = (apiUrlProp) => {
 
   const cargarConfigOperativa = useCallback(async () => {
     try {
-        const res = await fetch(`${apiUrl}/configuracion-operativa?t=${Date.now()}`);
+        const res = await apiFetch(`${apiUrl}/configuracion-operativa?t=${Date.now()}`);
         if (res.ok) {
             const data = await res.json();
             const valor = data?.usa_cocina === true || data?.usa_cocina === 'true';
@@ -37,7 +38,7 @@ export const useConfigOperativa = (apiUrlProp) => {
 
   const actualizarUsaCocina = async (nuevoValor) => {
     try {
-      const res = await fetch(`${apiUrl}/configuracion-operativa`, {
+      const res = await apiFetch(`${apiUrl}/configuracion-operativa`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ usa_cocina: nuevoValor })
@@ -58,7 +59,7 @@ export const useConfigOperativa = (apiUrlProp) => {
     // 🪑 NUEVA BANDERA: Mesa Obligatoria
     const actualizarMesaObligatoria = async (nuevoValor) => {
     try {
-        const res = await fetch(`${apiUrl}/configuracion-operativa`, {
+        const res = await apiFetch(`${apiUrl}/configuracion-operativa`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mesa_obligatoria: nuevoValor })
@@ -79,7 +80,7 @@ export const useConfigOperativa = (apiUrlProp) => {
     // 🧑‍🍳 NUEVO: Criterio de Presencia en Cocina
     const actualizarCriterioPresencia = async (nuevoValor) => {
     try {
-        const res = await fetch(`${apiUrl}/configuracion-operativa`, {
+        const res = await apiFetch(`${apiUrl}/configuracion-operativa`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ criterio_presencia_cocina: nuevoValor })

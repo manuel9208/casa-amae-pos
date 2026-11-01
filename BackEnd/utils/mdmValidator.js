@@ -37,15 +37,22 @@ const PANTALLAS_POR_ROL = {
 //    pantallas de su "pantallas_excepcion" (con 'empleado' siempre incluido).
 //    Si el rol no está en roles_restringidos -> acceso total, sin excepción.
 // =========================================================================
-exports.validarAccesoMDM = async (user, dispositivo_id) => {
+exports.validarAccesoMDM = async (user, dispositivo_id, empresaId) => { // 🆕 TENANT: nuevo parámetro empresaId
   // 1) Admin Global: inmune a cualquier regla MDM.
   if (!user || user.usuario === 'admin') {
     return { bloqueadoTotal: false, pantallasPermitidas: 'todas' };
   }
 
+  // 🔒 FILTRO EMPRESA: guardia defensiva, sin tenant no se puede validar nada con seguridad.
+  if (!empresaId) {
+    console.error('🚨 validarAccesoMDM fue llamado SIN empresaId. Se bloquea por seguridad.');
+    return { bloqueadoTotal: true, motivoBloqueo: 'Error de configuración del servidor: no se pudo determinar la empresa de la petición.' };
+  }
+
   try {
     const confMdm = await db.query(
-      'SELECT control_dispositivos_activo, roles_restringidos FROM configuracion_biometria WHERE id = 1'
+      'SELECT control_dispositivos_activo, roles_restringidos FROM configuracion_biometria WHERE empresa_id = $1', // 🔒 FILTRO EMPRESA
+      [empresaId]
     );
 
     // 2) MDM apagado -> libre para todos.
@@ -55,8 +62,8 @@ exports.validarAccesoMDM = async (user, dispositivo_id) => {
 
     // 3) VALIDACIÓN DE EQUIPO OFICIAL (independiente del bloqueo estricto por rol).
     const equipoAuth = await db.query(
-      'SELECT id, alias, roles_permitidos FROM equipos_autorizados WHERE device_id = $1',
-      [dispositivo_id]
+      'SELECT id, alias, roles_permitidos FROM equipos_autorizados WHERE device_id = $1 AND empresa_id = $2', // 🔒 FILTRO EMPRESA
+      [dispositivo_id, empresaId]
     );
 
     if (equipoAuth.rows.length > 0) {

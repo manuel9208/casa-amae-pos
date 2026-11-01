@@ -1,6 +1,8 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { Package, Star } from 'lucide-react'; // 👈 Agregamos Star para el ícono de la promo
 import ImagenCachada from '../../ImagenCachada';
+import FondoAnimadoCategoria from './FondoAnimadoCategoria'; // 🆕 Animaciones del Kiosco (Lottie + Video)
 
 const ProductosGrid = ({ 
   categoriaActiva, 
@@ -8,7 +10,10 @@ const ProductosGrid = ({
   productosFiltrados, 
   abrirModalProducto, 
   baseUrl,
-  promociones = [] // 👈 NUEVA PROP: Recibimos las promociones
+  promociones = [], // 👈 NUEVA PROP: Recibimos las promociones
+  popularidadHoy = [],
+  portadaCategoria = null, // 👈 NUEVO: Hero Animation — imagen/emoji de la categoría para la transición compartida
+  animacionCategoria = null // 🆕 Objeto { tipo, url_json, url_preview } ya resuelto por el padre, o null
 }) => {
 
   // 👇 NUEVA FUNCIÓN: Escáner visual silencioso
@@ -45,10 +50,48 @@ const ProductosGrid = ({
       });
   };
 
+  // 👇 Fondo ambiental sutil según palabras clave de la categoría (Fase 9 del plan UX)
+  const obtenerTintePorCategoria = (nombreCategoria) => {
+      const nombre = String(nombreCategoria || '').toLowerCase();
+      if (nombre.includes('café') || nombre.includes('cafe') || nombre.includes('caliente')) return 'from-amber-50 via-orange-50 to-white';
+      if (nombre.includes('fría') || nombre.includes('fria') || nombre.includes('fresh') || nombre.includes('smoothie') || nombre.includes('helad')) return 'from-sky-50 via-blue-50 to-white';
+      if (nombre.includes('pizza') || nombre.includes('pasta') || nombre.includes('salad')) return 'from-red-50 via-rose-50 to-white';
+      if (nombre.includes('postre') || nombre.includes('dulce') || nombre.includes('waffle') || nombre.includes('crepa')) return 'from-pink-50 via-fuchsia-50 to-white';
+      return 'from-slate-50 via-white to-white';
+  };
+
+  const tinteAmbiental = obtenerTintePorCategoria(categoriaActiva);
+
+  // 👇 Badge de Popularidad — ranking real de ventas del día (Top 3)
+  const obtenerBadgePopularidad = (prodId) => {
+      const index = popularidadHoy.findIndex(r => Number(r.producto_id) === Number(prodId));
+      if (index === 0) return { emoji: '🏆', texto: 'Más Vendido Hoy', clase: 'bg-amber-500 shadow-amber-500/30' };
+      if (index === 1 || index === 2) return { emoji: '🔥', texto: 'Tendencia', clase: 'bg-orange-500 shadow-orange-500/30' };
+      return null;
+  };
+
   return (
     <div className="flex flex-col h-full animate-in fade-in">
-      <div className="flex items-center justify-between mb-8 gap-4 bg-white p-4 rounded-3xl shadow-sm border">
-        <h2 className="text-3xl font-black text-slate-800 ml-4">{categoriaActiva}</h2>
+    <div className={`relative overflow-hidden flex-1 min-h-0 rounded-3xl flex flex-col transition-colors duration-500 ${animacionCategoria ? '' : `bg-gradient-to-br ${tinteAmbiental}`}`}>
+      <FondoAnimadoCategoria animacion={animacionCategoria} />
+
+      <div className={`relative z-10 flex items-center justify-between mb-8 gap-4 p-4 mt-2 md:mt-4 mx-2 md:mx-4 rounded-3xl border shrink-0 transition-colors ${animacionCategoria ? 'bg-white/10 backdrop-blur-[2px] border-white/50 shadow-md' : 'bg-white border-gray-100 shadow-sm'}`}>
+        <div className="flex items-center gap-3 ml-2">
+          {portadaCategoria && (
+            <motion.div layoutId={`cat-visual-${categoriaActiva}`} className="shrink-0">
+              {portadaCategoria.imagen_url ? (
+                <ImagenCachada
+                  src={portadaCategoria.imagen_url?.startsWith('http') ? portadaCategoria.imagen_url : `${baseUrl}${portadaCategoria.imagen_url}`}
+                  alt={categoriaActiva}
+                  className="w-10 h-10 md:w-12 md:h-12 object-cover rounded-full shadow-md"
+                />
+              ) : (
+                <span className="text-3xl md:text-4xl block">{portadaCategoria.emoji}</span>
+              )}
+            </motion.div>
+          )}
+          <motion.h2 layoutId={portadaCategoria ? `cat-title-${categoriaActiva}` : undefined} className="text-3xl font-black text-slate-800">{categoriaActiva}</motion.h2>
+        </div>
         <button 
           onClick={() => setCategoriaActiva(null)} 
           className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-black text-lg transition flex items-center justify-center shadow-lg active:scale-95"
@@ -56,30 +99,34 @@ const ProductosGrid = ({
           ⬅ Volver
         </button>
       </div>
-      
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto pb-6 pr-2">
+
+      <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto pb-40 lg:pb-6 pl-2 md:pl-4 pr-2 md:pr-4 flex-1 min-h-0">
         {productosFiltrados.map((p) => {
           const isUsaStock = p.usa_stock === true || p.usa_stock === 'true';
           const stockActual = Number(p.stock_preparado) || 0;
           const agotado = isUsaStock && stockActual <= 0;
 
-          // 👇 Ejecutamos el escáner para este producto
           const promoActiva = obtenerPromoActiva(p);
+          const badgePopularidad = obtenerBadgePopularidad(p.id);
 
           return (
             <button 
               key={p.id} 
               disabled={agotado} 
               onClick={() => abrirModalProducto(p)} 
-              // 👇 FIX: Solo agregué la clase "relative" al inicio para que el diseño no se rompa
-              className={`relative bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center transition-transform hover:shadow-md hover:border-blue-200 ${agotado ? 'opacity-50 grayscale cursor-not-allowed' : 'active:scale-95'}`}
+              className={`relative ${animacionCategoria ? 'bg-white/10 backdrop-blur-[2px] border-white/50 shadow-md' : 'bg-white border-gray-100 shadow-sm'} p-4 md:p-6 rounded-3xl border flex flex-col items-center transition-transform hover:shadow-xl hover:border-blue-200 ${agotado ? 'opacity-50 grayscale cursor-not-allowed' : 'active:scale-95'}`}
             >
-              
-              {/* 👇 ETIQUETA VISUAL FLOTANTE (Solo se muestra si hay promo y no está agotado) */}
               {promoActiva && !agotado && (
                   <div className={`absolute top-2 left-2 md:top-4 md:left-4 px-2 py-1 md:px-3 md:py-1.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest text-white shadow-md z-10 flex items-center gap-1.5 ${promoActiva.tipo === 'happy_hour' ? 'bg-purple-500 shadow-purple-500/30' : 'bg-orange-500 shadow-orange-500/30'}`}>
                       <Star size={12} className={promoActiva.tipo === 'happy_hour' ? 'animate-pulse' : ''}/>
                       {promoActiva.tipo === 'happy_hour' ? 'Happy Hour' : 'Promo'}
+                  </div>
+              )}
+
+              {badgePopularidad && !agotado && (
+                  <div className={`absolute top-2 right-2 md:top-4 md:right-4 px-2 py-1 md:px-3 md:py-1.5 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest text-white shadow-md z-10 flex items-center gap-1.5 ${badgePopularidad.clase}`}>
+                      <span className="animate-pulse">{badgePopularidad.emoji}</span>
+                      {badgePopularidad.texto}
                   </div>
               )}
 
@@ -110,6 +157,7 @@ const ProductosGrid = ({
           );
         })}
       </div>
+    </div>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, Ticket } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorCupones = ({ apiUrl, showAlert, showConfirm }) => {
   const [cupones, setCupones] = useState([]);
@@ -10,7 +11,7 @@ const GestorCupones = ({ apiUrl, showAlert, showConfirm }) => {
 
   const cargarCupones = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/cupones`);
+      const res = await apiFetch(`${apiUrl}/cupones`);
       if (res.ok) {
         const data = await res.json();
         setCupones(Array.isArray(data) ? data : []);
@@ -27,7 +28,7 @@ const GestorCupones = ({ apiUrl, showAlert, showConfirm }) => {
     if(isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch(`${apiUrl}/cupones`, {
+      const res = await apiFetch(`${apiUrl}/cupones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -52,7 +53,7 @@ const GestorCupones = ({ apiUrl, showAlert, showConfirm }) => {
 
   const toggleEstadoCupon = async (id, estadoActual) => {
     try {
-      const res = await fetch(`${apiUrl}/cupones/${id}/estado`, {
+      const res = await apiFetch(`${apiUrl}/cupones/${id}/estado`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activo: !estadoActual })
@@ -66,7 +67,7 @@ const GestorCupones = ({ apiUrl, showAlert, showConfirm }) => {
   const eliminarCupon = (id) => {
     showConfirm("Eliminar Cupón", "¿Seguro que deseas borrar este código de descuento permanentemente?", async () => {
       try {
-        const res = await fetch(`${apiUrl}/cupones/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/cupones/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert("Eliminado", "Cupón borrado.", "success");
           cargarCupones();

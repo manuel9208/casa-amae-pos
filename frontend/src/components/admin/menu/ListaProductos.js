@@ -1,5 +1,6 @@
 import React from 'react';
 import { Edit, Trash2, Star, Package, Gift } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ListaProductos = ({
   productos, clasificaciones, categoriaSelect,
@@ -17,7 +18,7 @@ const ListaProductos = ({
   const eliminarProducto = (id) => {
     showConfirm("Eliminar Platillo", "¿Seguro que deseas borrar este platillo permanentemente?", async () => {
       try {
-        const res = await fetch(`${apiUrl}/productos/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/productos/${id}`, { method: 'DELETE' });
         if (res.ok) {
           refrescarDatos();
           showAlert("Eliminado", "Platillo borrado correctamente.", "success");

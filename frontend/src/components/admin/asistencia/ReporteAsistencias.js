@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Filter, RefreshCw, Clock, ArrowUpRight, User, Layers, Search, ChevronDown, Check, MapPin, ExternalLink } from 'lucide-react';
+import { Filter, RefreshCw, Clock, ArrowUpRight, User, Layers, Search, ChevronDown, Check, MapPin, ExternalLink, FileDown, FileSpreadsheet, Loader2 } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../utils/apiFetch';
+// 📄 FASE 9: Exportación profesional PDF/CSV — módulo 100% autocontenido (ver nota DRY en exportadorAsistencia.js)
+import { generarPDFReporteAsistencia, generarCSVReporteAsistencia } from './utils/exportadorAsistencia';
 
 const ROLES_DISPONIBLES = [
     { id: 'admin', label: 'Administrador' },
     { id: 'gerente', label: 'Gerente' },
+    { id: 'jefe', label: 'Jefe de Turno' },
     { id: 'cajero', label: 'Cajero' },
-    { id: 'cocinero', label: 'Cocinero' },
+    { id: 'cocina', label: 'Cocinero' },
     { id: 'ayudante_cocina', label: 'Ayudante de Cocina' },
     { id: 'repartidor', label: 'Repartidor' }
 ];
@@ -15,6 +19,7 @@ const ReporteAsistencias = ({ apiUrl }) => {
     const [asistenciasHistorial, setAsistenciasHistorial] = useState([]);
     const [usuariosLista, setUsuariosLista] = useState([]);
     const [cargandoReporte, setCargandoReporte] = useState(false);
+    const [exportandoPDF, setExportandoPDF] = useState(false); // 📄 FASE 9
 
     // 👇 NUEVO: Geocercas oficiales para comparar contra la ubicación de cada checada
     const [geocercas, setGeocercas] = useState([]);
@@ -46,9 +51,9 @@ const ReporteAsistencias = ({ apiUrl }) => {
         try {
             // Solicitamos SIEMPRE 'Todos' al backend y filtramos dinámicamente en el front
             const [resReporte, resUsuarios, resGeo] = await Promise.all([
-                fetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodoFiltro}&fecha=${fechaInicio}&usuario_id=Todos`),
-                fetch(`${apiUrl}/usuarios`),
-                fetch(`${apiUrl}/asistencia/configuracion`)
+               apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=${periodoFiltro}&fecha=${fechaInicio}&usuario_id=Todos`),
+               apiFetch(`${apiUrl}/usuarios`),
+               apiFetch(`${apiUrl}/asistencia/configuracion`)
             ]);
             
             if (resReporte.ok) {
@@ -136,6 +141,33 @@ const ReporteAsistencias = ({ apiUrl }) => {
         };
     }, [asistenciasFiltradas]);
 
+    // =========================================================================
+    // 📄 FASE 9: Exportación. Usa SIEMPRE asistenciasFiltradas (no el historial
+    // crudo), para que el PDF/CSV coincida exactamente con lo que el usuario
+    // está viendo en pantalla con sus filtros de rol/empleado/búsqueda activos.
+    // =========================================================================
+    const handleExportarPDF = async () => {
+        if (!asistenciasFiltradas || asistenciasFiltradas.length === 0) return;
+        setExportandoPDF(true);
+        try {
+            await generarPDFReporteAsistencia({
+                asistencias: asistenciasFiltradas,
+                filtros: { periodoFiltro, fechaInicio, fechaFin },
+                apiUrl,
+                metricas
+            });
+        } catch (error) {
+            console.error("Error al generar el PDF de asistencia:", error);
+        } finally {
+            setExportandoPDF(false);
+        }
+    };
+
+    const handleExportarCSV = () => {
+        if (!asistenciasFiltradas || asistenciasFiltradas.length === 0) return;
+        generarCSVReporteAsistencia(asistenciasFiltradas);
+    };
+
     const formatF = (str) => str ? new Date(str).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '---';
     const formatH = (str) => str ? new Date(str).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true }) : 'En turno...';
 
@@ -185,9 +217,28 @@ const ReporteAsistencias = ({ apiUrl }) => {
                         <div className="p-2.5 bg-blue-50 text-blue-600 rounded-2xl"><Filter size={20} /></div>
                         <div><h3 className="font-black text-lg text-slate-800">Filtros del Reporte</h3></div>
                     </div>
-                    <button onClick={cargarReporte} className="bg-slate-900 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase flex items-center gap-2 transition active:scale-95">
-                        <RefreshCw size={14} className={cargandoReporte ? 'animate-spin' : ''} /> Actualizar
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            disabled={cargandoReporte || exportandoPDF || asistenciasFiltradas.length === 0}
+                            onClick={handleExportarPDF}
+                            className="bg-slate-800 hover:bg-slate-700 text-white font-black px-4 py-2.5 rounded-xl text-xs uppercase flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
+                            title="Genera un PDF profesional con logo, resumen y tabla detallada"
+                        >
+                            {exportandoPDF ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                            {exportandoPDF ? 'Generando...' : 'Exportar PDF'}
+                        </button>
+                        <button
+                            disabled={cargandoReporte || asistenciasFiltradas.length === 0}
+                            onClick={handleExportarCSV}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-4 py-2.5 rounded-xl text-xs uppercase flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
+                            title="Descarga la tabla en formato CSV (Excel)"
+                        >
+                            <FileSpreadsheet size={14} /> Exportar CSV
+                        </button>
+                        <button onClick={cargarReporte} className="bg-slate-900 text-white font-black px-5 py-2.5 rounded-xl text-xs uppercase flex items-center gap-2 transition active:scale-95">
+                            <RefreshCw size={14} className={cargandoReporte ? 'animate-spin' : ''} /> Actualizar
+                        </button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -307,7 +358,20 @@ const ReporteAsistencias = ({ apiUrl }) => {
                                     <td className="p-4 pl-6 font-black text-sm text-slate-800">{a.nombre} <span className="block text-[10px] font-bold text-slate-400 uppercase mt-0.5">{a.rol}</span></td>
                                     <td className="p-4 font-bold text-xs text-slate-500">{formatF(a.fecha)}</td>
                                     <td className="p-4 font-black text-xs text-emerald-600">{formatH(a.hora_entrada)}</td>
-                                    <td className="p-4 font-black text-xs text-rose-600">{!a.hora_salida ? <span className="inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-md animate-pulse">● En Turno</span> : formatH(a.hora_salida)}</td>
+                                    <td className="p-4 font-black text-xs text-rose-600">
+                                        {!a.hora_salida ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-md animate-pulse">● En Turno</span>
+                                        ) : (
+                                            <div className="flex flex-col gap-1">
+                                                <span>{formatH(a.hora_salida)}</span>
+                                                {a.cierre_automatico && (
+                                                    <span className="inline-flex items-center gap-1 text-[9px] font-black bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded-md w-fit normal-case" title="El empleado no checó su salida. El sistema cerró el turno automáticamente según la configuración de tolerancia.">
+                                                        ⚠️ Cierre Automático
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </td>
                                     {/* 👇 NUEVO: Columna Ubicación. Se queda vacía si no hay coordenadas (ej. checador ZKTeco físico) */}
                                     <td className="p-4">
                                         {infoUbicacion ? (

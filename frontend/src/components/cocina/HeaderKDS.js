@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChefHat, LogOut, PackagePlus, Trash2, Maximize, ScanLine, CheckCircle2, XCircle } from 'lucide-react';
 import io from 'socket.io-client'; 
+import { apiFetch } from '../../utils/apiFetch';
 
 import { useNFC } from '../../hooks/useNFC';
 import { useValidadorAsistencia } from '../admin/asistencia/useValidadorAsistencia';
@@ -23,7 +24,7 @@ const HeaderKDS = ({ user, onLogout, filtroTab, setFiltroTab, setModalInsumo, se
     useEffect(() => {
         const fetchConfigAsistencia = async () => {
             try {
-                const res = await fetch(`${apiUrlLocal}/asistencia/configuracion?t=${Date.now()}`);
+                const res = await apiFetch(`${apiUrlLocal}/asistencia/configuracion?t=${Date.now()}`);
                 if (res.ok) {
                     const data = await res.json();
                     let tipos = [];
@@ -71,7 +72,7 @@ const HeaderKDS = ({ user, onLogout, filtroTab, setFiltroTab, setModalInsumo, se
                 setAlertaNFC({ tipo: 'loading', msj: 'Registrando asistencia...' });
                 try {
                     const dispositivo_id = localStorage.getItem('pos_device_id');
-                    const res = await fetch(`${apiUrlLocal}/usuarios/asistencia-nfc`, {
+                    const res = await apiFetch(`${apiUrlLocal}/usuarios/asistencia-nfc`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ nfc_uid: nfcData, dispositivo_id })

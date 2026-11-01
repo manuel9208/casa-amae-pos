@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ChefHat, Coffee, Utensils } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorComedorPersonal = ({ configGlobal, setConfigGlobal, isSubmitting, apiUrl }) => {
   const [clasificaciones, setClasificaciones] = useState([]);
 
   useEffect(() => {
-    fetch(`${apiUrl}/clasificaciones`)
+   apiFetch(`${apiUrl}/clasificaciones`)
       .then(res => res.json())
       .then(data => setClasificaciones(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error al cargar clasificaciones", err));

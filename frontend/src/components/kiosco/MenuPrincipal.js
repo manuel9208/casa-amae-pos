@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { LayoutGroup } from 'framer-motion';
 import CategoriasGrid from './menu/CategoriasGrid';
 import ProductosGrid from './menu/ProductosGrid';
-import CarritoLateral from './menu/CarritoLateral';  
+import CarritoLateral from './menu/CarritoLateral';
+import BottomNavKiosco from './menu/BottomNavKiosco';
+import BuscadorMenu from './menu/BuscadorMenu';
+import { apiFetch } from '../../utils/apiFetch';
 
 const MenuPrincipal = ({
   configGlobal, productos, clasificaciones, carrito, setCarrito,
@@ -14,9 +18,14 @@ const MenuPrincipal = ({
   bloqueoPuntosActivo,
   combosActivos = [],
   setComboEnEspera,
-  promociones = [] // 👈 NUEVA PROP RECIBIDA
+  promociones = [],
+  popularidadHoy = [],
+  animacionesKiosco = [], // 🆕 Animaciones del Kiosco (Lottie + Video) ya resueltas por empresa
+  onIrAPerfil // 👈 NUEVO: callback para la pestaña "Perfil" de la barra inferior móvil
 }) => {
   const [categoriaActiva, setCategoriaActiva] = useState(null);
+  const [vistaMobile, setVistaMobile] = useState('menu'); // 👈 NUEVO: 'menu' | 'carrito' (solo aplica en mobile/tablet)
+  const [busquedaTexto, setBusquedaTexto] = useState(''); // 👈 NUEVO: búsqueda global del menú
   const [inputCupon, setInputCupon] = useState('');
   const [errorCupon, setErrorCupon] = useState('');
   const [buscandoCupon, setBuscandoCupon] = useState(false);  
@@ -187,12 +196,34 @@ const MenuPrincipal = ({
   };  
 
   const categoriasUnicas = [...new Set(productos.map(p => p.categoria || 'General'))];
-  const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);  
+  const productosFiltrados = productos.filter(p => (p.categoria || 'General') === categoriaActiva);
+
+  // 👇 NUEVO: Búsqueda en vivo sobre TODO el catálogo ya cargado en memoria (sin tocar backend)
+  const textoBusquedaNormalizado = busquedaTexto.trim().toLowerCase();
+  const productosBusqueda = textoBusquedaNormalizado
+    ? productos.filter(p =>
+        p.nombre?.toLowerCase().includes(textoBusquedaNormalizado) ||
+        p.descripcion?.toLowerCase().includes(textoBusquedaNormalizado)
+      )
+    : [];  
 
   const getPortadaCategoria = (catName) => {
     const clasifDB = clasificaciones.find(c => c.nombre === catName);
     return { imagen_url: clasifDB?.imagen_url || null, emoji: clasifDB?.emoji || '🍽️' };
   };  
+
+  // 👇 NUEVO: Hero Animation — imagen/emoji de la categoría activa, usada para
+  // el efecto de transición compartida entre CategoriasGrid y ProductosGrid.
+  const portadaCategoriaActiva = categoriaActiva ? getPortadaCategoria(categoriaActiva) : null;
+
+  // 🆕 Animaciones del Kiosco: resuelve si la categoría activa tiene una animación
+  // (Lottie o Video) asignada por el admin. Si no hay match, devuelve null y
+  // ProductosGrid cae automáticamente al tinte de color de siempre (fallback).
+  const obtenerAnimacionCategoria = (catName) => {
+    const match = animacionesKiosco.find(a => a.nombre_categoria_kiosco === catName && a.animacion_id);
+    if (!match) return null;
+    return { tipo: match.tipo, url_json: match.url_json, url_preview: match.url_preview };
+  };
 
   const validarCupon = async (e) => {
     e.preventDefault();
@@ -202,7 +233,7 @@ const MenuPrincipal = ({
     
     setBuscandoCupon(true);
     try {
-      const res = await fetch(`${apiUrl}/cupones/validar`, {
+      const res = await apiFetch(`${apiUrl}/cupones/validar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ codigo: inputCupon })
@@ -221,10 +252,10 @@ const MenuPrincipal = ({
   };  
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 md:gap-8 h-auto lg:h-[75vh] pb-12 lg:pb-0 relative">
-      
-      <div className="w-full lg:w-2/3 flex flex-col h-[65vh] lg:h-full shrink-0 relative">
-        
+    <div className="flex flex-col lg:flex-row gap-6 md:gap-8 h-[calc(100vh-160px)] lg:h-[75vh] pb-4 lg:pb-0 relative">
+
+      <div className={`w-full lg:w-2/3 flex-col h-full shrink-0 relative ${vistaMobile === 'menu' ? 'flex' : 'hidden lg:flex'}`}>
+
         {estadoHorario.isCerrado && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-2xl mb-6 shadow-sm flex items-center justify-between gap-4 shrink-0 animate-in fade-in">
             <div className="flex items-center gap-3">
@@ -235,20 +266,54 @@ const MenuPrincipal = ({
               </div>
             </div>
           </div>
-        )}  
-
-        {!categoriaActiva ? (
-          <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={baseUrl} />
-        ) : (
-          <ProductosGrid 
-            categoriaActiva={categoriaActiva} 
-            setCategoriaActiva={setCategoriaActiva} 
-            productosFiltrados={productosFiltrados} 
-            abrirModalProducto={abrirModalProducto} 
-            baseUrl={baseUrl} 
-            promociones={promociones} /* 👈 PROP INYECTADA A LA CUADRÍCULA */
-          />
         )}
+
+        {/* 🆕 Título "¿Qué se te antoja hoy?" — SOLO en la pantalla principal
+            de categorías (no durante búsqueda, no con categoría activa).
+            Vive arriba del buscador, fuera de cualquier contenedor animado. */}
+        {!categoriaActiva && !textoBusquedaNormalizado && (
+          <h2 className="text-3xl md:text-4xl font-black mb-4 text-slate-800 shrink-0">
+            {configGlobal.kiosco_mensaje || '¿Qué se te antoja hoy?'}
+          </h2>
+        )}
+
+        <BuscadorMenu busquedaTexto={busquedaTexto} setBusquedaTexto={setBusquedaTexto} />
+
+        <LayoutGroup>
+          {textoBusquedaNormalizado ? (
+            productosBusqueda.length > 0 ? (
+              <ProductosGrid
+                categoriaActiva={`Resultados para "${busquedaTexto}"`}
+                setCategoriaActiva={() => setBusquedaTexto('')}
+                productosFiltrados={productosBusqueda}
+                abrirModalProducto={abrirModalProducto}
+                baseUrl={baseUrl}
+                promociones={promociones}
+                popularidadHoy={popularidadHoy}
+              />
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center bg-white rounded-3xl border border-dashed border-slate-200 p-10">
+                <span className="text-5xl mb-4">🔍</span>
+                <p className="font-black text-slate-600 text-lg mb-1">Sin resultados</p>
+                <p className="text-slate-400 font-medium text-sm">No encontramos nada con "{busquedaTexto}". Intenta con otra palabra.</p>
+              </div>
+            )
+          ) : !categoriaActiva ? (
+            <CategoriasGrid configGlobal={configGlobal} categoriasUnicas={categoriasUnicas} getPortadaCategoria={getPortadaCategoria} setCategoriaActiva={setCategoriaActiva} baseUrl={baseUrl} animacionCategoria={obtenerAnimacionCategoria('__inicio__')} />
+          ) : (
+            <ProductosGrid 
+              categoriaActiva={categoriaActiva} 
+              setCategoriaActiva={setCategoriaActiva} 
+              productosFiltrados={productosFiltrados} 
+              abrirModalProducto={abrirModalProducto} 
+              baseUrl={baseUrl} 
+              promociones={promociones} /* 👈 PROP INYECTADA A LA CUADRÍCULA */
+              popularidadHoy={popularidadHoy}
+              portadaCategoria={portadaCategoriaActiva}
+              animacionCategoria={obtenerAnimacionCategoria(categoriaActiva)}
+            />
+          )}
+        </LayoutGroup>
       </div>  
       
       <CarritoLateral
@@ -259,15 +324,26 @@ const MenuPrincipal = ({
         cuponActivo={cuponActivo} setCuponActivo={setCuponActivo} clienteActivo={clienteActivo}
         descuentoPuntosPuntosFisicos={descuentoPuntosPuntosFisicos} configGlobal={configGlobal}
         setModalNip={setModalNip} descuentoCuponDinero={descuentoCuponDinero} descuentoPuntosDinero={descuentoPuntosDinero}
-        calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal} 
+        calcularSubtotal={calcularSubtotal} calcularTotal={calcularTotal}
         isCerrado={estadoHorario.isCerrado}
         setPantallaActual={setPantallaActual}
         guardarEdicionDirecta={guardarEdicionDirecta}
         isSubmitting={isSubmitting}
         bloqueoPuntosActivo={bloqueoPuntosActivo}
+        vistaMobile={vistaMobile}
+        setVistaMobile={setVistaMobile}
+      />
+
+      {/* 👇 NUEVO: Barra inferior flotante (Menú / Carrito / Perfil) — SOLO mobile/tablet */}
+      <BottomNavKiosco
+        vistaMobile={vistaMobile}
+        setVistaMobile={setVistaMobile}
+        totalCarrito={calcularTotal()}
+        cantidadItems={carrito.reduce((acc, i) => acc + (i.cantidad || 1), 0)}
+        onIrAPerfil={onIrAPerfil}
       />
     </div>
   );
-};  
+};
 
 export default MenuPrincipal;

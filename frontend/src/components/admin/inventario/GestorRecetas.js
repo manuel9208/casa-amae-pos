@@ -4,13 +4,14 @@ import SelectorPlatillo from './recetas/SelectorPlatillo';
 import FormularioAgregado from './recetas/FormularioAgregado';
 import PanelTamanosFijos from './recetas/PanelTamanosFijos';
 import TablaIngredientes from './recetas/TablaIngredientes';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, apiUrl, showAlert, showConfirm }) => {
   // 👇 NUEVO ESTADO: Las Bases ya viven en su propia tabla
   const [subRecetasDB, setSubRecetasDB] = useState([]);
 
   useEffect(() => {
-    fetch(`${apiUrl}/sub-recetas`)
+   apiFetch(`${apiUrl}/sub-recetas`)
       .then(r => r.json())
       .then(data => setSubRecetasDB(Array.isArray(data) ? data : []))
       .catch(console.error);
@@ -21,7 +22,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   const [inputLuzAgua, setInputLuzAgua] = useState('15');
 
   useEffect(() => {
-    fetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`)
+   apiFetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`)
       .then(r => r.json())
       .then(data => {
         if (data && data.success) {
@@ -41,7 +42,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
       return;
     }
     try {
-      const res = await fetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`, {
+      const res = await apiFetch(`${apiUrl}/configuracion-financiera/factor-luz-agua`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ porcentaje: valorNumerico })
@@ -93,7 +94,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
   // EFECTOS (CARGA DE DATOS)
   // ==========================================
   useEffect(() => {
-    fetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(setCatalogoIngredientes).catch(console.error);
+   apiFetch(`${apiUrl}/ingredientes`).then(r => r.json()).then(setCatalogoIngredientes).catch(console.error);
   }, [apiUrl]);
 
   useEffect(() => {
@@ -126,15 +127,19 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         }
       }
 
-      // Fetch condicionado al modo de costeo
-      fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`)
+      // 👇 NUEVO: Detectamos si el ID activo pertenece a una Sub-Receta (tabla sub_recetas) para pedir el origen correcto
+      const esBaseActivaGlobal = modoCosteo === 'platillos' && subRecetasDB.some(s => String(s.id) === String(idTarget));
+      const origenParam = esBaseActivaGlobal ? '&origen=sub_receta' : '';
+
+      // Fetch condicionado al modo de costeo y al origen (Platillo real vs Sub-Receta)
+     apiFetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}${origenParam}`)
         .then(r => r.json())
         .then(data => setRecetaItems(Array.isArray(data) ? data : []))
         .catch(console.error);
     } else {
       setRecetaItems([]); setRendimientoCalculadora(1); setConfigTamanos({}); setUnidadRendimiento('PZ'); setEmpaquesUnicos([]);
     }
-  }, [recetaActivaId, extraActivoId, modoCosteo, productos, apiUrl]);
+  }, [recetaActivaId, extraActivoId, modoCosteo, productos, apiUrl, subRecetasDB]);
 
   // ==========================================
   // NUEVAS FUNCIONES DE SUB-RECETAS (TABLA INDEPENDIENTE)
@@ -149,7 +154,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     e.preventDefault();
     if (!nombreNuevaBase.trim()) return;
     try {
-      const res = await fetch(`${apiUrl}/sub-recetas`, { 
+      const res = await apiFetch(`${apiUrl}/sub-recetas`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -161,7 +166,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         showAlert("¡Sub-Receta Creada!", "Ya puedes seleccionarla para armar su receta.", "success");
         setModalCrearBase(false);
         // Recargamos el listado local
-        fetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
+       apiFetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
       }
     } catch(e) { showAlert("Error", "No se pudo crear la base.", "error"); }
   };  
@@ -179,7 +184,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     if (!nombreEditadoBase.trim()) return;
     try {
       const sub = subRecetasDB.find(p => String(p.id) === String(recetaActivaId));
-      const res = await fetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
+      const res = await apiFetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
         method: 'PUT', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,7 +195,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
       if(res.ok) {
         showAlert("¡Actualizado!", "El nombre de la sub-receta ha sido modificado.", "success");
         setModalEditarBase(false);
-        fetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
+       apiFetch(`${apiUrl}/sub-recetas`).then(r => r.json()).then(data => setSubRecetasDB(Array.isArray(data) ? data : []));
       }
     } catch (error) { showAlert("Error", "Fallo de conexión.", "error"); }
   };
@@ -204,10 +209,14 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
     if (modoCosteo === 'extras' && !extraActivoId) return;
 
     try {
-      // Payload Inteligente que detecta el Sabor Activo y el Modo
+      // 👇 NUEVO: Detectamos si el ID activo pertenece a una Sub-Receta (tabla sub_recetas) o a un Platillo real (tabla productos)
+      const esBaseActivaGlobal = modoCosteo === 'platillos' && subRecetasDB.some(s => String(s.id) === String(recetaActivaId));
+
+      // Payload Inteligente que detecta el Sabor Activo, el Modo y el Origen (Platillo vs Sub-Receta)
       let payload = {
         modo_costeo: modoCosteo,
-        producto_id: modoCosteo === 'platillos' ? recetaActivaId : null,
+        producto_id: (modoCosteo === 'platillos' && !esBaseActivaGlobal) ? recetaActivaId : null,
+        sub_receta_id: esBaseActivaGlobal ? recetaActivaId : null, // 👈 NUEVO
         ingrediente_id: modoCosteo === 'extras' ? extraActivoId : null,
         sabor_nombre: (modoCosteo === 'platillos' && saborActivo !== 'Base') ? saborActivo : null
       };
@@ -238,7 +247,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         payload.cantidad_usada = cantidadFinal;
       }
 
-      const res = await fetch(`${apiUrl}/recetas`, { 
+      const res = await apiFetch(`${apiUrl}/recetas`, { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify(payload) 
@@ -248,25 +257,36 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         setNuevoItemReceta({ insumo_id: '', cantidad_usada: '' }); 
         setNuevoItemSubReceta({ sub_producto_id: '', cantidad_usada: '' });
         
-        // Recargar la lista correcta (Platillo o Extra) para refrescar la tabla
+        // 👇 NUEVO: Detectamos si lo que acabamos de guardar pertenece a una Sub-Receta
+        const esBaseActivaGlobal = modoCosteo === 'platillos' && subRecetasDB.some(s => String(s.id) === String(recetaActivaId));
+        
+        // Recargar la lista correcta (Platillo, Sub-Receta o Extra) para refrescar la tabla
         const idTarget = modoCosteo === 'platillos' ? recetaActivaId : extraActivoId;
-        const resData = await fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`);
+        const origenParam = esBaseActivaGlobal ? '&origen=sub_receta' : ''; // 👈 NUEVO
+        const resData = await apiFetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}${origenParam}`);
         const dataR = await resData.json();
         setRecetaItems(Array.isArray(dataR) ? dataR : []);
       } else {
-        if(typeof showAlert !== 'undefined') showAlert("Error", "Error al guardar el insumo", "error");
+        const errData = await res.json().catch(() => ({})); // 👈 NUEVO: leer el error real del backend
+        if(typeof showAlert !== 'undefined') showAlert("Error", errData.error || "Error al guardar el insumo", "error");
       }
     } catch(e) {
+        console.error("🚨 [guardarItemReceta] Error real capturado:", e); // 👈 NUEVO: diagnóstico en consola
         if(typeof showAlert !== 'undefined') showAlert("Error", "Fallo de conexión", "error");
     }
   };
 
   const eliminarItemReceta = async (id) => {
     try {
-      await fetch(`${apiUrl}/recetas/${id}`, { method: 'DELETE' });
-      // Refrescar la tabla correctamente al borrar
+      await apiFetch(`${apiUrl}/recetas/${id}`, { method: 'DELETE' });
+
+      // 👇 NUEVO: Detectamos si lo que acabamos de borrar pertenece a una Sub-Receta
       const idTarget = modoCosteo === 'platillos' ? recetaActivaId : extraActivoId;
-      const resData = await fetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}`);
+      const esBaseActivaGlobal = modoCosteo === 'platillos' && subRecetasDB.some(s => String(s.id) === String(idTarget));
+      const origenParam = esBaseActivaGlobal ? '&origen=sub_receta' : ''; // 👈 NUEVO
+
+      // Refrescar la tabla correctamente al borrar (Platillo, Sub-Receta o Extra)
+      const resData = await apiFetch(`${apiUrl}/recetas/${idTarget}?modo=${modoCosteo}${origenParam}`);
       const dataR = await resData.json();
       setRecetaItems(Array.isArray(dataR) ? dataR : []);
     } catch (error) { 
@@ -286,7 +306,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         // RUTA 1: GUARDAR EN LA TABLA DE SUB-RECETAS (BASES)
         // ---------------------------------------------------------
         const subSeleccionada = subRecetasDB.find(s => String(s.id) === String(recetaActivaId));
-        await fetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
+        await apiFetch(`${apiUrl}/sub-recetas/${recetaActivaId}`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ 
@@ -298,7 +318,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         });
 
         // Refrescar el estado local de sub-recetas
-        const resSub = await fetch(`${apiUrl}/sub-recetas`);
+        const resSub = await apiFetch(`${apiUrl}/sub-recetas`);
         const dataSub = await resSub.json();
         setSubRecetasDB(Array.isArray(dataSub) ? dataSub : []);
         
@@ -308,7 +328,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         // ---------------------------------------------------------
         // RUTA 2: GUARDAR EN LA TABLA DE PRODUCTOS ORIGINAL
         // ---------------------------------------------------------
-        await fetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
+        await apiFetch(`${apiUrl}/productos/${recetaActivaId}/rendimiento`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ rendimiento: rendimientoCalculadora }) 
@@ -324,7 +344,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         const empaquesValidos = empaquesUnicos.filter(e => e.insumo_id !== '');
         if (empaquesValidos.length > 0) opcionesFiltradas.push({ categoria: 'EmpaquesUnicos', nombre: 'Empaques Base', empaques: empaquesValidos });
         
-        await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { 
+        await apiFetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { 
           method: 'PUT', 
           headers: { 'Content-Type': 'application/json' }, 
           body: JSON.stringify({ opciones: opcionesFiltradas }) 
@@ -371,7 +391,7 @@ const GestorRecetas = ({ insumosDB, productos, clasificaciones, refrescarDatos, 
         }
         return t;
       });
-      await fetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opciones: [...otrasOpciones, ...nuevosTamanos] }) });
+      await apiFetch(`${apiUrl}/productos/${recetaActivaId}/opciones`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opciones: [...otrasOpciones, ...nuevosTamanos] }) });
       showAlert("¡Guardado!", "Se actualizaron los rendimientos y empaques por tamaño.", "success");
       refrescarDatos();
     } catch (e) { showAlert("Error", "No se pudo guardar la configuración de tamaños.", "error"); }

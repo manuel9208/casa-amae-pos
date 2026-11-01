@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, XCircle, ShieldCheck, Save, Clock } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
+
     const [configGeneral, setConfigGeneral] = useState({
         tipo_registro: ['portal'],
         metodo_portal: 'ambos',
         validacion_activa: 'ninguna',
-        rango_metros: 50
+        rango_metros: 50,
+        tolerancia_checkout_minutos: 60 // 🆕 NUEVO: Corte Automático de Horas
     });
 
     const cargarDatos = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/asistencia/configuracion`);
+            const res = await apiFetch(`${apiUrl}/asistencia/configuracion`);
             if (res.ok) {
                 const data = await res.json();
                 if (data.general) {
@@ -26,7 +28,8 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
                     setConfigGeneral({
                         ...data.general,
                         tipo_registro: tipoReg,
-                        metodo_portal: data.general.metodo_portal || 'ambos'
+                        metodo_portal: data.general.metodo_portal || 'ambos',
+                        tolerancia_checkout_minutos: data.general.tolerancia_checkout_minutos || 60 // 🆕 NUEVO
                     });
                 }
             }
@@ -55,7 +58,7 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
-            const res = await fetch(`${apiUrl}/asistencia/configuracion`, {
+            const res = await apiFetch(`${apiUrl}/asistencia/configuracion`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(configGeneral)
@@ -76,7 +79,7 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
     return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in">
             <form onSubmit={guardarConfiguracion} className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95">
-                
+
                 <div className="bg-slate-800 p-6 flex justify-between items-center text-white shrink-0">
                     <div className="flex items-center gap-3">
                         <Settings className="text-emerald-400" size={28} />
@@ -91,7 +94,7 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
                 </div>
 
                 <div className="p-6 md:p-8 bg-slate-50 flex-1 space-y-6 overflow-y-auto max-h-[75vh] custom-scrollbar">
-                    
+
                     {/* BLOQUE 1: SELECCIÓN DE MÉTODOS HABILITADOS */}
                     <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                         <h4 className="font-black text-lg text-slate-800 mb-2 flex items-center gap-2">
@@ -171,8 +174,8 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
                             <div className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">¿Qué método deseas exigir?</label>
-                                    <select 
-                                        value={configGeneral.validacion_activa === 'ninguna' ? 'ambas' : configGeneral.validacion_activa} 
+                                    <select
+                                        value={configGeneral.validacion_activa === 'ninguna' ? 'ambas' : configGeneral.validacion_activa}
                                         onChange={e => setConfigGeneral({...configGeneral, validacion_activa: e.target.value})}
                                         className="w-full bg-white border border-slate-200 rounded-xl p-4 font-bold text-slate-700 outline-none focus:border-emerald-500 cursor-pointer shadow-sm"
                                     >
@@ -185,9 +188,9 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
                                 {['ubicacion', 'ambas'].includes(configGeneral.validacion_activa === 'ninguna' ? 'ambas' : configGeneral.validacion_activa) && (
                                     <div className="animate-in zoom-in-95 mt-4">
                                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tolerancia del GPS (En Metros)</label>
-                                        <input 
-                                            type="number" min="5" 
-                                            value={configGeneral.rango_metros || 50} 
+                                        <input
+                                            type="number" min="5"
+                                            value={configGeneral.rango_metros || 50}
                                             onChange={e => setConfigGeneral({...configGeneral, rango_metros: e.target.value})}
                                             className="w-full bg-white border border-slate-200 rounded-xl p-4 font-black text-emerald-600 outline-none focus:border-emerald-500 text-xl text-center shadow-sm"
                                         />
@@ -199,6 +202,38 @@ const ModalConfigAsistencia = ({ apiUrl, showAlert, onClose, onSaved }) => {
                             </div>
                         </div>
                     )}
+
+                    {/* 🆕 BLOQUE 3: CORTE AUTOMÁTICO DE HORAS (Tolerancia para Checar Salida) */}
+                    <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm animate-in fade-in">
+                        <div className="flex items-start gap-4 mb-6">
+                            <div className="p-3 rounded-2xl shrink-0 bg-amber-100 text-amber-600">
+                                <Clock size={24} />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="font-black text-lg text-slate-800 leading-tight mb-1">Corte Automático de Horas</h4>
+                                <p className="text-xs font-bold text-slate-500">
+                                    Si un empleado olvida checar su salida, el sistema cerrará su turno automáticamente usando
+                                    la hora de cierre del negocio más esta tolerancia. Así se evita que el conteo de horas
+                                    siga corriendo indefinidamente.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Tolerancia para Checar Salida (Minutos)</label>
+                            <input
+                                type="number" min="0" step="5"
+                                value={configGeneral.tolerancia_checkout_minutos ?? 60}
+                                onChange={e => setConfigGeneral({...configGeneral, tolerancia_checkout_minutos: e.target.value})}
+                                className="w-full bg-white border border-slate-200 rounded-xl p-4 font-black text-amber-600 outline-none focus:border-amber-500 text-xl text-center shadow-sm"
+                            />
+                            <p className="text-[10px] font-bold text-slate-400 mt-3 leading-relaxed text-center">
+                                Ejemplo: si tu negocio cierra a las 10:00 PM y pones 60 minutos de tolerancia, el corte
+                                automático ocurrirá a las 11:00 PM si el empleado no checó su salida antes.
+                            </p>
+                        </div>
+                    </div>
+
                 </div>
 
                 <div className="p-6 bg-white border-t border-slate-100 flex justify-end shrink-0">

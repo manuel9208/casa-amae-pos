@@ -14,6 +14,7 @@ const getMazatlanDateStr = () => {
 };  
 
 exports.guardarCorte = async (req, res) => {
+    const empresaId = req.empresa_id; // 🆕 TENANT
     const {
         fecha,
         usuario_id,
@@ -78,8 +79,8 @@ exports.guardarCorte = async (req, res) => {
 
         // Casteo a ::DATE para ignorar horas y evitar desfaces
         const existeCorte = await db.query(
-            'SELECT id FROM historico_cortes WHERE fecha_corte::DATE = $1::DATE AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false ORDER BY id DESC LIMIT 1',
-            [fechaCorte, usuario_id || null]
+            'SELECT id FROM historico_cortes WHERE fecha_corte::DATE = $1::DATE AND usuario_id IS NOT DISTINCT FROM $2 AND turno_cerrado = false AND empresa_id = $3 ORDER BY id DESC LIMIT 1', // 🔒 FILTRO EMPRESA
+            [fechaCorte, usuario_id || null, empresaId]
         );  
 
         let result;
@@ -107,7 +108,7 @@ exports.guardarCorte = async (req, res) => {
                 detalles_envio = COALESCE($18, detalles_envio),
                 turno_cerrado = $19,
                 fecha_creacion = CURRENT_TIMESTAMP
-                WHERE id = $20 RETURNING *`,
+                WHERE id = $20 AND empresa_id = $21 RETURNING *`, // 🔒 FILTRO EMPRESA
                 [
                     f_inicial, f_repartidor, v_platillos, i_extras, c_envio,
                     t_efectivo, t_tarjeta, t_transferencia, t_gastos, e_cajon,
@@ -116,7 +117,8 @@ exports.guardarCorte = async (req, res) => {
                     pedidos_incluidos ? JSON.stringify(pedidos_incluidos) : null,
                     detalles_envio ? JSON.stringify(detalles_envio) : null,
                     isCerrado,
-                    existeCorte.rows[0].id
+                    existeCorte.rows[0].id,
+                    empresaId // 🆕 TENANT: $21
                 ]
             );
         } else {
@@ -126,13 +128,14 @@ exports.guardarCorte = async (req, res) => {
                 fecha_corte, usuario_id, fondo_inicial, fondo_repartidor, venta_platillos, ingresos_extras, cargos_envio,
                 total_efectivo, total_tarjeta, total_transferencia, total_gastos, efectivo_cajon, efectivo_entregado, efectivo_en_caja,
                 venta_mayoreo, mayoreo_efectivo, mayoreo_tarjeta, mayoreo_transferencia,
-                pedidos_incluidos, detalles_envio, turno_cerrado
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21) RETURNING *`,
+                pedidos_incluidos, detalles_envio, turno_cerrado, empresa_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING *`, // 🆕 TENANT
                 [
                     fechaCorte, usuario_id || null, f_inicial, f_repartidor, v_platillos, i_extras, c_envio,
                     t_efectivo, t_tarjeta, t_transferencia, t_gastos, e_cajon, e_entregado, e_en_caja,
                     v_mayoreo, m_efectivo, m_tarjeta, m_transferencia, // 👈 INYECTAMOS B2B
-                    JSON.stringify(pedidos_incluidos || []), JSON.stringify(detalles_envio || {}), isCerrado
+                    JSON.stringify(pedidos_incluidos || []), JSON.stringify(detalles_envio || {}), isCerrado,
+                    empresaId // 🆕 TENANT: $22
                 ]
             );
         }  
@@ -145,7 +148,8 @@ exports.guardarCorte = async (req, res) => {
 };  
 
 exports.obtenerHistorial = async (req, res) => {
-    const { fecha, completo } = req.query;  
+    const { fecha, completo } = req.query;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
         let result;
         if (fecha) {
@@ -154,16 +158,17 @@ exports.obtenerHistorial = async (req, res) => {
             SELECT c.*, u.nombre as usuario_nombre
             FROM historico_cortes c
             LEFT JOIN usuarios u ON c.usuario_id = u.id
-            WHERE c.fecha_corte::DATE = $1::DATE
+            WHERE c.fecha_corte::DATE = $1::DATE AND c.empresa_id = $2
             ORDER BY c.id ASC
-            `, [fecha]);
+            `, [fecha, empresaId]); // 🔒 FILTRO EMPRESA
         } else {
             result = await db.query(`
             SELECT c.*, u.nombre as usuario_nombre
             FROM historico_cortes c
             LEFT JOIN usuarios u ON c.usuario_id = u.id
+            WHERE c.empresa_id = $1
             ORDER BY c.fecha_corte DESC, c.id DESC
-            `);
+            `, [empresaId]); // 🔒 FILTRO EMPRESA — corrige el historial que antes traía TODAS las empresas
         }  
         if (fecha && result.rows.length > 0) {
             if (completo === 'true') {

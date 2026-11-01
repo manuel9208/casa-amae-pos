@@ -1,0 +1,508 @@
+manual de vendedor
+
+
+🎤 FICHA COMERCIAL — Catálogos (Clasificaciones e Ingredientes/Extras)
+Gancho: "Arma, reorganiza y clona tu menú completo en minutos — sin depender de un programador."
+
+Problema que resuelve:
+En la mayoría de los negocios, cambiar el menú (agregar categorías, mover platillos, lanzar una promo de temporada) implica llamar a soporte técnico o editar manualmente producto por producto. Este módulo le da control total al dueño/administrador desde una sola pantalla.
+
+Beneficios tangibles:
+
+Autonomía total: el administrador organiza su menú sin tocar código ni depender de terceros.
+Clonado inteligente: crear una nueva categoría (ej. "Menú de Navidad") copiando platillos e ingredientes de una ya existente toma minutos, no horas.
+Cero errores al renombrar: cambiar el nombre de una categoría reubica automáticamente todos los productos y promociones relacionadas — no se "pierden" platillos.
+Control fino de ingredientes: define qué se cobra extra y qué viene incluido, incluso permitiendo "dobles" con costo adicional — ideal para pizzerías, hamburgueserías, etc.
+Marca blanca + tiempo real: cualquier cambio se refleja al instante en el Kiosco del cliente y en Cocina, sin recargar pantallas.
+Diferenciador frente a la competencia: Muchos POS requieren editar producto por producto o pasar por un panel técnico separado. Aquí todo el ciclo (categorizar → clonar → modificar ingredientes) vive en una sola interfaz fluida, pensada para que el propio dueño del negocio sea autosuficiente.
+
+Objeción típica y respuesta:
+
+"¿Y si me equivoco al renombrar una categoría y pierdo mis platillos?" → No ocurre: el sistema mueve automáticamente todos los productos y promociones ligados a esa categoría al nuevo nombre, de forma transaccional (todo o nada, nunca queda a medias).
+
+
+🎤 FICHA COMERCIAL — Menú (Crear y Editar Platillos)
+Gancho: "Tu menú completo, con tamaños, sabores y modificadores, armado por ti mismo en minutos — sin letra chica ni errores de precio."
+
+Problema que resuelve:
+Los negocios con variantes de producto (tamaños, sabores, extras) suelen depender de hojas de cálculo externas o de soporte técnico para mantener el menú actualizado, lo que genera inconsistencias de precio y tiempos de reacción lentos ante cambios de temporada o de proveedor.
+
+Beneficios tangibles:
+
+Ficha técnica completa en un solo formulario: precio, tiempo de preparación, disponibilidad, puntos de fidelidad, canje y stock, todo desde una pantalla.
+Precios inteligentes por variante: tamaños y sabores con su propio precio extra, sin riesgo de cobrar de más o de menos por mezclar el precio base con el de la variante.
+Grupos de selección flexibles: se pueden forzar elecciones obligatorias (ej. tipo de leche) u ofrecer extras opcionales con límite, igual que las grandes cadenas de comida rápida.
+Actualización instantánea: el cambio se ve de inmediato en el Kiosco del cliente y en Cocina, sin reiniciar nada.
+Control de stock por platillo: ideal para productos de edición limitada o con producción diaria acotada.
+Diferenciador: No es un simple "catálogo de productos" — es un configurador de ficha técnica completo (precio, modificadores, horarios, fidelidad y stock) integrado 100% en tiempo real con Kiosco y Cocina.
+
+Objeción típica y respuesta:
+
+"¿Y si mi platillo tiene varios tamaños, cada uno con precio distinto? ¿Tengo que crear un producto por cada tamaño?" → No. Se crea un solo platillo, se activa "Aplica Tamaños Fijos" y se definen los precios de Chico/Mediano/Grande/Jumbo dentro de la misma ficha — el sistema se encarga de ofrecerlos como opciones al cliente en el Kiosco.
+
+🎤 FICHA COMERCIAL — Inventario y Costeo de Recetas
+Gancho: "Sabe exactamente cuánto te cuesta cada platillo — hasta el último gramo de merma."
+
+Problema que resuelve: La mayoría de los negocios fija precios "a ojo" sin saber su costo real, perdiendo margen sin darse cuenta (mermas, empaques olvidados, luz/agua no contemplada).
+
+Beneficios tangibles:
+
+Costeo quirúrgico: calcula el costo real de cada platillo incluyendo mermas, empaques y servicios (luz/agua).
+Reutilización inteligente (Sub-Recetas): arma una salsa o base una sola vez y reutilízala en 10 platillos distintos sin volver a capturar el costeo.
+Precio sugerido automático: con un clic, el sistema recomienda el precio de venta ideal según margen deseado.
+Alertas proactivas de stock: notificaciones push automáticas antes de quedarse sin insumos clave.
+Auditorías de inventario controladas: doble validación entre Caja y Administración, evitando ajustes de stock no autorizados.
+Diferenciador: No es solo un inventario — es una calculadora de rentabilidad en tiempo real por cada platillo del menú.
+
+🎤 FICHA COMERCIAL — Marketing, Combos y Promociones
+Gancho: "Convierte cada pedido en una oportunidad de venta extra — de forma 100% automática."
+
+Problema que resuelve: Aumentar el ticket promedio normalmente depende de que el cajero recuerde sugerir productos o aplicar descuentos manualmente — lo cual es inconsistente y se pierde en horas de alto tráfico.
+
+Beneficios tangibles:
+
+Upselling automático: el sistema sugiere combos/extras sin que el cajero tenga que acordarse.
+Happy Hour programado: descuentos que se activan y desactivan solos según el horario, sin intervención humana.
+Combos armables: el cliente arma su propio combo con reglas claras, aumentando percepción de valor.
+Cupones medibles: control total de uso y vigencia de cada código promocional.
+Fidelización configurable: el dueño decide exactamente cuánto vale cada punto y qué tan generoso es el programa, ajustable en cualquier momento.
+Diferenciador: Cuatro motores de marketing integrados nativamente al POS y sincronizados en tiempo real con el Kiosco — no son plugins externos ni hojas de cálculo paralelas.
+
+🎤 FICHA COMERCIAL — Mesas / QR
+Gancho: "Sabe en segundos qué mesa está libre, cuál está ocupada y qué pedido lleva — sin caminar todo el salón."
+
+Problema que resuelve: En restaurantes con varias zonas (salón, terraza, barra), el personal pierde tiempo verificando físicamente qué mesas están disponibles o reclamando pedidos a la mesa equivocada.
+
+Beneficios tangibles:
+
+Visibilidad instantánea: colores claros (libre/ocupada/por pagar) y el número de pedido visible en cada mesa, sin necesidad de ir a preguntar.
+Organización por zonas: ideal para negocios con múltiples áreas (interior, terraza, barra, privados).
+Pedido directo por QR: el cliente escanea el código de su mesa y ordena desde su celular, reduciendo tiempos de espera y errores de toma de orden.
+Plano visual personalizado: el mapa se adapta al diseño real del restaurante, no a una lista genérica — facilita la capacitación de personal nuevo.
+Diferenciador: La combinación de mapa visual + QR autoservicio + estado en tiempo real integrado nativamente con Caja, sin apps o tablets adicionales por mesa.
+
+🎤 FICHA COMERCIAL — Proveedores y Compras
+Gancho: "Tu inventario se actualiza solo cada vez que llega una factura — y tus proveedores se enteran automáticamente."
+
+Problema que resuelve: Llevar el control de compras a proveedores suele ser manual y desconectado del inventario real, generando discrepancias entre "lo que se compró" y "lo que hay en stock".
+
+Beneficios tangibles:
+
+Inventario siempre actualizado: cada factura aprobada o pagada suma el stock automáticamente, sin captura doble.
+Control de flujo de efectivo: distingue claramente entre lo ya pagado y lo pendiente (a crédito), mostrando la deuda total en tiempo real.
+Comunicación automática con proveedores: confirmaciones de recepción y pago enviadas por correo sin que el administrador tenga que redactar nada.
+Alertas de resurtido inteligentes: cada artículo tiene su propio umbral mínimo, evitando quedarse sin insumos clave.
+Procesamiento masivo: liquida o aprueba varias facturas del mismo proveedor en un solo paso, ahorrando tiempo administrativo.
+Reportes ejecutivos en PDF: información lista para presentar o archivar contablemente.
+Diferenciador: No es solo una libreta de proveedores — es un motor que conecta compras, inventario y comunicación automática en un solo flujo, evitando hojas de cálculo paralelas.
+
+🎤 FICHA COMERCIAL — Clientes CRM
+Gancho: "Conoce a tus clientes mejor que nadie — qué piden, cuándo vuelven y cuánto valen."
+
+Problema que resuelve: La mayoría de los negocios no tiene idea real de quiénes son sus clientes frecuentes ni qué los hace volver, perdiendo oportunidades de fidelización dirigida.
+
+Beneficios tangibles:
+
+Ficha completa por cliente: contacto, dirección y ahora también historial de puntos, todo en un solo lugar.
+Analítica accionable: sabe qué platillos venden más entre tus clientes identificados, para enfocar promociones.
+Identifica a tus VIP: ranking automático de los clientes con más puntos, ideal para programas de reconocimiento.
+Seguridad con NIP: evita que terceros canjeen puntos sin autorización del cliente real.
+Multi-canal: detecta si tus clientes prefieren pedir por Kiosco, mostrador u otros canales, para optimizar inversión.
+Diferenciador: No es solo una lista de contactos — es un CRM con analítica de comportamiento de compra integrada nativamente al POS, sin depender de herramientas externas.
+
+🎤 FICHA COMERCIAL — AdminIA (Copiloto)
+Gancho: "Tu propio analista de negocio, diseñador gráfico y gerente de RH — disponible las 24 horas."
+
+Problema que resuelve: Los dueños de restaurantes no tienen tiempo ni conocimientos para analizar sus propios datos de ventas, personal o crear contenido de marketing.
+
+Beneficios tangibles:
+
+Decisiones basadas en datos reales: la IA solo responde con las cifras reales del negocio, nunca inventa información.
+Fotografía profesional sin fotógrafo: genera imágenes de productos listas para redes sociales en segundos.
+Gestión de personal inteligente: detecta rendimiento, préstamos pendientes y horas extra sin revisar hojas de cálculo.
+Flexibilidad de proveedor: el negocio no depende de un solo motor de IA; puede alternar entre Gemini, ChatGPT o Claude.
+Plan gratuito real: Gemini incluido sin costo con límite diario razonable, escalable a Premium cuando el negocio lo requiera.
+Diferenciador: No es un chatbot genérico — está conectado directamente a los datos reales de ventas, inventario y personal del negocio, con memoria de contexto por área (Finanzas, RH, Marketing).
+
+🎤 FICHA COMERCIAL — Módulo de Mayoreo (Distribución B2B)
+🪝 Gancho de venta
+"¿Vendes por volumen a otros negocios además de atender en mostrador? Deja de manejar esas ventas en una libreta o en WhatsApp — tu POS ahora tiene un canal de distribución mayorista profesional, con precios escalonados, crédito controlado y cobranza automatizada."
+
+❗ Problema que resuelve
+Muchos negocios (cafeterías que venden café en grano a otros locales, distribuidoras de insumos, fabricantes) terminan llevando sus ventas de mayoreo por fuera del sistema: en Excel, notas de papel o memoria. Esto genera:
+
+Precios inconsistentes entre vendedores/cajeros.
+Créditos otorgados sin control ni respaldo documental (INE, comprobante).
+Clientes que "se les olvida pagar" porque nadie les avisa automáticamente.
+Cero visibilidad del stock mayorista separado del stock de mostrador.
+✅ Beneficios
+Precios por volumen automáticos: el sistema aplica la tarifa correcta (Público / Medio Mayoreo / Mayoreo / Cliente especial) sin que el cajero tenga que calcular nada.
+Crédito comercial blindado: no se activa una línea de crédito sin verificación de correo y expediente documental (INE + comprobante), protegiendo tu cartera.
+Notificación automática al cliente: cada venta a crédito genera un correo de confirmación — transparencia total y menos llamadas de "¿cuánto te debo?".
+Stock aislado: el inventario de mayoreo no se mezcla con el del restaurante, evitando que una venta grande a un cliente mayorista descuadre tu stock de piso.
+Tiempo real: el catálogo se sincroniza al instante en todas las cajas conectadas vía WebSockets.
+🎯 Diferenciador
+A diferencia de un Excel o un sistema de ventas genérico, este módulo está integrado nativamente al mismo POS que ya usas para tu restaurante/negocio — mismo login, mismo catálogo de clientes, misma base de datos, cero doble captura. Y es 100% de marca blanca: tú le pones el nombre comercial que quieras a tu canal de distribución (ej. "28:20").
+
+🙋 Objeción típica + Respuesta
+"Yo ya llevo mis ventas de mayoreo en una libreta/Excel, me funciona."
+
+Respuesta: Una libreta no te avisa cuándo un cliente se está pasando de su límite de crédito, no verifica si el correo que te dieron es real, y no le manda un recordatorio automático de que ya le vencieron los días de pago. Este módulo convierte esa libreta en un sistema que trabaja solo: calcula el precio correcto según el volumen, controla el riesgo de crédito con documentación real, y le avisa al cliente sin que tú muevas un dedo — mientras tú sigues usando la misma plataforma de siempre, sin aprender un sistema nuevo.
+
+## 🎤 FICHA COMERCIAL — Módulo de Finanzas y Reportes
+
+### 🪝 Gancho de venta
+*"¿Sabes realmente cuánto ganas, no solo cuánto vendes? La mayoría de los negocios confunden ventas con ganancia. Este módulo te muestra la verdad financiera exacta de tu negocio, en tiempo real, sin que tengas que hacer cuentas a mano."*
+
+### ❗ Problema que resuelve
+Muchos dueños de negocio miran su "total de ventas del día" y creen que ese dinero es su ganancia — sin restar el costo real de los ingredientes, los descuentos aplicados, ni los gastos de combustible de reparto. Esto genera:
+- Decisiones de precio mal informadas (vender "mucho" sin saber si en realidad se pierde dinero en ciertos productos).
+- Cero visibilidad de qué producto específico (con su tamaño y sabor exacto) es más rentable.
+- Auditorías de caja imprecisas por mezclar ingredientes de personalización con productos reales.
+- Gasto de combustible de reparto sin control ni rendición de cuentas por conductor.
+
+### ✅ Beneficios
+- **Ganancia neta real**: resta automáticamente costo de receta, descuentos y gastos — no solo "ventas brutas".
+- **Inteligencia artificial de insights**: te dice solo cuál es tu producto estrella, cuál no se vende, y cuál es tu mejor/peor horario — sin que tengas que analizarlo tú.
+- **Agrupación perfecta de variantes**: un "Latte Jumbo" se reporta como una sola línea sin importar cuántas combinaciones de leche/hielo haya tenido, dándote data limpia y accionable.
+- **Auditoría blindada de caja y repartidores**: cuadre exacto peso por peso, separado por turno y por conductor.
+- **Exportación profesional**: PDF con tu logo y marca, listo para mostrar a un socio o contador, con un clic.
+
+### 🎯 Diferenciador
+A diferencia de un Excel manual o un POS genérico que solo "suma ventas", este sistema entiende la complejidad real de un menú con personalización (tamaños, sabores, ingredientes opcionales) y calcula la ganancia neta real producto por producto — algo que ningún sistema de punto de venta básico del mercado ofrece de forma nativa.
+
+### 🙋 Objeción típica + Respuesta
+> **"Ya tengo un POS que me dice cuánto vendí al día, ¿para qué necesito esto?"**
+
+**Respuesta:** Saber cuánto vendiste no es lo mismo que saber cuánto ganaste. Este módulo te muestra la ganancia neta real después de costos y descuentos, te dice exactamente qué producto (con su tamaño y sabor) es el más rentable, y audita tu caja y repartidores al centavo — convirtiendo datos crudos en decisiones de negocio, no solo en números bonitos.
+
+🎤 FICHA COMERCIAL — Módulo Flujo Operativo
+"El cerebro que decide cómo viaja cada pedido, sin tocar una línea de código."
+
+✅ Flexibilidad total de operación: Un switch, y tu negocio cambia de "restaurante con cocina" a "mostrador exprés" al instante — sin reinicios, sin soporte técnico, sin perder configuración general.
+
+✅ Cero pedidos perdidos en mesas: Activa la mesa obligatoria en consumo local y elimina cuentas fantasma o mal asignadas.
+
+✅ Cocina inteligente, no solo una pantalla: El criterio de presencia (Asistencia / Horario / Ambos) asegura que el KDS solo muestre personal realmente disponible — ideal para turnos rotativos y control de nómina en tiempo real.
+
+✅ Tiempos de espera reales, no estimados a ciegas: Con Capacidad de Producción por estación, el sistema sabe cuántos platillos puede manejar tu freidora, tu parrilla o tu horno en paralelo — y calcula tiempos de entrega creíbles para tus clientes, elevando la percepción de servicio.
+
+✅ Escalable por diseño: Crea tantas estaciones de cocina como tu menú necesite, sin límites, y vincúlalas a tus clasificaciones de catálogo existentes en segundos.
+
+Ideal para: restaurantes multi-estación, cafeterías híbridas (mostrador + mesa), negocios con alta rotación de personal, y operaciones que buscan reducir tiempos muertos en cocina mediante datos reales de capacidad.
+
+🎤 Ficha Comercial — Seguridad y Biometría
+"Control militar de accesos, sin perder la fluidez del día a día."
+
+✅ Cero suplantaciones: Passkeys biométricas (huella/Face ID real del dispositivo, estándar WebAuthn) — no un PIN que se puede compartir o adivinar.
+
+✅ Control de flota de equipos: Sabes exactamente qué tablet puede abrir Caja, cuál solo Cocina, y cuál es de un empleado que nunca debería ver el Panel Admin.
+
+✅ Blindaje anti-fraude desde fuera del negocio: Si un empleado se lleva su sesión a su celular personal, el sistema lo limita automáticamente al Portal del Empleado — no puede cobrar, no puede ver inventario, no puede nada más que consultar su nómina/asistencia.
+
+✅ Experiencia premium para clientes frecuentes: Passkeys también disponibles para clientes — pago y fidelidad con solo tocar el sensor, sin contraseñas que recordar.
+
+Ideal para: negocios con múltiples sucursales/equipos, alta rotación de personal, y marcas que buscan proyectar seriedad y control operativo ante inversionistas o auditorías.
+
+🎤 FICHA COMERCIAL — Módulo de Asistencia (GPS/IP)
+🪝 Gancho de venta
+"¿Tus empleados checan entrada... pero nunca sabes si de verdad estaban en el negocio? Con este módulo, tu reloj checador deja de ser una simple lista de horas y se convierte en un sistema de seguridad real con GPS, Wi-Fi y biometría."
+
+❗ Problema que resuelve
+El "checador" tradicional (una libreta, una app genérica o un Excel) tiene un hueco enorme: cualquiera puede checar desde cualquier lugar, o alguien puede "checar por" un compañero que llegó tarde. Esto genera:
+
+Pagos de nómina por horas que nunca se trabajaron realmente en el sitio.
+Cero evidencia de dónde estaba el empleado al momento de marcar.
+Turnos que quedan "abiertos" indefinidamente porque alguien olvidó marcar salida, inflando las horas pagadas.
+Falta de opciones: muchos negocios solo tienen un método de checado y no se adaptan a su operación (mostrador fijo vs. personal que rota).
+✅ Beneficios
+4 métodos de checado en un solo sistema: biométrico ZKTeco, login automático, portal con PIN/huella, o gafete NFC — tú eliges cuál(es) usar según tu operación.
+Doble validación anti-fraude: exige que el empleado esté dentro de una geocerca GPS real y/o conectado a la red Wi-Fi del negocio antes de dejarlo checar — validado tanto en el celular como en el servidor.
+Cero turnos fantasma: el corte automático de horas cierra solos los turnos olvidados, usando tu propio horario de cierre como referencia, evitando pagar de más por errores humanos.
+Auditoría geográfica: cada checada con GPS queda enlazada a un mapa real con la distancia exacta a tu sucursal — transparencia total para resolver disputas de nómina.
+Reportes ejecutivos exportables: PDF con tu marca y CSV para tu contador, con los mismos filtros que ya armaste en pantalla.
+🎯 Diferenciador
+A diferencia de una app de checador genérica que vive separada de tu operación, este módulo está 100% integrado a tu mismo POS — comparte el mismo directorio de empleados, el mismo login, y se conecta directo con Nómina. Y a diferencia de otros sistemas que solo ofrecen GPS o biometría, aquí combinas las 4 formas de verificación bajo un mismo panel de reglas.
+
+🙋 Objeción típica + Respuesta
+"Mis empleados ya checan con su huella en un reloj que compré hace años, ¿para qué cambiar?"
+
+Respuesta: Tu reloj biométrico sigue funcionando y puedes mantenerlo activo dentro de este mismo sistema (ZKTeco es un método más, no lo reemplaza). La diferencia es que ahora, además de la huella, puedes exigir que el checado ocurra físicamente en tu sucursal (GPS/Wi-Fi), controlar los cortes automáticos de turnos olvidados, y tener todo centralizado con reportes y exportaciones que tu reloj viejo nunca te dio por sí solo.
+
+🎤 FICHA COMERCIAL — Módulo Empleado
+Gestión de Talento 360° con Nómina Inteligente Automatizada
+El problema que resuelve:
+La mayoría de los negocios gastan horas cada semana calculando nóminas en hojas de Excel, perdiendo control sobre faltas, retardos, préstamos y cumplimiento de tareas del personal — con alto riesgo de errores legales (LFT) y fugas de dinero por pagos duplicados o mal calculados.
+
+La solución:
+Un motor de nómina mexicano 100% automatizado que calcula en segundos lo que antes tomaba horas, con cumplimiento legal incorporado de fábrica.
+
+Características destacadas
+🧮 Motor de Nómina con Ley Federal del Trabajo (LFT) incorporada
+Calcula automáticamente bono de día festivo (200%), prima dominical (25%), descuento proporcional por faltas (Ley 1/6), y detecta contratos asimétricos (medios turnos, part-time) sin configuración manual 
+motorNominaLFT.js
+.
+
+💸 Retenciones Fiscales Reales
+ISR calculado con la tabla progresiva oficial del SAT (no aproximaciones) e IMSS configurable por porcentaje, aplicados automáticamente a cada recibo.
+
+🏆 Bonos de Desempeño Automáticos
+Bono de limpieza, bono de comportamiento, bono de puntualidad clásica y bono de puntualidad estricta — todos calculados en vivo según el cumplimiento real registrado en el sistema, sin intervención manual 
+auditorOperativo.js
+.
+
+🏖️ Gestión de Vacaciones con Control de Colisiones
+El sistema alerta automáticamente si aprobar una solicitud de vacaciones dejaría al negocio con personal insuficiente en un día determinado 
+GestorHorarios.js
+.
+
+💰 Préstamos a Empleados con Descuento Automático
+Registra préstamos y el sistema descuenta la cuota pactada en cada nómina hasta saldar el adeudo, con reversión automática si se elimina una nómina.
+
+📄 Recibos de Nómina en PDF Profesional
+Documentos con identidad de marca (logo, nombre del negocio), desglose claro de percepciones/deducciones y espacio de firma — listos para entregar al empleado o archivar fiscalmente.
+
+📋 Auditoría de Limpieza y Conducta Integrada a la Nómina
+Las tareas de limpieza y reglas de conducta no son solo un checklist — impactan directamente en los bonos del empleado, incentivando el cumplimiento operativo real.
+
+💬 Centro de Comunicación Auditable
+Mensajería directa Admin → Empleado con confirmación de lectura, ideal para encargos, políticas nuevas o recordatorios urgentes.
+
+Valor de negocio
+Reduce el tiempo de generación de nómina de horas a minutos.
+Elimina pagos duplicados o cálculos erróneos de ley.
+Mejora la disciplina operativa (limpieza, puntualidad) al ligarla directamente al bolsillo del empleado.
+Blindaje legal: cálculos alineados a la LFT mexicana vigente.
+
+🎤 FICHA COMERCIAL — Módulo Configuración
+El Panel de Control de tu Marca Blanca, en un Solo Lugar
+El problema que resuelve:
+Cambiar la identidad de marca, horarios, métodos de pago o reglas operativas de un POS tradicional normalmente requiere soporte técnico o reprogramación. Aquí, el dueño del negocio tiene control total sin tocar una línea de código.
+
+La solución:
+Un panel único y modular donde cada aspecto visual y operativo del sistema se configura con clics — y se refleja instantáneamente en Kiosco, Caja, Cocina y Pantalla TV.
+
+Características destacadas
+🎨 Marca Blanca 100% Personalizable
+Logo, colores, tipografías y mensajes se inyectan como variables CSS en vivo — cada negocio que use el sistema puede verse completamente distinto sin tocar código 
+BrandingGlobal.js
+.
+
+🔐 Seguridad Operativa Configurable
+Bloqueo de pantalla por inactividad, PIN maestro de kiosco, y método de checador (biométrico, botones POS, o login automático) — adaptable al nivel de control que cada negocio necesite 
+GestorAsistencias.js
+.
+
+📺 Publicidad Dinámica en Pantalla TV
+Carrusel de imágenes y video promocional integrados, generando ingresos publicitarios potenciales o simplemente reforzando la marca frente al cliente en espera 
+PublicidadTV.js
+.
+
+🛵 Logística de Entregas Inteligente
+Zonas de envío con tarifas personalizadas, contexto geográfico para Google Maps, y preparación para cálculo exacto de costos de combustible por repartidor 
+GestorLogisticaMapas.js
+.
+
+💬 Notificaciones Automáticas al Cliente
+Integración oficial con WhatsApp Cloud API de Meta para mantener al cliente informado del estado de su pedido sin intervención manual 
+NotificacionesWA.js
+.
+
+🍽️ Políticas de Comedor y Sustituciones a Medida
+Define reglas de consumo gratuito para empleados y políticas de sustitución de ingredientes con cobro proporcional o tarifa fija — control financiero fino sobre mermas y beneficios 
+GestorComedorPersonal.js
+.
+
+🖨️ Impresión de Tickets Flexible
+Compatible con PDF, impresoras térmicas de red y Parzibyte — se adapta al hardware que ya tiene el negocio, sin obligarlo a comprar equipo nuevo.
+
+Valor de negocio
+Onboarding de nuevos negocios (clientes del software) en minutos, sin intervención de desarrollo.
+Consistencia total de marca en todos los puntos de contacto con el cliente (Kiosco, TV, tickets, WhatsApp).
+Reduce dependencia de soporte técnico para cambios operativos cotidianos.
+Arquitectura modular: cada sección es un componente independiente, facilitando mantenimiento y futuras expansiones sin romper lo existente.
+
+🎤 FICHA COMERCIAL — Módulo Kiosco
+Autoservicio Inteligente que Vende Solo, 24/7
+
+El problema que resuelve:
+Las filas largas, errores de captura por parte del personal y la pérdida de ventas por falta de atención en horas pico son fricciones comunes en negocios de alto tráfico. Un mesero o cajero no puede atender a todos los clientes al mismo tiempo.
+
+La solución:
+Una terminal de autoservicio que el propio cliente opera de principio a fin: desde elegir su producto hasta pagar, sin intervención humana obligatoria, pero con el mismo nivel de personalización y fidelización que un POS tradicional.
+
+Características destacadas
+
+🧠 Funciona Offline sin Perder Ventas
+Si se cae el internet, el Kiosco sigue tomando pedidos localmente y los sincroniza automáticamente al recuperar conexión — cero ventas perdidas por fallas de red 
+Kiosco.js
+.
+
+🎥 Fondos Animados por Categoría
+Cada categoría del menú puede tener su propio video o animación Lottie de fondo, optimizados y cacheados localmente en el dispositivo para que no generen costos recurrentes de ancho de banda 
+ImagenCachada.js
+.
+
+👆 Login Biométrico de Clientes
+Los clientes frecuentes pueden identificarse con huella digital, agilizando el acceso a sus puntos de fidelidad sin teclear nada 
+App.js
+.
+
+🔐 Seguridad de Doble Factor en Puntos
+Todo canje de puntos exige NIP o huella, evitando que un tercero use el saldo de fidelidad de otro cliente sin autorización 
+Kiosco.js
+.
+
+🏪 Multi-Modo de Operación (Tótem / Drive-Thru / Mesa)
+Un mismo sistema se adapta a distintos formatos físicos del negocio mediante un PIN maestro de configuración, sin necesitar apps distintas 
+App.js
+.
+
+⏰ Respeta el Horario del Negocio Automáticamente
+Si el negocio está cerrado según su horario configurado, el Kiosco se bloquea solo (Modo Lectura), evitando que se generen pedidos fuera de horario de atención 
+MenuPrincipal.js
+.
+
+📱 100% Responsivo Mobile-First
+Experiencia pulida tanto en tótems grandes como en el celular del cliente, con navegación inferior tipo app nativa (Menú / Carrito / Perfil) [BottomNavKiosco.js].
+
+Valor de negocio
+
+Reduce tiempos de espera y libera personal para tareas de mayor valor (preparación, atención personalizada).
+Aumenta el ticket promedio mediante promociones, combos y upselling mostrados directamente en el flujo de compra.
+Fideliza clientes con un sistema de puntos seguro y fácil de canjear.
+Opera de forma confiable incluso con conexión a internet inestable, protegiendo los ingresos del negocio
+
+🎤 FICHA COMERCIAL — Módulo Caja
+El corazón operativo de tu restaurante, donde cada peso queda contabilizado.
+
+El problema que resuelve:
+Los restaurantes pierden visibilidad financiera cuando los pedidos, cobros, gastos de insumos y consumos internos del personal se manejan por separado o "se llevan de memoria". Sin un control centralizado, el dueño no sabe realmente a dónde se va el dinero: ventas, compras urgentes, comida de cortesía al personal, diferencias de caja al cierre del turno, todo queda disperso y sin trazabilidad.
+
+La solución:
+Caja centraliza en una sola terminal todo el ciclo de vida del pedido —desde que nace en el Kiosco hasta que se cobra y se entrega— junto con el control de gastos operativos (compras de insumos, consumo de personal, pagos a proveedores), generando automáticamente un Corte de Caja exacto por turno y alimentando en tiempo real los reportes financieros del negocio.
+
+Características destacadas
+
+🔄 Sincronización en vivo total: todo pedido nuevo del Kiosco, cambio de estado o actualización de catálogo llega a Caja por Sockets sin recargar la pantalla (nuevo_pedido, pedido_actualizado, catalogo_actualizado) 
+Caja.js
+.
+💳 Flujo de cobro inteligente: Caja decide automáticamente el siguiente estado correcto de cada orden según su tipo de consumo (Local, Domicilio, Para llevar) y si el negocio opera con o sin Cocina, evitando pasos manuales innecesarios 
+useCajaCentral.js
+.
+🍽️ Control de consumo interno (Comedor): registra lo que el personal consume sin cobrarlo, pero sí reflejando su costo real de receta e inventario, dando al dueño visibilidad total de sus gastos operativos reales 
+TopNavCaja.js +1
+ .
+🧾 Compras y Gastos de Caja diferenciados: permite registrar tanto compras de insumos reales (afectan inventario y costeo de recetas) como gastos de caja libres (vasos, pagos varios) sin tocar el inventario, evitando que se contaminen los costos de recetas 
+ModalCompraRapida.js
+.
+🛡️ Blindaje de auditoría por operador: cada corte se calcula exclusivamente con los pedidos atendidos por el cajero activo, evitando que un operador vea o mezcle cifras de otro turno 
+VistasCaja.js
+.
+🔐 Seguridad por PIN y bloqueo automático: cada cajero se identifica con su propio PIN, y la terminal se bloquea sola tras inactividad para proteger la caja física 
+PantallaBloqueo.js
+.
+🗺️ Gestión visual de mesas: mapa de mesas para abrir/asignar, y vista de "Mesas en Servicio" para dar seguimiento a qué comanda pertenece cada mesa ocupada 
+TopNavCaja.js
+.
+🖨️ Impresión de tickets multi-modo: soporta impresión térmica, PDF, Bluetooth o envío directo por WhatsApp al cliente 
+TicketImpresion.js
+.
+Valor de negocio
+
+💰 Trazabilidad financiera completa: el dueño sabe exactamente a dónde va cada peso, desde ventas hasta consumo interno y gastos operativos.
+⏱️ Ahorro de tiempo operativo: el cajero no pierde tiempo adivinando el siguiente paso de un pedido; el sistema lo decide por reglas de negocio ya validadas.
+📉 Reducción de pérdidas por descuadres: el Corte de Caja automático compara efectivo esperado contra el declarado, exponiendo diferencias al instante.
+🧩 Escalabilidad multi-tenant: la misma terminal de Caja sirve a cualquier negocio dentro del sistema de marca blanca, sin mezclar datos entre empresas.
+🤝 Confianza del personal: el beneficio de consumo interno (Comedor) queda documentado y justificado, evitando fricciones o sospechas de robo hormiga.
+
+🎤 FICHA COMERCIAL — Módulo Cocina
+La cocina siempre sincronizada, sin gritos ni malentendidos.
+
+El problema que resuelve:
+En una cocina con alta rotación de pedidos, la comunicación con Caja suele depender de gritos, idas y vueltas físicas, o notas perdidas — generando retrasos, desperdicio de insumos y platillos mal resueltos frente al cliente.
+
+La solución:
+Cocina centraliza la preparación de cada platillo en tarjetas claras y accionables, con dos canales de comunicación en tiempo real hacia Caja: uno para reportar faltantes de un platillo específico, y otro independiente para solicitar insumos de forma inmediata, sin fricciones ni registros innecesarios en el sistema.
+
+Características destacadas
+
+🔄 Sincronización instantánea con Caja: cualquier faltante reportado o resuelto se refleja al instante en ambas pantallas, sin necesidad de recargar 
+pedidoController.js
+.
+📦 Solicitud de insumos en vivo: comunicación directa Cocina-Caja vía Socket.io, sin saturar la base de datos con mensajes efímeros 
+api.js +1
+ .
+🙅 Respuesta con contexto: si Caja rechaza una solicitud, Cocina recibe el motivo, permitiendo decidir si detener la producción de algún platillo 
+Caja.js
+.
+👥 Colaboración por platillo: varios cocineros pueden trabajar la misma comanda, marcando individualmente quién prepara cada platillo 
+TarjetaComandaCocina.js
+.
+⏱️ Alertas visuales de tiempo: las tarjetas cambian de color y muestran insignias cuando un platillo se tarda más de lo esperado 
+TarjetaComandaCocina.js
+.
+🧊 Reporte de mermas integrado y correcto por tipo: control de platillos, sub-recetas e insumos dañados, cada uno descontando del lugar exacto del inventario.
+Valor de negocio
+
+🚫 Menos desperdicio: al saber de inmediato si un insumo fue rechazado, la cocina evita preparar platillos que no se podrán completar.
+⏩ Comunicación más rápida que la voz: elimina los traslados físicos a Caja para avisos simples.
+🧾 Trazabilidad de incidentes: cada faltante queda documentado y resuelto dentro del propio flujo del pedido.
+🤝 Menos fricción entre áreas: Caja y Cocina dejan de depender de la memoria o el grito, reduciendo errores humanos.
+
+
+
+🎤 FICHA COMERCIAL — Módulo PantallaTV
+Transparencia total para tu cliente, sin que nadie tenga que preguntar "¿ya va mi pedido?"
+
+El problema que resuelve:
+Los clientes no saben en qué estado está su pedido, generando preguntas constantes al personal; además, en cocinas con alto volumen, el personal pierde de vista comandas por el scroll en pantallas pequeñas.
+
+La solución:
+Una pantalla pública que muestra el progreso de cada orden en tiempo real, combinada con publicidad de marca, y una vista ampliada de comandas pensada para pantallas grandes en cocina.
+
+Características destacadas
+
+📺 Carrusel publicitario configurable: imágenes y video gestionados 100% desde Admin, sin tocar código.
+🔄 Actualización en vivo: estado de cada pedido reflejado cada 3 segundos, sin recargar la página.
+🧭 Vista Detallada de Comandas: pensada para pantallas de 32"+ en cocina, evitando el problema de scroll de las tablets.
+📊 Acumulado por clasificación: resumen de cuántos productos de cada categoría siguen pendientes, útil para anticipar producción (ej. "5 hamburguesas, 3 pizzas").
+🎯 Cero interacción accidental: la Vista Detallada es de solo lectura, el control real sigue centralizado en la tablet de Cocina.
+🔁 Rotación y pantalla completa: controles discretos pensados para no distraer a los clientes.
+Valor de negocio
+
+📉 Menos interrupciones al personal: el cliente ve el estado de su pedido sin preguntar.
+🏭 Mejor organización en cocina: visión global de todas las comandas activas sin perder platillos por scroll.
+🏷️ Más presencia de marca: espacio publicitario propio dentro del restaurante.
+
+🎤 FICHA COMERCIAL — Módulo Portal del Empleado
+"Tu equipo, informado y autónomo, sin saturar a Recursos Humanos."
+
+El problema que resuelve:
+En la mayoría de negocios, cada consulta de nómina, cada solicitud de vacaciones y cada duda de horario termina siendo una interrupción directa al gerente o al dueño — por WhatsApp, en persona o por teléfono. Esto genera fricción operativa, pérdida de tiempo administrativo y falta de trazabilidad (nadie sabe si un empleado realmente fue notificado de algo).
+
+La solución:
+Un portal 100% autoservicio donde cada empleado administra su propia información laboral desde su celular, con comunicación bidireccional en tiempo real con la administración — todo dentro del mismo sistema POS que ya opera el negocio, sin apps adicionales ni licencias externas.
+
+Características destacadas
+
+🔐 Checador biométrico anti-suplantación — Huella/Face ID o PIN, con vinculación de dispositivo única por empleado (VistaAsistencia.js 
+VistaAsistencia.js
+).
+📄 Recibos de nómina en PDF real — Mismo diseño profesional que usa Administración, generado al instante (generarReciboNominaPDF.js 
+generarReciboNominaPDF.js
+).
+🌴 Autogestión de vacaciones — El empleado solicita, el sistema calcula automáticamente días disponibles por ley vs. usados.
+💬 Comunicación directa y auditable — Avisos de RH con confirmación de lectura por parte del empleado (VistaMensajesEmpleado.js 
+VistaMensajesEmpleado.js
+).
+📅 Transparencia total de horario y pagos — El empleado ve su turno, si fue auditado y si su pago ya fue cobrado.
+🌓 Marca blanca respetada incluso en modo oscuro — La identidad visual del negocio nunca se pierde, día o noche.
+⚡ Actualizaciones en tiempo real — Nuevo mensaje o nómina publicada notifica al instante sin recargar la pantalla.
+Valor de negocio
+
+📉 Reduce drásticamente las interrupciones directas a gerencia por dudas operativas del personal.
+🕑 Ahorra tiempo administrativo en generación y entrega manual de recibos de nómina.
+📊 Mejora la trazabilidad de asistencia y vacaciones con registros digitales auditables.
+🤝 Aumenta la percepción de profesionalismo del negocio frente a su propio equipo.
+🏗️ Escalable a cualquier número de empleados sin costo incremental de soporte.

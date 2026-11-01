@@ -4,6 +4,7 @@ import {
   AlertTriangle, Box, Percent, Search, ClipboardList, 
   X, CheckCircle2, CopyPlus, Bell, Truck, PauseCircle // 👈 NUEVO: íconos para el botón "Surtir"
 } from 'lucide-react';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [nuevoInsumo, setNuevoInsumo] = useState({
@@ -53,7 +54,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   useEffect(() => {
     const cargarAuditoria = async () => {
       try {
-        const res = await fetch(`${apiUrl}/insumos/auditoria/activa`);
+        const res = await apiFetch(`${apiUrl}/insumos/auditoria/activa`);
         if (res.ok) setAuditoriaActiva(await res.json());
       } catch (error) {}
     };
@@ -67,7 +68,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   const solicitarInventario = async () => {
     showConfirm("Solicitar Inventario", "¿Deseas solicitar a Caja que realice un conteo de inventario ahora mismo?", async () => {
       try {
-        const res = await fetch(`${apiUrl}/insumos/auditoria/solicitar`, { method: 'POST' });
+        const res = await apiFetch(`${apiUrl}/insumos/auditoria/solicitar`, { method: 'POST' });
         if (res.ok) {
           setAuditoriaActiva(await res.json());
           showAlert("Solicitud Enviada", "Caja ha recibido la alerta parpadeante para comenzar el inventario.", "success");
@@ -80,7 +81,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
 
   const resolverInventario = async (accion) => {
     try {
-      const res = await fetch(`${apiUrl}/insumos/auditoria/${auditoriaActiva.id}/resolver`, {
+      const res = await apiFetch(`${apiUrl}/insumos/auditoria/${auditoriaActiva.id}/resolver`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion })
@@ -139,7 +140,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     const url = editandoInsumoId ? `${apiUrl}/insumos/${editandoInsumoId}` : `${apiUrl}/insumos`;
     const method = editandoInsumoId ? 'PUT' : 'POST';
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nuevoInsumo)
@@ -160,7 +161,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   const eliminarInsumo = (id) => {
     showConfirm("¿Eliminar insumo?", "Asegúrate de que este insumo no esté siendo utilizado en ninguna receta antes de eliminarlo.", async () => {
       try {
-        await fetch(`${apiUrl}/insumos/${id}`, { method: 'DELETE' });
+        await apiFetch(`${apiUrl}/insumos/${id}`, { method: 'DELETE' });
         refrescarDatos();
         showAlert("Eliminado", "Insumo borrado de la base de datos.", "success");
       } catch (error) {
@@ -172,7 +173,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   const procesarCompraInsumo = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${apiUrl}/insumos/${modalCompra.id}/comprar`, {
+      const res = await apiFetch(`${apiUrl}/insumos/${modalCompra.id}/comprar`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paquetes_comprados: compraPaquetes, nuevo_costo_paquete: compraCosto, origen: 'Admin' })
@@ -193,7 +194,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   const reiniciarStockInsumo = (insumo) => {
     showConfirm("Reiniciar a 0", `¿Deseas poner en 0 el stock de ${insumo.nombre}? \n\nÚsalo únicamente si se echó a perder, hubo merma o detectaste un descuadre en tu inventario.`, async () => {
       try {
-        const res = await fetch(`${apiUrl}/insumos/${insumo.id}/reiniciar`, { method: 'PUT' });
+        const res = await apiFetch(`${apiUrl}/insumos/${insumo.id}/reiniciar`, { method: 'PUT' });
         if (res.ok) {
           showAlert("Stock Reiniciado", `El inventario de ${insumo.nombre} ahora está en 0.`, "success");
           refrescarDatos();
@@ -207,7 +208,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     setModalSurtido(true);
     setCargandoSurtido(true);
     try {
-      const res = await fetch(`${apiUrl}/insumos/surtido/borrador`);
+      const res = await apiFetch(`${apiUrl}/insumos/surtido/borrador`);
       const data = await res.json();
       if (data.success) {
         setCantidadesSurtido(data.datos || {});
@@ -275,7 +276,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   const pausarYGuardarSurtido = async () => {
     setGuardandoSurtido(true);
     try {
-      const res = await fetch(`${apiUrl}/insumos/surtido/guardar`, {
+      const res = await apiFetch(`${apiUrl}/insumos/surtido/guardar`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ datos: cantidadesSurtido })
@@ -306,7 +307,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
       async () => {
         setGuardandoSurtido(true);
         try {
-          const res = await fetch(`${apiUrl}/insumos/surtido/aplicar`, {
+          const res = await apiFetch(`${apiUrl}/insumos/surtido/aplicar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ datos: cantidadesSurtido })
@@ -332,7 +333,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
   // 👇 NUEVO: Guarda la alerta de stock bajo de un insumo (switch y/o mínimo configurado)
   const actualizarAlertaInsumo = async (insumo, alerta_stock_activa, alerta_stock_minimo) => {
     try {
-      const res = await fetch(`${apiUrl}/insumos/${insumo.id}/alerta-stock`, {
+      const res = await apiFetch(`${apiUrl}/insumos/${insumo.id}/alerta-stock`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alerta_stock_activa, alerta_stock_minimo })
@@ -370,7 +371,7 @@ const GestorInsumos = ({ insumosDB, clasificaciones = [], apiUrl, refrescarDatos
     }
 
     try {
-      const res = await fetch(`${apiUrl}/insumos/${insumoAuditoria.id}/stock-exacto`, {
+      const res = await apiFetch(`${apiUrl}/insumos/${insumoAuditoria.id}/stock-exacto`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock_real: cantidadReal })

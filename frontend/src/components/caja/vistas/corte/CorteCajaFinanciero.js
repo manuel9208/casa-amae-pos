@@ -5,6 +5,7 @@ import CorteDesgloseReparto from './CorteDesgloseReparto';
 import CorteDesgloseDigital from './CorteDesgloseDigital';
 import CorteResumenCuadre from './CorteResumenCuadre';
 import CorteCajaCiego from './CorteCajaCiego';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 const getMazatlanDate = (dateString = new Date()) => {
     const date = new Date(dateString);
@@ -72,7 +73,7 @@ const CorteCajaFinanciero = (props) => {
         const cargarDatos = async (esSilencioso = false) => {
             if (!esSilencioso) setCargando(true);
             try {
-                const resPed = await fetch(`${apiUrl}/pedidos/historial?periodo=dia&fecha=${fechaFiltro}&t=${Date.now()}`);
+                const resPed = await apiFetch(`${apiUrl}/pedidos/historial?periodo=dia&fecha=${fechaFiltro}&t=${Date.now()}`);
                 if(resPed.ok) {
                     let data = await resPed.json();
                     data = data.filter(p => {
@@ -83,7 +84,7 @@ const CorteCajaFinanciero = (props) => {
                     setPedidosGlobales(data);
                 }
 
-                const resB2B = await fetch(`${apiUrl}/distribucion/ventas?t=${Date.now()}`);
+                const resB2B = await apiFetch(`${apiUrl}/distribucion/ventas?t=${Date.now()}`);
                 if(resB2B.ok) {
                     let dataB2B = await resB2B.json();
                     dataB2B = dataB2B.filter(p => {
@@ -94,7 +95,7 @@ const CorteCajaFinanciero = (props) => {
                     setVentasB2BGlobales(dataB2B);
                 }
 
-                const resCorte = await fetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true&t=${Date.now()}`);
+                const resCorte = await apiFetch(`${apiUrl}/cortes/historial?fecha=${fechaFiltro}&completo=true&t=${Date.now()}`);
                 if(resCorte.ok) {
                     const dataC = await resCorte.json();
                     setDatosHistoricos(Array.isArray(dataC) ? dataC : [dataC]);
@@ -246,7 +247,7 @@ const CorteCajaFinanciero = (props) => {
         try {
             setGuardandoFondo(true);
             const montoNeto = Number(montoVal) || 0;
-            await fetch(`${apiUrl}/cortes`, {
+            await apiFetch(`${apiUrl}/cortes`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     fecha: hoyStr,
@@ -311,7 +312,7 @@ const CorteCajaFinanciero = (props) => {
         }
         setGuardandoCorte(true);
         try {
-            const res = await fetch(`${apiUrl}/cortes`, {
+            const res = await apiFetch(`${apiUrl}/cortes`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     fecha: hoyStr,

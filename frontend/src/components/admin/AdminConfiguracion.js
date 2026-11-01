@@ -10,7 +10,9 @@ import GestorSeguridad from './configuracion/GestorSeguridad';
 import GestorComedorPersonal from './configuracion/GestorComedorPersonal';
 import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';
 import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';
-import GestorCorreos from './configuracion/GestorCorreos';  
+import GestorCorreos from './configuracion/GestorCorreos';
+import AnimacionesKiosco from './configuracion/AnimacionesKiosco';
+import { apiFetch } from '../../utils/apiFetch';
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
   const [logoBlob, setLogoBlob] = useState(null);
@@ -19,7 +21,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
   const [tvBlob3, setTvBlob3] = useState(null);
   const [tvVideoBlob, setTvVideoBlob] = useState(null);
   const [tarifasEnvio, setTarifasEnvio] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);  
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (configGlobal.tarifas_envio) {
@@ -30,7 +32,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         setTarifasEnvio([]);
       }
     }
-  }, [configGlobal.tarifas_envio]);  
+  }, [configGlobal.tarifas_envio]);
 
   const getImageUrl = (url) => {
     if (!url) return '';
@@ -40,7 +42,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     }
     if (url.startsWith('http')) return url;
     return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
-  };  
+  };
 
   const parseArraySeguro = (val) => {
     if (Array.isArray(val)) return val;
@@ -48,13 +50,13 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       try { return JSON.parse(val || '[]'); } catch(e) { return []; }
     }
     return [];
-  };  
+  };
 
   const guardarConfiguracion = async (e) => {
     e.preventDefault();
     if(isSubmitting) return;
     setIsSubmitting(true);
-    const formData = new FormData();  
+    const formData = new FormData();
 
     // 👇 1. AGREGAMOS LAS MATRICES FALTANTES A LA LISTA DE EXCLUSIÓN
     const llavesManuales = [
@@ -63,7 +65,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       'cocina_en_caja_activa', 'horarios_semana', 'politicas_sustitucion',
       'ticket_impresion_activa', 'ticket_modo_impresion', 'ticket_domicilio', 'ticket_mensaje_final', 'ticket_firma_sistema', 'ticket_impresora_ip', 'ticket_impresora_puerto', 'ticket_impresora_parzibyte',
       'matriz_observaciones', 'calendario_anual' // <-- AÑADIDAS
-    ];  
+    ];
 
     Object.keys(configGlobal).forEach(key => {
       if (!llavesManuales.includes(key)) {
@@ -71,25 +73,25 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         if (val === null || val === undefined) val = '';
         formData.append(key, val);
       }
-    });  
+    });
 
     formData.append('tarifas_envio', JSON.stringify(tarifasEnvio));
     const isBloqueoActivo = configGlobal.bloqueo_caja_activo === true || configGlobal.bloqueo_caja_activo === 'true';
-    const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';  
+    const isCocinaActiva = configGlobal.cocina_en_caja_activa === true || configGlobal.cocina_en_caja_activa === 'true';
     formData.append('bloqueo_caja_activo', isBloqueoActivo ? 'true' : 'false');
     formData.append('bloqueo_caja_segundos', configGlobal.bloqueo_caja_segundos || 30);
     formData.append('cocina_en_caja_activa', isCocinaActiva ? 'true' : 'false');
     formData.append('comedor_limite', configGlobal.comedor_limite || 'ambos');
     formData.append('comedor_clasif_bebidas', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_bebidas)));
-    formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));  
+    formData.append('comedor_clasif_platillos', JSON.stringify(parseArraySeguro(configGlobal.comedor_clasif_platillos)));
 
     let horSem = configGlobal.horarios_semana || '{}';
     if (horSem === '') horSem = '{}';
-    formData.append('horarios_semana', typeof horSem === 'string' ? horSem : JSON.stringify(horSem));  
+    formData.append('horarios_semana', typeof horSem === 'string' ? horSem : JSON.stringify(horSem));
 
     let polSustitucion = configGlobal.politicas_sustitucion || '{}';
     if (polSustitucion === '') polSustitucion = '{}';
-    formData.append('politicas_sustitucion', typeof polSustitucion === 'string' ? polSustitucion : JSON.stringify(polSustitucion));  
+    formData.append('politicas_sustitucion', typeof polSustitucion === 'string' ? polSustitucion : JSON.stringify(polSustitucion));
 
     // 👇 2. INYECCIÓN MANUAL ESTRICTA DE LAS MATRICES
     let matLimp = configGlobal.matriz_limpieza || '{}';
@@ -110,32 +112,44 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
     formData.append('ticket_modo_impresion', configGlobal.ticket_modo_impresion || 'pdf');
     formData.append('ticket_domicilio', configGlobal.ticket_domicilio || '');
     formData.append('ticket_mensaje_final', configGlobal.ticket_mensaje_final || '');
-    formData.append('ticket_firma_sistema', configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS');  
-    
+    formData.append('ticket_firma_sistema', configGlobal.ticket_firma_sistema !== undefined ? configGlobal.ticket_firma_sistema : 'Powered by MiSistemaPOS');
+
     formData.append('ticket_impresora_ip', configGlobal.ticket_impresora_ip || '192.168.1.100');
     formData.append('ticket_impresora_puerto', configGlobal.ticket_impresora_puerto || '9100');
-    formData.append('ticket_impresora_parzibyte', configGlobal.ticket_impresora_parzibyte || '');  
+    formData.append('ticket_impresora_parzibyte', configGlobal.ticket_impresora_parzibyte || '');
 
     if (logoBlob) formData.append('logo', logoBlob);
     if (tvBlob1) formData.append('tv_imagen_1', tvBlob1);
     if (tvBlob2) formData.append('tv_imagen_2', tvBlob2);
     if (tvBlob3) formData.append('tv_imagen_3', tvBlob3);
-    if (tvVideoBlob) formData.append('tv_video', tvVideoBlob);  
+    if (tvVideoBlob) formData.append('tv_video', tvVideoBlob);
 
     try {
-      const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+      //console.log('🚩 [guardarConfiguracion] Disparando PUT a:', `${apiUrl}/configuracion`);
+      //console.log('🚩 [guardarConfiguracion] Contenido del FormData:');
+      for (let pair of formData.entries()) {
+        console.log('   ', pair[0], '=', pair[1]);
+      }
+
+      const res = await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+
+      //console.log('🚩 [guardarConfiguracion] Respuesta recibida. Status:', res.status);
+
       if (res.ok) {
         showAlert("¡Éxito!", "Configuración actualizada correctamente.", "success");
         setLogoBlob(null); setTvBlob1(null); setTvBlob2(null); setTvBlob3(null); setTvVideoBlob(null);
         refrescarDatos();
       } else {
+        //const dataError = await res.json().catch(() => null);
+        //console.error('🚩 [guardarConfiguracion] Backend respondió con error:', dataError);
         showAlert("Error", "No se pudo guardar la configuración.", "error");
       }
     } catch (error) {
+      //console.error('🚩 [guardarConfiguracion] EXCEPCIÓN (el fetch nunca completó):', error);
       showAlert("Error", "Error de conexión con el servidor.", "error");
     }
     setIsSubmitting(false);
-  };  
+  };
 
   const restablecerBranding = () => {
     showConfirm("Restablecer Diseño", "¿Deseas borrar toda la configuración visual y volver a los valores de fábrica?", () => {
@@ -145,6 +159,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         color_fondo_tarjetas: '#ffffff', color_texto_principal: '#1e293b', color_texto_secundario: '#64748b',
         fuente_titulos: 'system-ui, sans-serif', fuente_textos: 'system-ui, sans-serif',
         kiosco_mensaje: '¿Qué se te antoja hoy?', color_texto_kiosco: '#1e293b',
+        modo_oscuro_preferencia: 'automatico',
         tv_msg_cola: 'EN COLA', tv_msg_progreso: 'PREPARANDO', tv_msg_listo: '¡LISTOS!',
         tv_carrusel_activo: false, tv_carrusel_segundos: 10,
         mensaje_cierre: 'El negocio se encuentra cerrado temporalmente.',
@@ -161,7 +176,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       setTvVideoBlob(null);
       showAlert("Restablecido", "Diseño vuelto a valores predeterminados. Recuerda guardar cambios.", "info");
     });
-  };  
+  };
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-8 pb-12 animate-in fade-in px-4">
@@ -177,7 +192,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />
         <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <CostosEnvio configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tarifasEnvio={tarifasEnvio} setTarifasEnvio={setTarifasEnvio} isSubmitting={isSubmitting} />
-        <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />  
+        <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
         <GestorLogisticaMapas configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
@@ -187,8 +202,12 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
           </button>
         </div>
       </form>
+
+      {/* 🎬 Nueva sección independiente: no forma parte del formulario de arriba,
+          tiene su propio guardado automático por selección/subida. */}
+      <AnimacionesKiosco apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />
     </div>
   );
-};  
+};
 
 export default AdminConfiguracion;

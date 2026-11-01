@@ -3,6 +3,7 @@ import { Clock, Fingerprint, ArrowLeft, Delete, CheckCircle2, AlertTriangle, Sma
 import io from 'socket.io-client';
 import { useBiometria } from '../../hooks/useBiometria';
 import { useValidadorAsistencia } from '../admin/asistencia/useValidadorAsistencia';
+import { apiFetch } from '../../utils/apiFetch';
 
 const VistaAsistencia = ({ apiUrl, user }) => {
     const [accion, setAccion] = useState(null); // 'Entrada' | 'Salida'
@@ -50,7 +51,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                 localStorage.setItem('pos_device_id', miDispositivoId);
             }
 
-            const res = await fetch(`${apiUrl}/usuarios/dispositivos-vinculados?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/usuarios/dispositivos-vinculados?t=${Date.now()}`);
             if (res.ok) {
                 const vinculados = await res.json();
                 if (Array.isArray(vinculados)) {
@@ -87,7 +88,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
     // 2. CARGAR CONFIGURACIÓN GENERAL DE ASISTENCIA Y SUSCRIBIR WEBSOCKETS
     const cargarConfiguracionGeneral = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/asistencia/configuracion?t=${Date.now()}`);
+            const res = await apiFetch(`${apiUrl}/asistencia/configuracion?t=${Date.now()}`);
             if (res.ok) {
                 const data = await res.json();
                 const general = data.general || {};
@@ -139,7 +140,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                 localStorage.setItem('pos_device_id', dispositivo_id);
             }
 
-            const res = await fetch(`${apiUrl}/usuarios/vincular-dispositivo`, {
+            const res = await apiFetch(`${apiUrl}/usuarios/vincular-dispositivo`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -213,7 +214,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                 // 👇 FIX: Ahora se envían lat/lon (validados por el GPS) y el dispositivo_id
                 // para que el BACKEND también valide ubicación y el candado anti-suplantación.
                 const dispositivo_id = localStorage.getItem('pos_device_id');
-                const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
+                const res = await apiFetch(`${apiUrl}/usuarios/asistencia`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ pin: userPin, tipo: accion, lat: validacion.lat, lon: validacion.lon, dispositivo_id })
@@ -258,7 +259,7 @@ const VistaAsistencia = ({ apiUrl, user }) => {
                     // 👇 FIX: Ahora se envían lat/lon (validados por el GPS) y el dispositivo_id
                     // para que el BACKEND también valide ubicación y el candado anti-suplantación.
                     const dispositivo_id = localStorage.getItem('pos_device_id');
-                    const res = await fetch(`${apiUrl}/usuarios/asistencia`, {
+                    const res = await apiFetch(`${apiUrl}/usuarios/asistencia`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ pin: pinInput, tipo: accion, lat: validacion.lat, lon: validacion.lon, dispositivo_id })

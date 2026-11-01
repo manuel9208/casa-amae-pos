@@ -12,6 +12,12 @@
 // checado están activos en "tipo_registro", evitando que cada controlador
 // (authController, huellasController, usuarioController, biometricoController)
 // tenga su propia copia de esta lógica.
+//
+// 🏢 MULTI-TENANT: a partir de esta versión, tanto metodoAsistenciaActivo()
+// como validarUbicacionServidor() EXIGEN recibir el "empresaId" de la
+// empresa dueña de la petición (normalmente req.empresa_id, resuelto por
+// middlewares/resolveTenant.js). Esto evita que las reglas de geocerca/IP/
+// métodos de checado de una empresa se mezclen o se apliquen a otra.
 // =========================================================================
 
 const db = require('../config/db');
@@ -69,11 +75,17 @@ const calcularDistanciaMetros = (lat1, lon1, lat2, lon2) => {
  * de marca blanca todavía no ha sido migrada a configuracion_asistencia.
  *
  * @param {string} metodo - 'portal' | 'nfc' | 'login' | 'zkteco'
+ * @param {number} empresaId - 🆕 TENANT: id de la empresa dueña de la petición (req.empresa_id)
  * @returns {Promise<boolean>}
  */
-const metodoAsistenciaActivo = async (metodo) => {
+const metodoAsistenciaActivo = async (metodo, empresaId) => { // 🆕 TENANT: nuevo parámetro empresaId
   try {
-    const confAsist = await db.query('SELECT tipo_registro FROM configuracion_asistencia WHERE id = 1');
+    if (!empresaId) { // 🔒 FILTRO EMPRESA: guardia defensiva, evita colarse sin tenant
+      console.error(`🚨 metodoAsistenciaActivo("${metodo}") fue llamado SIN empresaId. Se niega el método por seguridad.`);
+      return false;
+    }
+
+    const confAsist = await db.query('SELECT tipo_registro FROM configuracion_asistencia WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
 
     if (confAsist.rows.length > 0) {
       let metodosActivos = [];
@@ -90,7 +102,7 @@ const metodoAsistenciaActivo = async (metodo) => {
     if (metodo === 'login') {
       const colCheck = await db.query("SELECT column_name FROM information_schema.columns WHERE table_name='configuracion' AND column_name='asistencia_login'");
       if (colCheck.rows.length > 0) {
-        const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE id = 1');
+        const confRes = await db.query('SELECT asistencia_login FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
         return confRes.rows.length === 0 || confRes.rows[0].asistencia_login === true || confRes.rows[0].asistencia_login === null;
       }
     }
@@ -111,10 +123,16 @@ const metodoAsistenciaActivo = async (metodo) => {
  * @param {number|string} [datos.lat] - Latitud reportada por el dispositivo del empleado.
  * @param {number|string} [datos.lon] - Longitud reportada por el dispositivo del empleado.
  * @param {string} [datos.ip] - IP pública reportada por el dispositivo del empleado.
+ * @param {number} datos.empresaId - 🆕 TENANT: id de la empresa dueña de la petición (req.empresa_id)
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-const validarUbicacionServidor = async ({ lat, lon, ip } = {}) => {
+const validarUbicacionServidor = async ({ lat, lon, ip, empresaId } = {}) => { // 🆕 TENANT: nuevo campo empresaId
   try {
+    if (!empresaId) { // 🔒 FILTRO EMPRESA: guardia defensiva, evita colarse sin tenant
+      console.error('🚨 validarUbicacionServidor fue llamado SIN empresaId. Se niega la checada por seguridad.');
+      return { success: false, error: 'Error de configuración del servidor: no se pudo determinar la empresa de la checada.' };
+    }
+
     // 👇 INTERRUPTOR DE PRUEBAS LOCALES: solo actúa si activaste alguna constante
     // arriba Y el servidor NO está corriendo en producción (doble seguro).
     if (simulacionActiva()) {
@@ -133,7 +151,7 @@ const validarUbicacionServidor = async ({ lat, lon, ip } = {}) => {
       }
     }
 
-    const confGeneral = await db.query('SELECT validacion_activa, rango_metros FROM configuracion_asistencia WHERE id = 1');
+    const confGeneral = await db.query('SELECT validacion_activa, rango_metros FROM configuracion_asistencia WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     const reglas = confGeneral.rows[0] || {};
     const modoValidacion = reglas.validacion_activa || 'ninguna';
     const rangoPermitido = reglas.rango_metros || 50;
@@ -148,7 +166,7 @@ const validarUbicacionServidor = async ({ lat, lon, ip } = {}) => {
       if (!ip) {
         return { success: false, error: 'No se pudo determinar tu dirección IP para validar el acceso.' };
       }
-      const ipsRes = await db.query('SELECT ip FROM asistencia_ips');
+      const ipsRes = await db.query('SELECT ip FROM asistencia_ips WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
       const ipValida = ipsRes.rows.some(row => row.ip === ip);
       if (!ipValida) {
         console.warn(`⚠️ IP rechazada. Recibida: "${ip}". Autorizadas: ${ipsRes.rows.map(r => r.ip).join(', ')}`);
@@ -162,7 +180,7 @@ const validarUbicacionServidor = async ({ lat, lon, ip } = {}) => {
         return { success: false, error: 'No se recibió tu ubicación GPS. Otorga permisos de ubicación e intenta de nuevo.' };
       }
 
-      const ubicacionesRes = await db.query('SELECT latitud, longitud FROM asistencia_ubicaciones');
+      const ubicacionesRes = await db.query('SELECT latitud, longitud FROM asistencia_ubicaciones WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
       if (ubicacionesRes.rows.length === 0) {
         return { success: false, error: 'El sistema exige GPS pero no hay ubicaciones configuradas por el administrador.' };
       }

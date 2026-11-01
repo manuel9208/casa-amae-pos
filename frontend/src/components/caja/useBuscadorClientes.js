@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../../utils/apiFetch';
 
 // Función para quitar acentos (tildes) y pasar a minúsculas (sin cambios respecto a la versión anterior)
 const normalizarTexto = (texto) => {
@@ -26,7 +27,7 @@ export const useBuscadorClientes = (terminoBusqueda, apiUrl) => {
       try {
         // 🚀 FIX DEFINITIVO: Ya no se descarga toda la tabla de clientes ni 3000 pedidos.
         // La búsqueda ahora ocurre en el servidor (SQL); solo viajan resultados filtrados y ligeros.
-        const res = await fetch(`${apiUrl}/clientes/buscar?q=${encodeURIComponent(termOriginal)}`, { signal: controller.signal });
+        const res = await apiFetch(`${apiUrl}/clientes/buscar?q=${encodeURIComponent(termOriginal)}`, { signal: controller.signal });
         if (!res.ok) throw new Error('Error en la búsqueda');
         const data = await res.json();
 

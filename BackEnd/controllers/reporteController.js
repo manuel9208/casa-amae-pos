@@ -9,13 +9,13 @@ const comparativasCache = new Map();
 
 exports.obtenerReporteVentas = async (req, res) => {
   const { tipo, fecha, fechaFin, clasificacion, tipo_consumo } = req.query; 
-  
+  const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     // 👇 FIX RAÍZ: hora_apertura/hora_cierre eran columnas huérfanas, nunca conectadas
     // al horario real que se configura en "Horario Operativo Semanal" (horarios_semana).
     // Ahora calculamos la ventana operativa real como la unión de la apertura más
     // temprana y el cierre más tardío entre los días activos de la semana.
-    const configRes = await db.query('SELECT horarios_semana FROM configuracion WHERE id = 1');
+    const configRes = await db.query('SELECT horarios_semana FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
     let horariosSemana = {};
     try {
         const raw = configRes.rows[0]?.horarios_semana;
@@ -40,7 +40,7 @@ exports.obtenerReporteVentas = async (req, res) => {
     // 💡 MÓDULO AISLADO: Factor Luz/Agua configurable (antes hardcodeado como * 1.15)
     let porcentajeLuzAgua = 15;
     try {
-        const factorRes = await db.query(`SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' LIMIT 1`);
+        const factorRes = await db.query(`SELECT porcentaje FROM configuracion_financiera WHERE clave = 'factor_luz_agua' AND empresa_id = $1 LIMIT 1`, [empresaId]); // 🔒 FILTRO EMPRESA ⚠️ Tabla nueva, se formalizará a fondo en configFinancieraController.js (tarea 13)
         if (factorRes.rows.length > 0 && factorRes.rows[0].porcentaje !== null) {
             porcentajeLuzAgua = Number(factorRes.rows[0].porcentaje);
         }
@@ -59,19 +59,21 @@ exports.obtenerReporteVentas = async (req, res) => {
           LEFT JOIN LATERAL jsonb_array_elements(
               CASE WHEN jsonb_typeof(opt->'empaques') = 'array' THEN opt->'empaques' ELSE '[]'::jsonb END
           ) AS emp ON true
-          LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int
+          LEFT JOIN insumos i ON i.id = NULLIF(emp->>'insumo_id', '')::int AND i.empresa_id = $1
+          WHERE p.empresa_id = $1
           GROUP BY p.id
       ),
       Explosion AS (
           SELECT 
               r.producto_id AS root_producto_id, r.insumo_id, r.sub_producto_id, r.cantidad_usada::numeric AS qty_factor, 1 as depth
           FROM recetas r
+          WHERE r.empresa_id = $1
           UNION ALL
           SELECT 
               e.root_producto_id, r.insumo_id, r.sub_producto_id, ((e.qty_factor / COALESCE(NULLIF(p.rendimiento::numeric, 0), 1)) * r.cantidad_usada::numeric)::numeric, e.depth + 1
           FROM Explosion e
-          JOIN productos p ON e.sub_producto_id = p.id
-          JOIN recetas r ON r.producto_id = p.id
+          JOIN productos p ON e.sub_producto_id = p.id AND p.empresa_id = $1
+          JOIN recetas r ON r.producto_id = p.id AND r.empresa_id = $1
           WHERE e.sub_producto_id IS NOT NULL AND e.depth < 10
       )
       SELECT 
@@ -90,13 +92,13 @@ exports.obtenerReporteVentas = async (req, res) => {
               COALESCE(MAX(ec_root.costo_empaques_batch), 0)
           ) as costo_base_crudo
       FROM Explosion e
-      LEFT JOIN insumos i ON e.insumo_id = i.id
-      LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id
-      LEFT JOIN productos p_root ON e.root_producto_id = p_root.id
+      LEFT JOIN insumos i ON e.insumo_id = i.id AND i.empresa_id = $1
+      LEFT JOIN productos p_sub ON e.sub_producto_id = p_sub.id AND p_sub.empresa_id = $1
+      LEFT JOIN productos p_root ON e.root_producto_id = p_root.id AND p_root.empresa_id = $1
       LEFT JOIN EmpaquesCosto ec_sub ON e.sub_producto_id = ec_sub.producto_id
       LEFT JOIN EmpaquesCosto ec_root ON e.root_producto_id = ec_root.producto_id
       GROUP BY e.root_producto_id;
-    `);
+    `, [empresaId]); // 🔒 FILTRO EMPRESA aplicado en TODOS los niveles — motor de costeo global del reporte
     
     const costoMap = new Map();
     costosRes.rows.forEach(r => {
@@ -133,15 +135,19 @@ exports.obtenerReporteVentas = async (req, res) => {
       params.push(tipo_consumo); paramIndex++;
     }
 
+    // 🔒 FILTRO EMPRESA: se agrega al final de la cadena dinámica para no renumerar los placeholders ya construidos arriba
+    queryTimeConsumo += ` AND p.empresa_id = $${paramIndex}`;
+    params.push(empresaId); paramIndex++;
+
     const sqlPedidos = `
       SELECT id, numero_pedido, carrito, costo_envio, total, fecha_creacion, metodo_pago, pagos_mixtos
       FROM pedidos p
       WHERE estado_preparacion != 'Cancelado' ${queryTimeConsumo}
     `;
-    const pedidosRes = await db.query(sqlPedidos, params);
+    const pedidosRes = await db.query(sqlPedidos, params); // 🆕 TENANT: empresaId ya viaja en params
 
-    const sqlTodos = `SELECT id, nombre FROM productos`;
-    const todosProds = await db.query(sqlTodos);
+    const sqlTodos = `SELECT id, nombre FROM productos WHERE empresa_id = $1`; // 🔒 FILTRO EMPRESA
+    const todosProds = await db.query(sqlTodos, [empresaId]);
     const productDict = {};
     const productNameDict = {};
     todosProds.rows.forEach(p => { 
@@ -210,7 +216,12 @@ exports.obtenerReporteVentas = async (req, res) => {
          }
 
          let cleanName = realBaseName;
+         let tamanoDetectado = '';
+         let saborDetectado = '';
 
+         // 🔁 LEGADO: Solo aplica a pedidos viejos donde el Tamaño/Sabor con precio $0
+         // ya venía incrustado directo en item.nombre (antes de usar item.extras
+         // estructurado). No se toca: sigue limpiando el texto igual que antes.
          const parentesisBlocks = baseName.match(/\(([^)]+)\)/g) || [];
          parentesisBlocks.forEach(block => {
              const innerText = block.replace(/[()]/g, '').trim().toLowerCase();
@@ -227,6 +238,12 @@ exports.obtenerReporteVentas = async (req, res) => {
                  if (!cleanName.toLowerCase().includes(cleanBlock.toLowerCase().trim())) {
                      cleanName += ` (${cleanBlock.trim()})`;
                  }
+                 const esTamanoLegacy = ['tamaño', 'tamano', 'presentacion', 'presentación'].some(k => innerText.includes(k));
+                 if (esTamanoLegacy) {
+                     if (!tamanoDetectado) tamanoDetectado = cleanBlock.trim();
+                 } else {
+                     if (!saborDetectado) saborDetectado = cleanBlock.trim();
+                 }
              }
          });
 
@@ -234,41 +251,90 @@ exports.obtenerReporteVentas = async (req, res) => {
          let qty = parseMoney(item.cantidad) || 1;
          let exP = 0;
          let extraRows = [];
-         
-         order_gross += rawPrice * qty;
 
-         if (Array.isArray(item.extras)) {
-             item.extras.forEach(extra => {
-                 const eName = (extra.nombre || '').trim();
-                 const ePrice = parseMoney(extra.precioExtra || extra.precio_extra || extra.precio);
-                 const eNameLower = eName.toLowerCase();
+        if (Array.isArray(item.extras)) {
+            item.extras.forEach(extra => {
+                const eName = (extra.nombre || '').trim();
+                const ePrice = parseMoney(extra.precioExtra || extra.precio_extra || extra.precio);
+                const eNameLower = eName.toLowerCase();
 
-                 if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
-                     return; 
+                if (eNameLower.includes('nota:') || eNameLower.includes('📝') || eNameLower.startsWith('sin ') || eNameLower.includes(' ❌') || eNameLower.startsWith('❌')) {
+                    return; 
+                }
+
+                // 🔒 REGLA FIJA (confirmada): un GRUPO (tipo: 'grupo_obligatorio' o
+                // 'grupo_opcional') SIEMPRE es ingrediente (Leche, Hielo, Topping, etc.),
+                // JAMÁS Tamaño ni Sabor. Solo tipo:'variacion' se fusiona al nombre.
+                let isVitalVariation;
+                if (extra.tipo === 'variacion') {
+                    isVitalVariation = true;
+                } else if (['grupo_obligatorio', 'grupo_opcional', 'sustitucion', 'base', 'extra', 'nota'].includes(extra.tipo)) {
+                    isVitalVariation = false;
+                } else {
+                    // Fallback SOLO para pedidos antiguos sin campo "tipo".
+                    isVitalVariation = ['tamaño', 'tamano', 'presentacion', 'presentación', 'sabor'].some(k => eNameLower.includes(k)) ||
+                                 ['grande', 'mediano', 'chico', 'jumbo', 'familiar', 'sencillo', 'doble', 'crepa', 'waffle', 'baguette', 'panini', 'tortuga', 'torta', 'taco', 'burrito', 'original', 'clásico', 'clasico'].some(k => eNameLower === k || eNameLower.includes(` ${k}`) || eNameLower.startsWith(`${k} `));
+                }
+
+                if (isVitalVariation) {
+                    let cleanVariationName = eName.replace(/[🔸🔹+]/g, '')
+                        .replace(/\[Grupo\]\s*/i, '')
+                        .replace(/\[Extra\]\s*/i, '')
+                        .trim();
+                    cleanVariationName = cleanVariationName.replace(/PRESENTACION:\s*/i, '')
+                                       .replace(/TAMAÑO:\s*/i, '')
+                                       .replace(/TAMANO:\s*/i, '')
+                                       .replace(/TIPO:\s*/i, '')
+                                       .replace(/SABOR:\s*/i, '');
+                    if (!cleanName.toLowerCase().includes(cleanVariationName.toLowerCase().trim())) {
+                        cleanName += ` (${cleanVariationName.trim()})`;
+                    }
+
+                    // 🆕 Cruce con item.opciones (catálogo guardado en el pedido) para
+                    // llenar las columnas separadas Tamaño/Sabor en la tabla.
+                    const opcionCatalogo = Array.isArray(item.opciones)
+                        ? item.opciones.find(o => o.tipo === 'variacion' && String(o.nombre).trim().toLowerCase() === eNameLower)
+                        : null;
+                    const categoriaVar = (opcionCatalogo?.categoria || '').trim().toLowerCase();
+
+                    if (categoriaVar === 'tamaño' || categoriaVar === 'tamano') {
+                        if (!tamanoDetectado) tamanoDetectado = cleanVariationName.trim();
+                    } else {
+                        if (!saborDetectado) saborDetectado = cleanVariationName.trim();
+                    }
+                    // 👉 Una variación (Tamaño/Sabor) NUNCA resta su precio del
+                    // platillo padre: ese costo ya viene incluido en rawPrice.
+                } else {
+                    if (ePrice > 0) {
+                        const cleanExtraName = eName.replace(/^\+\s*/, '').replace(/^\[.*?\]\s*/, '').trim(); 
+                        exP += ePrice;
+                        extraRows.push({ nombre: cleanExtraName, precio: ePrice, id: extra.id || 0 });
+                    }
+                }
+            });
+        }
+
+         // 🔒 FIX (regla confirmada): si el producto maneja Tamaño/Sabor, su
+         // precio_base del catálogo puede ser intencionalmente $0.00 (ej.
+         // "CARAMELO" con Tamaños Fijos: Mediano $69, Grande $74, Jumbo $96).
+         // En ese caso rawPrice NUNCA debe quedarse en $0 — toma el precio
+         // real de la variación elegida.
+         if (rawPrice === 0 && Array.isArray(item.extras)) {
+             const variacionExtra = item.extras.find(e => e.tipo === 'variacion');
+             if (variacionExtra) {
+                 let precioVariacion = parseMoney(variacionExtra.precioExtra || variacionExtra.precio_extra || variacionExtra.precio);
+                 if (precioVariacion === 0 && Array.isArray(item.opciones)) {
+                     const opcionCatalogo = item.opciones.find(o =>
+                         o.tipo === 'variacion' &&
+                         String(o.nombre).trim().toLowerCase() === String(variacionExtra.nombre).trim().toLowerCase()
+                     );
+                     if (opcionCatalogo) precioVariacion = parseMoney(opcionCatalogo.precioExtra);
                  }
-
-                 const isVitalVariation = ['tamaño', 'tamano', 'presentacion', 'presentación', 'sabor', 'tipo'].some(k => eNameLower.includes(k)) ||
-                              ['grande', 'mediano', 'chico', 'jumbo', 'familiar', 'sencillo', 'doble', 'crepa', 'waffle', 'baguette', 'panini', 'tortuga', 'torta', 'taco', 'burrito', 'original', 'clásico', 'clasico'].some(k => eNameLower === k || eNameLower.includes(` ${k}`) || eNameLower.startsWith(`${k} `));
-
-                 if (isVitalVariation) {
-                     let cleanVariationName = eName.replace(/[🔸🔹+]/g, '').trim();
-                     cleanVariationName = cleanVariationName.replace(/PRESENTACION:\s*/i, '')
-                                        .replace(/TAMAÑO:\s*/i, '')
-                                        .replace(/TAMANO:\s*/i, '')
-                                        .replace(/TIPO:\s*/i, '')
-                                        .replace(/SABOR:\s*/i, '');
-                     if (!cleanName.toLowerCase().includes(cleanVariationName.toLowerCase().trim())) {
-                         cleanName += ` (${cleanVariationName.trim()})`;
-                     }
-                 } else {
-                     if (ePrice > 0) {
-                         const cleanExtraName = eName.replace(/^\+\s*/, '').trim(); 
-                         exP += ePrice;
-                         extraRows.push({ nombre: cleanExtraName, precio: ePrice, id: extra.id || 0 });
-                     }
-                 }
-             });
+                 if (precioVariacion > 0) rawPrice = precioVariacion;
+             }
          }
+
+         order_gross += rawPrice * qty;
 
          let finalBasePrice = rawPrice - exP;
          if (finalBasePrice < 0) finalBasePrice = 0;
@@ -281,9 +347,9 @@ exports.obtenerReporteVentas = async (req, res) => {
          itemCat = itemCat || 'Sin Categoría';
 
          itemsTemporales.push({
-             pId, cleanName, finalBasePrice, itemCat, qty, extraRows, rawPrice
+             pId, cleanName, finalBasePrice, itemCat, qty, extraRows, rawPrice, tamanoDetectado, saborDetectado
          });
-      });
+      });      
       
       const totalPagado = parseMoney(p.total);
       const discount = isComedor ? 0 : Math.max(0, order_gross - totalPagado);
@@ -297,17 +363,19 @@ exports.obtenerReporteVentas = async (req, res) => {
           const item_gross_total = t.rawPrice * t.qty;
 
           if (pasaFiltro) {
-              const itemKey = `ID_${t.pId}_P_${t.finalBasePrice}_N_${t.cleanName}`;
-              if (!targetObj[itemKey]) {
-                  targetObj[itemKey] = {
-                      producto_nombre: t.cleanName, 
-                      producto_id: t.pId, 
-                      precio_venta: t.finalBasePrice, 
-                      categoria: t.itemCat, 
-                      cantidad_vendida: 0,
-                      descuentos_aplicados: 0
-                  };
-              }
+              const itemKey = `ID_${t.pId}_P_${t.finalBasePrice}_N_${t.cleanName}_T_${t.tamanoDetectado}_S_${t.saborDetectado}`;
+                if (!targetObj[itemKey]) {
+                    targetObj[itemKey] = {
+                        producto_nombre: t.cleanName,
+                        producto_id: t.pId,
+                        precio_venta: t.finalBasePrice,
+                        categoria: t.itemCat,
+                        tamano: t.tamanoDetectado || '',
+                        sabor: t.saborDetectado || '',
+                        cantidad_vendida: 0,
+                        descuentos_aplicados: 0
+                    };
+                }
               targetObj[itemKey].cantidad_vendida += t.qty;
 
               if (!isComedor) {
@@ -418,7 +486,14 @@ exports.obtenerReporteVentas = async (req, res) => {
 
     let t_fondo = 0; let t_gastos = 0;
     try {
-        const hcRes = await db.query(`SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha_corte')}`);
+        // 🔧 FIX indispensable para el filtro de empresa: antes esta consulta NUNCA recibía
+        // "params", así que cualquier placeholder ($1, $2...) generado por queryTimeConsumo
+        // tronaba en silencio (catch vacío) y fondo/gastos quedaban en 0. Para poder exigir
+        // el filtro obligatorio de empresa_id, es indispensable pasar "params" aquí también.
+        const hcRes = await db.query(
+          `SELECT * FROM historico_cortes WHERE 1=1 ${queryTimeConsumo.replace(/p\.fecha_creacion/g, 'fecha_corte').replace(/p\.empresa_id/g, 'empresa_id')}`,
+          params
+        ); // 🔒 FILTRO EMPRESA
         hcRes.rows.forEach(row => {
             if(row.fondo_inicial) t_fondo += Number(row.fondo_inicial);
             if(row.total_gastos) t_gastos += Number(row.total_gastos);
@@ -473,7 +548,8 @@ exports.obtenerReporteVentas = async (req, res) => {
             SELECT carrito FROM pedidos 
             WHERE estado_preparacion != 'Cancelado' 
             AND (fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = ($1::DATE - INTERVAL '1 day')
-        `, [fecha || 'NOW()']);
+            AND empresa_id = $2
+        `, [fecha || 'NOW()', empresaId]); // 🔒 FILTRO EMPRESA
         
         let idsVendidosAyer = new Set();
         ayerRes.rows.forEach(p => {
@@ -534,7 +610,7 @@ exports.obtenerReporteVentas = async (req, res) => {
         const processRange = async (label, inicioSql, finSql, esUnSoloDia = false, esHistorico = false) => {
             // 💡 MEJORA #4: Si es un periodo histórico cerrado (ej. "Hace 1 Semana"),
             // revisamos primero el caché antes de pegarle a la BD y recalcular todo.
-            const cacheKeyStr = `comparativa_${tipo}_${fecha || 'NOW'}_${label}`;
+            const cacheKeyStr = `comparativa_${empresaId}_${tipo}_${fecha || 'NOW'}_${label}`; // 🔒 FILTRO EMPRESA: evita que el caché de una empresa se sirva a otra
             if (esHistorico && comparativasCache.has(cacheKeyStr)) {
                 const cacheado = comparativasCache.get(cacheKeyStr);
                 if (Date.now() - cacheado.timestamp < 1800000) { // 30 minutos, mismo TTL que iaController.js
@@ -547,7 +623,7 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             const boundsRes = await db.query(`SELECT TO_CHAR(${inicioSql}, 'DD/MM/YYYY') as fecha_inicio, TO_CHAR((${finSql}) - INTERVAL '1 second', 'DD/MM/YYYY') as fecha_fin`, [fecha || 'NOW()']);
             
-            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, p.costo_envio, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql})`, [fecha || 'NOW()']);
+            const res = await db.query(`SELECT p.fecha_creacion, p.carrito, p.costo_envio, EXTRACT(HOUR FROM (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')) as hora_local FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') >= (${inicioSql}) AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan') < (${finSql}) AND p.empresa_id = $2`, [fecha || 'NOW()', empresaId]); // 🔒 FILTRO EMPRESA
 
             let totalPlatillos = 0; let horas = Array(24).fill(0);
             // 💡 MEJORA #2: Acumuladores monetarios aproximados para el indicador
@@ -747,7 +823,7 @@ exports.obtenerReporteVentas = async (req, res) => {
 
             let metaFuturaMensaje = '';
             if (tipo === 'dia' || tipo === 'historico') {
-                const resManana = await db.query(`SELECT p.carrito FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = ($1::DATE - INTERVAL '6 days')`, [fecha || 'NOW()']);
+                const resManana = await db.query(`SELECT p.carrito FROM pedidos p WHERE p.estado_preparacion != 'Cancelado' AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = ($1::DATE - INTERVAL '6 days') AND p.empresa_id = $2`, [fecha || 'NOW()', empresaId]); // 🔒 FILTRO EMPRESA
                 let platManana = 0;
                 resManana.rows.forEach(p => {
                     let car = []; try{ car = typeof p.carrito === 'string' ? JSON.parse(p.carrito): p.carrito; }catch(e){}
@@ -775,11 +851,12 @@ exports.obtenerReporteVentas = async (req, res) => {
 
 exports.obtenerReporteCombustible = async (req, res) => {
     const { periodo = 'dia', fecha = new Date().toISOString().split('T')[0] } = req.query;
+    const empresaId = req.empresa_id; // 🆕 TENANT
 
     try {
-        await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS vehiculo VARCHAR(100);`).catch(()=>null);
-        await db.query(`ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rendimiento_km_l NUMERIC(10,2) DEFAULT 15.00;`).catch(()=>null);
-        await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS precio_gasolina NUMERIC(10,2) DEFAULT 23.50;`).catch(()=>null);
+        // NOTA: los ALTER TABLE de vehiculo/rendimiento_km_l (usuarios) y precio_gasolina
+        // (configuracion) ya NO se hacen aquí — ya quedaron registrados como parches
+        // oficiales en config/migracionMultiTenant.js (Bloque A), no hace falta repetirlos.
 
         let queryTimeConsumo = '';
         let params = [fecha];
@@ -803,18 +880,19 @@ exports.obtenerReporteCombustible = async (req, res) => {
                 u.id AS repartidor_id, u.nombre AS repartidor_nombre,
                 u.vehiculo, u.rendimiento_km_l
             FROM pedidos p
-            INNER JOIN usuarios u ON p.repartidor_id = u.id
+            INNER JOIN usuarios u ON p.repartidor_id = u.id AND u.empresa_id = $2
             WHERE p.tipo_consumo = 'Domicilio'
             AND p.repartidor_id IS NOT NULL 
             AND p.estado_preparacion IN ('Entregado', 'Liquidado', 'Finalizado')
             AND p.tiempo_entregado IS NOT NULL
+            AND p.empresa_id = $2
             AND ${queryTimeConsumo}
             ORDER BY p.tiempo_entregado DESC
-        `;
-        const resultViajes = await db.query(queryViajes, params);
+        `; // 🔒 FILTRO EMPRESA
+        const resultViajes = await db.query(queryViajes, [...params, empresaId]); // 🆕 TENANT: $2
 
         let precioGasolina = 23.50;
-        const confRes = await db.query('SELECT precio_gasolina FROM configuracion WHERE id = 1');
+        const confRes = await db.query('SELECT precio_gasolina FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
         if (confRes.rows.length > 0 && confRes.rows[0].precio_gasolina) {
             precioGasolina = Number(confRes.rows[0].precio_gasolina);
         }
@@ -833,13 +911,14 @@ exports.obtenerReporteCombustible = async (req, res) => {
 
 exports.guardarConfigFlotilla = async (req, res) => {
     const { precio_gasolina, conductores } = req.body;
+    const empresaId = req.empresa_id; // 🆕 TENANT
     try {
-        await db.query(`UPDATE configuracion SET precio_gasolina = $1 WHERE id = 1;`, [precio_gasolina]);
+        await db.query(`UPDATE configuracion SET precio_gasolina = $1 WHERE empresa_id = $2;`, [precio_gasolina, empresaId]); // 🔒 FILTRO EMPRESA
 
         for (const conductor of conductores) {
             await db.query(
-                `UPDATE usuarios SET vehiculo = $1, rendimiento_km_l = $2 WHERE id = $3`,
-                [conductor.vehiculo, conductor.rendimiento, conductor.id]
+                `UPDATE usuarios SET vehiculo = $1, rendimiento_km_l = $2 WHERE id = $3 AND empresa_id = $4`, // 🔒 FILTRO EMPRESA
+                [conductor.vehiculo, conductor.rendimiento, conductor.id, empresaId]
             );
         }
         res.json({ success: true, message: 'Configuración guardada en la base de datos central.' });
@@ -847,4 +926,43 @@ exports.guardarConfigFlotilla = async (req, res) => {
         console.error("Error guardando config flotilla:", error);
         res.status(500).json({ error: 'Error interno al guardar la configuración.' });
     }
+};
+
+// ==========================================
+// BADGE DE POPULARIDAD (Kiosco) — Ranking ligero de los 3 más vendidos HOY
+// ==========================================
+exports.obtenerProductosPopularesHoy = async (req, res) => {
+  const empresaId = req.empresa_id;
+  try {
+    const sql = `
+      SELECT carrito
+      FROM pedidos
+      WHERE empresa_id = $1
+        AND estado_preparacion != 'Cancelado'
+        AND (fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = (NOW() AT TIME ZONE 'America/Mazatlan')::DATE
+    `;
+    const result = await db.query(sql, [empresaId]);
+    const conteo = {};
+
+    result.rows.forEach(p => {
+      let carrito = [];
+      try { carrito = typeof p.carrito === 'string' ? JSON.parse(p.carrito) : (p.carrito || []); } catch (e) {}
+      carrito.forEach(item => {
+        const pid = Number(item.id || item.producto_id) || 0;
+        if (!pid) return;
+        const cantidad = Number(item.cantidad) || 1;
+        conteo[pid] = (conteo[pid] || 0) + cantidad;
+      });
+    });
+
+    const ranking = Object.entries(conteo)
+      .map(([producto_id, cantidad]) => ({ producto_id: Number(producto_id), cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad)
+      .slice(0, 3);
+
+    res.json({ success: true, ranking });
+  } catch (error) {
+    console.error("ERROR AL GENERAR RANKING DE POPULARIDAD:", error);
+    res.status(500).json({ error: 'Error al calcular popularidad.' });
+  }
 };

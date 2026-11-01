@@ -13,7 +13,7 @@ const Login = ({ onLogin, onInvitado }) => {
   useEffect(() => {
     const cargarConfig = async () => {
       try {
-        const res = await fetch(`${apiUrl}/configuracion`);
+        const res = await apiFetch(`${apiUrl}/configuracion`);
         const data = await res.json();
         if (data && data.nombre_negocio) {
           setConfig(data);

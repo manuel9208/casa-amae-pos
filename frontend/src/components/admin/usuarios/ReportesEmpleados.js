@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Calendar, Printer, CheckCircle2, XCircle, Clock, AlertTriangle, Sparkles, User, ShieldAlert, Users, Filter, CheckSquare, Square, ClipboardCheck } from 'lucide-react';
 import io from 'socket.io-client';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const diasSemanaMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -55,13 +56,13 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
 
   const cargarReportes = useCallback(async () => {
     try {
-      const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
+      const res = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${fechaInicio.substring(0,4)}-01-01`);
       if (res.ok) {
         const data = await res.json();
         setReportes(data);
       }
 
-      const resConfig = await fetch(`${apiUrl}/configuracion`);
+      const resConfig = await apiFetch(`${apiUrl}/configuracion`);
       if (resConfig.ok) {
          const configData = await resConfig.json();
          setConfigGlobal(configData);
@@ -111,7 +112,7 @@ const ReportesEmpleados = ({ usuariosDB, apiUrl }) => {
         
         horActual[fecha].auditoria[tipo] = decisionPayload;
 
-        const res = await fetch(`${apiUrl}/usuarios/${empId}/horario`, {
+        const res = await apiFetch(`${apiUrl}/usuarios/${empId}/horario`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ horario_semanal: horActual })

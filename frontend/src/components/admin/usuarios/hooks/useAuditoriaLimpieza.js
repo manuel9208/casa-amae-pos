@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 export const useAuditoriaLimpieza = (apiUrl, showAlert) => {
     // 1. Catálogo de tareas (Ej. "Baños", "Plancha", "Pisos")
@@ -24,7 +25,7 @@ export const useAuditoriaLimpieza = (apiUrl, showAlert) => {
     // =========================================================================
     const cargarDatosLimpieza = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/configuracion`);
+            const res = await apiFetch(`${apiUrl}/configuracion`);
             if (res.ok) {
                 const data = await res.json();
                 const matriz = typeof data.matriz_limpieza === 'string'
@@ -63,7 +64,7 @@ export const useAuditoriaLimpieza = (apiUrl, showAlert) => {
             const formData = new FormData();
             formData.append('matriz_limpieza', JSON.stringify(payload));
 
-            const res = await fetch(`${apiUrl}/configuracion`, {
+            const res = await apiFetch(`${apiUrl}/configuracion`, {
                 method: 'PUT',
                 body: formData
             });

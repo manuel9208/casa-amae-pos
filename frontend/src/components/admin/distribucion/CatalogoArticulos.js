@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Plus, Edit, Trash2, Tag, DollarSign, XCircle, CheckCircle2, Star, CreditCard, Users, Package, AlertTriangle } from 'lucide-react';
 import ImagenCachada from '../../ImagenCachada';
+import { apiFetch } from '../../../utils/apiFetch';
 
 const EMOJIS_B2B = ['📦','🥤','☕','🥛','🥡','🧊','🍯','🍫','🧹','🧴','🧾','🛍️','🛒','🏭','🥩','🍗','🧀','🥬','🍅','🥑','🍞','🥐'];
 
@@ -52,10 +53,10 @@ const CatalogoArticulos = ({ apiUrl, baseUrl, showAlert, showConfirm }) => {
 
   const cargarDatos = useCallback(async () => {
     try {
-      const resArt = await fetch(`${apiUrl}/distribucion/articulos`);
+      const resArt = await apiFetch(`${apiUrl}/distribucion/articulos`);
       if (resArt.ok) setArticulos(await resArt.json());
 
-      const resCli = await fetch(`${apiUrl}/distribucion/clientes`);
+      const resCli = await apiFetch(`${apiUrl}/distribucion/clientes`);
       if (resCli.ok) setClientesDB(await resCli.json());
     } catch (error) {
       console.error("Error al cargar datos B2B:", error);
@@ -227,7 +228,7 @@ const CatalogoArticulos = ({ apiUrl, baseUrl, showAlert, showConfirm }) => {
       const url = editandoId ? `${apiUrl}/distribucion/articulos/${editandoId}` : `${apiUrl}/distribucion/articulos`;
       const method = editandoId ? 'PUT' : 'POST';
       
-      const res = await fetch(url, { method, body: payload });
+      const res = await apiFetch(url, { method, body: payload });
       if (res.ok) {
         showAlert('Éxito', 'Artículo guardado en el catálogo.', 'success');
         setModalVisible(false);
@@ -245,7 +246,7 @@ const CatalogoArticulos = ({ apiUrl, baseUrl, showAlert, showConfirm }) => {
   const eliminarArticulo = (id) => {
     showConfirm('Eliminar Artículo', '¿Estás seguro de eliminar permanentemente este artículo?', async () => {
       try {
-        const res = await fetch(`${apiUrl}/distribucion/articulos/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${apiUrl}/distribucion/articulos/${id}`, { method: 'DELETE' });
         if (res.ok) {
           showAlert('Eliminado', 'El artículo ha sido eliminado.', 'success');
           cargarDatos();

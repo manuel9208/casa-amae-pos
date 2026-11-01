@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar as CalendarIcon, Lock, Star, Save, Users, ChevronLeft, ChevronRight, Info, Coffee } from 'lucide-react';  
+import { apiFetch } from '../../../utils/apiFetch';
 
 const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];  
@@ -105,7 +106,7 @@ const GestorCalendarioAnual = ({ configGlobal, setConfigGlobal, apiUrl, showAler
         formData.append('calendario_anual', JSON.stringify(calendarioVisual));
         formData.append('limites_vacaciones_rol', JSON.stringify(limitesRol));  
         try {
-            const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+            const res = await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
             if (res.ok) {
                 setConfigGlobal({ ...configGlobal, calendario_anual: JSON.stringify(calendarioVisual), limites_vacaciones_rol: JSON.stringify(limitesRol) });
                 showAlert("¡Guardado!", "El calendario y las reglas se han guardado exitosamente.", "success");

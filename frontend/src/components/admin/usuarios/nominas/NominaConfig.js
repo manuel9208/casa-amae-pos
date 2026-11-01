@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, User, Scale, AlertTriangle, CalendarDays, Coffee, Banknote, Save, Clock, Calculator, ClipboardCheck } from 'lucide-react';
+import { apiFetch } from '../../../../utils/apiFetch';
 
 // 👇 IMPORTAMOS EL NUEVO MOTOR MATEMÁTICO INDEPENDIENTE
 import { calcularSimulacionFinanciera } from './utils/simuladorFinanciero';
@@ -79,7 +80,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
     // Cargar Configuración Global (Días cerrados y Políticas)
     const cargarConfigGlobal = useCallback(async () => {
         try {
-            const res = await fetch(`${apiUrl}/configuracion`);
+            const res = await apiFetch(`${apiUrl}/configuracion`);
             if (res.ok) {
                 const dataConfig = await res.json();
                 setConfigGlobal(dataConfig);
@@ -195,7 +196,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             matrizActual.reglas_nomina = reglasNomina;
             const formData = new FormData();
             formData.append('matriz_limpieza', JSON.stringify(matrizActual));
-            const res = await fetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
+            const res = await apiFetch(`${apiUrl}/configuracion`, { method: 'PUT', body: formData });
             if (res.ok) showAlert('Éxito', 'Las políticas laborales y bonos se guardaron correctamente en la BD.', 'success');
         } catch (e) {
             showAlert('Error', 'Fallo de conexión al guardar políticas.', 'error');
@@ -226,7 +227,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
                 }
             });
 
-            await fetch(`${apiUrl}/nominas/plantilla/${empleadoEditId}`, {
+            await apiFetch(`${apiUrl}/nominas/plantilla/${empleadoEditId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ plantilla_semanal: plantillaSemanal })
@@ -238,7 +239,7 @@ const NominaConfig = ({ usuariosDB, apiUrl, refrescarDatos, showAlert }) => {
             });
             const payload = { ...prestacionesEmp, dias_descanso, dias_no_laborales, prestamos: prestamosValidados };
 
-            const res = await fetch(`${apiUrl}/usuarios/${empleadoEditId}/prestaciones`, {
+            const res = await apiFetch(`${apiUrl}/usuarios/${empleadoEditId}/prestaciones`, {
                 method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prestaciones: payload })
             });
 

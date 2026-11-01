@@ -1,38 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { History, Printer, Calendar, DollarSign } from 'lucide-react';  
+import { History, Printer, Calendar, DollarSign, AlertTriangle, XCircle } from 'lucide-react';
+import { apiFetch } from '../../utils/apiFetch';
+import { generarPDFReciboNomina } from '../admin/usuarios/nominas/utils/generarReciboNominaPDF';
 
-const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);  
-
-const getImageUrl = (url) => {
-    if (!url) return '';
-    if (url.includes('cloudinary.com')) {
-        const parts = url.split('res.cloudinary.com/');
-        return `https://res.cloudinary.com/${parts[1]}`;
-    }
-    return url;
-};  
+const formaterMoneda = (num) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(num || 0);
 
 const VistaNominasEmpleado = ({ user, apiUrl }) => {
     const [misRecibos, setMisRecibos] = useState([]);
     const [cargando, setCargando] = useState(true);
-    const [reciboPrint, setReciboPrint] = useState(null);
-    const [configGlobal, setConfigGlobal] = useState({});  
-    
+    const [configGlobal, setConfigGlobal] = useState({});
+    const [descargandoIdx, setDescargandoIdx] = useState(null);
+    const [errorMsg, setErrorMsg] = useState(null);
+
     useEffect(() => {
-        fetch(`${apiUrl}/configuracion`)
+       apiFetch(`${apiUrl}/configuracion`)
         .then(res => res.json())
         .then(data => { if (data) setConfigGlobal(data); })
         .catch(() => {});
-    }, [apiUrl]);  
-    
+    }, [apiUrl]);
+
     const cargarMisRecibos = useCallback(async () => {
         setCargando(true);
         try {
             const hoyStr = new Date().toISOString().split('T')[0];
-            const res = await fetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0,4)}-01-01`);
+            const res = await apiFetch(`${apiUrl}/usuarios/rendimiento?periodo=anio&fecha=${hoyStr.substring(0,4)}-01-01`);
             if (res.ok) {
                 const data = await res.json();
-                const cortes = data.cortesNomina || [];  
+                const cortes = data.cortesNomina || [];
                 const acumulado = [];
                 cortes.forEach(nomina => {
                     const datos = typeof nomina.datos_corte === 'string' ? JSON.parse(nomina.datos_corte) : nomina.datos_corte;
@@ -54,53 +48,73 @@ const VistaNominasEmpleado = ({ user, apiUrl }) => {
             console.error("Error al cargar recibos del empleado", e);
         }
         setCargando(false);
-    }, [apiUrl, user.id]);  
-    
+    }, [apiUrl, user.id]);
+
     useEffect(() => {
         cargarMisRecibos();
-    }, [cargarMisRecibos]);  
-    
-    // Retenemos el modal en móviles para evitar pantallas blancas antes de imprimir
-    useEffect(() => {
-        if (reciboPrint) {
-            const timer = setTimeout(() => {
-                window.print();
-                
-                const handleAfterPrint = () => {
-                    setReciboPrint(null);
-                    window.removeEventListener('afterprint', handleAfterPrint);
-                };
+    }, [cargarMisRecibos]);
 
-                window.addEventListener('afterprint', handleAfterPrint);
-                setTimeout(handleAfterPrint, 10000); // Respaldo 10s para celulares
-            }, 1500); 
-            return () => clearTimeout(timer);
+    // 👇 NUEVO: Genera el mismo PDF real que usa Administración (NominaHistorial.js),
+    // reutilizando el generador compartido — cero duplicación de plantilla.
+    const handleDescargar = async (r, idx) => {
+        setDescargandoIdx(idx);
+        try {
+            await generarPDFReciboNomina({
+                ...r,
+                metadata: r.metadata,
+                ingresos_base: r.ingresos_base || [],
+                adicionales_ingresos: r.nuevos_ingresos || r.adicionales_ingresos || [],
+                egresos_base: r.egresos_base || [],
+                adicionales_egresos: r.nuevos_egresos || r.adicionales_egresos || [],
+                total_ingresos: r.total_ingresos || r.ingresos || 0,
+                total_egresos: r.total_egresos || r.egresos || 0,
+                neto: r.neto || 0
+            }, configGlobal, apiUrl);
+        } catch (e) {
+            setErrorMsg('No se pudo generar el PDF de tu recibo. Intenta de nuevo.');
+            setTimeout(() => setErrorMsg(null), 4000);
         }
-    }, [reciboPrint]);  
-    
+        setDescargandoIdx(null);
+    };
+
     return (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 w-full max-w-full">
-            <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex items-center gap-4 text-white print:hidden">
+
+            {/* 👇 Alerta custom (NO nativa) de error al generar PDF */}
+            {errorMsg && (
+                <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[9999] animate-in slide-in-from-top-4 fade-in duration-300 w-[90%] max-w-md">
+                    <div className="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border-2 bg-red-50 border-red-500 text-red-800">
+                        <AlertTriangle className="text-red-500 shrink-0" size={24} />
+                        <div>
+                            <p className="font-black text-sm uppercase tracking-widest leading-none mb-1">Error</p>
+                            <p className="font-bold text-sm opacity-80 leading-tight">{errorMsg}</p>
+                        </div>
+                        <button onClick={() => setErrorMsg(null)} className="ml-auto opacity-50 hover:opacity-100 transition"><XCircle size={20}/></button>
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-slate-900 p-6 md:p-8 rounded-[32px] shadow-xl flex items-center gap-4 text-white">
                 <div className="bg-emerald-500/20 p-4 rounded-2xl border border-emerald-500/30 text-emerald-400"><DollarSign size={32}/></div>
                 <div>
                     <h3 className="text-xl md:text-2xl font-black tracking-tight">Mis Recibos de Pago</h3>
                     <p className="text-[10px] md:text-xs font-black text-emerald-400 uppercase tracking-widest mt-1">Historial de Nóminas Cobradas</p>
                 </div>
-            </div>  
-            
+            </div>
+
             {cargando ? (
-                <div className="py-20 text-center flex flex-col items-center justify-center opacity-50 print:hidden">
+                <div className="py-20 text-center flex flex-col items-center justify-center opacity-50">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-800 mx-auto mb-3"></div>
                     <p className="font-black text-lg text-slate-500">Consultando tus archivos financieros...</p>
                 </div>
             ) : misRecibos.length === 0 ? (
-                <div className="py-16 text-center flex flex-col items-center justify-center print-hidden border-2 border-dashed border-slate-200 rounded-[32px] bg-white p-8">
+                <div className="py-16 text-center flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-[32px] bg-white p-8">
                     <History size={56} className="text-slate-300 mb-4" />
                     <p className="font-black text-xl text-slate-800 mb-1">Sin recibos aún</p>
                     <p className="text-sm text-slate-400 font-bold">Tus próximas nóminas aprobadas aparecerán en esta sección automáticamente.</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 print:hidden">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {misRecibos.map((r, idx) => (
                         <div key={idx} className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group">
                             <div className="mb-6">
@@ -122,170 +136,19 @@ const VistaNominasEmpleado = ({ user, apiUrl }) => {
                                 </div>
                             </div>
                             <button
-                                onClick={() => setReciboPrint(r)}
-                                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-3.5 rounded-2xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95"
+                                onClick={() => handleDescargar(r, idx)}
+                                disabled={descargandoIdx === idx}
+                                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-black py-3.5 rounded-2xl flex justify-center items-center gap-2 transition text-sm shadow-sm active:scale-95 disabled:opacity-50"
                             >
-                                <Printer size={16}/> Ver y Descargar PDF
+                                <Printer size={16}/> {descargandoIdx === idx ? 'Generando PDF...' : 'Ver y Descargar PDF'}
                             </button>
                         </div>
                     ))}
                 </div>
-            )}  
-            
-            {/* RENDERIZADO DEL RECIBO EMBEDDED EXCLUSIVO PARA IMPRESIÓN */}
-            {reciboPrint && (
-                <div className="print-receipt-wrapper font-sans text-black" style={{ backgroundColor: '#fff', color: '#000', width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
-                        <div>
-                            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '900', color: '#000' }}>RECIBO DE NÓMINA</h1>
-                            <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#333', fontWeight: '600' }}>Comprobante Digital de Pago</p>
-                        </div>
-                        <div>
-                            {configGlobal.logo_url ? (
-                                <img src={getImageUrl(configGlobal.logo_url)} alt="Logo" style={{ maxHeight: '65px', objectFit: 'contain' }} />
-                            ) : (
-                                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '900', color: '#000', textTransform: 'uppercase' }}>{configGlobal.nombre_negocio || 'CASA AMAE'}</h2>
-                            )}
-                        </div>
-                    </div>
-                    <hr style={{ border: 'none', borderTop: '2px solid #000', marginBottom: '15px' }} />
-                    <div style={{ textTransform: 'uppercase', lineHeight: '1.5', marginBottom: '20px' }}>
-                        <p style={{ margin: '3px 0' }}><strong>FECHA EMISIÓN:</strong> {new Date().toLocaleDateString('es-MX')}</p>
-                        <p style={{ margin: '3px 0' }}><strong>COLABORADOR:</strong> {reciboPrint.nombre_completo || reciboPrint.nombre}</p>
-                        <p style={{ margin: '3px 0' }}><strong>PUESTO / ROL:</strong> {reciboPrint.rol}</p>
-                        <p style={{ marginTop: '15px', textTransform: 'none', fontSize: '11px' }}>
-                            Recibí de la empresa la cantidad de <b>{formaterMoneda(reciboPrint.neto)}</b> por concepto de mi sueldo correspondiente al periodo del <b>{reciboPrint.metadata?.fecha_inicio}</b> al <b>{reciboPrint.metadata?.fecha_fin}</b> desglosado de la siguiente manera:
-                        </p>
-                    </div>
-                    <div style={{ border: '1px solid #000', marginBottom: '25px' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid #000', backgroundColor: '#f5f5f5', fontWeight: 'bold' }}>
-                                    <th style={{ padding: '6px 8px', borderRight: '1px solid #000' }}>Descripción del Concepto</th>
-                                    <th style={{ padding: '6px 8px', borderRight: '1px solid #000', textAlign: 'right', width: '25%' }}>Percepciones</th>
-                                    <th style={{ padding: '6px 8px', textAlign: 'right', width: '25%' }}>Deducciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {[...(reciboPrint.ingresos_base || []), ...(reciboPrint.adicionales_ingresos || [])].map((ing, i) => (
-                                    <tr key={`ing-${i}`} style={{ borderBottom: '1px solid #000' }}>
-                                        <td style={{ padding: '6px 8px', borderRight: '1px solid #000', textTransform: 'uppercase' }}>{ing.concepto || 'Sueldo Base Ordinario'}</td>
-                                        <td style={{ padding: '6px 8px', borderRight: '1px solid #000', textAlign: 'right', fontWeight: '600' }}>{formaterMoneda(ing.monto)}</td>
-                                        <td style={{ padding: '6px 8px', textAlign: 'right' }}></td>
-                                    </tr>
-                                ))}
-                                {[...(reciboPrint.egresos_base || []), ...(reciboPrint.adicionales_egresos || [])].map((eg, i) => (
-                                    <tr key={`eg-${i}`} style={{ borderBottom: '1px solid #000' }}>
-                                        <td style={{ padding: '6px 8px', borderRight: '1px solid #000', textTransform: 'uppercase' }}>- {eg.concepto}</td>
-                                        <td style={{ padding: '6px 8px', borderRight: '1px solid #000', textAlign: 'right' }}></td>
-                                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: '600' }}>{formaterMoneda(eg.monto)}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                            <tfoot style={{ fontWeight: 'bold', borderTop: '2px solid #000' }}>
-                                <tr style={{ borderBottom: '1px solid #000' }}>
-                                    <td style={{ padding: '6px 8px', borderRight: '1px solid #000' }}>TOTALES</td>
-                                    <td style={{ padding: '6px 8px', borderRight: '1px solid #000', textAlign: 'right' }}>{formaterMoneda(reciboPrint.total_ingresos || reciboPrint.neto)}</td>
-                                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formaterMoneda(reciboPrint.total_egresos || 0)}</td>
-                                </tr>
-                                <tr style={{ backgroundColor: '#fafafa' }}>
-                                    <td style={{ padding: '8px', borderRight: '1px solid #000' }}><strong>NETO RECIBIDO EN EFECTIVO</strong></td>
-                                    <td style={{ padding: '8px', borderRight: '1px solid #000', textAlign: 'right' }}><strong>{formaterMoneda(reciboPrint.neto)}</strong></td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}></td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '50px' }}>
-                        <div style={{ textAlign: 'center', width: '240px', borderTop: '1px solid #000', paddingTop: '4px', fontWeight: 'bold', fontSize: '9px' }}>
-                            FIRMA DE CONFORMIDAD DEL COLABORADOR
-                        </div>
-                    </div>
-                </div>
-            )}  
-            
-            {/* 👇 🛡️ CORRECCIÓN DEFINITIVA DE PÁGINA EN BLANCO Y MÓVILES */}
-            <style>{`
-            @media screen {
-                .print-receipt-wrapper { display: none !important; }
-            }
-            @media print {
-                /* 1. APAGAR TODO LO QUE NO SEA EL TICKET */
-                .print-hidden, .print\\:hidden, header, nav, aside, footer, button, .tabs-navigation {
-                    display: none !important;
-                    height: 0 !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    overflow: hidden !important;
-                }
-                
-                /* 2. RESETEAR CONTENEDORES MAESTROS (Causa #1 de hojas en blanco) */
-                html, body, #root, main, .min-h-screen, .overflow-hidden, .overflow-y-auto {
-                    height: auto !important;
-                    min-height: 0 !important;
-                    width: 100% !important;
-                    overflow: visible !important;
-                    position: static !important;
-                    display: block !important;
-                    background: #ffffff !important;
-                    box-shadow: none !important;
-                    border: none !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                }
-                
-                /* Anular márgenes inyectados por contenedores padres (Causa #2) */
-                body > *:not(#root), .space-y-6 > div:not(.print-receipt-wrapper) { 
-                    display: none !important; 
-                }
-                .space-y-6 > * + * { margin-top: 0 !important; }
-                
-                /* 3. AISLAR Y DIBUJAR EL TICKET EXACTO */
-                .print-receipt-wrapper {
-                    display: block !important;
-                    position: absolute !important;
-                    top: 0 !important;
-                    left: 0 !important;
-                    width: 100% !important;
-                    margin: 0 !important;
-                    padding: 5mm !important;
-                    box-sizing: border-box !important;
-                    background-color: #ffffff !important;
-                    z-index: 9999999 !important;
-                    page-break-after: avoid !important; /* MATA LA PÁGINA EN BLANCO FINAL */
-                }
-                
-                .print-receipt-wrapper * {
-                    visibility: visible !important;
-                    color: #000000 !important;
-                    opacity: 1 !important;
-                }
-                
-                /* 4. BLINDAR TABLAS CONTRA RECORTES HORIZONTALES EN PDF MÓVIL */
-                .print-receipt-wrapper table {
-                    display: table !important;
-                    width: 100% !important;
-                    border: 1px solid #000000 !important;
-                    border-collapse: collapse !important;
-                    page-break-inside: auto !important;
-                }
-                .print-receipt-wrapper tr { 
-                    display: table-row !important; 
-                    page-break-inside: avoid !important;
-                    page-break-after: auto !important;
-                }
-                .print-receipt-wrapper th, .print-receipt-wrapper td {
-                    display: table-cell !important;
-                    border: 1px solid #000000 !important;
-                    padding: 6px 8px !important;
-                }
-                
-                /* Eliminar márgenes del navegador (Header/Footer de URL) */
-                @page { size: auto; margin: 2mm; }
-            }
-            `}</style>
+            )}
+
         </div>
     );
-};  
+};
 
 export default VistaNominasEmpleado;
