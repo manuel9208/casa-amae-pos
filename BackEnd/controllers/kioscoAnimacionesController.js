@@ -262,6 +262,7 @@ exports.subirAnimacionBiblioteca = async (req, res) => {
 
 exports.eliminarAnimacionBiblioteca = async (req, res) => {
   const { id } = req.params;
+  const empresaId = req.empresa_id; // 🆕 MULTI-TENANT: necesario para borrar con la cuenta Cloudinary correcta
   try {
     const existing = await db.query('SELECT url_json, url_preview FROM kiosco_biblioteca_animaciones WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
@@ -270,8 +271,8 @@ exports.eliminarAnimacionBiblioteca = async (req, res) => {
 
     await db.query('DELETE FROM kiosco_biblioteca_animaciones WHERE id = $1', [id]);
 
-    if (existing.rows[0].url_json) borrarDeCloudinary(existing.rows[0].url_json);
-    if (existing.rows[0].url_preview) borrarDeCloudinary(existing.rows[0].url_preview);
+    if (existing.rows[0].url_json) borrarDeCloudinary(existing.rows[0].url_json, empresaId);
+    if (existing.rows[0].url_preview) borrarDeCloudinary(existing.rows[0].url_preview, empresaId);
 
     res.json({ success: true, message: 'Animación eliminada de la biblioteca. Las categorías que la usaban volverán al tinte de color por defecto.' });
   } catch (error) {

@@ -93,11 +93,6 @@ const { resolverVariables } = require('../utils/envResolver');
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: async (req, file) => {
-    // 🆕 MULTI-TENANT: en vez de mutar cloudinary.config() globalmente (lo
-    // cual causaría que dos empresas subiendo al mismo tiempo se pisen las
-    // credenciales a medias), se inyectan cloud_name/api_key/api_secret
-    // DIRECTO en los params de ESTA subida puntual. El SDK de Cloudinary
-    // acepta estos 3 campos por-llamada, sin tocar el estado global.
     const creds = await resolverVariables(req.empresa_id, [
       'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'
     ]);
@@ -511,8 +506,8 @@ router.delete('/kiosco-animaciones/:id', resolveTenant, kioscoAnimacionesCtrl.el
 // 🆕 Rutas EXCLUSIVAS de súper-admin global (llave secreta, independiente del empresa_id)
 router.get('/kiosco-animaciones/permisos-empresas', verificarAdminGlobal, kioscoAnimacionesCtrl.obtenerPermisosTodasEmpresas);
 router.post('/kiosco-animaciones/permisos-empresas', verificarAdminGlobal, kioscoAnimacionesCtrl.actualizarPermisoEmpresa);
-router.post('/kiosco-animaciones/biblioteca', verificarAdminGlobal, uploadAnimacionKiosco.any(), kioscoAnimacionesCtrl.subirAnimacionBiblioteca);
-router.delete('/kiosco-animaciones/biblioteca/:id', verificarAdminGlobal, kioscoAnimacionesCtrl.eliminarAnimacionBiblioteca);
+router.post('/kiosco-animaciones/biblioteca', resolveTenant, verificarAdminGlobal, uploadAnimacionKiosco.any(), kioscoAnimacionesCtrl.subirAnimacionBiblioteca);
+router.delete('/kiosco-animaciones/biblioteca/:id', resolveTenant, verificarAdminGlobal, kioscoAnimacionesCtrl.eliminarAnimacionBiblioteca);
 router.get('/kiosco-animaciones/biblioteca-admin', verificarAdminGlobal, kioscoAnimacionesCtrl.obtenerBibliotecaCompletaAdmin);
 
 // === Rutas — Panel Admin Empresas (Exclusivo Admin Global) ===
