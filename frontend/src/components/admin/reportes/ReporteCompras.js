@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShoppingCart, Calendar, Printer, RefreshCw } from 'lucide-react';
+import { ShoppingCart, Calendar, RefreshCw, FileDown, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { apiFetch } from '../../../utils/apiFetch';
+// 🆕 Exportación real (PDF/CSV), mismo motor visual que Ventas, Cortes y Combustible
+import { generarPDFCompras, generarCSVCompras } from './utils/exportadorCompras';
 
 const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
   const [cargando, setCargando] = useState(false);
@@ -8,6 +10,8 @@ const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
   const [fechaFiltro, setFechaFiltro] = useState(new Date().toISOString().split('T')[0]);
   const [compras, setCompras] = useState([]);
   const [totalGasto, setTotalGasto] = useState(0);
+  // 🆕 Exportación real (PDF/CSV)
+  const [exportandoPDF, setExportandoPDF] = useState(false);
 
   const cargarCompras = useCallback(async () => {
     setCargando(true);
@@ -29,6 +33,29 @@ const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
   useEffect(() => {
     cargarCompras();
   }, [cargarCompras]);
+
+  // 🆕 Candado: sin compras no hay nada que exportar
+  const sinDatos = compras.length === 0;
+
+  const handleExportarPDF = async () => {
+    if (sinDatos) return;
+    setExportandoPDF(true);
+    try {
+      await generarPDFCompras({
+        apiUrl, filtroPeriodo, fechaFiltro,
+        compras, totalGasto, formaterMoneda
+      });
+    } catch (error) {
+      console.error("Error generando PDF de Compras:", error);
+    } finally {
+      setExportandoPDF(false);
+    }
+  };
+
+  const handleExportarCSV = () => {
+    if (sinDatos) return;
+    generarCSVCompras({ filtroPeriodo, fechaFiltro, compras, totalGasto });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200 print:m-0 print:p-0">
@@ -76,18 +103,28 @@ const ReporteCompras = ({ apiUrl, formaterMoneda }) => {
                <RefreshCw size={18} className={cargando ? 'animate-spin' : ''} />
             </button>
 
-            <button onClick={() => window.print()} className="flex-[2] sm:flex-none bg-slate-800 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-700 transition whitespace-nowrap">
-              <Printer size={18}/> Imprimir
+            {/* 🆕 EXPORTACIÓN REAL: se bloquean automáticamente si no hay compras registradas */}
+            <button
+              disabled={sinDatos || exportandoPDF || cargando}
+              onClick={handleExportarPDF}
+              title={sinDatos ? 'No hay información para exportar' : 'Genera un PDF con logo, resumen y tabla detallada'}
+              className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-700 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 transition whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {exportandoPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
+              <span className="hidden sm:inline">{exportandoPDF ? 'Generando...' : 'Exportar PDF'}</span>
+            </button>
+
+            <button
+              disabled={sinDatos || cargando}
+              onClick={handleExportarCSV}
+              title={sinDatos ? 'No hay información para exportar' : 'Descarga la tabla en CSV (Excel)'}
+              className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 transition whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileSpreadsheet size={18} />
+              <span className="hidden sm:inline">Exportar CSV</span>
             </button>
           </div>
         </div>
-      </div>
-
-      {/* TÍTULO EXCLUSIVO PARA IMPRESIÓN */}
-      <div className="hidden print:block text-center mb-6">
-        <h2 className="text-2xl font-black text-black uppercase">Reporte de Compras de Insumos</h2>
-        <p className="text-sm font-bold text-slate-600">Periodo: {filtroPeriodo.toUpperCase()} | Fecha Referencia: {fechaFiltro}</p>
-        <hr className="my-4 border-black"/>
       </div>
 
       {/* TABLA DE COMPRAS */}

@@ -29,7 +29,12 @@ const TarjetaPedidoCobrar = ({
   }
 
   const esDomicilio = pedido.tipo_consumo === 'Domicilio';
-  const esLocal = pedido.tipo_consumo === 'Local';  
+  const esLocal = pedido.tipo_consumo === 'Local' || pedido.tipo_consumo === 'Local / Mostrador';
+
+  // 🆕 Alerta visual de espera prolongada (mismo criterio que Entregas, campo real: fecha_creacion)
+  const fechaCreacionRaw = pedido.fecha_creacion || pedido.created_at || pedido.fecha_pedido;
+  const minutosEsperando = fechaCreacionRaw ? (Date.now() - new Date(fechaCreacionRaw).getTime()) / 60000 : 0;
+  const esperaCritica = minutosEsperando >= 10; // 🔶 10+ minutos: badge rojo parpadeante  
 
   const obtenerEstiloConsumo = () => {
     if (esDomicilio) return { bg: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-200', icon: <Bike size={12} /> };
@@ -80,6 +85,12 @@ const TarjetaPedidoCobrar = ({
               {estiloConsumo.icon} {pedido.tipo_consumo}
               {esLocal && pedido.mesa && ` - Mesa ${pedido.mesa}`}
             </div>
+            {/* 🆕 Badge de espera prolongada: solo este elemento parpadea, no toda la tarjeta */}
+            {esperaCritica && (
+              <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded-md shadow-sm bg-red-500 text-white animate-pulse w-fit">
+                <AlertTriangle size={12} /> {Math.floor(minutosEsperando)} min
+              </span>
+            )}
           </div>
           <div className="text-right flex flex-col items-end">
             <p className="text-sm font-black text-slate-400 uppercase tracking-widest mb-0.5">Por Cobrar</p>

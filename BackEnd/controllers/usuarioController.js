@@ -53,29 +53,44 @@ exports.crearUsuario = async (req, res) => {
 
 exports.actualizarUsuario = async (req, res) => {
   const { id } = req.params;
-  const { nombre, usuario, password, rol, permisos, telefono, pin } = req.body;
+  const { nombre, usuario, password, rol, permisos, telefono, pin, fondo_actual } = req.body;
   const empresaId = req.empresa_id; // 🆕 TENANT
-  const telefonoFinal = telefono && String(telefono).trim() !== '' ? telefono : null;
-  const pinFinal = pin && String(pin).trim() !== '' ? pin : null;
+
+  // 🆕 FIX: Actualización PARCIAL. Antes esta función asumía que SIEMPRE llegaba
+  // el formulario completo del Admin (nombre/usuario/rol/etc.), y al recibir
+  // solo { fondo_actual } (como hace iniciarTurno en useCajaCentral.js) pisaba
+  // esas columnas con NULL, provocando 500 por violar constraints (usuario UNIQUE/NOT NULL).
+  // Ahora se arma el UPDATE dinámicamente, solo con los campos que SÍ llegaron.
   try {
-    if (pinFinal) {
-      const pinExistente = await db.query('SELECT id FROM usuarios WHERE pin = $1 AND id != $2 AND empresa_id = $3', [pinFinal, id, empresaId]); // 🔒 FILTRO EMPRESA
+    if (pin && String(pin).trim() !== '') {
+      const pinExistente = await db.query('SELECT id FROM usuarios WHERE pin = $1 AND id != $2 AND empresa_id = $3', [pin, id, empresaId]); // 🔒 FILTRO EMPRESA
       if (pinExistente.rows.length > 0) {
         return res.status(400).json({ error: 'Ese PIN de seguridad ya está en uso por otro empleado. Elige uno distinto.' });
       }
     }
-    let result;
-    if (password && password.trim() !== '') {
-      result = await db.query(
-        'UPDATE usuarios SET nombre = $1, usuario = $2, password = $3, rol = $4, permisos = $5, telefono = $6, pin = $7 WHERE id = $8 AND empresa_id = $9 RETURNING *', // 🔒 FILTRO EMPRESA
-        [nombre, usuario, password, rol, JSON.stringify(permisos || {}), telefonoFinal, pinFinal, id, empresaId]
-      );
-    } else {
-      result = await db.query(
-        'UPDATE usuarios SET nombre = $1, usuario = $2, rol = $3, permisos = $4, telefono = $5, pin = $6 WHERE id = $7 AND empresa_id = $8 RETURNING *', // 🔒 FILTRO EMPRESA
-        [nombre, usuario, rol, JSON.stringify(permisos || {}), telefonoFinal, pinFinal, id, empresaId]
-      );
+
+    const campos = [];
+    const valores = [];
+    let idx = 1;
+
+    if (nombre !== undefined) { campos.push(`nombre = $${idx++}`); valores.push(nombre); }
+    if (usuario !== undefined) { campos.push(`usuario = $${idx++}`); valores.push(usuario); }
+    if (password && password.trim() !== '') { campos.push(`password = $${idx++}`); valores.push(password); }
+    if (rol !== undefined) { campos.push(`rol = $${idx++}`); valores.push(rol); }
+    if (permisos !== undefined) { campos.push(`permisos = $${idx++}`); valores.push(JSON.stringify(permisos || {})); }
+    if (telefono !== undefined) { campos.push(`telefono = $${idx++}`); valores.push(telefono && String(telefono).trim() !== '' ? telefono : null); }
+    if (pin !== undefined) { campos.push(`pin = $${idx++}`); valores.push(pin && String(pin).trim() !== '' ? pin : null); }
+    if (fondo_actual !== undefined) { campos.push(`fondo_actual = $${idx++}`); valores.push(Number(fondo_actual) || 0); }
+
+    if (campos.length === 0) {
+      return res.status(400).json({ error: 'No se recibió ningún campo para actualizar.' });
     }
+
+    valores.push(id, empresaId);
+    const result = await db.query(
+      `UPDATE usuarios SET ${campos.join(', ')} WHERE id = $${idx++} AND empresa_id = $${idx++} RETURNING *`, // 🔒 FILTRO EMPRESA
+      valores
+    );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
 
     const usuarioEditado = result.rows[0];

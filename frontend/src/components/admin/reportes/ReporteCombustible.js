@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Fuel, MapPin, TrendingUp, Calendar, Info, RefreshCw, Search, Settings, Car, Save, CheckCircle2, AlertTriangle, Users, List } from 'lucide-react';
+import { Fuel, MapPin, TrendingUp, Calendar, Info, RefreshCw, Search, Settings, Car, Save, CheckCircle2, AlertTriangle, Users, List, FileDown, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { apiFetch } from '../../../utils/apiFetch';
+// 🆕 Exportación real (PDF/CSV), mismo motor visual que Ventas y Cortes
+import { generarPDFCombustible, generarCSVCombustible } from './utils/exportadorCombustible';
 
 const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
     const [cargando, setCargando] = useState(false);
     const [guardando, setGuardando] = useState(false);
     const [alerta, setAlerta] = useState(null);
     const [vistaTabla, setVistaTabla] = useState('resumen'); // 'resumen' o 'detallado'
+    // 🆕 Exportación real (PDF/CSV)
+    const [exportandoPDF, setExportandoPDF] = useState(false);
     
     // Filtros
     const [periodoFiltro, setPeriodoFiltro] = useState('dia');
@@ -167,6 +171,33 @@ const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [viajesCrudos, repartidorFiltro, busqueda, precioLitroGlobal, configConductores]);
 
+    // 🆕 Candado: sin viajes no hay nada que exportar
+    const sinDatos = totales.viajes === 0;
+
+    const handleExportarPDF = async () => {
+        if (sinDatos) return;
+        setExportandoPDF(true);
+        try {
+            await generarPDFCombustible({
+                apiUrl, periodoFiltro, fechaFiltro, vistaTabla,
+                totales, resumenPorConductor, viajesFiltrados,
+                precioLitroGlobal, formaterMoneda
+            });
+        } catch (error) {
+            mostrarNotificacion("No se pudo generar el PDF del reporte.", "error");
+        } finally {
+            setExportandoPDF(false);
+        }
+    };
+
+    const handleExportarCSV = () => {
+        if (sinDatos) return;
+        generarCSVCombustible({
+            periodoFiltro, fechaFiltro, vistaTabla,
+            resumenPorConductor, viajesFiltrados, formaterMoneda
+        });
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200 pb-20 relative">
             {/* NOTIFICACIÓN PERSONALIZADA */}
@@ -210,6 +241,27 @@ const ReporteCombustible = ({ apiUrl, formaterMoneda }) => {
                     </div>
                     <button onClick={cargarRendimiento} className="w-full md:w-auto bg-amber-100 hover:bg-amber-200 text-amber-700 p-3.5 rounded-xl transition shadow-sm flex justify-center items-center">
                         <RefreshCw size={20} className={cargando ? 'animate-spin' : ''} />
+                    </button>
+
+                    {/* 🆕 EXPORTACIÓN REAL: se bloquean automáticamente si no hay viajes registrados */}
+                    <button
+                        disabled={sinDatos || exportandoPDF || cargando}
+                        onClick={handleExportarPDF}
+                        title={sinDatos ? 'No hay información para exportar' : 'Genera un PDF con logo, métricas y tabla detallada'}
+                        className="w-full md:w-auto bg-slate-800 hover:bg-slate-700 text-white font-black px-5 py-3.5 rounded-xl shadow-sm flex justify-center items-center gap-2 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        {exportandoPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
+                        <span className="hidden sm:inline">{exportandoPDF ? 'Generando...' : 'Exportar PDF'}</span>
+                    </button>
+
+                    <button
+                        disabled={sinDatos || cargando}
+                        onClick={handleExportarCSV}
+                        title={sinDatos ? 'No hay información para exportar' : 'Descarga la tabla en CSV (Excel)'}
+                        className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-black px-5 py-3.5 rounded-xl shadow-sm flex justify-center items-center gap-2 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <FileSpreadsheet size={18} />
+                        <span className="hidden sm:inline">Exportar CSV</span>
                     </button>
                 </div>
             </div>

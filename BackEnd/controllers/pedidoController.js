@@ -971,17 +971,35 @@ exports.actualizarAlerta = async (req, res) => {
 
 exports.obtenerHistorialAuditoria = async (req, res) => {
     const empresaId = req.empresa_id; // 🆕 TENANT
+    const { periodo, fecha } = req.query; // 🆕 FIX: antes se ignoraban, traía hasta 3000 pedidos de TODAS las fechas
+
     try {
+        let filtroFecha = '';
+        let params = [empresaId];
+        let idx = 2;
+
+        if (periodo === 'dia' && fecha) {
+            filtroFecha = ` AND (p.fecha_creacion AT TIME ZONE 'America/Mazatlan')::DATE = $${idx}::DATE`;
+            params.push(fecha); idx++;
+        } else if (periodo === 'mes' && fecha) {
+            filtroFecha = ` AND TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'YYYY-MM') = $${idx}`;
+            params.push(fecha.substring(0, 7)); idx++;
+        } else if (periodo === 'anio' && fecha) {
+            filtroFecha = ` AND TO_CHAR((p.fecha_creacion AT TIME ZONE 'America/Mazatlan'), 'YYYY') = $${idx}`;
+            params.push(fecha.substring(0, 4)); idx++;
+        }
+
         const query = `
         SELECT p.*, c.nombre AS cliente_nombre
         FROM pedidos p
-        LEFT JOIN clientes c ON p.cliente_id = c.id
-        WHERE p.empresa_id = $1
+        LEFT JOIN clientes c ON p.cliente_id = c.id AND c.empresa_id = $1
+        WHERE p.empresa_id = $1 ${filtroFecha}
         ORDER BY p.id DESC LIMIT 3000
         `;
-        const result = await db.query(query, [empresaId]); // 🔒 FILTRO EMPRESA
+        const result = await db.query(query, params);
         res.json(result.rows);
     } catch (error) {
+        console.error("Error al obtener historial de auditoría:", error);
         res.status(500).json({ error: 'Error al obtener historial' });
     }
 };

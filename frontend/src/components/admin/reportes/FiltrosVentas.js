@@ -7,6 +7,7 @@ const FiltrosVentas = ({
   fechaFin, setFechaFin, 
   clasificaciones, filtroClasificacion, setFiltroClasificacion,
   filtroConsumo, setFiltroConsumo, cargando, reporte,
+  productos, filtroProducto, setFiltroProducto, // 🆕 Filtro de Producto
   handleExportarPDF, exportandoPDF, handleExportarCSV, // 💡 MEJORA #3: Exportación profesional
   setReporte, cargarReporte // 👈 Funciones clave inyectadas
 }) => {
@@ -21,7 +22,7 @@ const FiltrosVentas = ({
           <p className="hidden print:block text-slate-800 font-bold mt-2">
             Periodo Analizado: <span className="uppercase text-blue-600">{filtroActivo}</span> 
             {filtroActivo === 'rango' ? ` | Rango: ${fechaCustom} a ${fechaFin}` : ` | Fecha de consulta: ${fechaCustom}`}
-            <br /><span className="text-sm font-normal text-slate-500">Clasificación: {filtroClasificacion} | Consumo: {filtroConsumo}</span>
+            <br /><span className="text-sm font-normal text-slate-500">Clasificación: {filtroClasificacion} | Consumo: {filtroConsumo} | Producto: {filtroProducto}</span>
           </p>
         </div>
 
@@ -128,6 +129,20 @@ const FiltrosVentas = ({
             <option value="Local">Comer en Local</option>
             <option value="Recoger en Local">Recoger en Local</option>
             <option value="Domicilio">A Domicilio</option>
+          </select>
+        </div>
+
+        {/* 🆕 FILTRO DE PRODUCTO — mismo patrón visual que Categoría y Tipo de Consumo */}
+        <div className="flex-1 w-full">
+          <label className="flex items-center gap-2 text-xs font-black text-orange-800 uppercase tracking-widest mb-2">
+            <Search size={16} /> Producto
+          </label>
+          <select
+            disabled={cargando} value={filtroProducto} onChange={e => setFiltroProducto(e.target.value)}
+            className="w-full p-3 rounded-xl border border-orange-200 font-bold text-slate-700 outline-none focus:border-orange-500 disabled:opacity-50"
+          >
+            <option value="Todos">Todos los productos</option>
+            {productos.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
           </select>
         </div>
 

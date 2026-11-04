@@ -8,7 +8,7 @@ const db = require('../config/db');
 const comparativasCache = new Map();
 
 exports.obtenerReporteVentas = async (req, res) => {
-  const { tipo, fecha, fechaFin, clasificacion, tipo_consumo } = req.query; 
+  const { tipo, fecha, fechaFin, clasificacion, tipo_consumo, producto } = req.query; 
   const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     // 👇 FIX RAÍZ: hora_apertura/hora_cierre eran columnas huérfanas, nunca conectadas
@@ -163,6 +163,8 @@ exports.obtenerReporteVentas = async (req, res) => {
     const parseMoney = (val) => Number(String(val).replace(/[^0-9.-]+/g,"")) || 0;
 
     const catFiltro = (clasificacion || 'Todas').trim().toLowerCase();
+    // 🆕 Filtro de Producto: compara contra el nombre BASE real del platillo (catálogo)
+    const prodFiltro = (producto || 'Todos').trim().toLowerCase();
 
     // ===============================================
     // CÁLCULO DE VENTAS DEL RESTAURANTE
@@ -347,7 +349,7 @@ exports.obtenerReporteVentas = async (req, res) => {
          itemCat = itemCat || 'Sin Categoría';
 
          itemsTemporales.push({
-             pId, cleanName, finalBasePrice, itemCat, qty, extraRows, rawPrice, tamanoDetectado, saborDetectado
+             pId, cleanName, finalBasePrice, itemCat, qty, extraRows, rawPrice, tamanoDetectado, saborDetectado, nombreBase: realBaseName
          });
       });      
       
@@ -357,7 +359,10 @@ exports.obtenerReporteVentas = async (req, res) => {
       itemsTemporales.forEach(t => {
           const targetObj = isComedor ? comedorObj : ventasObj;
           const catItemLimpia = t.itemCat.trim().toLowerCase();
-          const pasaFiltro = catFiltro === 'todas' || catFiltro === catItemLimpia;
+          const pasaFiltroCategoria = catFiltro === 'todas' || catFiltro === catItemLimpia;
+          // 🆕 Filtro de Producto: exige coincidencia exacta con el nombre base del platillo
+          const pasaFiltroProducto = prodFiltro === 'todos' || (t.nombreBase || '').trim().toLowerCase() === prodFiltro;
+          const pasaFiltro = pasaFiltroCategoria && pasaFiltroProducto;
 
           const item_gross_base = t.finalBasePrice * t.qty;
           const item_gross_total = t.rawPrice * t.qty;
@@ -385,7 +390,8 @@ exports.obtenerReporteVentas = async (req, res) => {
               }
           }
 
-          if (catFiltro === 'todas' || catFiltro === 'extras') {
+          // 🆕 Si hay un Producto específico seleccionado, no mezclamos sus Extras sueltos en la vista
+          if ((catFiltro === 'todas' || catFiltro === 'extras') && prodFiltro === 'todos') {
               t.extraRows.forEach(ext => {
                   if(ext.precio > 0 || isComedor) { 
                       const extKey = `EXT_${ext.nombre}_${ext.precio}`;
@@ -412,7 +418,8 @@ exports.obtenerReporteVentas = async (req, res) => {
           }
       });
 
-      if (catFiltro === 'todas' || catFiltro === 'envíos') {
+      // 🆕 Igual que Extras: el renglón de Envío no aplica cuando se filtra por un Producto puntual
+      if ((catFiltro === 'todas' || catFiltro === 'envíos') && prodFiltro === 'todos') {
           const costoEnv = parseMoney(p.costo_envio);
           if (costoEnv > 0) {
               const envKey = `ENV_${costoEnv}`;

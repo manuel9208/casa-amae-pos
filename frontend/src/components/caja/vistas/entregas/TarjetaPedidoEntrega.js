@@ -30,6 +30,11 @@ const TarjetaPedidoEntrega = ({
     const faltaPagar = ['Pendiente', 'Por Cobrar'].includes(pedido.metodo_pago);
     const esDomicilio = pedido.tipo_consumo === 'Domicilio';
     const esLocal = pedido.tipo_consumo === 'Local' || pedido.tipo_consumo === 'Local / Mostrador';
+
+    // 🆕 Alerta visual de espera prolongada (campo real: fecha_creacion)
+    const fechaCreacionRaw = pedido.fecha_creacion || pedido.created_at || pedido.fecha_pedido;
+    const minutosEsperando = fechaCreacionRaw ? (Date.now() - new Date(fechaCreacionRaw).getTime()) / 60000 : 0;
+    const esperaCritica = minutosEsperando >= 10; // 🔶 10+ minutos: se resalta en rojo
     const instruccionCobro = pedido.direccion_entrega ? (pedido.direccion_entrega.match(/\[(.*?)\]/) ? pedido.direccion_entrega.match(/\[(.*?)\]/)[1] : null) : null;
     let direccionLimpia = pedido.direccion_entrega || '';
     let clienteExtraido = pedido.cliente_nombre || 'Invitado';
@@ -128,6 +133,12 @@ const TarjetaPedidoEntrega = ({
                         <span className={`ml-2 text-[10px] font-black uppercase px-2 py-1 rounded-md shadow-sm ${esDomicilio ? 'bg-indigo-50 text-indigo-600 border border-indigo-200' : 'bg-orange-50 text-orange-600 border border-orange-200'}`}>
                             {pedido.tipo_consumo}
                         </span>
+                        {/* 🆕 Badge de espera prolongada: SOLO este elemento parpadea, no toda la tarjeta */}
+                        {esperaCritica && (
+                            <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded-md shadow-sm bg-red-500 text-white animate-pulse">
+                                <AlertTriangle size={12} /> {Math.floor(minutosEsperando)} min
+                            </span>
+                        )}
                     </div>
                     <div className="text-right">
                         <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Total</p>

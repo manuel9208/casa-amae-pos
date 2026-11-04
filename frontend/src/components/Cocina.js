@@ -35,6 +35,11 @@ const Cocina = ({ user, onLogout }) => {
     const [alertaCaja, setAlertaCaja] = useState(null);  
 
     const bloqueosOptimistasRef = useRef(new Set());
+    // 🔧 FIX: guarda el temporizador ACTIVO de cada pedido bloqueado. Permite
+    // cancelar y renovar el escudo si llega una segunda acción sobre el mismo
+    // pedido antes de que expire la primera, evitando que quede "desprotegido"
+    // a medias mientras aún hay una escritura pendiente en el servidor.
+    const timersEscudoRef = useRef(new Map());
     const socketRef = useRef(null); // 🆕 Guardamos la referencia para poder emitir desde enviarSolicitudInsumo()
     
     const audioRef = useRef(new Audio('/campana.mp3'));
@@ -135,7 +140,26 @@ const Cocina = ({ user, onLogout }) => {
         } catch (error) {
             console.error("Error al cargar pedidos:", error);
         }
-    }, [apiUrl]);  
+    }, [apiUrl]);
+    
+        // 🛡️ Escudo anti-parpadeo RENOVABLE: si ya había un temporizador corriendo
+    // para este mismo pedido, lo cancela y arranca uno nuevo desde cero. Así,
+    // sin importar cuántos platillos/acciones toques seguidas sobre el mismo
+    // pedido, el escudo solo se retira cuando pasan los X ms desde la ÚLTIMA acción.
+    const bloquearPedido = useCallback((id, duracionMs = 1500) => {
+        const timerPrevio = timersEscudoRef.current.get(id);
+        if (timerPrevio) clearTimeout(timerPrevio);
+
+        bloqueosOptimistasRef.current.add(id);
+
+        const nuevoTimer = setTimeout(() => {
+            bloqueosOptimistasRef.current.delete(id);
+            timersEscudoRef.current.delete(id);
+            fetchPedidos();
+        }, duracionMs);
+
+        timersEscudoRef.current.set(id, nuevoTimer);
+    }, [fetchPedidos]);
 
     useEffect(() => {
         if (pedidos.length > prevPedidosCount.current) {
@@ -190,7 +214,10 @@ const Cocina = ({ user, onLogout }) => {
     // 👇 LA MAGIA DE COLABORACIÓN: Función maestra que actualiza por Platillo individual
     const procesarAccionItems = async (pedido, indicesAfectados, accion, trabajadorId) => {
         // 🔥 ELIMINAMOS EL BLOQUEO GLOBAL (isSubmitting) PARA CERO LATENCIA TÁCTIL
-        bloqueosOptimistasRef.current.add(pedido.id);
+        // 🔧 FIX: antes solo se "agregaba" el bloqueo aquí y un setTimeout suelto lo
+        // quitaba al final (ver abajo). Ahora usamos bloquearPedido(), que CANCELA
+        // cualquier temporizador previo de este mismo pedido antes de crear uno nuevo.
+        bloquearPedido(pedido.id, 1500);
 
         const carritoActualizado = [...getCarrito(pedido)];
         const ahoraStr = new Date().toISOString();
@@ -243,18 +270,15 @@ const Cocina = ({ user, onLogout }) => {
             })
         }).catch(error => console.error("Error al actualizar platillos:", error));
         
-        // 3. RETIRAMOS EL ESCUDO ANTI-PARPADEO DESPUÉS DE 1.5 SEGUNDOS
-        setTimeout(() => {
-            bloqueosOptimistasRef.current.delete(pedido.id);
-            fetchPedidos();
-        }, 1500);
+        // 3. RENOVAMOS EL ESCUDO ANTI-PARPADEO (ya no es un timer "ciego" e independiente)
+        bloquearPedido(pedido.id, 1500);
     };
 
     const enviarAlerta = async () => {
         if (!modalAlerta || !faltanteSelec || !propuestaSelec) return;
         setIsSubmitting(true);
         const targetId = modalAlerta.pedido.id;
-        bloqueosOptimistasRef.current.add(targetId);
+        bloquearPedido(targetId, 1000);
 
         try {
             const msj = `[IDX:${modalAlerta.itemIndex}] 🚨 FALTANTE: ${faltanteSelec}. PROPUESTA COCINA: ${propuestaSelec}`;
@@ -268,11 +292,7 @@ const Cocina = ({ user, onLogout }) => {
             setModalAlerta(null); setFaltanteSelec(''); setPropuestaSelec('');
         } catch (error) { console.error(error); }
         finally {
-            setTimeout(() => {
-                bloqueosOptimistasRef.current.delete(targetId);
-                fetchPedidos();
-                setIsSubmitting(false);
-            }, 1000);
+            setIsSubmitting(false);
         }
     };  
 
@@ -289,7 +309,7 @@ const Cocina = ({ user, onLogout }) => {
     };
 
     const limpiarAlerta = async (id) => {
-        bloqueosOptimistasRef.current.add(id);
+        bloquearPedido(id, 1000);
         setPedidos(prev => prev.map(p => p.id === id ? { ...p, alerta_cocina: null } : p));
 
         try {
@@ -298,12 +318,6 @@ const Cocina = ({ user, onLogout }) => {
                 body: JSON.stringify({ alerta_cocina: null })
             });
         } catch(e) {}
-        finally {
-            setTimeout(() => {
-                bloqueosOptimistasRef.current.delete(id);
-                fetchPedidos();
-            }, 1000);
-        }
     };  
 
     const obtenerNombreTrabajadorActivo = (id) => {

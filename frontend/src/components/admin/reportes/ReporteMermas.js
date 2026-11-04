@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trash2, Calendar, Printer, RefreshCw, Filter } from 'lucide-react';
+import { Trash2, Calendar, RefreshCw, Filter, FileDown, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { apiFetch } from '../../../utils/apiFetch';
+// 🆕 Exportación real (PDF/CSV), mismo motor visual que Ventas, Cortes, Combustible y Compras
+import { generarPDFMermas, generarCSVMermas } from './utils/exportadorMermas';
 
 const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
   const [cargando, setCargando] = useState(false);
@@ -9,6 +11,8 @@ const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
   const [filtroCategoria, setFiltroCategoria] = useState('Todos');
   const [mermas, setMermas] = useState([]);
   const [totalPerdida, setTotalPerdida] = useState(0);
+  // 🆕 Exportación real (PDF/CSV)
+  const [exportandoPDF, setExportandoPDF] = useState(false);
 
   const cargarMermas = useCallback(async () => {
     setCargando(true);
@@ -30,6 +34,29 @@ const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
   useEffect(() => {
     cargarMermas();
   }, [cargarMermas]);
+
+  // 🆕 Candado: sin mermas no hay nada que exportar
+  const sinDatos = mermas.length === 0;
+
+  const handleExportarPDF = async () => {
+    if (sinDatos) return;
+    setExportandoPDF(true);
+    try {
+      await generarPDFMermas({
+        apiUrl, filtroPeriodo, fechaFiltro, filtroCategoria,
+        mermas, totalPerdida, formaterMoneda
+      });
+    } catch (error) {
+      console.error("Error generando PDF de Mermas:", error);
+    } finally {
+      setExportandoPDF(false);
+    }
+  };
+
+  const handleExportarCSV = () => {
+    if (sinDatos) return;
+    generarCSVMermas({ filtroPeriodo, fechaFiltro, filtroCategoria, mermas, totalPerdida });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200 print:m-0 print:p-0">
@@ -91,18 +118,28 @@ const ReporteMermas = ({ apiUrl, formaterMoneda }) => {
                <RefreshCw size={18} className={cargando ? 'animate-spin' : ''} />
             </button>
 
-            <button onClick={() => window.print()} className="flex-[2] sm:flex-none bg-slate-800 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-700 transition whitespace-nowrap">
-              <Printer size={18}/> Imprimir
+            {/* 🆕 EXPORTACIÓN REAL: se bloquean automáticamente si no hay mermas registradas */}
+            <button
+              disabled={sinDatos || exportandoPDF || cargando}
+              onClick={handleExportarPDF}
+              title={sinDatos ? 'No hay información para exportar' : 'Genera un PDF con logo, resumen y tabla detallada'}
+              className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-700 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 transition whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {exportandoPDF ? <Loader2 size={18} className="animate-spin" /> : <FileDown size={18} />}
+              <span className="hidden sm:inline">{exportandoPDF ? 'Generando...' : 'Exportar PDF'}</span>
+            </button>
+
+            <button
+              disabled={sinDatos || cargando}
+              onClick={handleExportarCSV}
+              title={sinDatos ? 'No hay información para exportar' : 'Descarga la tabla en CSV (Excel)'}
+              className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-3 rounded-2xl flex items-center justify-center gap-2 transition whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileSpreadsheet size={18} />
+              <span className="hidden sm:inline">Exportar CSV</span>
             </button>
           </div>
         </div>
-      </div>
-
-      {/* TÍTULO EXCLUSIVO PARA IMPRESIÓN */}
-      <div className="hidden print:block text-center mb-6">
-        <h2 className="text-2xl font-black text-black uppercase">Reporte de Mermas y Desperdicios</h2>
-        <p className="text-sm font-bold text-slate-600">Periodo: {filtroPeriodo.toUpperCase()} | Fecha Referencia: {fechaFiltro} | Filtrado por: {filtroCategoria}</p>
-        <hr className="my-4 border-black"/>
       </div>
 
       {/* TABLA DE MERMAS */}

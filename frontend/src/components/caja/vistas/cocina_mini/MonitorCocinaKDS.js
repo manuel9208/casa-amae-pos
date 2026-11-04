@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { ChefHat } from 'lucide-react';  
 import SelectorPersonalCocina from './SelectorPersonalCocina';
 import TarjetaComandaCocina from './TarjetaComandaCocina'; 
@@ -12,7 +12,32 @@ const MonitorCocinaKDS = ({
   isSubmitting
 }) => {
   const [trabajadorActivoId, setTrabajadorActivoId] = useState(user?.id);
-  const [procesandoLocal, setProcesandoLocal] = useState(false);  
+
+  // 🔧 FIX (mismo patrón que Cocina.js): "overrides" guarda, por pedido, la
+  // última versión del carrito/estado que YA sabemos correcta (la que
+  // acabamos de mandar al servidor). Así, si se tocan 2 platillos seguidos
+  // del MISMO pedido antes de que lleguen las props frescas del backend,
+  // la 2ª acción construye su payload sobre datos actualizados y no
+  // "pisa"/revierte a la 1ª (causa real del bug "aparece y desaparece").
+  const [overrides, setOverrides] = useState({});
+  // Temporizador RENOVABLE por pedido (igual que bloquearPedido() en Cocina.js)
+  const timersEscudoRef = useRef(new Map());
+
+  const liberarOverride = useCallback((id, duracionMs = 1500) => {
+    const timerPrevio = timersEscudoRef.current.get(id);
+    if (timerPrevio) clearTimeout(timerPrevio);
+
+    const nuevoTimer = setTimeout(() => {
+      setOverrides(prev => {
+        const copia = { ...prev };
+        delete copia[id];
+        return copia;
+      });
+      timersEscudoRef.current.delete(id);
+    }, duracionMs);
+
+    timersEscudoRef.current.set(id, nuevoTimer);
+  }, []);
 
   // Identificar el día actual de la semana
   const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -36,7 +61,12 @@ const MonitorCocinaKDS = ({
     personalCocina.unshift(user);
   }  
 
-  const pedidosCocina = pedidos.filter(p =>
+  // 🔧 Igual que en Cocina.js: fusionamos cada pedido con su override local
+  // (si existe) antes de filtrar, así la pantalla siempre refleja la ÚLTIMA
+  // acción del cajero aunque las props "pedidos" aún no se hayan refrescado.
+  const pedidosConOverride = pedidos.map(p => overrides[p.id] ? { ...p, ...overrides[p.id] } : p);
+
+  const pedidosCocina = pedidosConOverride.filter(p =>
     ['Pendiente', 'Pagado', 'Aceptado', 'Preparando'].includes(p.estado_preparacion) &&
     p.tipo_consumo !== 'Mostrador'
   );  
@@ -46,57 +76,61 @@ const MonitorCocinaKDS = ({
   // ==========================================
   // NUEVO MOTOR GRANULAR (Por Platillo)
   // ==========================================
-  const procesarAccionItems = async (pedido, indicesAfectados, accion, trabajadorId) => {
-    if (procesandoLocal || isSubmitting) return;
-    setProcesandoLocal(true);
+  const procesarAccionItems = (pedidoOriginal, indicesAfectados, accion, trabajadorId) => {
+    if (isSubmitting) return;
 
-    try {
-      // Deserializar carrito si es necesario
-      const carritoActualizado = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : [...pedido.carrito];
-      const ahoraStr = new Date().toISOString();  
+    // 🔧 FIX: si ya existe un override reciente de este pedido, partimos de
+    // ÉL (no de la prop "pedidos", que puede estar desactualizada), así dos
+    // acciones seguidas sobre el mismo pedido nunca se pisan entre sí.
+    const pedido = overrides[pedidoOriginal.id] ? { ...pedidoOriginal, ...overrides[pedidoOriginal.id] } : pedidoOriginal;
 
-      // Modificar granularmente los items solicitados
-      indicesAfectados.forEach(idx => {
-        if (accion === 'Preparar' || accion === 'Ayudar') {
-          carritoActualizado[idx].estado = 'Preparando';
-          carritoActualizado[idx].chef_id = trabajadorId;
-          if (accion === 'Preparar') carritoActualizado[idx].tiempo_inicio = ahoraStr;
-        } else if (accion === 'Terminar') {
-          carritoActualizado[idx].estado = 'Listo';
-          carritoActualizado[idx].tiempo_fin = ahoraStr;
-        }
-      });  
+    const carritoActualizado = typeof pedido.carrito === 'string' ? JSON.parse(pedido.carrito) : [...pedido.carrito];
+    const ahoraStr = new Date().toISOString();
 
-      let allListos = true;
-      let anyPreparando = false;  
+    indicesAfectados.forEach(idx => {
+      if (accion === 'Preparar' || accion === 'Ayudar') {
+        carritoActualizado[idx].estado = 'Preparando';
+        carritoActualizado[idx].chef_id = trabajadorId;
+        if (accion === 'Preparar') carritoActualizado[idx].tiempo_inicio = ahoraStr;
+      } else if (accion === 'Terminar') {
+        carritoActualizado[idx].estado = 'Listo';
+        carritoActualizado[idx].tiempo_fin = ahoraStr;
+      }
+    });
 
-      carritoActualizado.forEach(i => {
-        if (i.estado !== 'Listo' && i.estado !== 'Finalizado') allListos = false;
-        if (i.estado === 'Preparando') anyPreparando = true;
-      });  
+    let allListos = true;
+    let anyPreparando = false;
 
-      // Calcular el nuevo estado global en base a los hijos (items)
-      let nuevoEstadoGlobal = pedido.estado_preparacion;
-      if (allListos) nuevoEstadoGlobal = 'Listo';
-      else if (anyPreparando || accion === 'Preparar' || accion === 'Ayudar') nuevoEstadoGlobal = 'Preparando';  
+    carritoActualizado.forEach(i => {
+      if (i.estado !== 'Listo' && i.estado !== 'Finalizado') allListos = false;
+      if (i.estado === 'Preparando') anyPreparando = true;
+    });
 
-      const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;  
+    let nuevoEstadoGlobal = pedido.estado_preparacion;
+    if (allListos) nuevoEstadoGlobal = 'Listo';
+    else if (anyPreparando || accion === 'Preparar' || accion === 'Ayudar') nuevoEstadoGlobal = 'Preparando';
 
-      // Disparar a la API
-      await apiFetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          estado_preparacion: nuevoEstadoGlobal,
-          chef_id: mainChefId,
-          carrito: carritoActualizado
-        })
-      });
-    } catch (error) {
-      console.error("Error al actualizar la comanda desde Minicocina KDS:", error);
-    }
-    
-    setTimeout(() => setProcesandoLocal(false), 800);
+    const mainChefId = carritoActualizado.find(i => i.chef_id)?.chef_id || pedido.chef_id;
+
+    // 1. ACTUALIZACIÓN VISUAL INMEDIATA (cero latencia, igual que Cocina.js)
+    setOverrides(prev => ({
+      ...prev,
+      [pedido.id]: { estado_preparacion: nuevoEstadoGlobal, chef_id: mainChefId, carrito: carritoActualizado }
+    }));
+
+    // 2. ENVÍO SILENCIOSO EN SEGUNDO PLANO (fire and forget)
+    apiFetch(`${apiUrl}/pedidos/${pedido.id}/estado`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        estado_preparacion: nuevoEstadoGlobal,
+        chef_id: mainChefId,
+        carrito: carritoActualizado
+      })
+    }).catch(error => console.error("Error al actualizar la comanda desde Minicocina KDS:", error));
+
+    // 3. RENOVAMOS el escudo de este pedido
+    liberarOverride(pedido.id, 1500);
   };  
 
   if (pedidosCocina.length === 0) {
@@ -124,7 +158,7 @@ const MonitorCocinaKDS = ({
             pedido={pedido}
             trabajadorActivoId={trabajadorActivoId}
             procesarAccionItems={procesarAccionItems}
-            procesandoLocal={procesandoLocal}
+            procesandoLocal={isSubmitting}
             personalCocina={personalCocina}
           />
         ))}

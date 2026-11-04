@@ -306,6 +306,12 @@ const CorteCajaFinanciero = (props) => {
         
         const fondoNum = pFondoCaja;
 
+        // 🔍 DEBUG TEMPORAL — borrar después de encontrar la causa
+        console.log('🔍 pedidosGlobales (total del día):', pedidosGlobales.length, pedidosGlobales.map(p => ({ id: p.id, metodo: p.metodo_pago, estado: p.estado_preparacion, total: p.total })));
+        console.log('🔍 datosHistoricos (cortes ya guardados):', datosHistoricos);
+        console.log('🔍 mathHoy COMPLETO al momento de cerrar:', JSON.parse(JSON.stringify(mathHoy)));
+        console.log('🔍 pedidos_incluidos que se va a mandar:', mathHoy.pedidos_incluidos);
+
         if (isNaN(numEntregar) || numEntregar <= 0 || isNaN(numDejar) || numDejar < 0) {
             mostrarError("Por favor ingresa cantidades válidas para efectuar el cierre.");
             return;

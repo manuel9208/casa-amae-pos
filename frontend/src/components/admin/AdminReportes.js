@@ -28,18 +28,26 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
   const [clasificaciones, setClasificaciones] = useState([]);
   const [filtroClasificacion, setFiltroClasificacion] = useState('Todas');
   const [filtroConsumo, setFiltroConsumo] = useState('Todos');
+  // 🆕 FILTRO DE PRODUCTO (mismo patrón que Categoría)
+  const [productos, setProductos] = useState([]);
+  const [filtroProducto, setFiltroProducto] = useState('Todos');
 
   useEffect(() => {
    apiFetch(`${apiUrl}/clasificaciones`)
       .then(res => res.json())
       .then(data => setClasificaciones(Array.isArray(data) ? data : []))
       .catch(e => console.error('Error cargando clasificaciones', e));
+
+   apiFetch(`${apiUrl}/productos`)
+      .then(res => res.json())
+      .then(data => setProductos(Array.isArray(data) ? data : []))
+      .catch(e => console.error('Error cargando productos', e));
   }, [apiUrl]);
 
   const cargarReporte = useCallback(async (tipo, fecha = '', fFin = '') => {
     setCargando(true);
     try {
-      const urlConsulta = `${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&fechaFin=${fFin}&clasificacion=${encodeURIComponent(filtroClasificacion)}&tipo_consumo=${encodeURIComponent(filtroConsumo)}`;
+      const urlConsulta = `${apiUrl}/reportes/ventas?tipo=${tipo}&fecha=${fecha}&fechaFin=${fFin}&clasificacion=${encodeURIComponent(filtroClasificacion)}&tipo_consumo=${encodeURIComponent(filtroConsumo)}&producto=${encodeURIComponent(filtroProducto)}`;
       const res = await apiFetch(urlConsulta);
       if (res.ok) {
         const data = await res.json();
@@ -52,7 +60,7 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     } finally {
       setCargando(false);
     }
-  }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo]);
+  }, [apiUrl, showAlert, filtroClasificacion, filtroConsumo, filtroProducto]);
 
   useEffect(() => {
     if (vistaModulo === 'ventas') {
@@ -103,7 +111,7 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
     try {
       await generarPDFReporte({
         reporte,
-        filtros: { filtroActivo, fechaCustom, fechaFin, filtroClasificacion, filtroConsumo },
+        filtros: { filtroActivo, fechaCustom, fechaFin, filtroClasificacion, filtroConsumo, filtroProducto },
         apiUrl,
         formaterMoneda
       });
@@ -153,6 +161,8 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
             clasificaciones={clasificaciones}
             filtroClasificacion={filtroClasificacion} setFiltroClasificacion={setFiltroClasificacion}
             filtroConsumo={filtroConsumo} setFiltroConsumo={setFiltroConsumo}
+            productos={productos}
+            filtroProducto={filtroProducto} setFiltroProducto={setFiltroProducto}
             cargando={cargando} reporte={reporte}
             handleExportarPDF={handleExportarPDF} exportandoPDF={exportandoPDF}
             handleExportarCSV={handleExportarCSV}
@@ -172,11 +182,13 @@ const AdminReportes = ({ apiUrl, showAlert }) => {
             </div>
           ) : reporte ? (
             <div className="space-y-6">
-              <ProyeccionesVentas proyecciones={reporte.proyecciones} />
-              <InsightsVentas insights={reporte.insights} filtroActivo={filtroActivo} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
-              <TendenciasVentas comparativas={reporte.comparativas} />
+              {/* 🆕 REORDEN: lo que más le importa al cliente va primero (ventas y totales),
+                  el análisis más "operativo/nerd" queda al final */}
               <ResumenFinanciero resumen={reporte.resumen} formaterMoneda={formaterMoneda} comparativas={reporte.comparativas} />
               <TablaDesgloseVentas detalles={reporte.detalles} formaterMoneda={formaterMoneda} />
+              <ProyeccionesVentas proyecciones={reporte.proyecciones} />
+              <TendenciasVentas comparativas={reporte.comparativas} />
+              <InsightsVentas insights={reporte.insights} filtroActivo={filtroActivo} formaterMoneda={formaterMoneda} parseFechaSegura={parseFechaSegura} />
             </div>
           ) : null}
         </>
