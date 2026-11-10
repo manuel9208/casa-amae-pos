@@ -25,7 +25,7 @@ const ChipModo = ({ pausa, iaActiva }) => {
   return <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Manual</span>;
 };
 
-const ChatWhatsAppCaja = ({ apiUrl, showAlert }) => {
+const ChatWhatsAppCaja = ({ apiUrl, showAlert, sonar }) => {
   const [habilitado, setHabilitado] = useState(false);
   const [iaActiva, setIaActiva] = useState(false);
   const [chats, setChats] = useState([]);
@@ -39,6 +39,9 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert }) => {
   const [cambiandoPausa, setCambiandoPausa] = useState(false);
 
   const showAlertRef = useRef(showAlert);
+  const sonarRef = useRef(sonar);
+  sonarRef.current = sonar; // siempre apunta a la versión vigente
+  const noLeidosPrevRef = useRef(null);
   const chatIdRef = useRef(null);
   const abiertoRef = useRef(false);
   const timerListaRef = useRef(null);
@@ -65,7 +68,13 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert }) => {
       }
       setIaActiva(!!data.ia_activa);
       setChats(Array.isArray(data.chats) ? data.chats : []);
-      setNoLeidos(Number(data.no_leidos) || 0);
+      const totalNoLeidos = Number(data.no_leidos) || 0;
+      // 🔔 Solo suena cuando SUBE el contador (únicamente los mensajes del cliente lo incrementan)
+      if (noLeidosPrevRef.current !== null && totalNoLeidos > noLeidosPrevRef.current && sonarRef.current) {
+        sonarRef.current('mensaje');
+      }
+      noLeidosPrevRef.current = totalNoLeidos;
+      setNoLeidos(totalNoLeidos);
     } catch (e) { /* ante fallo de red se conserva el último estado */ }
   }, [apiUrl]);
 

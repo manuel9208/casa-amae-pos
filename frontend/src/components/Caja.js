@@ -11,6 +11,7 @@ import ModalPagoMayoreo from './caja/modales/ModalPagoMayoreo';
 // 👇 IMPORTACIÓN DEL NUEVO MODAL DE AUDITORÍA EN CAJA
 import ModalInventarioCaja from './caja/modales/ModalInventarioCaja';
 import { apiFetch } from '../utils/apiFetch';
+import { useSonidosCaja } from './caja/useSonidosCaja'; // 🔔 sonidos de pedido nuevo y mensaje de WhatsApp
 import ChatWhatsAppCaja from './caja/ChatWhatsAppCaja'; // 🆕 Chat de WhatsApp (Human Handoff)
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
@@ -24,6 +25,18 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const [mostrandoMotivoRechazo, setMostrandoMotivoRechazo] = useState(false); // 🆕 Mini-form de motivo
   const [motivoRechazo, setMotivoRechazo] = useState(''); // 🆕 Texto que escribe el cajero
   const socketRef = useRef(null); // 🆕 Para poder emitir la respuesta a Cocina
+
+  // 🔔 Sonidos de Caja
+  const { sonar } = useSonidosCaja();
+  const idsPorConfirmarRef = useRef(new Set());
+  const montadoEnRef = useRef(Date.now());
+  useEffect(() => {
+    const lista = Array.isArray(c.pedidosPorConfirmar) ? c.pedidosPorConfirmar : [];
+    const hayNuevo = lista.some(p => !idsPorConfirmarRef.current.has(p.id));
+    // La guarda de 6 s evita que suene con los pedidos que ya existían al abrir Caja
+    if (hayNuevo && Date.now() - montadoEnRef.current > 6000) sonar('pedido');
+    idsPorConfirmarRef.current = new Set(lista.map(p => p.id));
+  }, [c.pedidosPorConfirmar, sonar]);
 
   useEffect(() => {
     if (!apiUrl) return;
@@ -290,6 +303,7 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
         {/* 🆕 CHAT DE WHATSAPP: oculto con la caja bloqueada y si el negocio no tiene el canal listo */}
         {!c.isCajaBloqueada && (
           <ChatWhatsAppCaja
+            sonar={sonar}
             apiUrl={c.apiUrl}
             showAlert={(titulo, mensaje, tipo) => {
               c.setAlertaCaja({ titulo, mensaje, tipo });

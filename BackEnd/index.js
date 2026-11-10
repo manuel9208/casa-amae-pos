@@ -122,7 +122,7 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     process.env.VAPID_PRIVATE_KEY
   );
 } else {
-  console.warn("⚠️ Faltan las llaves VAPID en el archivo .env. Las notificaciones Push no funcionarán.");
+  console.info("ℹ️ Sin llaves VAPID globales en .env: el push usa las llaves de cada empresa (Admin Empresas).");
 }
 
 // 👇 PUENTE BIOMÉTRICO (ZKTECO ADMS): Intercepta el checador y rutea el tráfico sin perder las huellas

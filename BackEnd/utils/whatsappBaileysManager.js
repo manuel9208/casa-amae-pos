@@ -395,7 +395,18 @@ const obtenerQr = (empresaId) => {
 const enviarTexto = async (empresaId, telefono, texto) => {
   const s = sesiones.get(empresaId);
   if (!s || s.estado !== 'conectado' || !s.sock) return false;
-  const jid = mapaLid.get(`${empresaId}:${telefono}`) || `${telefono}@s.whatsapp.net`;
+  let jid = mapaLid.get(`${empresaId}:${telefono}`);
+  if (!jid) {
+    s.jidCache = s.jidCache || new Map();
+    jid = s.jidCache.get(telefono);
+    if (!jid) {
+      try {
+        const r = await s.sock.onWhatsApp(telefono);
+        if (r && r[0] && r[0].exists) { jid = r[0].jid; s.jidCache.set(telefono, jid); }
+      } catch (e) { /* si falla, se usa el formato directo */ }
+    }
+    if (!jid) jid = `${telefono}@s.whatsapp.net`;
+  }
   try {
     // "Escribiendo..." es cosmético: si falla, el mensaje se envía igual
     try {

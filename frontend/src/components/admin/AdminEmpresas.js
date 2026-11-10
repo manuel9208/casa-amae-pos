@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Building2, PlusCircle, KeyRound, Eye, EyeOff, Loader2, Save, ShieldCheck, Tag, Bot, BellRing } from 'lucide-react';
+import { Building2, PlusCircle, KeyRound, Eye, EyeOff, Loader2, Save, ShieldCheck, Tag, Bot, BellRing, Bell } from 'lucide-react';
 import { apiFetch } from '../../utils/apiFetch';
 
 const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
@@ -353,7 +353,7 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
 
       {/* 🆕 Candados comerciales de WhatsApp — exclusivos de este panel (Súper-Admin) */}
       {empresaSeleccionada && empresaActual && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-100 pt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-100 pt-6">
           <button
             type="button"
             disabled={actualizandoFlag === 'whatsapp_pedidos_ia'}
@@ -372,6 +372,16 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
           >
             <span className="flex items-center gap-2"><BellRing size={18} /> Notificaciones por WhatsApp</span>
             {actualizandoFlag === 'whatsapp_notificaciones' ? <Loader2 size={18} className="animate-spin" /> : <span>{empresaActual.whatsapp_notificaciones ? 'Activo' : 'Inactivo'}</span>}
+          </button>
+
+          <button
+            type="button"
+            disabled={actualizandoFlag === 'notificaciones_push'}
+            onClick={() => toggleFlagWhatsapp('notificaciones_push', empresaActual.notificaciones_push !== false)}
+            className={`flex items-center justify-between gap-3 p-4 rounded-2xl border-2 font-black text-sm transition disabled:opacity-50 ${empresaActual.notificaciones_push !== false ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+          >
+            <span className="flex items-center gap-2"><Bell size={18} /> Notificaciones Push</span>
+            {actualizandoFlag === 'notificaciones_push' ? <Loader2 size={18} className="animate-spin" /> : <span>{empresaActual.notificaciones_push !== false ? 'Activo' : 'Inactivo'}</span>}
           </button>
         </div>
       )}

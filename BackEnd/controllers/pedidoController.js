@@ -8,19 +8,33 @@ const notificacionesConfigCtrl = require('./notificacionesConfigController'); //
 // con process.env global. Ahora se resuelve POR EMPRESA, justo antes de cada
 // tanda de envíos, leyendo primero empresas.variables y cayendo a process.env
 // si esa empresa aún no configuró sus propias llaves VAPID (fallback seguro).
+// 🆕 Aviso visible (máx. 1 vez por hora y empresa) cuando el push no puede enviarse por falta de llaves
+const avisosVapid = new Map();
+const avisarSinVapid = (empresaId, motivo) => {
+  const ahora = Date.now();
+  if (ahora - (avisosVapid.get(empresaId) || 0) < 60 * 60 * 1000) return;
+  avisosVapid.set(empresaId, ahora);
+  console.warn(`⚠️ [PUSH] Empresa ${empresaId}: ${motivo}. No se enviarán notificaciones push hasta configurarlas en Admin Empresas.`);
+};
+
 const configurarVapidPorEmpresa = async (empresaId) => {
     try {
-        const vars = await resolverVariables(empresaId, ['VAPID_EMAIL', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']);
-        const email = vars.VAPID_EMAIL || 'soporte@pos.com';
-        const publicKey = vars.VAPID_PUBLIC_KEY;
-        const privateKey = vars.VAPID_PRIVATE_KEY;
+        // 🔒 Candado comercial del Admin Global: push apagado para esta empresa (default: encendido)
+        const flagPush = await db.query('SELECT notificaciones_push FROM empresas WHERE id = $1', [empresaId]);
+        if (flagPush.rows[0] && flagPush.rows[0].notificaciones_push === false) return null;
 
+        const vars = await resolverVariables(empresaId, ['VAPID_EMAIL', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']);
+        const email = String(vars.VAPID_EMAIL || 'soporte@pos.com').trim();
+        const publicKey = String(vars.VAPID_PUBLIC_KEY || '').trim();
+        const privateKey = String(vars.VAPID_PRIVATE_KEY || '').trim();
         if (publicKey && privateKey) {
-            webpush.setVapidDetails(`mailto:${email}`, publicKey, privateKey);
-            return true;
+        // El valor guardado puede traer ya "mailto:" o ser https://: solo se antepone si hace falta
+        const subject = /^(mailto:|https?:\/\/)/i.test(email) ? email : `mailto:${email}`;
+          return { subject, publicKey, privateKey }; // se pasa en CADA envío: sin estado global entre empresas
         }
-        return false;
-    } catch (e) {
+            avisarSinVapid(empresaId, 'sin llaves VAPID (ni propias en Admin Empresas ni globales en el servidor)');
+        return null;
+        } catch (e) {
         console.log("No se pudieron configurar las llaves VAPID para la empresa:", empresaId, e.message);
         return false;
     }
@@ -29,6 +43,19 @@ const configurarVapidPorEmpresa = async (empresaId) => {
 // =========================================================
 // FUNCIONES GLOBALES DE NOTIFICACIÓN PUSH
 // =========================================================
+// 🆕 Envía con las llaves de ESTA empresa y borra suscripciones muertas (404/410).
+// El log trae el status: 401/403 = llave distinta, 410 = suscripción expirada.
+const enviarPushSeguro = async (sub, payload, vapidDetails, empresaId, etiqueta) => {
+  try {
+    await webpush.sendNotification(sub, payload, { vapidDetails });
+  } catch (e) {
+    console.log(`Push no entregado (${etiqueta}, empresa ${empresaId}): status=${e.statusCode || '-'} ${e.body ? String(e.body).slice(0, 120) : e.message}`);
+    if ((e.statusCode === 404 || e.statusCode === 410) && sub && sub.endpoint) {
+      db.query("DELETE FROM suscripciones_push WHERE suscripcion->>'endpoint' = $1 AND empresa_id = $2", [sub.endpoint, empresaId]).catch(() => {});
+    }
+  }
+};
+
 const notificarCliente = async (cliente_id, titulo, cuerpo, empresaId) => { // 🆕 TENANT: nuevo parámetro empresaId
     if(!cliente_id) return;
     try {
@@ -39,7 +66,7 @@ const notificarCliente = async (cliente_id, titulo, cuerpo, empresaId) => { // �
         const payload = JSON.stringify({ title: titulo, body: cuerpo });
         for(let row of subs.rows) {
             const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
-            await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (cliente):", e.message));
+            await enviarPushSeguro(sub, payload, vapidListo, empresaId, 'cliente');
         }
     } catch(e) { console.error("Error al notificar cliente:", e.message); }
 };
@@ -62,7 +89,7 @@ const notificarStaff = async (rolesArray, titulo, cuerpo, empresaId) => { // �
         const payload = JSON.stringify({ title: titulo, body: cuerpo });
         for(let row of subs.rows) {
             const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
-            await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (staff):", e.message));
+            await enviarPushSeguro(sub, payload, vapidListo, empresaId, 'staff');
         }
     } catch(e) { console.error("Error al notificar staff:", e.message); }
 };
@@ -123,7 +150,7 @@ const dispararEvento = async (empresaId, evento, datos = {}) => {
 
         // 🆕 WhatsApp al cliente — SOLO si hay plantilla aprobada mapeada para este evento.
         const nombrePlantilla = TEMPLATES_WHATSAPP_CLIENTE[evento];
-        if (cfg.destinatarios.cliente_whatsapp && nombrePlantilla && datos.pedido) {
+        if (cfg.destinatarios.cliente_whatsapp && datos.pedido) {
             const telefonoCliente = await resolverTelefonoCliente(empresaId, datos.pedido);
             if (telefonoCliente) {
                 const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
@@ -135,7 +162,12 @@ const dispararEvento = async (empresaId, evento, datos = {}) => {
                 } else {
                     parametrosTexto = [datos.numero_pedido, nombreNegocio];
                 }
-                enviarPlantillaWhatsApp(empresaId, telefonoCliente, nombrePlantilla, parametrosTexto);
+                const textoLibre = reemplazarVariables(
+  String(cfg.mensaje_cliente_whatsapp || '')
+    .replace(/{{nombre_negocio}}/g, nombreNegocio)
+    .replace(/{{instruccion_entrega}}/g, parametrosTexto[2] || '')
+);
+enviarPlantillaWhatsApp(empresaId, telefonoCliente, nombrePlantilla, parametrosTexto, textoLibre);
             }
         }
     } catch (e) {
@@ -159,16 +191,34 @@ const resolverTelefonoCliente = async (empresaId, pedido) => {
 
 // 🆕 Envío genérico de plantilla aprobada de Meta — reutilizable para cualquier evento.
 // Si Meta aún no aprueba la plantilla, solo lo loguea (no rompe el flujo del pedido).
-const enviarPlantillaWhatsApp = async (empresaId, telefonoCliente, nombrePlantilla, parametrosTexto) => {
+const enviarPlantillaWhatsApp = async (empresaId, telefonoCliente, nombrePlantilla, parametrosTexto, textoLibre = '') => {
     try {
         // 🆕 FASE 2: candado comercial — revalidación real en backend, nunca confiar solo en el candado visual de NotificacionesWA.js
         const empresaFlagRes = await db.query('SELECT whatsapp_notificaciones FROM empresas WHERE id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
         const comercialHabilitado = empresaFlagRes.rows[0]?.whatsapp_notificaciones === true;
         if (!comercialHabilitado) return;
 
-        const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
-        const config = configRes.rows[0];
-        if (!config || !(config.wa_api_activa === true || config.wa_api_activa === 'true') || !config.wa_api_token || !config.wa_phone_id) return;
+        // 🆕 CANAL ÚNICO: el elegido en Centro Omnicanal (whatsapp_configuraciones).
+        // Baileys / 360dialog envían texto libre; Meta sigue usando plantillas aprobadas.
+        const waCfgRes = await db.query('SELECT * FROM whatsapp_configuraciones WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
+        const waCfg = waCfgRes.rows[0];
+        if (waCfg && (waCfg.proveedor === 'baileys' || waCfg.proveedor === '360dialog')) {
+        if (!textoLibre || !telefonoCliente || String(telefonoCliente).length !== 10) return;
+        const { enviarTextoPorProveedor } = require('../utils/whatsappHelpers');
+        const enviado = await enviarTextoPorProveedor(waCfg, `52${telefonoCliente}`, textoLibre);
+        if (!enviado) console.error(`⚠️ No se pudo enviar la notificación por ${waCfg.proveedor} (empresa ${empresaId}).`);
+        return;
+        }
+
+        let config = null;
+        if (waCfg && waCfg.proveedor === 'meta' && waCfg.meta_phone_id && waCfg.meta_api_token) {
+            config = { wa_api_token: waCfg.meta_api_token, wa_phone_id: waCfg.meta_phone_id };
+        } else {
+            const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
+            const legacy = configRes.rows[0];
+            if (legacy && (legacy.wa_api_activa === true || legacy.wa_api_activa === 'true') && legacy.wa_api_token && legacy.wa_phone_id) config = legacy;
+        }
+        if (!config || !nombrePlantilla) return; // Meta solo envía plantillas aprobadas
         if (!telefonoCliente || telefonoCliente.length !== 10) return;
 
         const numeroDestino = `52${telefonoCliente}`;

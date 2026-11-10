@@ -148,7 +148,7 @@ exports.listarEmpresas = async (req, res) => {
     // 🆕 Fase 2: se incluyen los dos flags comerciales de WhatsApp para pintar
     // sus switches en AdminEmpresas.js
     const result = await db.query(
-      'SELECT id, nombre, slug, activo, creado_en, whatsapp_pedidos_ia, whatsapp_notificaciones FROM empresas WHERE slug <> $1 ORDER BY nombre ASC',
+      'SELECT id, nombre, slug, activo, creado_en, whatsapp_pedidos_ia, whatsapp_notificaciones, notificaciones_push FROM empresas WHERE slug <> $1 ORDER BY nombre ASC',
       [SLUG_CATALOGO]
     );
     res.json(result.rows);
@@ -292,7 +292,7 @@ exports.actualizarVariables = async (req, res) => {
 // Dos booleanos INDEPENDIENTES, validados por nombre exacto de columna para
 // evitar inyección de nombre de columna (whitelist estricta).
 // =========================================================================
-const FLAGS_WHATSAPP_PERMITIDOS = ['whatsapp_pedidos_ia', 'whatsapp_notificaciones'];
+const FLAGS_WHATSAPP_PERMITIDOS = ['whatsapp_pedidos_ia', 'whatsapp_notificaciones', 'notificaciones_push'];
 
 exports.actualizarFlagWhatsapp = async (req, res) => {
   try {

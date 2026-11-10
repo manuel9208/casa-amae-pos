@@ -7,6 +7,7 @@
 // =========================================================================
 const crypto = require('crypto');
 const db = require('../config/db');
+const { resolverVariable } = require('./envResolver');
 const { generarRespuestaTexto } = require('../controllers/iaController');
 const { enviarTextoPorProveedor, normalizarTelefonoMX } = require('./whatsappHelpers');
 const {
@@ -142,7 +143,9 @@ const obtenerContextoNegocio = async (empresaId) => {
   ]);
 
   const cfg = conf.rows[0] || {};
+  const urlPedidos = String(await resolverVariable(empresaId, 'FRONTEND_URL') || '').trim().replace(/\/$/, '');
   const data = {
+    urlPedidos,
     nombreNegocio: cfg.nombre_negocio || 'el negocio',
     abierto: cfg.negocio_abierto === true || String(cfg.negocio_abierto) === 'true',
     horarioTexto: formatearHorario(cfg.horarios_semana),
@@ -249,7 +252,7 @@ exports.procesarMensajeEntrante = async ({ value, mensaje, phoneNumberId, cfgOve
 
     // 7) Coexistencia con el asistente de pedidos legacy (empresas.whatsapp_pedidos_ia)
     const flags = await db.query('SELECT whatsapp_pedidos_ia FROM empresas WHERE id = $1', [empresaId]);
-    if (flags.rows[0]?.whatsapp_pedidos_ia) return { manejado: false };
+    const pedidosIA = !!flags.rows[0]?.whatsapp_pedidos_ia; // 🆕 con el candado activo, el paso 9 usa el asistente de pedidos (cualquier canal)
 
     // 8) Cliente pide una persona -> traspaso inmediato (sin gastar tokens)
     if (detectarPeticionHumano(textoLimpio)) {
@@ -268,6 +271,28 @@ exports.procesarMensajeEntrante = async ({ value, mensaje, phoneNumberId, cfgOve
 
     try {
       const ctx = await obtenerContextoNegocio(empresaId);
+
+      // 🆕 PEDIDOS POR IA (cualquier canal): el número y el ticket los manda el backend, no el modelo.
+      // Si Gemini no está disponible, se cae al asistente general (que ya no promete pedidos).
+      const geminiOk = iaCfg.gemini_habilitado !== false && !!(iaCfg.api_key_gemini || process.env.GEMINI_API_KEY);
+      if (pedidosIA && geminiOk) {
+        const resPed = await require('./whatsappPedidosIA').procesarPedidoPorIA({
+          empresaId, waId, textoCliente: textoLimpio, iaCfg,
+          nombreAgente: cfg.nombre_agente || 'Ana', contexto: ctx, io: global.ioInstance
+        });
+        for (const parte of resPed.mensajes) {
+          await dormir(calcularDelayEscrituraMs(parte));
+          const enviadoPed = await enviarTextoPorProveedor(cfg, waId, parte);
+          await agregarMensaje(empresaId, waId, null, nuevoMensaje('ia', parte, enviadoPed ? {} : { error_envio: true }), false, cfg.proveedor || 'meta');
+        }
+        if (resPed.transferir) {
+          await pausarIA(empresaId, chat.id);
+          emitir(empresaId, { tipo: 'handoff', chat_id: chat.id });
+        } else {
+          emitir(empresaId, { tipo: 'mensaje', chat_id: chat.id });
+        }
+        return { manejado: true };
+      }
       const nombreCliente = await resolverNombreCliente(empresaId, waId, nombrePerfil);
       const systemPrompt = construirSystemPrompt({
         nombreNegocio: ctx.nombreNegocio,
@@ -275,7 +300,8 @@ exports.procesarMensajeEntrante = async ({ value, mensaje, phoneNumberId, cfgOve
         nombreCliente,
         horarioTexto: ctx.horarioTexto,
         menuTexto: ctx.menuTexto,
-        negocioAbierto: ctx.abierto
+        negocioAbierto: ctx.abierto,
+        urlPedidos: ctx.urlPedidos
       });
 
       const historial = (chat.mensajes || []).slice(0, -1); // sin el mensaje que acabamos de registrar

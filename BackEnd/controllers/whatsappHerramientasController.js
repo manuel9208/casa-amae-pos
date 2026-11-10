@@ -47,7 +47,10 @@ exports.TOOLS_DECLARATION = [
             {
                 name: 'registrar_pedido',
                 description: 'Registra el pedido final en el POS. Úsala SOLO cuando el cliente confirme explícitamente que ya es todo.',
-                parameters: { type: 'OBJECT', properties: {} }
+                parameters: {
+                    type: 'OBJECT',
+                    properties: { telefono_contacto: { type: 'STRING', description: 'Teléfono de contacto de 10 dígitos del cliente. Obligatorio solo si el sistema indica que no se conoce.' } }
+                }
             },
             {
                 name: 'consultar_estado_pedido',
@@ -185,7 +188,7 @@ const invocarCrearPedido = (empresaId, paquete, io) => {
 // =========================================================================
 // 4. registrar_pedido
 // =========================================================================
-exports.registrarPedido = async (empresaId, telefono, io) => {
+exports.registrarPedido = async (empresaId, telefono, io, datosExtra = {}) => {
     const convRes = await db.query('SELECT carrito_borrador FROM whatsapp_conversaciones WHERE empresa_id = $1 AND telefono = $2', [empresaId, telefono]);
     if (convRes.rows.length === 0) return { ok: false, error: 'No hay ningún carrito en construcción para este número.' };
 
@@ -209,6 +212,12 @@ exports.registrarPedido = async (empresaId, telefono, io) => {
     // Recoger/Para llevar) ni dirección. Si quieres que el asistente también lo
     // pregunte, hay que: 1) agregar esa pregunta a las reglas del prompt, 2) una
     // herramienta nueva o un campo extra en registrar_pedido para capturarlo.
+    // 🆕 Con Baileys el cliente puede llegar con un ID interno y no con su teléfono: se exige el de 10 dígitos
+    const telefonoContacto = String(datosExtra.telefono_contacto || (String(telefono).length === 10 ? telefono : '')).replace(/\D/g, '').slice(-10);
+    if (!clienteId && telefonoContacto.length !== 10) {
+        return { ok: false, error: 'Falta el teléfono de contacto de 10 dígitos del cliente. Pídeselo antes de registrar el pedido.' };
+    }
+
     const paquete = {
         cliente_id: clienteId,
         tipo_consumo: 'Recoger en Local',
@@ -216,7 +225,7 @@ exports.registrarPedido = async (empresaId, telefono, io) => {
         total,
         carrito: carritoExpandido,
         origen: 'WhatsApp', // ⚠️ PENDIENTE DE CONFIRMAR: nuevo valor de "origen", no usado antes en el sistema
-        direccion_entrega: clienteId ? '' : `CONTACTO: ${telefono}`,
+        direccion_entrega: clienteId ? '' : `CONTACTO: ${telefonoContacto}`,
         descuento_puntos: 0,
         cupon_codigo: null,
         estado_preparacion: 'Por Confirmar',

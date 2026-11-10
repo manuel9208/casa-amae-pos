@@ -9,6 +9,10 @@ const db = require('./db');
 
 const PASOS = [
   {
+    nombre: 'empresas.notificaciones_push (candado comercial de push)',
+    sql: `ALTER TABLE empresas ADD COLUMN IF NOT EXISTS notificaciones_push BOOLEAN DEFAULT true;`
+  },
+  {
     // 🔒 Soporte del ON CONFLICT (device_id, empresa_id) de equipoController.registrarEquipo
     nombre: 'índice único equipos_autorizados(device_id, empresa_id)',
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_equipos_device_empresa
