@@ -12,6 +12,7 @@ import GestorPoliticasVenta from './configuracion/GestorPoliticasVenta';
 import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';
 import GestorCorreos from './configuracion/GestorCorreos';
 import AnimacionesKiosco from './configuracion/AnimacionesKiosco';
+import AsistenteKioscoConfig from './configuracion/AsistenteKioscoConfig';
 import { apiFetch } from '../../utils/apiFetch';
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
@@ -192,7 +193,7 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
         <PublicidadTV configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tvBlob1={tvBlob1} setTvBlob1={setTvBlob1} tvBlob2={tvBlob2} setTvBlob2={setTvBlob2} tvBlob3={tvBlob3} setTvBlob3={setTvBlob3} tvVideoBlob={tvVideoBlob} setTvVideoBlob={setTvVideoBlob} isSubmitting={isSubmitting} getImageUrl={getImageUrl} showAlert={showAlert} />
         <TicketImpresion configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <CostosEnvio configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} tarifasEnvio={tarifasEnvio} setTarifasEnvio={setTarifasEnvio} isSubmitting={isSubmitting} />
-        <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
+        <NotificacionesWA configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} apiUrl={apiUrl} />
         <GestorLogisticaMapas configGlobal={configGlobal} setConfigGlobal={setConfigGlobal} isSubmitting={isSubmitting} />
 
         <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
@@ -206,6 +207,10 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       {/* 🎬 Nueva sección independiente: no forma parte del formulario de arriba,
           tiene su propio guardado automático por selección/subida. */}
       <AnimacionesKiosco apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />
+
+      {/* 🤖 Personaje Asistente IA del Kiosco: módulo hermano e independiente,
+          mismo patrón de guardado automático propio. */}
+      <AsistenteKioscoConfig apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />
     </div>
   );
 };

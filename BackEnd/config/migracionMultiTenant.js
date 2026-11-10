@@ -763,6 +763,41 @@ CREATE TABLE IF NOT EXISTS ia_conversaciones (
   UNIQUE(usuario_id, contexto, empresa_id)
 );
 
+-- 🆕 FASE 4: Tabla aislada para configuraciones y credenciales de WhatsApp (Meta/Twilio/Baileys)
+      CREATE TABLE IF NOT EXISTS whatsapp_configuraciones (
+          empresa_id INTEGER PRIMARY KEY REFERENCES empresas(id) ON DELETE CASCADE,
+          proveedor VARCHAR(20) DEFAULT 'meta', -- meta, twilio, baileys
+          meta_api_token TEXT,
+          meta_phone_id VARCHAR(50),
+          twilio_sid TEXT,
+          twilio_token TEXT,
+          twilio_number VARCHAR(50),
+          ia_habilitada BOOLEAN DEFAULT false
+      );
+
+      -- 🆕 FASE 4: Tabla de Chats Omnicanal (Aislada para Handoff Humano-IA)
+      CREATE TABLE IF NOT EXISTS omnichannel_chats (
+          id SERIAL PRIMARY KEY,
+          empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+          telefono_cliente VARCHAR(50) NOT NULL,
+          nombre_cliente VARCHAR(100),
+          pausa_ia BOOLEAN DEFAULT false,
+          proveedor VARCHAR(20) DEFAULT 'baileys',
+          mensajes JSONB DEFAULT '[]'::jsonb,
+          ultimo_mensaje TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(empresa_id, telefono_cliente)
+      );
+
+      -- 🆕 FASE 4: Tabla de sesiones persistentes para Baileys
+      CREATE TABLE IF NOT EXISTS whatsapp_sesiones (
+          empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+          session_id VARCHAR(255) NOT NULL,
+          datos JSONB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (empresa_id, session_id)
+      );
+
 
     `);
     console.log('✅ [MIGRACIÓN MULTI-TENANT] Tablas base verificadas/creadas correctamente (Bloque A).');
@@ -838,6 +873,10 @@ exports.agregarEmpresaIdATablas = async () => {
       ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_ia_configuracion_empresa_unica ON ia_configuracion(empresa_id);
       ALTER TABLE ia_conversaciones ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id);
+      ALTER TABLE whatsapp_configuraciones ADD COLUMN IF NOT EXISTS ia_habilitada BOOLEAN DEFAULT false;
+      ALTER TABLE omnichannel_chats ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id);
+      ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS kiosco_ia_activo BOOLEAN DEFAULT false;
+      ALTER TABLE whatsapp_configuraciones ADD COLUMN IF NOT EXISTS dialog360_token TEXT DEFAULT '';
 
     `);
     console.log('✅ [MIGRACIÓN MULTI-TENANT] Columnas empresa_id verificadas/creadas correctamente (Bloque B).');

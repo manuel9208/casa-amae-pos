@@ -1,7 +1,8 @@
+// BackEnd/controllers/notificacionController.js
 const db = require('../config/db');
 
 exports.guardarSuscripcion = async (req, res) => {
-  const { empresa_id } = req;
+  const { empresa_id } = req; // 🔒 TENANT: inyectado por resolveTenant.js en api.js
   const { suscripcion, usuario_id, cliente_id } = req.body;
 
   if (!suscripcion) {

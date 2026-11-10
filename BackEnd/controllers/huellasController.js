@@ -274,7 +274,7 @@ exports.verificarAutenticacion = async (req, res) => {
         // centralizada en mdmValidator.js para no duplicarla con authController.js.
         let mdmInfo = { bloqueadoTotal: false, pantallasPermitidas: 'todas' };
         try {
-          mdmInfo = await validarAccesoMDM(user, dispositivo_id);
+          mdmInfo = await validarAccesoMDM(user, dispositivo_id, empresa_id); // 🆕 TENANT
           if (mdmInfo.bloqueadoTotal) {
             return res.status(403).json({ error: mdmInfo.motivoBloqueo });
           }
@@ -285,11 +285,11 @@ exports.verificarAutenticacion = async (req, res) => {
         // Además, ahora valida GPS/IP en el servidor cuando el método 'login' está activo.
         // El LOGIN nunca se bloquea por ubicación — solo se omite el REGISTRO DE ASISTENCIA
         // si la ubicación no es válida, avisando al empleado sin frenar su acceso al sistema.
-        const isLoginActivo = await metodoAsistenciaActivo('login');
+        const isLoginActivo = await metodoAsistenciaActivo('login', empresa_id); // 🆕 TENANT
         let avisoAsistencia = null;
 
         if (isLoginActivo) {
-          const validacionUbicacion = await validarUbicacionServidor({ lat, lon, ip: req.ip });
+          const validacionUbicacion = await validarUbicacionServidor({ lat, lon, ip: req.ip, empresaId: empresa_id }); // 🆕 TENANT
 
           if (validacionUbicacion.success) {
             await asegurarColumnasUbicacion();

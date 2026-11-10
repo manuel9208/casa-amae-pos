@@ -40,7 +40,7 @@ exports.crearClasificacion = async (req, res) => {
     );  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -89,7 +89,7 @@ exports.actualizarClasificacion = async (req, res) => {
     await db.query('COMMIT');  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -114,7 +114,7 @@ exports.eliminarClasificacion = async (req, res) => {
     await db.query('COMMIT');  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json({ success: true });
   } catch (error) {
@@ -135,7 +135,7 @@ exports.actualizarDisponibilidad = async (req, res) => {
     );  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -243,7 +243,7 @@ exports.clonarClasificacion = async (req, res) => {
 
     if (req.app) {
       const io = req.app.get('io');
-      if (io) io.emit('catalogo_actualizado');
+      if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     }
 
     res.status(200).json({ mensaje: 'Clonación exitosa', clasificacion: nuevaClasifDB });

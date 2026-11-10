@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "@google/generative-ai": "^0.24.1",
     "@simplewebauthn/server": "^14.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
     "cloudinary": "^1.41.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -24,6 +26,9 @@
     "nodemailer": "^8.0.11",
     "openai": "^7.23.0",
     "pg": "^8.20.0",
+    "pino": "^10.4.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7"
   }

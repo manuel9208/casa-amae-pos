@@ -13,6 +13,7 @@
 // =========================================================================
 
 const EMPRESA_SLUG = process.env.REACT_APP_EMPRESA_SLUG || '';
+const CLAVE_TOKEN = 'pos_token_sesion';
 
 if (!EMPRESA_SLUG && process.env.NODE_ENV !== 'production') {
   // eslint-disable-next-line no-console
@@ -26,9 +27,19 @@ export const apiFetch = (url, options = {}) => {
   //console.log('🚩 [apiFetch] Llamando a:', url, 'método:', options.method || 'GET');
   const headers = new Headers(options.headers || {});
   headers.set('X-Empresa-Slug', EMPRESA_SLUG);
+  const tokenSesion = localStorage.getItem(CLAVE_TOKEN);
+  if (tokenSesion) headers.set('Authorization', `Bearer ${tokenSesion}`);
   return fetch(url, { ...options, headers })
     .then(res => {
       //console.log('🚩 [apiFetch] Respuesta de', url, '-> status:', res.status);
+      const ruta = String(url);
+      if (res.ok && /\/(login|huellas\/verificar-login)$/.test(ruta)) {
+        res.clone().json()
+          .then(d => { if (d && d.token) localStorage.setItem(CLAVE_TOKEN, d.token); })
+          .catch(() => {});
+      } else if (/\/logout$/.test(ruta)) {
+        localStorage.removeItem(CLAVE_TOKEN);
+      }
       return res;
     })
     .catch(err => {

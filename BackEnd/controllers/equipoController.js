@@ -85,8 +85,8 @@ exports.registrarEquipo = async (req, res) => {
         const result = await db.query(
             `INSERT INTO equipos_autorizados (device_id, alias, pantallas_permitidas, roles_permitidos, estatus, empresa_id) 
              VALUES ($1, $2, $3, $4, 'Activo', $5) 
-             ON CONFLICT (device_id) DO UPDATE 
-             SET alias = EXCLUDED.alias, pantallas_permitidas = EXCLUDED.pantallas_permitidas, roles_permitidos = EXCLUDED.roles_permitidos, empresa_id = EXCLUDED.empresa_id 
+             ON CONFLICT (device_id, empresa_id) DO UPDATE 
+             SET alias = EXCLUDED.alias, pantallas_permitidas = EXCLUDED.pantallas_permitidas, roles_permitidos = EXCLUDED.roles_permitidos 
              RETURNING *`,
             [
                 device_id, 
@@ -98,6 +98,7 @@ exports.registrarEquipo = async (req, res) => {
         );
         res.json(result.rows[0]);
     } catch (error) {
+        console.error('🚨 Error en registrarEquipo:', error.code, error.message);
         res.status(500).json({ error: 'Error al registrar el equipo.' });
     }
 };

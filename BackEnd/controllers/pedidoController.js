@@ -2,6 +2,7 @@ const db = require('../config/db');
 const webpush = require('web-push');
 const cocinaOperativaCtrl = require('./cocinaOperativaController');
 const { resolverVariables } = require('../utils/envResolver'); // 🆕 MULTI-TENANT
+const notificacionesConfigCtrl = require('./notificacionesConfigController'); // 🆕 FASE 3: cierre de círculo (require en un solo sentido, sin ciclo)
 
 // 🆕 MULTI-TENANT: ya NO se configura una sola vez al arrancar el servidor
 // con process.env global. Ahora se resuelve POR EMPRESA, justo antes de cada
@@ -64,6 +65,137 @@ const notificarStaff = async (rolesArray, titulo, cuerpo, empresaId) => { // �
             await webpush.sendNotification(sub, payload).catch(e => console.log("Push desactivado o expirado (staff):", e.message));
         }
     } catch(e) { console.error("Error al notificar staff:", e.message); }
+};
+
+// =========================================================================
+// 🆕 FASE 3 (cierre de círculo): disparador genérico de eventos.
+// Sustituye los bloques hardcodeados de notificarStaff/notificarCliente —
+// ahora TODO pasa por lo configurado en notificaciones_configuracion
+// (destinatarios por rol + mensajes editables), con fallback automático
+// a los defaults (= comportamiento actual) si el negocio nunca lo tocó.
+// El canal "cliente_whatsapp" NO se envía aquí (ver nota de plantillas Meta
+// en el plan de WhatsApp) — solo se resuelve destinatarios/mensaje de
+// Staff y Push-Cliente, que no tienen esa restricción.
+// =========================================================================
+const TITULOS_PUSH_STAFF = {
+    pedido_nuevo: '¡Nuevo Pedido!',
+    pedido_directo_cocina: '👨‍🍳 Nueva Comanda (Comedor)',
+    pedido_confirmado_cocina: '👨‍🍳 Nueva Comanda',
+    en_preparacion: 'Preparando Orden',
+    pedido_listo: 'Orden Lista ✅',
+    asignado_repartidor: '🛵 Pedido Asignado', // 🆕 FASE 3
+    entregado: 'Pedido Entregado', // 🆕 FASE 3
+    cancelado: 'Pedido Cancelado ❌'
+};
+const TITULOS_PUSH_CLIENTE = {
+    pedido_nuevo: 'Orden Recibida 🕒',
+    pedido_directo_cocina: 'Orden Confirmada ✅',
+    pedido_confirmado_cocina: 'Orden Confirmada ✅',
+    en_preparacion: '¡En el fuego! 🔥',
+    pedido_listo: '¡Tu comida está lista! 🍔',
+    repartidor_en_camino: '¡Orden en Camino! 🛵',
+    entregado: '¡Gracias por tu compra! 🙌', // 🆕 FASE 3
+    cancelado: 'Pedido Cancelado'
+};
+
+const dispararEvento = async (empresaId, evento, datos = {}) => {
+    try {
+        const cfg = await notificacionesConfigCtrl.obtenerConfigEventoInterno(empresaId, evento);
+        if (!cfg) return; // evento no reconocido en el catálogo: no rompe nada, simplemente no notifica
+
+        const reemplazarVariables = (txt) => {
+            if (!txt) return txt;
+            let out = txt;
+            Object.keys(datos).forEach(key => { out = out.replace(new RegExp(`{{${key}}}`, 'g'), datos[key] ?? ''); });
+            return out;
+        };
+
+        const rolesStaff = ['admin', 'gerente', 'cajero', 'chef', 'cocina', 'ayudante_cocina', 'repartidor']
+            .filter(rol => cfg.destinatarios[rol]);
+
+        if (rolesStaff.length > 0 && cfg.mensaje_staff) {
+            notificarStaff(rolesStaff, TITULOS_PUSH_STAFF[evento] || 'Notificación', reemplazarVariables(cfg.mensaje_staff), empresaId);
+        }
+
+        if (cfg.destinatarios.cliente_push && datos.cliente_id && cfg.mensaje_cliente_push) {
+            notificarCliente(datos.cliente_id, TITULOS_PUSH_CLIENTE[evento] || 'Notificación', reemplazarVariables(cfg.mensaje_cliente_push), empresaId);
+        }
+
+        // 🆕 WhatsApp al cliente — SOLO si hay plantilla aprobada mapeada para este evento.
+        const nombrePlantilla = TEMPLATES_WHATSAPP_CLIENTE[evento];
+        if (cfg.destinatarios.cliente_whatsapp && nombrePlantilla && datos.pedido) {
+            const telefonoCliente = await resolverTelefonoCliente(empresaId, datos.pedido);
+            if (telefonoCliente) {
+                const negocioRes = await db.query('SELECT nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
+                const nombreNegocio = negocioRes.rows[0]?.nombre_negocio || 'nuestro restaurante';
+                let parametrosTexto;
+                if (evento === 'pedido_listo') {
+                    const instruccion = datos.pedido.tipo_consumo === 'Domicilio' ? 'Ya va en camino a tu domicilio 🛵' : datos.pedido.tipo_consumo === 'Recoger en Local' ? 'Puedes pasar a la sucursal por ella 🚗' : 'Por favor pasa a la barra a recogerla 🍔';
+                    parametrosTexto = [datos.numero_pedido, nombreNegocio, instruccion];
+                } else {
+                    parametrosTexto = [datos.numero_pedido, nombreNegocio];
+                }
+                enviarPlantillaWhatsApp(empresaId, telefonoCliente, nombrePlantilla, parametrosTexto);
+            }
+        }
+    } catch (e) {
+        console.error(`Error al disparar evento "${evento}":`, e.message);
+    }
+};
+exports.dispararEvento = dispararEvento; // 🆕 FASE 3: reutilizado por repartidorController.js (Principio DRY)
+
+// 🆕 Resuelve el teléfono del cliente para un pedido — MISMO criterio que ya
+// usaba el bloque inline de 'Listo' (cliente registrado o CONTACTO: en la dirección).
+const resolverTelefonoCliente = async (empresaId, pedido) => {
+    if (pedido.cliente_id) {
+        const clienteRes = await db.query('SELECT telefono FROM clientes WHERE id = $1 AND empresa_id = $2', [pedido.cliente_id, empresaId]);
+        if (clienteRes.rows.length > 0) return clienteRes.rows[0].telefono;
+    } else if (pedido.direccion_entrega && pedido.direccion_entrega.includes('CONTACTO:')) {
+        const match = pedido.direccion_entrega.match(/CONTACTO:\s*(\d+)/);
+        if (match && match[1]) return match[1];
+    }
+    return null;
+};
+
+// 🆕 Envío genérico de plantilla aprobada de Meta — reutilizable para cualquier evento.
+// Si Meta aún no aprueba la plantilla, solo lo loguea (no rompe el flujo del pedido).
+const enviarPlantillaWhatsApp = async (empresaId, telefonoCliente, nombrePlantilla, parametrosTexto) => {
+    try {
+        // 🆕 FASE 2: candado comercial — revalidación real en backend, nunca confiar solo en el candado visual de NotificacionesWA.js
+        const empresaFlagRes = await db.query('SELECT whatsapp_notificaciones FROM empresas WHERE id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
+        const comercialHabilitado = empresaFlagRes.rows[0]?.whatsapp_notificaciones === true;
+        if (!comercialHabilitado) return;
+
+        const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
+        const config = configRes.rows[0];
+        if (!config || !(config.wa_api_activa === true || config.wa_api_activa === 'true') || !config.wa_api_token || !config.wa_phone_id) return;
+        if (!telefonoCliente || telefonoCliente.length !== 10) return;
+
+        const numeroDestino = `52${telefonoCliente}`;
+        const payloadMeta = {
+            messaging_product: "whatsapp", recipient_type: "individual", to: numeroDestino, type: "template",
+            template: {
+                name: nombrePlantilla, language: { code: "es_MX" },
+                components: [{ type: "body", parameters: parametrosTexto.map(texto => ({ type: "text", text: String(texto) })) }]
+            }
+        };
+        const waRes = await fetch(`https://graph.facebook.com/v17.0/${config.wa_phone_id}/messages`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${config.wa_api_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payloadMeta)
+        });
+        const waData = await waRes.json();
+        if (!waData.error) console.log(`✅ Plantilla "${nombrePlantilla}" enviada a ${numeroDestino}`);
+        else console.error(`⚠️ Meta rechazó la plantilla "${nombrePlantilla}" (posiblemente aún no aprobada):`, waData.error.message);
+    } catch (e) { console.error("Error de red al enviar plantilla de WhatsApp:", e.message); }
+};
+
+// 🆕 Mapa evento -> nombre de plantilla APROBADA en Meta. Si el evento no está
+// aquí (o Meta aún no la aprueba), simplemente no se intenta el envío por
+// WhatsApp, aunque el toggle del negocio esté activo — así nunca se manda
+// texto libre fuera de ventana de 24h, que Meta rechazaría de inmediato.
+const TEMPLATES_WHATSAPP_CLIENTE = {
+    pedido_listo: 'alerta_pedido_listo',             // ✅ ya aprobada y en uso
+    repartidor_en_camino: 'alerta_pedido_en_camino', // ⏳ pendiente de aprobación en Meta
+    cancelado: 'alerta_pedido_cancelado'             // ⏳ pendiente de aprobación en Meta
 };
 
 const limpiarNulos = (obj) => {
@@ -440,8 +572,8 @@ exports.crearPedido = async (req, res) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('catalogo_actualizado');
-            io.emit('nuevo_pedido');
+            io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
+            io.to(`empresa_${empresaId}`).emit('nuevo_pedido'); // 🔒 FILTRO EMPRESA
         }
 
         if (estadoReal === 'Pagado') {
@@ -481,11 +613,9 @@ exports.crearPedido = async (req, res) => {
                 } catch(e) {}
             }
 
-            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda (Comedor)', `La orden #${pedidoInsertado.numero_pedido} entró directo a cocina.`, empresaId); // 🆕 TENANT
-            if (cliente_id && typeof notificarCliente !== 'undefined') notificarCliente(cliente_id, 'Orden Confirmada ✅', `Tu orden #${pedidoInsertado.numero_pedido} ha sido recibida y enviada a cocina.`, empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'pedido_directo_cocina', { numero_pedido: pedidoInsertado.numero_pedido, cliente_id }); // 🆕 FASE 3: lee destinatarios/mensajes desde notificaciones_configuracion
         } else {
-            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero'], '¡Nuevo Pedido!', `La orden #${pedidoInsertado.numero_pedido} acaba de llegar.`, empresaId); // 🆕 TENANT
-            if (cliente_id && typeof notificarCliente !== 'undefined') notificarCliente(cliente_id, 'Orden Recibida 🕒', `Tu orden #${pedidoInsertado.numero_pedido} está en espera de confirmación.`, empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'pedido_nuevo', { numero_pedido: pedidoInsertado.numero_pedido, cliente_id }); // 🆕 FASE 3
         }
         res.status(201).json(pedidoInsertado);
     } catch (error) {
@@ -564,7 +694,7 @@ exports.actualizarPedido = async (req, res) => {
         // Sin esto, al editar un pedido (carrito, total, dirección, estado) ninguna otra
         // pantalla (Cocina/KDS, otra Caja, Kiosco del cliente) se enteraba en tiempo real.
         const io = req.app.get('io');
-        if (io) io.emit('pedido_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('pedido_actualizado');
 
         res.json(result.rows[0]);
     } catch (error) {
@@ -880,55 +1010,24 @@ if (estadoReal === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion 
             }
         }
 
-        if (estadoReal === 'Listo') {
-            try {
-                const configRes = await db.query('SELECT wa_api_activa, wa_api_token, wa_phone_id, nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresaId]); // 🔒 FILTRO EMPRESA
-                const config = configRes.rows[0];
-                if (config && (config.wa_api_activa === true || config.wa_api_activa === 'true') && config.wa_api_token && config.wa_phone_id) {
-                    let telefonoCliente = null;
-                    if (pedidoActual.cliente_id) {
-                        const clienteRes = await db.query('SELECT telefono FROM clientes WHERE id = $1 AND empresa_id = $2', [pedidoActual.cliente_id, empresaId]); // 🔒 FILTRO EMPRESA
-                        if (clienteRes.rows.length > 0) telefonoCliente = clienteRes.rows[0].telefono;
-                    } else if (pedidoActual.direccion_entrega && pedidoActual.direccion_entrega.includes('CONTACTO:')) {
-                        const match = pedidoActual.direccion_entrega.match(/CONTACTO:\s*(\d+)/);
-                        if (match && match[1]) telefonoCliente = match[1];
-                    }
-                    if (telefonoCliente && telefonoCliente.length === 10) {
-                        let instruccion = pedidoActual.tipo_consumo === 'Domicilio' ? 'Ya va en camino a tu domicilio 🛵' : pedidoActual.tipo_consumo === 'Recoger en Local' ? 'Puedes pasar a la sucursal por ella 🚗' : 'Por favor pasa a la barra a recogerla 🍔';
-                        const numeroDestino = `52${telefonoCliente}`;
-                        const payloadMeta = {
-                            messaging_product: "whatsapp", recipient_type: "individual", to: numeroDestino, type: "template",
-                            template: {
-                                name: "alerta_pedido_listo", language: { code: "es_MX" },
-                                components: [
-                                    { type: "body", parameters: [{ type: "text", text: String(pedidoActual.numero_pedido) }, { type: "text", text: config.nombre_negocio || 'nuestro restaurante' }, { type: "text", text: instruccion }] }
-                                ]
-                            }
-                        };
-                        fetch(`https://graph.facebook.com/v17.0/${config.wa_phone_id}/messages`, {
-                            method: 'POST', headers: { 'Authorization': `Bearer ${config.wa_api_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payloadMeta)
-                        }).then(waRes => waRes.json()).then(waData => {
-                            if (!waData.error) console.log(`✅ Template de WhatsApp enviado a ${numeroDestino}`);
-                        }).catch(e => console.error("Error de red al enviar Template de WhatsApp:", e.message));
-                    }
-                }
-            } catch (errWA) { console.error("Fallo en WhatsApp:", errWA.message); }
-        }
+        // 🆕 FASE 3: el envío de "alerta_pedido_listo" ya NO vive aquí hardcodeado —
+        // ahora lo dispara dispararEvento('pedido_listo', ...) más abajo, usando el
+        // helper reutilizable enviarPlantillaWhatsApp() para los 3 eventos con
+        // plantilla (pedido_listo, repartidor_en_camino, cancelado).
 
         const io = req.app.get('io');
-        if (io) io.emit('pedido_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('pedido_actualizado');
 
         if (estadoReal === 'Pagado' || estadoReal === 'Por Confirmar') {
-            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero', 'chef', 'cocina', 'ayudante_cocina'], '👨‍🍳 Nueva Comanda', `La orden #${pedidoActual.numero_pedido} está lista para prepararse.`, empresaId); // 🆕 TENANT
-            if (typeof notificarCliente !== 'undefined') notificarCliente(pedidoActual.cliente_id, 'Orden Confirmada ✅', `Tu orden #${pedidoActual.numero_pedido} ha sido autorizada y enviada a cocina.`, empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'pedido_confirmado_cocina', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
         } else if (estadoReal === 'Preparando') {
-            if (typeof notificarCliente !== 'undefined') notificarCliente(pedidoActual.cliente_id, '¡En el fuego! 🔥', `El chef ya está preparando tu orden #${pedidoActual.numero_pedido}.`, empresaId); // 🆕 TENANT
-            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero'], 'Preparando Orden', `Cocina comenzó a preparar la orden #${pedidoActual.numero_pedido}.`, empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'en_preparacion', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
         } else if (estadoReal === 'Listo') {
-            if (typeof notificarCliente !== 'undefined') notificarCliente(pedidoActual.cliente_id, '¡Tu comida está lista! 🍔', `Tu orden #${pedidoActual.numero_pedido} está lista para entregar.`, empresaId); // 🆕 TENANT
-            if (typeof notificarStaff !== 'undefined') notificarStaff(['admin', 'gerente', 'cajero'], 'Orden Lista ✅', `Cocina terminó la orden #${pedidoActual.numero_pedido}.`, empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'pedido_listo', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
         } else if (estadoReal === 'En Camino') {
-            if (typeof notificarCliente !== 'undefined') notificarCliente(pedidoActual.cliente_id, '¡Orden en Camino! 🛵', 'El repartidor ya va hacia tu domicilio con tu pedido.', empresaId); // 🆕 TENANT
+            dispararEvento(empresaId, 'repartidor_en_camino', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
+        } else if (estadoReal === 'Cancelado') {
+            dispararEvento(empresaId, 'cancelado', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
         }
 
         res.json(pedidoActual);
@@ -960,7 +1059,7 @@ exports.actualizarAlerta = async (req, res) => {
         // un nuevo "Faltante" reportado por Cocina, ni Cocina se enteraba de la
         // respuesta de Caja, hasta que alguien recargaba la página manualmente (F5).
         const io = req.app.get('io');
-        if (io) io.emit('pedido_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('pedido_actualizado');
         
         res.json(result.rows.length > 0 ? result.rows[0] : {});
     } catch (error) {
@@ -1416,8 +1515,8 @@ exports.agregarItemsAPedido = async (req, res) => {
 
             const io = req.app.get('io');
             if (io) {
-                io.emit('catalogo_actualizado'); // el inventario cambió
-                io.emit('pedido_actualizado');   // Cocina/Caja refrescan en vivo
+                io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // solo la sala de ESTA empresa
+                io.to(`empresa_${empresaId}`).emit('pedido_actualizado');   // Cocina/Caja de ESTA empresa refrescan en vivo
             }
 
             res.json({ pedido: updateRes.rows[0], diferencia, items_agregados: itemsNuevos.length });

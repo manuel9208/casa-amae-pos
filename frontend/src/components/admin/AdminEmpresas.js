@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Building2, PlusCircle, KeyRound, Eye, EyeOff, Loader2, Save, ShieldCheck, Tag } from 'lucide-react';
+import { Building2, PlusCircle, KeyRound, Eye, EyeOff, Loader2, Save, ShieldCheck, Tag, Bot, BellRing } from 'lucide-react';
 import { apiFetch } from '../../utils/apiFetch';
 
 const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
@@ -19,6 +19,9 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
   const [mostrarClaro, setMostrarClaro] = useState({});
   const [cargandoVariables, setCargandoVariables] = useState(false);
   const [guardando, setGuardando] = useState(false);
+
+  // --- 🆕 Candados comerciales de WhatsApp (whatsapp_pedidos_ia / whatsapp_notificaciones) ---
+  const [actualizandoFlag, setActualizandoFlag] = useState(null); // guarda la clave del flag en proceso, o null
 
   // --- Modal de alta de empresa ---
   const [modalNuevaEmpresa, setModalNuevaEmpresa] = useState(false);
@@ -190,6 +193,32 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
     setGuardando(false);
   };
 
+  // 🆕 Candados comerciales — switches independientes whatsapp_pedidos_ia / whatsapp_notificaciones.
+  // Confirmado contra empresasController.js: el endpoint espera { clave, valor }.
+  const toggleFlagWhatsapp = async (clave, valorActual) => {
+    const nuevoValor = !valorActual;
+    setActualizandoFlag(clave);
+    try {
+      const res = await apiFetch(`${apiUrl}/admin-global/empresas/${empresaSeleccionada}/whatsapp-flag`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Superadmin-Key': superadminKey },
+        body: JSON.stringify({ clave, valor: nuevoValor })
+      });
+      if (res.ok) {
+        setEmpresas(prev => prev.map(emp =>
+          String(emp.id) === String(empresaSeleccionada) ? { ...emp, [clave]: nuevoValor } : emp
+        ));
+        showAlert('¡Actualizado!', `El candado "${clave}" ahora está ${nuevoValor ? 'activado' : 'desactivado'}.`, 'success');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAlert('Error', data.error || 'No se pudo actualizar el candado.', 'error');
+      }
+    } catch (e) {
+      showAlert('Error de conexión', 'No se pudo actualizar el candado.', 'error');
+    }
+    setActualizandoFlag(null);
+  };
+
   const crearEmpresa = async (e) => {
     e.preventDefault();
     if (!nombreNuevaEmpresa.trim()) return;
@@ -241,6 +270,9 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
     }
     setCreandoVariable(false);
   };
+
+  // 🆕 Empresa actualmente seleccionada (para leer sus flags comerciales en el render)
+  const empresaActual = empresas.find(emp => String(emp.id) === String(empresaSeleccionada));
 
   // ==========================================
   // RENDER
@@ -318,6 +350,31 @@ const AdminEmpresas = ({ apiUrl, showAlert, showConfirm }) => {
           <PlusCircle size={18} /> Agregar Empresa
         </button>
       </div>
+
+      {/* 🆕 Candados comerciales de WhatsApp — exclusivos de este panel (Súper-Admin) */}
+      {empresaSeleccionada && empresaActual && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-slate-100 pt-6">
+          <button
+            type="button"
+            disabled={actualizandoFlag === 'whatsapp_pedidos_ia'}
+            onClick={() => toggleFlagWhatsapp('whatsapp_pedidos_ia', !!empresaActual.whatsapp_pedidos_ia)}
+            className={`flex items-center justify-between gap-3 p-4 rounded-2xl border-2 font-black text-sm transition disabled:opacity-50 ${empresaActual.whatsapp_pedidos_ia ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+          >
+            <span className="flex items-center gap-2"><Bot size={18} /> Pedidos por WhatsApp (IA)</span>
+            {actualizandoFlag === 'whatsapp_pedidos_ia' ? <Loader2 size={18} className="animate-spin" /> : <span>{empresaActual.whatsapp_pedidos_ia ? 'Activo' : 'Inactivo'}</span>}
+          </button>
+
+          <button
+            type="button"
+            disabled={actualizandoFlag === 'whatsapp_notificaciones'}
+            onClick={() => toggleFlagWhatsapp('whatsapp_notificaciones', !!empresaActual.whatsapp_notificaciones)}
+            className={`flex items-center justify-between gap-3 p-4 rounded-2xl border-2 font-black text-sm transition disabled:opacity-50 ${empresaActual.whatsapp_notificaciones ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+          >
+            <span className="flex items-center gap-2"><BellRing size={18} /> Notificaciones por WhatsApp</span>
+            {actualizandoFlag === 'whatsapp_notificaciones' ? <Loader2 size={18} className="animate-spin" /> : <span>{empresaActual.whatsapp_notificaciones ? 'Activo' : 'Inactivo'}</span>}
+          </button>
+        </div>
+      )}
 
       {/* Variables de la empresa seleccionada */}
       {empresaSeleccionada && (

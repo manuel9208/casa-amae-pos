@@ -81,7 +81,7 @@ exports.crearProducto = async (req, res) => {
     );  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -133,7 +133,7 @@ exports.actualizarProducto = async (req, res) => {
     );  
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json(result.rows[0]);
   } catch (error) {
@@ -153,7 +153,7 @@ exports.eliminarProducto = async (req, res) => {
     await db.query('DELETE FROM productos WHERE id = $1 AND empresa_id = $2', [id, empresaId]); // 🔒 FILTRO EMPRESA
     
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     
     res.json({ success: true });
   } catch (error) {
@@ -166,7 +166,7 @@ exports.actualizarRendimiento = async (req, res) => {
   try {
     const result = await db.query('UPDATE productos SET rendimiento=$1 WHERE id=$2 AND empresa_id=$3 RETURNING *', [req.body.rendimiento, req.params.id, empresaId]); // 🔒 FILTRO EMPRESA
     const io = req.app.get('io');
-    if (io) io.emit('catalogo_actualizado');  
+    if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
     res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: 'Error al guardar rendimiento' });

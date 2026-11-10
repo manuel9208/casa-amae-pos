@@ -21,6 +21,15 @@ exports.crearIngrediente = async (req, res) => {
   const { empresa_id } = req;
   const { clasificacion_id, nombre, tipo, precio_extra, permite_extra } = req.body;
   try {
+    // 🔒 FIX: validar que la clasificación pertenezca a ESTA empresa antes de vincularla,
+    // evitando que un ingrediente quede referenciando una clasificación de otro negocio.
+    if (clasificacion_id) {
+      const clasCheck = await db.query('SELECT id FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [clasificacion_id, empresa_id]);
+      if (clasCheck.rows.length === 0) {
+        return res.status(400).json({ error: 'La clasificación indicada no existe o no pertenece a tu negocio.' });
+      }
+    }
+
     const result = await db.query(
       'INSERT INTO catalogo_ingredientes (clasificacion_id, nombre, tipo, precio_extra, permite_extra, empresa_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *', 
       [clasificacion_id, nombre, tipo, precio_extra || 0, permite_extra, empresa_id]
@@ -35,6 +44,15 @@ exports.actualizarIngrediente = async (req, res) => {
   const { empresa_id } = req;
   const { clasificacion_id, nombre, tipo, precio_extra, permite_extra } = req.body;
   try {
+    // 🔒 FIX: mismo candado que en crearIngrediente — evita re-vincular el
+    // ingrediente a una clasificación de otro negocio al editar.
+    if (clasificacion_id) {
+      const clasCheck = await db.query('SELECT id FROM clasificaciones WHERE id = $1 AND empresa_id = $2', [clasificacion_id, empresa_id]);
+      if (clasCheck.rows.length === 0) {
+        return res.status(400).json({ error: 'La clasificación indicada no existe o no pertenece a tu negocio.' });
+      }
+    }
+
     const result = await db.query(
       'UPDATE catalogo_ingredientes SET clasificacion_id=$1, nombre=$2, tipo=$3, precio_extra=$4, permite_extra=$5 WHERE id=$6 AND empresa_id=$7 RETURNING *', 
       [clasificacion_id, nombre, tipo, precio_extra || 0, permite_extra, req.params.id, empresa_id]

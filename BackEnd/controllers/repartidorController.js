@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { dispararEvento } = require('./pedidoController'); // 🆕 FASE 3: reutiliza notificarStaff/notificarCliente/enviarPlantillaWhatsApp sin duplicar código
 
 // 1. Obtener pedidos listos en cocina (Inyectando Contexto GPS para Google Maps)
 exports.obtenerPedidosDisponiblesParaReparto = async (req, res) => {
@@ -65,7 +66,7 @@ exports.tomarPedidoRepartidor = async (req, res) => {
     // 📡 EMISIÓN DEL EVENTO EN TIEMPO REAL HACIA LA CAJA
     const io = req.app.get('io');
     if (io) {
-      io.emit('reparto:pedido_tomado', {
+      io.to(`empresa_${empresa_id}`).emit('reparto:pedido_tomado', { // 🔒 FILTRO EMPRESA
         pedido_id: id,
         numero_pedido: pedido.numero_pedido,
         repartidor_id,
@@ -73,7 +74,10 @@ exports.tomarPedidoRepartidor = async (req, res) => {
         pedido: pedidoActualizado
       });
     }
-    
+
+    // 🆕 FASE 3: catálogo de notificaciones — evento "asignado_repartidor"
+    dispararEvento(empresa_id, 'asignado_repartidor', { numero_pedido: pedido.numero_pedido, pedido: pedidoActualizado });
+
     res.json(pedidoActualizado);
   } catch (error) {
     console.error("Error al auto-asignar pedido:", error.message);
@@ -106,13 +110,16 @@ exports.entregarPedidoRepartidor = async (req, res) => {
     // 📡 EMISIÓN DEL EVENTO EN TIEMPO REAL HACIA LA CAJA (Habilita flujo de liquidación)
     const io = req.app.get('io');
     if (io) {
-      io.emit('reparto:pedido_entregado', {
+      io.to(`empresa_${empresa_id}`).emit('reparto:pedido_entregado', { // 🔒 FILTRO EMPRESA
         pedido_id: id,
         numero_pedido: pedidoActualizado.numero_pedido,
         pedido: pedidoActualizado
       });
     }
-    
+
+    // 🆕 FASE 3: catálogo de notificaciones — evento "entregado"
+    dispararEvento(empresa_id, 'entregado', { numero_pedido: pedidoActualizado.numero_pedido, pedido: pedidoActualizado });
+
     res.json(pedidoActualizado);
   } catch (error) {
     console.error("Error al finalizar entrega:", error.message);

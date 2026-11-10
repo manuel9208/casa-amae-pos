@@ -124,6 +124,7 @@ exports.solicitarCodigoNip = async (req, res) => {
 
   try {
     await db.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_verificacion VARCHAR(10);`);
+    await db.query(`ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_verificacion_expira TIMESTAMP;`); // 🔧 FIX: ventana de validez del código
     await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_email TEXT, ADD COLUMN IF NOT EXISTS smtp_password TEXT, ADD COLUMN IF NOT EXISTS smtp_host TEXT, ADD COLUMN IF NOT EXISTS smtp_port TEXT;`);
 
     const result = await db.query('SELECT nombre, correo FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
@@ -137,7 +138,11 @@ exports.solicitarCodigoNip = async (req, res) => {
 
     const codigo = Math.floor(100000 + Math.random() * 900000).toString();
 
-    await db.query('UPDATE clientes SET codigo_verificacion = $1 WHERE id = $2 AND empresa_id = $3', [codigo, cliente_id, empresa_id]);
+    // 🔧 FIX: el código ahora expira a los 10 minutos.
+    await db.query(
+      "UPDATE clientes SET codigo_verificacion = $1, codigo_verificacion_expira = CURRENT_TIMESTAMP + INTERVAL '10 minutes' WHERE id = $2 AND empresa_id = $3",
+      [codigo, cliente_id, empresa_id]
+    );
 
     const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresa_id]);
     const configData = configRes.rows[0] || {};
@@ -210,16 +215,19 @@ exports.cambiarNipConCodigo = async (req, res) => {
   }
 
   try {
-    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
+    const result = await db.query('SELECT codigo_verificacion, codigo_verificacion_expira FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-    const dbCodigo = result.rows[0].codigo_verificacion;
+    const { codigo_verificacion: dbCodigo, codigo_verificacion_expira: expira } = result.rows[0];
 
     if (!dbCodigo || dbCodigo !== String(codigo).trim()) {
-      return res.status(401).json({ error: 'El código de verificación es incorrecto o ya expiró.' });
+      return res.status(401).json({ error: 'El código de verificación es incorrecto.' });
+    }
+    if (!expira || new Date(expira) < new Date()) { // 🔧 FIX: validación real de expiración
+      return res.status(401).json({ error: 'El código de verificación ya expiró. Solicita uno nuevo.' });
     }
 
-    await db.query('UPDATE clientes SET nip = $1, codigo_verificacion = NULL WHERE id = $2 AND empresa_id = $3', [nuevoNip, cliente_id, empresa_id]);
+    await db.query('UPDATE clientes SET nip = $1, codigo_verificacion = NULL, codigo_verificacion_expira = NULL WHERE id = $2 AND empresa_id = $3', [nuevoNip, cliente_id, empresa_id]);
 
     res.json({ success: true, mensaje: 'Tu NIP ha sido actualizado correctamente.' });
   } catch (error) {
@@ -238,22 +246,24 @@ exports.cambiarCorreoConCodigo = async (req, res) => {
   }
 
   try {
-    const result = await db.query('SELECT codigo_verificacion FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
+    const result = await db.query('SELECT codigo_verificacion, codigo_verificacion_expira FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
 
-    const dbCodigo = result.rows[0].codigo_verificacion;
+    const { codigo_verificacion: dbCodigo, codigo_verificacion_expira: expira } = result.rows[0];
 
     if (!dbCodigo || dbCodigo !== String(codigo).trim()) {
-      return res.status(401).json({ error: 'El código de verificación es incorrecto o ya expiró.' });
+      return res.status(401).json({ error: 'El código de verificación es incorrecto.' });
+    }
+    if (!expira || new Date(expira) < new Date()) { // 🔧 FIX: validación real de expiración
+      return res.status(401).json({ error: 'El código de verificación ya expiró. Solicita uno nuevo.' });
     }
 
-    // Comprobamos que el nuevo correo no esté ya en uso por otro cliente DE LA MISMA EMPRESA
     const checkEmail = await db.query('SELECT id FROM clientes WHERE correo = $1 AND id != $2 AND empresa_id = $3', [nuevoCorreo, cliente_id, empresa_id]);
     if (checkEmail.rows.length > 0) {
       return res.status(400).json({ error: 'Ese correo ya está registrado en otra cuenta.' });
     }
 
-    await db.query('UPDATE clientes SET correo = $1, codigo_verificacion = NULL WHERE id = $2 AND empresa_id = $3', [nuevoCorreo, cliente_id, empresa_id]);
+    await db.query('UPDATE clientes SET correo = $1, codigo_verificacion = NULL, codigo_verificacion_expira = NULL WHERE id = $2 AND empresa_id = $3', [nuevoCorreo, cliente_id, empresa_id]);
 
     res.json({ success: true, mensaje: 'Tu correo ha sido actualizado correctamente.' });
   } catch (error) {

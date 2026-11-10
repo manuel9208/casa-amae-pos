@@ -11,6 +11,7 @@ import ModalPagoMayoreo from './caja/modales/ModalPagoMayoreo';
 // 👇 IMPORTACIÓN DEL NUEVO MODAL DE AUDITORÍA EN CAJA
 import ModalInventarioCaja from './caja/modales/ModalInventarioCaja';
 import { apiFetch } from '../utils/apiFetch';
+import ChatWhatsAppCaja from './caja/ChatWhatsAppCaja'; // 🆕 Chat de WhatsApp (Human Handoff)
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const c = useCajaCentral(user, onLogout, onGoToKiosco);
@@ -36,7 +37,10 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
     };
     cargarAuditoria(); // Carga inicial al montar la caja
 
-    const socket = io(apiUrl.replace('/api', ''), { transports: ['websocket', 'polling'] });
+    const socket = io(apiUrl.replace('/api', ''), {
+      transports: ['websocket', 'polling'],
+      auth: { empresa_slug: process.env.REACT_APP_EMPRESA_SLUG } // 🆕 identifica la empresa dueña del socket
+    });
     socketRef.current = socket; // 🆕 Referencia para responder la solicitud de insumo
     const actualizarPantalla = () => {
       if (cargarDataDinamica) cargarDataDinamica();
@@ -53,6 +57,16 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
 
     // 👇 ESCUCHAMOS EL EVENTO DE AUDITORÍA PARA MOSTRAR/OCULTAR EL BOTÓN
     socket.on('auditoria_actualizada', cargarAuditoria);
+
+    // 🆕 Omnicanal: reenvía el evento (ya filtrado por la sala de la empresa) al chat de WhatsApp
+    socket.on('omnichannel_actualizado', (payload) => {
+      window.dispatchEvent(new CustomEvent('omnichannel_actualizado', { detail: payload }));
+    });
+
+    // 🆕 Omnicanal: reenvía el evento (ya filtrado por la sala de la empresa) al chat de WhatsApp
+    socket.on('omnichannel_actualizado', (payload) => {
+      window.dispatchEvent(new CustomEvent('omnichannel_actualizado', { detail: payload }));
+    });
 
     // 🆕 PEDIR INSUMO: Cocina solicita algo. Alerta flotante NO bloqueante — Caja
     // sigue operando normal, y responde cuando la operación se lo permita.
@@ -273,6 +287,17 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           />
         )}  
 
+        {/* 🆕 CHAT DE WHATSAPP: oculto con la caja bloqueada y si el negocio no tiene el canal listo */}
+        {!c.isCajaBloqueada && (
+          <ChatWhatsAppCaja
+            apiUrl={c.apiUrl}
+            showAlert={(titulo, mensaje, tipo) => {
+              c.setAlertaCaja({ titulo, mensaje, tipo });
+              setTimeout(() => c.setAlertaCaja(null), 5000);
+            }}
+          />
+        )}
+
         {/* 👇 RENDERIZADO CONDICIONAL DEL MODAL DE AUDITORÍA */}
         {modalInventarioCaja && auditoriaActiva && (
           <ModalInventarioCaja 
@@ -281,6 +306,17 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             auditoriaActiva={auditoriaActiva}
             cerrarModal={() => setModalInventarioCaja(false)}
             showAlert={(t, m, tip) => c.setAlertaCaja({titulo: t, mensaje: m, tipo: tip})}
+          />
+        )}
+
+        {/* 🆕 CHAT DE WHATSAPP: oculto con la caja bloqueada y si el negocio no tiene el canal listo */}
+        {!c.isCajaBloqueada && (
+          <ChatWhatsAppCaja
+            apiUrl={c.apiUrl}
+            showAlert={(titulo, mensaje, tipo) => {
+              c.setAlertaCaja({ titulo, mensaje, tipo });
+              setTimeout(() => c.setAlertaCaja(null), 5000);
+            }}
           />
         )}
 

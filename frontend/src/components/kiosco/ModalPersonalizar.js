@@ -311,8 +311,8 @@ const ModalPersonalizar = ({
       if (!p.activo || p.tipo !== 'upselling') return false; 
       const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
       if (!diasPromo.includes(diaHoy)) return false;
-      const [hI, mI] = p.hora_inicio.split(':').map(Number);
-      const [hF, mF] = p.hora_fin.split(':').map(Number);
+      const [hI, mI] = (p.hora_inicio || '00:00').split(':').map(Number);
+      const [hF, mF] = (p.hora_fin || '23:59').split(':').map(Number);
       const minI = hI * 60 + mI;
       const minF = hF * 60 + mF;
       if (horaActual < minI || horaActual > minF) return false;
@@ -332,8 +332,8 @@ const ModalPersonalizar = ({
       if (!p.activo || p.tipo !== 'happy_hour') return false;
       const diasPromo = typeof p.dias_aplicables === 'string' ? JSON.parse(p.dias_aplicables || '[]') : (p.dias_aplicables || []);
       if (!diasPromo.includes(diaHoy)) return false;
-      const [hI, mI] = p.hora_inicio.split(':').map(Number);
-      const [hF, mF] = p.hora_fin.split(':').map(Number);
+      const [hI, mI] = (p.hora_inicio || '00:00').split(':').map(Number);
+      const [hF, mF] = (p.hora_fin || '23:59').split(':').map(Number);
       const minI = hI * 60 + mI;
       const minF = hF * 60 + mF;
       if (horaActual < minI || horaActual > minF) return false;
@@ -780,7 +780,7 @@ const ModalPersonalizar = ({
                 Object.values(gruposOpcionalesSeleccionados).flat().forEach(g => extrasFinales.push({ nombre: `🔹 ${g.categoria}: ${g.nombre}`, precioExtra: g.precioExtra, tipo: 'grupo_opcional' }));
                 
                 Object.entries(ingredientesSustituidos).forEach(([base, data]) => {
-                    extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculated || data.precioCalculado, tipo: 'sustitucion' });
+                    extrasFinales.push({ nombre: `🔄 Cambio: ${base} x ${data.nuevoNombre}`, precioExtra: data.precioCalculado, tipo: 'sustitucion' });
                 });
 
                 ingredientesRemovidos.forEach(ib => extrasFinales.push({ nombre: `Sin ${ib}`, precioExtra: 0, tipo: 'base' }));

@@ -200,9 +200,11 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
   
   let consultasUsadas = (fechaUsoDB === hoy) ? (configIA?.consultas_hoy || 0) : 0;
 
-  // Bloqueo estricto solo para cuentas FREE
-  if (!configIA?.tier_premium && consultasUsadas >= 15) {
-    throw new Error("Has alcanzado el límite de 15 consultas gratuitas diarias. Activa el modo Premium o espera a mañana.");
+  // Bloqueo estricto solo para cuentas FREE — el límite ya NO es un "15" fijo:
+  // cada empresa puede tener su propio tope, configurado por el Admin Global.
+  const limiteDiario = Number(configIA?.limite_consultas_diarias) || 15;
+  if (!configIA?.tier_premium && consultasUsadas >= limiteDiario) {
+    throw new Error(`Has alcanzado el límite de ${limiteDiario} consultas gratuitas diarias. Activa el modo Premium o espera a mañana.`);
   }
 
   // 3. Inicialización Dinámica de Llaves desde Base de Datos
@@ -316,6 +318,9 @@ const generarRespuestaTexto = async (systemPrompt, userPrompt, temperature = 0.3
   }
 };
 
+// 🆕 FASE 4: expuesto para el enrutador omnicanal de WhatsApp (reusa enrutador de proveedores y candados)
+exports.generarRespuestaTexto = generarRespuestaTexto;
+
 const registrarConsumoIA = async (fechaHoy, empresaId) => {
   try {
     await db.query(`
@@ -326,6 +331,72 @@ const registrarConsumoIA = async (fechaHoy, empresaId) => {
     `, [fechaHoy, empresaId]);
   } catch (error) {
     console.error("Error al registrar consumo IA:", error);
+  }
+};
+
+// =========================================================================
+// 🆕 FASE 4: Function calling para el asistente conversacional de WhatsApp.
+// Función NUEVA y SEPARADA de generarRespuestaTexto (que sigue intacta, usada
+// por analizarVentas/analizarEmpleados/chatLibre) — Principio DRY sin romper
+// el comportamiento ya validado de esas 3 funciones. Proveedor fijo: Gemini
+// (único de los 3 con function calling ya integrado en este diseño).
+// =========================================================================
+exports.generarRespuestaConHerramientas = async (systemPrompt, historialPrevio, mensajeNuevo, toolsDeclaration, ejecutarHerramienta, configIA, empresaId) => {
+  const hoy = obtenerFechaHoyLocal();
+  const fechaUsoDB = configIA?.fecha_uso ? new Date(configIA.fecha_uso).toLocaleDateString('en-CA') : hoy;
+  const consultasUsadas = (fechaUsoDB === hoy) ? (configIA?.consultas_hoy || 0) : 0;
+  const limiteDiario = Number(configIA?.limite_consultas_diarias) || 15;
+  if (!configIA?.tier_premium && consultasUsadas >= limiteDiario) {
+    throw new Error(`Límite de ${limiteDiario} consultas gratuitas diarias alcanzado.`);
+  }
+  if (configIA?.gemini_habilitado === false) {
+    throw new Error('El asistente conversacional de WhatsApp requiere Gemini habilitado por el Administrador Global.');
+  }
+
+  const apiKey = (configIA?.api_key_gemini || process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) throw new Error("Falta la llave de Gemini. El Administrador Global debe agregarla en Ajustes de IA.");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: GEMINI_MODELS_FALLBACK[0],
+    tools: toolsDeclaration,
+    systemInstruction: systemPrompt
+  });
+
+  const chat = model.startChat({ history: historialPrevio || [] });
+
+  try {
+    let respuesta = await chat.sendMessage(mensajeNuevo);
+    let vueltas = 0;
+    const MAX_VUELTAS = 6; // tope defensivo anti-loop infinito de tool calls
+
+    while (vueltas < MAX_VUELTAS) {
+      const calls = respuesta.response.functionCalls ? respuesta.response.functionCalls() : null;
+      if (!calls || calls.length === 0) break;
+
+      const functionResponses = [];
+      for (const call of calls) {
+        let resultadoTool;
+        try {
+          resultadoTool = await ejecutarHerramienta(call.name, call.args || {});
+        } catch (errTool) {
+          resultadoTool = { error: errTool.message };
+        }
+        functionResponses.push({ functionResponse: { name: call.name, response: resultadoTool } });
+      }
+
+      respuesta = await chat.sendMessage(functionResponses);
+      vueltas++;
+    }
+
+    const textoFinal = respuesta.response.text();
+    await registrarConsumoIA(hoy, empresaId);
+
+    return { textoFinal, historialActualizado: await chat.getHistory() };
+  } catch (error) {
+    console.error('🚨 Error en generarRespuestaConHerramientas:', error.message);
+    if (error.message.includes('429')) throw new Error('Cuota de Google agotada temporalmente. Intenta en unos minutos.');
+    throw new Error('El asistente de WhatsApp tuvo un problema. Intenta de nuevo en unos minutos.');
   }
 };
 
@@ -354,6 +425,7 @@ exports.inicializarTablaIA = async () => {
         contexto_negocio TEXT DEFAULT NULL,
         consultas_hoy INTEGER DEFAULT 0,
         fecha_uso DATE DEFAULT CURRENT_DATE,
+        limite_consultas_diarias INTEGER DEFAULT 15,
         empresa_id INTEGER REFERENCES empresas(id)
       );
     `);
@@ -382,6 +454,11 @@ exports.inicializarTablaIA = async () => {
     // Nace en 'gemini' por default para que las marcas existentes obtengan de inmediato
     // una alternativa GRATUITA a DALL-E sin que el Admin tenga que configurar nada.
     await db.query(`ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS imagen_proveedor VARCHAR(20) DEFAULT 'gemini';`);
+
+    // 🆕 NUEVO: Límite de consultas diarias CONFIGURABLE POR NEGOCIO (antes era
+    // un "15" fijo en el código para todos). Solo lo edita el Admin Global desde
+    // AdminEmpresas.js — el propio negocio NO puede subírselo por su cuenta.
+    await db.query(`ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS limite_consultas_diarias INTEGER DEFAULT 15;`);
 
     // 👇 NUEVO: Contexto del negocio (descrito libremente por el dueño) para que la IA
     // entienda estacionalidad, público objetivo y particularidades antes de analizar.
@@ -457,7 +534,10 @@ exports.obtenerConfiguracionIA = async (req, res) => {
       imagen_proveedor: config.imagen_proveedor,
       contexto_negocio: config.contexto_negocio || '',
       consultas_hoy: config.consultas_hoy,
-      fecha_uso: config.fecha_uso
+      fecha_uso: config.fecha_uso,
+      // 🆕 Informativo para el negocio: ve su tope actual, pero NO puede
+      // editarlo aquí (actualizarConfiguracionIA no acepta este campo del body).
+      limite_consultas_diarias: config.limite_consultas_diarias || 15
     });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener la configuración de IA.' });
@@ -500,6 +580,19 @@ exports.actualizarConfiguracionIA = async (req, res) => {
     const apiKeyOpenaiFinal = openaiParam || actual.api_key_openai || null;
     const apiKeyClaudeFinal = claudeParam || actual.api_key_claude || null;
 
+    // 🔧 FIX: mismo criterio de "preservar valor previo si no llega en el body"
+    // que ya aplicaba a las api_key, ahora extendido a los booleanos — evita que
+    // un guardado parcial desde el frontend (ej. solo "contexto_negocio") apague
+    // silenciosamente modulo_activo/tier_premium/habilitados al mandarlos undefined.
+    const configCompleta = await db.query('SELECT modulo_activo, tier_premium, gemini_habilitado, openai_habilitado, claude_habilitado FROM ia_configuracion WHERE empresa_id = $1', [empresa_id]);
+    const actualFull = configCompleta.rows[0] || {};
+    const moduloActivoFinal = modulo_activo !== undefined ? modulo_activo : (actualFull.modulo_activo ?? true);
+    // 🔒 tier_premium es un candado comercial: este endpoint (protegido solo por el slug) ya no puede modificarlo.
+    const tierPremiumFinal = actualFull.tier_premium ?? false;
+    const geminiHabilitadoFinal = gemini_habilitado !== undefined ? gemini_habilitado : (actualFull.gemini_habilitado ?? true);
+    const openaiHabilitadoFinal = openai_habilitado !== undefined ? openai_habilitado : (actualFull.openai_habilitado ?? false);
+    const claudeHabilitadoFinal = claude_habilitado !== undefined ? claude_habilitado : (actualFull.claude_habilitado ?? false);
+
     await db.query(`
       INSERT INTO ia_configuracion
         (empresa_id, modulo_activo, tier_premium, proveedor_activo, api_key_gemini, api_key_openai, api_key_claude, gemini_habilitado, openai_habilitado, claude_habilitado, imagen_proveedor, contexto_negocio)
@@ -509,11 +602,44 @@ exports.actualizarConfiguracionIA = async (req, res) => {
         api_key_gemini = $5, api_key_openai = $6, api_key_claude = $7,
         gemini_habilitado = $8, openai_habilitado = $9, claude_habilitado = $10,
         imagen_proveedor = $11, contexto_negocio = $12
-    `, [empresa_id, modulo_activo, tier_premium, proveedor_activo, apiKeyGeminiFinal, apiKeyOpenaiFinal, apiKeyClaudeFinal, gemini_habilitado, openai_habilitado, claude_habilitado, imagen_proveedor, contexto_negocio || null]);
+    `, [empresa_id, moduloActivoFinal, tierPremiumFinal, proveedor_activo, apiKeyGeminiFinal, apiKeyOpenaiFinal, apiKeyClaudeFinal, geminiHabilitadoFinal, openaiHabilitadoFinal, claudeHabilitadoFinal, imagen_proveedor, contexto_negocio || null]);
 
     res.json({ success: true, mensaje: 'Configuración de IA actualizada con éxito.' });
   } catch (error) {
     res.status(500).json({ error: 'Error al actualizar la configuración de IA.' });
+  }
+};
+
+// =========================================================================
+// 2.1 CONTROL EXCLUSIVO DE SUPERADMIN — LÍMITE DE CONSULTAS POR EMPRESA
+// -------------------------------------------------------------------------
+// 🆕 A diferencia de actualizarConfiguracionIA (que gestiona el propio negocio),
+// este endpoint es de uso EXCLUSIVO del panel AdminEmpresas.js. Debe registrarse
+// en api.js bajo el mismo middleware de "X-Superadmin-Key" que ya protege a
+// /admin-global/empresas y /admin-global/variables-catalogo.
+// =========================================================================
+exports.actualizarLimiteConsultasIA = async (req, res) => {
+  const { id } = req.params; // id de la empresa (empresa_id)
+  const { limite_consultas_diarias } = req.body;
+
+  const limiteNum = Number(limite_consultas_diarias);
+  if (!Number.isInteger(limiteNum) || limiteNum < 1) {
+    return res.status(400).json({ error: 'El límite debe ser un número entero mayor o igual a 1.' });
+  }
+
+  try {
+    // UPSERT: si la empresa aún no tiene fila en ia_configuracion (nunca ha
+    // entrado a Ajustes de IA), se crea con los defaults + el límite indicado.
+    await db.query(`
+      INSERT INTO ia_configuracion (empresa_id, limite_consultas_diarias)
+      VALUES ($1, $2)
+      ON CONFLICT (empresa_id) DO UPDATE SET limite_consultas_diarias = $2
+    `, [id, limiteNum]);
+
+    res.json({ ok: true, empresa_id: Number(id), limite_consultas_diarias: limiteNum });
+  } catch (error) {
+    console.error('🚨 Error al actualizar límite de consultas IA:', error);
+    res.status(500).json({ error: 'No se pudo actualizar el límite de consultas de IA.' });
   }
 };
 

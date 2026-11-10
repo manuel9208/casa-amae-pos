@@ -43,12 +43,29 @@ exports.inicializarTablaEmpresas = async () => {
       CREATE TABLE IF NOT EXISTS empresas (
         id SERIAL PRIMARY KEY,
         nombre VARCHAR(255) NOT NULL,
-        slug VARCHAR(50) NOT NULL UNIQUE,
+        slug VARCHAR(50) NOT NULL,
         variables JSONB DEFAULT '{}',
         activo BOOLEAN DEFAULT true,
-        creado_en TIMESTAMP DEFAULT NOW()
+        creado_en TIMESTAMP DEFAULT NOW(),
+        CONSTRAINT empresas_slug_key UNIQUE (slug)
       );
     `);
+
+    // 🔧 FIX: Forzar la restricción única en la tabla si ya existía desde antes
+    await db.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'empresas_slug_key') THEN 
+          ALTER TABLE empresas ADD CONSTRAINT empresas_slug_key UNIQUE (slug); 
+        END IF; 
+      END $$;
+    `);
+
+    // 🆕 Fase 2 — Candados comerciales de WhatsApp, independientes entre sí.
+    // NO son secretos (por eso van aparte de "variables", que sí se cifra).
+    // Exclusivos del panel AdminEmpresas.js (ver endpoints de toggle más abajo).
+    await db.query(`ALTER TABLE empresas ADD COLUMN IF NOT EXISTS whatsapp_pedidos_ia BOOLEAN DEFAULT false;`);
+    await db.query(`ALTER TABLE empresas ADD COLUMN IF NOT EXISTS whatsapp_notificaciones BOOLEAN DEFAULT false;`);
 
     // Sembrar la fila centinela del catálogo si todavía no existe
     await db.query(
@@ -128,8 +145,10 @@ exports.agregarClaveCatalogo = async (req, res) => {
 exports.listarEmpresas = async (req, res) => {
   try {
     // 🆕 Se excluye la fila centinela del catálogo — no es una empresa real
+    // 🆕 Fase 2: se incluyen los dos flags comerciales de WhatsApp para pintar
+    // sus switches en AdminEmpresas.js
     const result = await db.query(
-      'SELECT id, nombre, slug, activo, creado_en FROM empresas WHERE slug <> $1 ORDER BY nombre ASC',
+      'SELECT id, nombre, slug, activo, creado_en, whatsapp_pedidos_ia, whatsapp_notificaciones FROM empresas WHERE slug <> $1 ORDER BY nombre ASC',
       [SLUG_CATALOGO]
     );
     res.json(result.rows);
@@ -263,5 +282,33 @@ exports.actualizarVariables = async (req, res) => {
   } catch (error) {
     console.error('🚨 Error al actualizar variables:', error);
     res.status(500).json({ error: 'No se pudieron actualizar las variables.' });
+  }
+};
+
+// =========================================================================
+// 🆕 FASE 2 — CANDADOS COMERCIALES DE WHATSAPP (Exclusivo Admin Global)
+// -------------------------------------------------------------------------
+// PUT /admin-global/empresas/:id/whatsapp-flag  { clave: 'whatsapp_pedidos_ia' | 'whatsapp_notificaciones', valor: true|false }
+// Dos booleanos INDEPENDIENTES, validados por nombre exacto de columna para
+// evitar inyección de nombre de columna (whitelist estricta).
+// =========================================================================
+const FLAGS_WHATSAPP_PERMITIDOS = ['whatsapp_pedidos_ia', 'whatsapp_notificaciones'];
+
+exports.actualizarFlagWhatsapp = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { clave, valor } = req.body;
+
+    if (!FLAGS_WHATSAPP_PERMITIDOS.includes(clave)) {
+      return res.status(400).json({ error: `Flag no reconocido. Usa uno de: ${FLAGS_WHATSAPP_PERMITIDOS.join(', ')}` });
+    }
+
+    const result = await db.query(`UPDATE empresas SET ${clave} = $1 WHERE id = $2 RETURNING id, ${clave}`, [!!valor, id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Empresa no encontrada.' });
+
+    res.json({ ok: true, empresa_id: Number(id), clave, valor: !!valor });
+  } catch (error) {
+    console.error('🚨 Error al actualizar flag de WhatsApp:', error);
+    res.status(500).json({ error: 'No se pudo actualizar el flag de WhatsApp.' });
   }
 };

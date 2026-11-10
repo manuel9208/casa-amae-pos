@@ -176,7 +176,8 @@ const Cocina = ({ user, onLogout }) => {
 
     useEffect(() => {
         const nuevoSocket = io(apiUrl.replace('/api', ''), {
-        transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            auth: { empresa_slug: process.env.REACT_APP_EMPRESA_SLUG } // 🆕 identifica la empresa dueña del socket
         });
         socketRef.current = nuevoSocket; // 🆕 Referencia para emitir solicitudes de insumo
         nuevoSocket.on('connect', () => fetchPedidos());

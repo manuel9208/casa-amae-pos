@@ -114,7 +114,10 @@ const VistaAsistencia = ({ apiUrl, user }) => {
         verificarVinculacionDispositivo();
 
         const baseUrl = apiUrl.replace('/api', '');
-        const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+        const socket = io(baseUrl, {
+            transports: ['websocket', 'polling'],
+            auth: { empresa_slug: process.env.REACT_APP_EMPRESA_SLUG } // 🆕 el servidor rechaza sockets sin slug
+        });
 
         socket.on('config_asistencia_actualizada', () => {
             cargarConfiguracionGeneral();

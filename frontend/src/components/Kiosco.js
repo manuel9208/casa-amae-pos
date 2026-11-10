@@ -13,6 +13,7 @@ import MisPedidos from './kiosco/MisPedidos';
 import OfertaUpselling from './kiosco/OfertaUpselling'; 
 import ModalArmarCombo from './kiosco/ModalArmarCombo';
 import ImagenCachada from './ImagenCachada';
+import AsistenteKioscoIA from './kiosco/AsistenteKioscoIA';
 
 const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 const baseUrl = apiUrl.replace('/api', '');
@@ -75,7 +76,8 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const [combosActivos, setCombosActivos] = useState([]);
   const [comboEnEspera, setComboEnEspera] = useState(null);
   const [productosPopulares, setProductosPopulares] = useState([]); // 👈 NUEVO: Badge de Popularidad
-const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animaciones del Kiosco (Lottie + Video Premium) por categoría
+  const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animaciones del Kiosco (Lottie + Video Premium) por categoría
+  const [iaStatus, setIaStatus] = useState({ tier_premium: false, kiosco_ia_activo: false }); // 🆕 Estado público de IA
 
   const mostrarAlerta = useCallback((mensaje, tipo = 'info') => {
     setAlertaGeneral({ mensaje, tipo });
@@ -141,8 +143,46 @@ const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animacio
                 if (data.success) setAnimacionesKiosco(data.animaciones || []);
             })
             .catch(e => console.error("Error al cargar animaciones del Kiosco:", e));
+
+       // 🆕 Consultar estado de IA del Kiosco (Tier Premium / Asistente Activo)
+       apiFetch(`${apiUrl}/omnichannel/status-publico`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setIaStatus(data);
+            })
+            .catch(e => console.error("Error al cargar estado de IA:", e));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOffline]);
+
+  // 🆕 Refresco en vivo del estado de IA (Premium / Asistente Kiosco) sin recargar la página
+  useEffect(() => {
+    if (isOffline) return;
+
+    const refrescarEstadoIA = () => {
+      if (document.hidden) return; // no consultar si la pestaña está en segundo plano
+      apiFetch(`${apiUrl}/omnichannel/status-publico?t=${Date.now()}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) {
+            // Solo actualiza si algo cambió, para evitar re-renders innecesarios
+            setIaStatus(prev =>
+              prev.tier_premium === data.tier_premium && prev.kiosco_ia_activo === data.kiosco_ia_activo
+                ? prev
+                : data
+            );
+          }
+        })
+        .catch(() => {}); // ante fallo de red se conserva el último estado conocido
+    };
+
+    const intervaloIA = setInterval(refrescarEstadoIA, 15000);
+    document.addEventListener('visibilitychange', refrescarEstadoIA);
+
+    return () => {
+      clearInterval(intervaloIA);
+      document.removeEventListener('visibilitychange', refrescarEstadoIA);
+    };
   }, [isOffline]);
 
   const fetchCatalogoCompleto = useCallback(() => {
@@ -262,7 +302,10 @@ const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animacio
 
   useEffect(() => {
     if (!baseUrl || isOffline) return;
-    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    const socket = io(baseUrl, {
+  transports: ['websocket', 'polling'],
+  auth: { empresa_slug: process.env.REACT_APP_EMPRESA_SLUG } // 🆕 identifica la empresa dueña del socket
+});
     
     socket.on('catalogo_actualizado', () => fetchCatalogoCompleto());
     socket.on('nuevo_pedido', () => fetchCatalogoCompleto());
@@ -921,6 +964,25 @@ const [animacionesKiosco, setAnimacionesKiosco] = useState([]); // 🆕 Animacio
         productos={productos}
         clasificaciones={clasificaciones} 
       />
+
+      {/* 🤖 Asistente IA del Kiosco (Punto 5): solo visible en Menú y Mis Pedidos,
+          oculto durante Checkout y mientras haya un modal crítico abierto,
+          para no competir visualmente ni de z-index con ellos. */}
+      {['menu', 'mis_pedidos'].includes(pantallaActual) &&
+        !modalNip && !modalRecuperarNip && !productoEnEspera && !comboEnEspera && 
+        iaStatus.kiosco_ia_activo && ( // 👈 CONDICIÓN MAESTRA (Fase 3)
+        <AsistenteKioscoIA
+          apiUrl={apiUrl}
+          configGlobal={configGlobal}
+          clienteActivo={clienteActivo}
+          misPedidos={misPedidos}
+          productos={productosDisponiblesMenu}
+          clasificaciones={clasificaciones}
+          catalogoIngredientes={catalogoIngredientes}
+          productosPopulares={productosPopulares}
+          onIrAIdentificarse={onIrAIdentificarse}
+        />
+      )}
 
     </div>
   );

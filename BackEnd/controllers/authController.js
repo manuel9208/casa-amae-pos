@@ -98,7 +98,7 @@ exports.login = async (req, res) => {
         }
       }
 
-      return res.json({ usuario: user, segunda_sesion: es_secundaria, aviso_asistencia: avisoAsistencia, pantallas_permitidas_mdm: mdmInfo.pantallasPermitidas });
+      return res.json({ usuario: user, segunda_sesion: es_secundaria, aviso_asistencia: avisoAsistencia, pantallas_permitidas_mdm: mdmInfo.pantallasPermitidas, token: require('../utils/sesionToken').emitirToken(user) });
     } else {
       res.status(401).json({ error: 'Credenciales incorrectas' });
     }

@@ -50,12 +50,24 @@ const configFinancieraCtrl = require('../controllers/configFinancieraController'
 const configOperativaCtrl = require('../controllers/configOperativaCtrl');
 const cocinaOperativaCtrl = require('../controllers/cocinaOperativaController');
 const kioscoAnimacionesCtrl = require('../controllers/kioscoAnimacionesController');
+const kioscoAsistenteCtrl = require('../controllers/kioscoAsistenteController'); // 🆕 Punto 5: Personaje Asistente IA del Kiosco (módulo separado)
+const kioscoChatIaCtrl = require('../controllers/kioscoChatIaController'); // 🆕 Punto 5: Chat IA del Kiosco (dudas de menú/precios), 100% aislado del panel AdminIA
+
+const omnichannelCtrl = require('../controllers/omnichannelController'); // 🆕 FASE 1: Omnicanalidad (IA + WhatsApp)
+const omnichannelChatCtrl = require('../controllers/omnichannelChatController'); // 🆕 FASE 5: Chat de WhatsApp en Caja (Human Handoff)
+const { requerirPersonalPOS } = require('../middlewares/requerirPersonalPOS');
+const { inyectarTokenSesion } = require('../middlewares/inyectarTokenSesion'); // 🔐 token de sesión en logins de empleados
+const baileysCtrl = require('../controllers/baileysController'); // 🆕 FASE 4b: vinculación Baileys (QR)
+const dialog360Ctrl = require('../controllers/dialog360WebhookController'); // 🆕 360dialog: webhook entrante por empresa // 🆕 FASE 5: guard de sesión para datos de clientes
 
 // 🆕 Imports nuevos (agregar junto a los demás require() al inicio de api.js)
 const { verificarAdminGlobal } = require('../middlewares/verificarAdminGlobal');
 const { uploadAnimacionKiosco } = require('../middlewares/uploadAnimacionesKiosco');
+const { uploadAsistenteKiosco } = require('../middlewares/uploadAsistenteKiosco'); // 🆕 Punto 5: subida aislada del personaje (imagen/Lottie/video)
 
 const empresasController = require('../controllers/empresasController');
+const notificacionesConfigCtrl = require('../controllers/notificacionesConfigController');
+const whatsappCtrl = require('../controllers/whatsappController'); // 🆕 FASE 4 (punto 3 roadmap): webhook de consulta de estado por WhatsApp
 
 
 // 👇 Inicializar tablas en Neon.tech automáticamente al arrancar
@@ -74,7 +86,11 @@ configOperativaCtrl.inicializarTablaConfigOperativa();
 cocinaOperativaCtrl.inicializarTablaCocinaOperativa();
 usuarioCtrl.inicializarTablaCierreAutomatico();
 kioscoAnimacionesCtrl.inicializarTablas();
+kioscoAsistenteCtrl.inicializarTablas(); // 🆕 Punto 5
+kioscoChatIaCtrl.inicializarTablas(); // 🆕 Punto 5: tabla de cuotas anti-abuso del Chat IA del Kiosco
 empresasController.inicializarTablaEmpresas();
+notificacionesConfigCtrl.inicializarTablaNotificaciones();
+whatsappCtrl.inicializarTablaWhatsapp(); // 🆕 FASE 4: tabla de conversaciones del asistente de pedidos por WhatsApp
 
 // ==========================================
 // CONFIGURACIÓN DE CLOUDINARY
@@ -171,7 +187,7 @@ router.post('/suscripciones', resolveTenant, notificacionCtrl.guardarSuscripcion
 // AUTENTICACIÓN Y CLIENTES NORMALES
 // ==========================================
 router.post('/identificar', resolveTenant, authCtrl.identificar);
-router.post('/login', resolveTenant, authCtrl.login);
+router.post('/login', resolveTenant, inyectarTokenSesion, authCtrl.login);
 router.post('/logout', resolveTenant, authCtrl.logout);
 router.post('/clientes/registro', resolveTenant, clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', resolveTenant, clienteCtrl.verificarNip);
@@ -396,6 +412,18 @@ router.post('/iclock/cdata', express.text({ type: '*/*' }), biometricoCtrl.recib
 router.get('/iclock/getrequest', biometricoCtrl.getComandos);
 
 // ==========================================
+// 📲 WEBHOOK WHATSAPP (Meta Cloud API) — Consulta de estado de pedido
+// ==========================================
+// ⚠️ NOTA IMPORTANTE: mismo criterio que el puente ZKTeco de arriba. Meta
+// NO puede mandar el header X-Empresa-Slug, así que NO llevan resolveTenant.
+// El tenant se resuelve DENTRO de whatsappController.js, cruzando el
+// phone_number_id del payload contra configuracion.wa_phone_id.
+router.get('/whatsapp/webhook', whatsappCtrl.verificarWebhook);
+router.post('/whatsapp/webhook', express.json(), whatsappCtrl.recibirWebhook);
+router.post('/whatsapp/360dialog/webhook/:secreto', dialog360Ctrl.recibirWebhook360); // 🆕 360dialog entrante (tenant por secreto)
+router.get('/omnichannel/360dialog/webhook-url', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, dialog360Ctrl.obtenerUrlWebhook);
+
+// ==========================================
 // 🖨️ IMPRESIÓN TCP / RED (TICKETS)
 // ==========================================
 router.post('/imprimir', resolveTenant, impresionCtrl.imprimirTicketIP);
@@ -421,10 +449,10 @@ if (!globalIo && req.app) {
         listenersInsumoAdjuntos = true;
         globalIo.on('connection', (socket) => {
             socket.on('solicitud_insumo_cocina', (payload) => {
-                globalIo.emit('solicitud_insumo_caja', payload);
+                globalIo.to(`empresa_${socket.empresa_id}`).emit('solicitud_insumo_caja', payload); // 🔒 solo a la empresa dueña del socket
             });
             socket.on('respuesta_insumo_caja', (payload) => {
-                globalIo.emit('respuesta_insumo_cocina', payload);
+                globalIo.to(`empresa_${socket.empresa_id}`).emit('respuesta_insumo_cocina', payload); // 🔒 solo a la empresa dueña del socket
             });
         });
     }
@@ -449,7 +477,7 @@ router.post('/huellas/generar-registro', resolveTenant, huellasCtrl.generarOpcio
 router.post('/huellas/verificar-registro', resolveTenant, huellasCtrl.verificarRegistro);
 router.post('/huellas/enviar-codigo', resolveTenant, huellasCtrl.enviarCodigoVerificacion);
 router.post('/huellas/generar-login', resolveTenant, huellasCtrl.generarOpcionesAutenticacion);
-router.post('/huellas/verificar-login', resolveTenant, huellasCtrl.verificarAutenticacion);
+router.post('/huellas/verificar-login', resolveTenant, inyectarTokenSesion, huellasCtrl.verificarAutenticacion);
 router.delete('/huellas/cliente/:id', resolveTenant, huellasCtrl.eliminarHuellaCliente);
 router.delete('/huellas/empleado/:id', resolveTenant, huellasCtrl.eliminarHuellaEmpleado);
 
@@ -483,6 +511,24 @@ router.get('/ia/historial', resolveTenant, iaCtrl.obtenerHistorialChat);
 router.post('/ia/historial', resolveTenant, iaCtrl.guardarHistorialChat);
 
 // ==========================================
+// 🤖📱 MÓDULO AISLADO: OMNICANALIDAD (IA + WHATSAPP) 
+// ==========================================
+router.get('/omnichannel/configuracion', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, omnichannelCtrl.getConfiguracionUnificada);
+router.put('/omnichannel/configuracion', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, omnichannelCtrl.actualizarConfiguracionUnificada);
+
+// 💬 FASE 5: Chat de WhatsApp en Caja (solo personal con sesión, siempre filtrado por empresa)
+router.get('/omnichannel/chats', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.listarChats);
+router.get('/omnichannel/chats/:id', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.obtenerChat);
+router.post('/omnichannel/chats/:id/mensajes', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.enviarMensajeCajero);
+router.put('/omnichannel/chats/:id/pausa', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.cambiarPausaIA);
+router.get('/omnichannel/status-publico', resolveTenant, omnichannelCtrl.getStatusPublico);
+
+// 📱 FASE 4b: Baileys (solo admin del negocio, siempre por empresa)
+router.get('/omnichannel/baileys/estado', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, baileysCtrl.estado);
+router.post('/omnichannel/baileys/conectar', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, baileysCtrl.conectar);
+router.post('/omnichannel/baileys/desconectar', resolveTenant, requerirPersonalPOS, baileysCtrl.soloAdmin, baileysCtrl.desconectar);
+
+// ==========================================
 // 🧠 MÓDULO AISLADO: CONFIGURACION OPERATIVA
 // ==========================================
 router.get('/configuracion-operativa', resolveTenant, configOperativaCtrl.obtenerConfigOperativa);
@@ -510,6 +556,29 @@ router.post('/kiosco-animaciones/biblioteca', resolveTenant, verificarAdminGloba
 router.delete('/kiosco-animaciones/biblioteca/:id', resolveTenant, verificarAdminGlobal, kioscoAnimacionesCtrl.eliminarAnimacionBiblioteca);
 router.get('/kiosco-animaciones/biblioteca-admin', verificarAdminGlobal, kioscoAnimacionesCtrl.obtenerBibliotecaCompletaAdmin);
 
+// ==========================================
+// 🤖 MÓDULO AISLADO: PERSONAJE ASISTENTE IA DEL KIOSCO (separado de Animaciones,
+// comparte candado de permisos vía kiosco_animaciones_permisos, ver controller)
+// ==========================================
+router.get('/kiosco-asistente/biblioteca', resolveTenant, kioscoAsistenteCtrl.obtenerBibliotecaAsistentes);
+router.get('/kiosco-asistente/empresa', resolveTenant, kioscoAsistenteCtrl.obtenerAsistenteEmpresa);
+router.post('/kiosco-asistente/seleccionar', resolveTenant, kioscoAsistenteCtrl.guardarAsistenteEmpresa); // fuente: 'biblioteca' (JSON, sin archivo)
+router.post('/kiosco-asistente/personalizado', resolveTenant, uploadAsistenteKiosco.any(), kioscoAsistenteCtrl.guardarAsistenteEmpresa); // fuente: 'personalizado' (CON archivo, credenciales Cloudinary por empresa)
+router.delete('/kiosco-asistente', resolveTenant, kioscoAsistenteCtrl.eliminarAsistenteEmpresa);
+
+// Rutas EXCLUSIVAS de súper-admin global (gestión de la biblioteca maestra de personajes)
+router.post('/kiosco-asistente/biblioteca', resolveTenant, verificarAdminGlobal, uploadAsistenteKiosco.any(), kioscoAsistenteCtrl.subirAsistenteBiblioteca);
+router.delete('/kiosco-asistente/biblioteca/:id', resolveTenant, verificarAdminGlobal, kioscoAsistenteCtrl.eliminarAsistenteBiblioteca);
+router.get('/kiosco-asistente/biblioteca-admin', verificarAdminGlobal, kioscoAsistenteCtrl.obtenerBibliotecaCompletaAdmin);
+
+// ==========================================
+// 💬 MÓDULO AISLADO: CHAT IA DEL KIOSCO (dudas de menú/precios, público sin sesión)
+// Completamente independiente de /ia/* (panel AdminIA con sesión): candado
+// anti-abuso propio por sesión/cliente (kiosco_chat_ia_uso), caché propio,
+// aislado por empresa_id desde el diseño.
+// ==========================================
+router.post('/kiosco-chat-ia/consultar', resolveTenant, require('../middlewares/requerirPremiumKiosco').requerirPremiumKiosco, kioscoChatIaCtrl.consultarMenu);
+
 // === Rutas — Panel Admin Empresas (Exclusivo Admin Global) ===
 router.get('/admin-global/empresas', verificarAdminGlobal, empresasController.listarEmpresas);
 router.post('/admin-global/empresas', verificarAdminGlobal, empresasController.crearEmpresa);
@@ -520,6 +589,17 @@ router.put('/admin-global/empresas/:id/variables', verificarAdminGlobal, empresa
 // 🆕 Catálogo global de variables disponibles (qué CLAVES existen para todas las empresas)
 router.get('/admin-global/variables-catalogo', verificarAdminGlobal, empresasController.obtenerCatalogoClaves);
 router.post('/admin-global/variables-catalogo', verificarAdminGlobal, empresasController.agregarClaveCatalogo);
+
+// 🆕 Fase 1 — Límite de consultas diarias de IA, configurable por empresa.
+// Exclusivo del panel AdminEmpresas.js (mismo candado que el resto de /admin-global/*).
+router.put('/admin-global/empresas/:id/ia-limite', verificarAdminGlobal, iaCtrl.actualizarLimiteConsultasIA);
+
+// 🆕 Fase 2 — Candados comerciales de WhatsApp (pedidos IA / notificaciones), independientes.
+router.put('/admin-global/empresas/:id/whatsapp-flag', verificarAdminGlobal, empresasController.actualizarFlagWhatsapp);
+
+// 🆕 Fase 3 — Catálogo de Notificaciones (eventos × roles × canales), editable por el propio negocio.
+router.get('/notificaciones-config', resolveTenant, notificacionesConfigCtrl.obtenerConfiguracionNotificaciones);
+router.put('/notificaciones-config/:evento', resolveTenant, notificacionesConfigCtrl.actualizarConfiguracionEvento);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)
@@ -542,27 +622,23 @@ setInterval(async () => {
     let huboCambios = false;
 
     // 👇 FIX MAESTRO: AUTO-RESET DEL BOTÓN MANUAL DE CAJA (Inyectado sin romper tu código)
-    const confRes = await db.query('SELECT horarios_semana, negocio_abierto FROM configuracion WHERE id = 1');
-    if (confRes.rows.length > 0) {
-      const config = confRes.rows[0];
+    const confRes = await db.query('SELECT id, empresa_id, horarios_semana, negocio_abierto FROM configuracion'); // 🔒 FIX: ya NO solo id=1, se evalúa CADA empresa por separado
+    for (const config of confRes.rows) {
       const estaAbiertoManual = config.negocio_abierto === true || String(config.negocio_abierto) === 'true';
-      
+
       if (estaAbiertoManual) {
         let resetearModoManual = false;
-        
-        // 1. Reseteo de Medianoche (Si se les olvidó apagarlo, a las 12:00 AM se apaga solo)
+
         if (horaActual === '00:00') {
           resetearModoManual = true;
-        } 
+        }
         else {
-          // 2. Reseteo en los topes exactos de Apertura y Cierre
           const horarios = typeof config.horarios_semana === 'string' ? JSON.parse(config.horarios_semana || '{}') : (config.horarios_semana || {});
           const diasMapa = { '1': 'Lunes', '2': 'Martes', '3': 'Miércoles', '4': 'Jueves', '5': 'Viernes', '6': 'Sábado', '7': 'Domingo' };
           const diaHoyStr = diasMapa[diaActual];
           const configHoy = horarios[diaHoyStr];
 
           if (configHoy && configHoy.activo && configHoy.apertura && configHoy.cierre) {
-            // Limpiamos el botón exactamente en el minuto que abre o cierra oficialmente el restaurante
             if (horaActual === configHoy.apertura || horaActual === configHoy.cierre) {
               resetearModoManual = true;
             }
@@ -570,7 +646,7 @@ setInterval(async () => {
         }
 
         if (resetearModoManual) {
-          await db.query('UPDATE configuracion SET negocio_abierto = false WHERE id = 1');
+          await db.query('UPDATE configuracion SET negocio_abierto = false WHERE id = $1 AND empresa_id = $2', [config.id, config.empresa_id]); // 🔒 FILTRO EMPRESA explícito por fila
           huboCambios = true;
         }
       }

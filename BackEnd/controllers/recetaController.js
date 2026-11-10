@@ -180,6 +180,12 @@ exports.actualizarOpcionesProducto = async (req, res) => {
             'UPDATE productos SET opciones = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *', // 🔒 FILTRO EMPRESA
             [JSON.stringify(opciones), id, empresaId]
         );
+
+        // 🔧 FIX: faltaba notificar — Caja/Kiosco no se enteraban en vivo de cambios
+        // en personalización (igual patrón que crearProducto/actualizarProducto).
+        const io = req.app.get('io');
+        if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
+
         res.json(result.rows[0]);
     } catch (error) {
         console.error("Error al actualizar opciones del producto:", error);
@@ -212,7 +218,7 @@ exports.crearSubReceta = async (req, res) => {
         );
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
         
         res.status(201).json(result.rows[0]);
     } catch (error) {
@@ -232,7 +238,7 @@ exports.actualizarSubReceta = async (req, res) => {
         );
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
         
         res.json(result.rows[0]);
     } catch (error) {
@@ -248,7 +254,7 @@ exports.eliminarSubReceta = async (req, res) => {
         await db.query("DELETE FROM sub_recetas WHERE id = $1 AND empresa_id = $2", [id, empresaId]); // 🔒 FILTRO EMPRESA
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado');
+        if (io) io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
         
         res.json({ success: true });
     } catch (error) {

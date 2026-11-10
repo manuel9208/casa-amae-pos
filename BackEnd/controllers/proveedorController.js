@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const nodemailer = require('nodemailer');
-const webpush = require('web-push'); 
+const webpush = require('web-push');
+const { dispararEvento } = require('./pedidoController'); // 🆕 FASE 3: catálogo de notificaciones (factura_recibida / factura_pagada)
 
 // ==========================================
 // 🛡️ AUTO-MIGRACIÓN DE TABLAS AISLADAS
@@ -95,49 +96,17 @@ exports.actualizarConfiguracion = async (req, res) => {
 // ==========================================
 // 🔔 MOTOR DE ALERTAS PUSH / SOCKETS PARA ADMINS
 // ==========================================
+// 🆕 FASE 3: se retira el Web Push directo de aquí — duplicaba el envío que ahora
+// hace dispararEvento()/notificarStaff() respetando el catálogo de notificaciones
+// configurado por el negocio (roles/mensajes editables en NotificacionesWA.js).
+// Esta función queda solo como "toast" en vivo para quien tenga el AdminPanel abierto.
 const alertarAdministradores = async (req, titulo, mensaje) => {
     const empresaId = req.empresa_id;
     try {
         const io = req.app.get('io');
         if (io) {
-            io.emit('alerta_admin', { titulo, mensaje, fecha: new Date() });
-            io.emit('catalogo_actualizado'); 
-        }  
-
-        if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-            webpush.setVapidDetails(
-                `mailto:${process.env.VAPID_EMAIL || 'admin@sistema.com'}`,
-                process.env.VAPID_PUBLIC_KEY,
-                process.env.VAPID_PRIVATE_KEY
-            );  
-
-            const subsRes = await db.query(`
-                SELECT sp.suscripcion 
-                FROM suscripciones_push sp 
-                JOIN usuarios u ON sp.usuario_id = u.id 
-                WHERE u.rol IN ('admin', 'gerente') AND u.empresa_id = $1
-            `, [empresaId]);  
-
-            if (subsRes.rows.length > 0) {
-                const payload = JSON.stringify({
-                    title: titulo,
-                    body: mensaje,
-                    icon: '/logo192.png', 
-                    badge: '/logo192.png',
-                    url: '/admin' 
-                });  
-
-                const promesas = subsRes.rows.map(row => {
-                    const sub = typeof row.suscripcion === 'string' ? JSON.parse(row.suscripcion) : row.suscripcion;
-                    return webpush.sendNotification(sub, payload).catch(err => {
-                        if (err.statusCode === 410 || err.statusCode === 404) {
-                            db.query("DELETE FROM suscripciones_push WHERE suscripcion->>'endpoint' = $1", [sub.endpoint]).catch(()=>null);
-                        }
-                    });
-                });  
-
-                await Promise.all(promesas);
-            }
+            io.to(`empresa_${empresaId}`).emit('alerta_admin', { titulo, mensaje, fecha: new Date() }); // 🔒 FILTRO EMPRESA
+            io.to(`empresa_${empresaId}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
         }
     } catch (error) {
         console.error("🚨 Error al emitir alerta a administradores", error);
@@ -270,7 +239,11 @@ exports.registrarGasto = async (req, res) => {
         );  
 
         const origenTxt = origen || 'Caja';
-        alertarAdministradores(req, "🧾 Nueva Factura Recibida", `Se ha registrado una nueva recepción de mercancía desde ${origenTxt}. Pendiente de revisión.`);  
+        alertarAdministradores(req, "🧾 Nueva Factura Recibida", `Se ha registrado una nueva recepción de mercancía desde ${origenTxt}. Pendiente de revisión.`);
+
+        // 🆕 FASE 3: catálogo de notificaciones — evento "factura_recibida"
+        const provNombreRes = await db.query('SELECT empresa FROM proveedores WHERE id = $1 AND empresa_id = $2', [proveedor_id, empresa_id]);
+        dispararEvento(empresa_id, 'factura_recibida', { proveedor_nombre: provNombreRes.rows[0]?.empresa || 'Proveedor', monto: total_pago || 0 });
 
         res.status(201).json(result.rows[0]);
     } catch (error) {
@@ -304,7 +277,7 @@ exports.eliminarGasto = async (req, res) => {
         await client.query('COMMIT');
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado'); 
+        if (io) io.to(`empresa_${empresa_id}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
 
         res.json({ success: true });
     } catch (e) {
@@ -515,6 +488,11 @@ exports.actualizarEstadoGasto = async (req, res) => {
 
             const estadoTxt = estado === 'Pagado' ? 'Pagada' : 'Aprobada';
             alertarAdministradores(req, `✅ Factura ${estadoTxt}`, `Se ha ${estado === 'Pagado' ? 'pagado' : 'aprobado'} la factura de ${proveedor.empresa} por $${gasto.total_pago} y el stock fue sumado.`);
+
+            // 🆕 FASE 3: catálogo de notificaciones — evento "factura_pagada" (Aprobado no tiene evento propio en el catálogo)
+            if (estado === 'Pagado') {
+                dispararEvento(empresa_id, 'factura_pagada', { proveedor_nombre: proveedor.empresa, monto: gasto.total_pago });
+            }
         } 
         // Si la factura pasó de Aprobado a Pagado, solo enviamos el correo (sin sumar stock otra vez)
         else if (estado === 'Pagado' && gasto.estado === 'Aprobado') {
@@ -522,12 +500,15 @@ exports.actualizarEstadoGasto = async (req, res) => {
                 enviarCorreoProveedor(proveedor, updateGasto.rows[0], empresa_id);
             }
             alertarAdministradores(req, `✅ Deuda Liquidada`, `Se ha liquidado el pago a ${proveedor.empresa} por $${gasto.total_pago}.`);
+
+            // 🆕 FASE 3: catálogo de notificaciones — evento "factura_pagada"
+            dispararEvento(empresa_id, 'factura_pagada', { proveedor_nombre: proveedor.empresa, monto: gasto.total_pago });
         }
 
         await client.query('COMMIT'); 
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado'); 
+        if (io) io.to(`empresa_${empresa_id}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
 
         res.json(updateGasto.rows[0]);
     } catch (e) {
@@ -582,10 +563,15 @@ exports.actualizarEstadoGastoBulk = async (req, res) => {
         const estadoTxt = estado === 'Pagado' ? 'Pagadas' : 'Aprobadas';
         alertarAdministradores(req, `✅ Facturas ${estadoTxt}`, `Se han ${estado === 'Pagado' ? 'pagado' : 'aprobado'} ${gastos.length} facturas de ${proveedor.empresa} por un total de $${totalGlobal}.`);
 
+        // 🆕 FASE 3: catálogo de notificaciones — evento "factura_pagada" (agregado, una sola notificación por lote)
+        if (estado === 'Pagado') {
+            dispararEvento(empresa_id, 'factura_pagada', { proveedor_nombre: proveedor.empresa, monto: totalGlobal });
+        }
+
         await client.query('COMMIT');
         
         const io = req.app.get('io');
-        if (io) io.emit('catalogo_actualizado'); 
+        if (io) io.to(`empresa_${empresa_id}`).emit('catalogo_actualizado'); // 🔒 FILTRO EMPRESA
 
         res.json({ success: true, actualizados: gastosProcesados.length });
     } catch (e) {
@@ -714,7 +700,7 @@ exports.verificarAlertasStock = async (io) => {
                 }
                 
                 if (io) {
-                    io.emit('alerta_admin', { 
+                    io.to(`empresa_${prov.empresa_id}`).emit('alerta_admin', { // 🔒 FILTRO EMPRESA
                         titulo: '📉 Alerta de Stock Crítico', 
                         mensaje: `El sistema acaba de notificar automáticamente a ${prov.empresa} para resurtir ${alertasAEnviar.length} artículos agotándose.`, 
                         fecha: new Date(),
