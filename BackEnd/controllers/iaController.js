@@ -8,7 +8,7 @@ const respuestasCache = new Map();
 // 👇 Cadena de modelos: principal de calidad + respaldos rápidos (*-lite).
 // Si uno se satura (503), falla la red o ya no existe (404), se pasa al siguiente.
 // Se puede cambiar sin tocar código con la variable GEMINI_MODELS en Render (separada por comas).
-const GEMINI_MODELS_FALLBACK = (process.env.GEMINI_MODELS || 'gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite')
+const GEMINI_MODELS_FALLBACK = (process.env.GEMINI_MODELS || 'gemini-3.5-flash-lite,gemini-2.5-flash-lite')
   .split(',').map((m) => m.trim()).filter(Boolean);
 
 // Errores que justifican probar de nuevo / pasar al siguiente modelo.
