@@ -384,16 +384,43 @@ exports.generarRespuestaConHerramientas = async (systemPrompt, historialPrevio, 
   if (!apiKey) throw new Error("Falta la llave de Gemini. El Administrador Global debe agregarla en Ajustes de IA.");
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODELS_FALLBACK[0],
-    tools: toolsDeclaration,
-    systemInstruction: systemPrompt
-  });
 
-  const chat = model.startChat({ history: historialPrevio || [] });
+  // 🛡️ Errores transitorios (saturación/red/modelo inexistente): justifican pasar al siguiente modelo.
+  // 400 o "API key not valid" NO: cambiar de modelo no los arregla.
+  const esTransitorio = (e) =>
+    /\b(404|429|500|502|503|504)\b|high demand|overloaded|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|timeout/i
+      .test(`${e?.message || ''} ${e?.cause?.code || ''}`);
+
+  const crearChat = (nombreModelo, historial) => genAI.getGenerativeModel(
+    { model: nombreModelo, tools: toolsDeclaration, systemInstruction: systemPrompt },
+    { timeout: 15000 } // si Google se cuelga, no dejamos al cliente esperando sin fin
+  ).startChat({ history: historial });
+
+  let idxModelo = 0;
+  let chat = crearChat(GEMINI_MODELS_FALLBACK[idxModelo], historialPrevio || []);
+
+  // Cada petición a Gemini prueba los modelos en orden. Si falla, el historial del chat conserva
+  // solo los turnos ya exitosos y se transfiere al siguiente modelo.
+  const enviarConFallback = async (partes) => {
+    let ultimoError;
+    for (let m = idxModelo; m < GEMINI_MODELS_FALLBACK.length; m++) {
+      try {
+        if (m !== idxModelo) {
+          chat = crearChat(GEMINI_MODELS_FALLBACK[m], await chat.getHistory());
+          idxModelo = m;
+        }
+        return await chat.sendMessage(partes);
+      } catch (e) {
+        ultimoError = e;
+        if (!esTransitorio(e)) throw e;
+        console.warn(`⏳ [GEMINI] ${GEMINI_MODELS_FALLBACK[m]} falló (${String(e.message).slice(0, 90)}). ${m + 1 < GEMINI_MODELS_FALLBACK.length ? 'Probando siguiente modelo...' : 'No quedan más modelos.'}`);
+      }
+    }
+    throw ultimoError;
+  };
 
   try {
-    let respuesta = await chat.sendMessage(mensajeNuevo);
+    let respuesta = await enviarConFallback(mensajeNuevo);
     let vueltas = 0;
     const MAX_VUELTAS = 6; // tope defensivo anti-loop infinito de tool calls
 
@@ -412,7 +439,7 @@ exports.generarRespuestaConHerramientas = async (systemPrompt, historialPrevio, 
         functionResponses.push({ functionResponse: { name: call.name, response: resultadoTool } });
       }
 
-      respuesta = await chat.sendMessage(functionResponses);
+      respuesta = await enviarConFallback(functionResponses);
       vueltas++;
     }
 
