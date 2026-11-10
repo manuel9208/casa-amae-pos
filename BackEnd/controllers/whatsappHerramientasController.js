@@ -46,10 +46,16 @@ exports.TOOLS_DECLARATION = [
             },
             {
                 name: 'registrar_pedido',
-                description: 'Registra el pedido final en el POS. Úsala SOLO cuando el cliente confirme explícitamente que ya es todo.',
+                description: 'Registra el pedido final en el POS. Úsala SOLO cuando el cliente confirme que ya es todo Y ya tengas tipo de pedido, nombre y teléfono (y dirección si es a domicilio).',
                 parameters: {
                     type: 'OBJECT',
-                    properties: { telefono_contacto: { type: 'STRING', description: 'Teléfono de contacto de 10 dígitos del cliente. Obligatorio solo si el sistema indica que no se conoce.' } }
+                    properties: {
+                        tipo_consumo: { type: 'STRING', description: 'Exactamente "Recoger en Local" o "Domicilio".' },
+                        nombre_cliente: { type: 'STRING', description: 'Nombre del cliente tal como lo dijo.' },
+                        telefono_contacto: { type: 'STRING', description: 'Teléfono de 10 dígitos que el cliente confirmó o dio.' },
+                        direccion_entrega: { type: 'STRING', description: 'Dirección completa (calle, número, colonia, referencias). Solo si es Domicilio.' }
+                    },
+                    required: ['tipo_consumo', 'nombre_cliente', 'telefono_contacto']
                 }
             },
             {
@@ -204,31 +210,55 @@ exports.registrarPedido = async (empresaId, telefono, io, datosExtra = {}) => {
 
     const total = carrito.reduce((sum, i) => sum + (Number(i.precioFinal || 0) * (Number(i.cantidad) || 1)), 0);
 
-    const clienteRes = await db.query('SELECT id FROM clientes WHERE telefono = $1 AND empresa_id = $2', [telefono, empresaId]);
+    // 🧹 "|" separa campos en direccion_entrega y [ ] marcan avisos de cobro: se eliminan del texto libre del cliente
+    const limpiarCampo = (v, max) => String(v || '')
+        .replace(/(A NOMBRE DE|TEL|TELÉFONO|CONTACTO)\s*:/gi, ' ')
+        .replace(/[|\[\]]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max);
+
+    const nombreCliente = limpiarCampo(datosExtra.nombre_cliente, 60);
+    if (nombreCliente.length < 2) {
+        return { ok: false, error: 'Falta el nombre del cliente. Pídeselo antes de registrar el pedido.' };
+    }
+
+    const telefonoContacto = String(datosExtra.telefono_contacto || '').replace(/\D/g, '').slice(-10);
+    if (telefonoContacto.length !== 10) {
+        return { ok: false, error: 'Falta el teléfono de contacto de 10 dígitos. Pídeselo o confírmaselo antes de registrar el pedido.' };
+    }
+
+    const tipoTexto = String(datosExtra.tipo_consumo || '');
+    const tipoConsumo = /domicilio/i.test(tipoTexto) ? 'Domicilio' : (/recoger|local|sucursal/i.test(tipoTexto) ? 'Recoger en Local' : null);
+    if (!tipoConsumo) {
+        return { ok: false, error: 'Falta saber si el pedido es para recoger en el local o a domicilio. Pregúntaselo al cliente.' };
+    }
+
+    const direccionCliente = limpiarCampo(datosExtra.direccion_entrega, 200);
+    if (tipoConsumo === 'Domicilio' && direccionCliente.length < 8) {
+        return { ok: false, error: 'Falta la dirección completa para el domicilio (calle, número, colonia y referencias). Pídesela al cliente.' };
+    }
+
+    // 🔗 Se liga al cliente SOLO si el teléfono confirmado coincide con uno ya registrado en ESTA empresa
+    const clienteRes = await db.query('SELECT id FROM clientes WHERE telefono = $1 AND empresa_id = $2', [telefonoContacto, empresaId]);
     const clienteId = clienteRes.rows[0]?.id || null;
 
-    // ⚠️ PENDIENTE DE CONFIRMAR CONTIGO: hoy fijamos 'Recoger en Local' por default
-    // porque el System Prompt/herramientas aún no preguntan tipo_consumo (Domicilio/
-    // Recoger/Para llevar) ni dirección. Si quieres que el asistente también lo
-    // pregunte, hay que: 1) agregar esa pregunta a las reglas del prompt, 2) una
-    // herramienta nueva o un campo extra en registrar_pedido para capturarlo.
-    // 🆕 Con Baileys el cliente puede llegar con un ID interno y no con su teléfono: se exige el de 10 dígitos
-    const telefonoContacto = String(datosExtra.telefono_contacto || (String(telefono).length === 10 ? telefono : '')).replace(/\D/g, '').slice(-10);
-    if (!clienteId && telefonoContacto.length !== 10) {
-        return { ok: false, error: 'Falta el teléfono de contacto de 10 dígitos del cliente. Pídeselo antes de registrar el pedido.' };
-    }
+    // 📐 MISMA estructura que CheckoutFlujo.js (Kiosco):
+    //   Recoger:   "A NOMBRE DE: {nombre} | TEL: {tel}"
+    //   Domicilio: "{dirección} | A NOMBRE DE: {nombre} | TEL: {tel}"
+    const bloqueNombreTel = `A NOMBRE DE: ${nombreCliente} | TEL: ${telefonoContacto}`;
 
     const paquete = {
         cliente_id: clienteId,
-        tipo_consumo: 'Recoger en Local',
-        metodo_pago: 'Pendiente',
+        tipo_consumo: tipoConsumo,
+        metodo_pago: 'Por Cobrar', // igual que el Kiosco para Recoger/Domicilio
         total,
         carrito: carritoExpandido,
-        origen: 'WhatsApp', // ⚠️ PENDIENTE DE CONFIRMAR: nuevo valor de "origen", no usado antes en el sistema
-        direccion_entrega: clienteId ? '' : `CONTACTO: ${telefonoContacto}`,
+        origen: 'WhatsApp',
+        direccion_entrega: tipoConsumo === 'Domicilio' ? `${direccionCliente} | ${bloqueNombreTel}` : bloqueNombreTel,
         descuento_puntos: 0,
         cupon_codigo: null,
-        estado_preparacion: 'Por Confirmar',
+        estado_preparacion: 'Pendiente', // 🔑 cae en "Por Confirmar" de Caja (Pendiente + origen distinto de Caja)
         mesa: null
     };
 
@@ -249,7 +279,7 @@ exports.consultarEstadoPedido = async (empresaId, telefono) => {
     const pedidoRes = await db.query(
         `SELECT * FROM pedidos
          WHERE empresa_id = $1
-         AND (cliente_id = $2 OR direccion_entrega LIKE '%CONTACTO: ' || $3 || '%')
+         AND (cliente_id = $2 OR direccion_entrega LIKE '%CONTACTO: ' || $3 || '%' OR direccion_entrega LIKE '%TEL: ' || $3 || '%')
          ORDER BY id DESC LIMIT 1`,
         [empresaId, clienteId, telefono]
     );

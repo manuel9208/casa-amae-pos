@@ -76,11 +76,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
       window.dispatchEvent(new CustomEvent('omnichannel_actualizado', { detail: payload }));
     });
 
-    // 🆕 Omnicanal: reenvía el evento (ya filtrado por la sala de la empresa) al chat de WhatsApp
-    socket.on('omnichannel_actualizado', (payload) => {
-      window.dispatchEvent(new CustomEvent('omnichannel_actualizado', { detail: payload }));
-    });
-
     // 🆕 PEDIR INSUMO: Cocina solicita algo. Alerta flotante NO bloqueante — Caja
     // sigue operando normal, y responde cuando la operación se lo permita.
     socket.on('solicitud_insumo_caja', (payload) => {
@@ -320,17 +315,6 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
             auditoriaActiva={auditoriaActiva}
             cerrarModal={() => setModalInventarioCaja(false)}
             showAlert={(t, m, tip) => c.setAlertaCaja({titulo: t, mensaje: m, tipo: tip})}
-          />
-        )}
-
-        {/* 🆕 CHAT DE WHATSAPP: oculto con la caja bloqueada y si el negocio no tiene el canal listo */}
-        {!c.isCajaBloqueada && (
-          <ChatWhatsAppCaja
-            apiUrl={c.apiUrl}
-            showAlert={(titulo, mensaje, tipo) => {
-              c.setAlertaCaja({ titulo, mensaje, tipo });
-              setTimeout(() => c.setAlertaCaja(null), 5000);
-            }}
           />
         )}
 

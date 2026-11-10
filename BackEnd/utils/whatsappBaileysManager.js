@@ -290,7 +290,16 @@ const iniciar = async (empresaId) => {
     s.motivo = null;
 
     const { state, saveCreds } = await usarEstadoPostgres(empresaId, lib);
-    const logger = require('pino')({ level: process.env.BAILEYS_LOG || 'silent' }); // BAILEYS_LOG=warn|info|debug para diagnosticar
+    // 🔇 Mensajes conocidos e inofensivos de Baileys (chats @bot / dispositivos vinculados, sesiones que se renegocian solas)
+    const RUIDO_BAILEYS = /failed to decrypt message|stream errored out|unexpected error in 'init queries'/;
+    const destinoLog = new (require('stream').Writable)({
+      write(chunk, _enc, cb) {
+        const linea = chunk.toString();
+        if (!RUIDO_BAILEYS.test(linea)) process.stdout.write(linea);
+        cb();
+      }
+    });
+    const logger = require('pino')({ level: process.env.BAILEYS_LOG || 'silent' }, destinoLog); // BAILEYS_LOG=warn|info|debug para diagnosticar
     const version = await obtenerVersion(lib);
     const makeWASocket = lib.default || lib.makeWASocket;
 
