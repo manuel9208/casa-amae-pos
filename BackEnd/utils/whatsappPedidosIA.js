@@ -128,10 +128,32 @@ exports.procesarPedidoPorIA = async ({ empresaId, waId, textoCliente, iaCfg, nom
     }
   };
 
-  const { textoFinal, historialActualizado } = await iaCtrl.generarRespuestaConHerramientas(
-    construirPrompt({ nombreNegocio, nombreAgente, urlPedidos, enlaceCompartido, tieneTelefono, abierto, horarioTexto }),
-    historialPrevio, textoCliente, herramientas.TOOLS_DECLARATION, ejecutor, iaCfg, empresaId
-  );
+  const promptSistema = construirPrompt({ nombreNegocio, nombreAgente, urlPedidos, enlaceCompartido, tieneTelefono, abierto, horarioTexto });
+
+  // 🛡️ Si una herramienta de pedido ya se ejecutó, NO se reintenta (evita ítems o pedidos duplicados)
+  let huboEscritura = false;
+  const ejecutorConGuardia = async (nombre, args) => {
+    if (TOOLS_DE_PEDIDO.includes(nombre)) huboEscritura = true;
+    return ejecutor(nombre, args);
+  };
+  const esErrorTransitorio = (e) =>
+    /\b(500|502|503|504)\b|high demand|alta demanda|overloaded|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i
+      .test(`${e?.message || ''} ${e?.cause?.code || ''}`);
+
+  let resultadoIA;
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      resultadoIA = await iaCtrl.generarRespuestaConHerramientas(
+        promptSistema, historialPrevio, textoCliente, herramientas.TOOLS_DECLARATION, ejecutorConGuardia, iaCfg, empresaId
+      );
+      break;
+    } catch (e) {
+      if (!esErrorTransitorio(e) || huboEscritura || intento === 3) throw e;
+      console.warn(`⏳ [PEDIDOS-IA] Intento ${intento}/3 falló (empresa ${empresaId}): ${String(e.message).slice(0, 90)}. Reintentando...`);
+      await new Promise((r) => setTimeout(r, 1500 * intento));
+    }
+  }
+  const { textoFinal, historialActualizado } = resultadoIA;
 
   // ✅ Pedido creado: el backend manda número + ticket (registrar_pedido ya limpió la conversación)
   if (pedidoRegistrado) {

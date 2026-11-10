@@ -5,10 +5,37 @@ const Anthropic = require('@anthropic-ai/sdk'); // 👇 NUEVO: SDK de Claude (An
 
 const respuestasCache = new Map();
 
-// 👇 Cadena de modelos: gemini-3.8-flash como principal (mejor calidad), con
-// gemini-3.5-flash-lite como respaldo automático si el primero se satura (503).
-// Así repartimos la carga entre DOS cuotas distintas de Google en vez de una sola.
-const GEMINI_MODELS_FALLBACK = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+// 👇 Cadena de modelos: principal de calidad + respaldos rápidos (*-lite).
+// Si uno se satura (503), falla la red o ya no existe (404), se pasa al siguiente.
+// Se puede cambiar sin tocar código con la variable GEMINI_MODELS en Render (separada por comas).
+const GEMINI_MODELS_FALLBACK = (process.env.GEMINI_MODELS || 'gemini-3.8-flash,gemini-3.5-flash-lite,gemini-2.5-flash-lite')
+  .split(',').map((m) => m.trim()).filter(Boolean);
+
+// Errores que justifican probar de nuevo / pasar al siguiente modelo.
+// NO incluye "API key not valid" ni 400: esos no se arreglan cambiando de modelo.
+const esErrorTransitorioGemini = (e) =>
+  /\b(404|429|500|502|503|504)\b|high demand|overloaded|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|timeout/i
+    .test(`${e?.message || ''} ${e?.cause?.code || ''}`);
+
+const dormirMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Ejecuta UNA petición a Gemini probando cada modelo de la cadena (1 reintento por modelo).
+const ejecutarConFallbackDeModelo = async (operacion, { reintentosPorModelo = 1, esperaMs = 1000 } = {}) => {
+  let ultimoError;
+  for (const nombreModelo of GEMINI_MODELS_FALLBACK) {
+    for (let i = 0; i <= reintentosPorModelo; i++) {
+      try {
+        return await operacion(nombreModelo);
+      } catch (e) {
+        ultimoError = e;
+        if (!esErrorTransitorioGemini(e)) throw e;
+        console.warn(`⏳ [GEMINI] ${nombreModelo} falló (${String(e.message).slice(0, 90)}). ${i < reintentosPorModelo ? 'Reintentando...' : 'Siguiente modelo...'}`);
+        if (i < reintentosPorModelo) await dormirMs(esperaMs);
+      }
+    }
+  }
+  throw ultimoError;
+};
 
 // 👇 FIX CRÍTICO (bug del contador de consultas): "new Date().toISOString()" SIEMPRE
 // devuelve la fecha en UTC, ignorando por completo el "process.env.TZ = 'America/Mazatlan'"
