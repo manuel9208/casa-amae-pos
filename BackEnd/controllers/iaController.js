@@ -391,30 +391,39 @@ exports.generarRespuestaConHerramientas = async (systemPrompt, historialPrevio, 
     /\b(404|429|500|502|503|504)\b|high demand|overloaded|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|timeout/i
       .test(`${e?.message || ''} ${e?.cause?.code || ''}`);
 
-  const crearChat = (nombreModelo, historial) => genAI.getGenerativeModel(
+  // 🔄 Gemini 3.x rechaza role 'function' (400). Las respuestas de herramientas viajan como 'user'.
+  // También limpia historiales viejos guardados en BD con role 'function'.
+  const normalizarRoles = (h) => (Array.isArray(h) ? h : [])
+    .map((c) => (c && c.role === 'function' ? { ...c, role: 'user' } : c));
+
+  const crearModelo = (nombreModelo) => genAI.getGenerativeModel(
     { model: nombreModelo, tools: toolsDeclaration, systemInstruction: systemPrompt },
     { timeout: 15000 } // si Google se cuelga, no dejamos al cliente esperando sin fin
-  ).startChat({ history: historial });
+  );
 
-  let idxModelo = 0;
-  let chat = crearChat(GEMINI_MODELS_FALLBACK[idxModelo], historialPrevio || []);
+  // Historial manejado a mano: solo crece cuando una petición a Gemini tuvo éxito
+  let contenidos = normalizarRoles(historialPrevio);
 
-  // Cada petición a Gemini prueba los modelos en orden. Si falla, el historial del chat conserva
-  // solo los turnos ya exitosos y se transfiere al siguiente modelo.
+  // Cada petición prueba los modelos en orden; si TODOS fallan por saturación/red, espera y da una 2ª ronda.
   const enviarConFallback = async (partes) => {
+    const nuevo = { role: 'user', parts: Array.isArray(partes) ? partes : [{ text: String(partes) }] };
+    const candidato = [...contenidos, nuevo];
+    const RONDAS = 2;
     let ultimoError;
-    for (let m = idxModelo; m < GEMINI_MODELS_FALLBACK.length; m++) {
-      try {
-        if (m !== idxModelo) {
-          chat = crearChat(GEMINI_MODELS_FALLBACK[m], await chat.getHistory());
-          idxModelo = m;
+    for (let ronda = 1; ronda <= RONDAS; ronda++) {
+      for (let m = 0; m < GEMINI_MODELS_FALLBACK.length; m++) {
+        try {
+          const resultado = await crearModelo(GEMINI_MODELS_FALLBACK[m]).generateContent({ contents: candidato });
+          const contenidoModelo = resultado.response.candidates?.[0]?.content;
+          contenidos = contenidoModelo ? [...candidato, contenidoModelo] : candidato;
+          return resultado;
+        } catch (e) {
+          ultimoError = e;
+          if (!esTransitorio(e)) throw e;
+          console.warn(`⏳ [GEMINI] ronda ${ronda}/${RONDAS} · ${GEMINI_MODELS_FALLBACK[m]} falló (${String(e.message).slice(0, 90)})`);
         }
-        return await chat.sendMessage(partes);
-      } catch (e) {
-        ultimoError = e;
-        if (!esTransitorio(e)) throw e;
-        console.warn(`⏳ [GEMINI] ${GEMINI_MODELS_FALLBACK[m]} falló (${String(e.message).slice(0, 90)}). ${m + 1 < GEMINI_MODELS_FALLBACK.length ? 'Probando siguiente modelo...' : 'No quedan más modelos.'}`);
       }
+      if (ronda < RONDAS) await new Promise((r) => setTimeout(r, 2500));
     }
     throw ultimoError;
   };
@@ -446,7 +455,7 @@ exports.generarRespuestaConHerramientas = async (systemPrompt, historialPrevio, 
     const textoFinal = respuesta.response.text();
     await registrarConsumoIA(hoy, empresaId);
 
-    return { textoFinal, historialActualizado: await chat.getHistory() };
+    return { textoFinal, historialActualizado: contenidos };
   } catch (error) {
     console.error('🚨 Error en generarRespuestaConHerramientas:', error.message);
     if (error.message.includes('429')) throw new Error('Cuota de Google agotada temporalmente. Intenta en unos minutos.');

@@ -10,6 +10,21 @@
 // =========================================================================
 const db = require('../config/db');
 
+// 🔇 libsignal (dependencia de Baileys) imprime con console.* la renegociación de llaves de cifrado.
+// Es ruido normal que se recupera solo. Se filtra SOLO por prefijo exacto: cualquier otro log
+// (incluidos los [BAILEYS] propios) pasa intacto. La bandera evita parchear dos veces.
+const RUIDO_LIBSIGNAL = /^(Closing session|Closing open session|Decrypted message with closed session|Failed to decrypt message with any known session|Session error:|Removing old closed session|Migrating session)/;
+if (!global.__filtroRuidoLibsignal) {
+  global.__filtroRuidoLibsignal = true;
+  ['log', 'info', 'warn', 'error'].forEach((metodo) => {
+    const original = console[metodo].bind(console);
+    console[metodo] = (...args) => {
+      if (typeof args[0] === 'string' && RUIDO_LIBSIGNAL.test(args[0])) return;
+      original(...args);
+    };
+  });
+}
+
 const MAX_INTENTOS = 8;
 const VERSION_TTL_MS = 6 * 60 * 60 * 1000;
 const VERSION_TIMEOUT_MS = 8000;      // consulta de versión a GitHub
@@ -313,7 +328,7 @@ const iniciar = async (empresaId) => {
     sock.ev.on('connection.update', (u) => {
       if (s.sock !== sock) return; // evento de un socket ya reemplazado
       const { connection, lastDisconnect, qr } = u;
-      console.log(`[BAILEYS] empresa ${empresaId} -> connection=${connection || '-'} qr=${qr ? 'si' : 'no'} codigo=${lastDisconnect?.error?.output?.statusCode || '-'} motivo=${lastDisconnect?.error?.message || '-'}`);
+      if (connection || qr) console.log(`[BAILEYS] empresa ${empresaId} -> connection=${connection || '-'} qr=${qr ? 'si' : 'no'} codigo=${lastDisconnect?.error?.output?.statusCode || '-'} motivo=${lastDisconnect?.error?.message || '-'}`);
       if (qr) {
         s.estado = 'esperando_qr';
         s.qr = qr;
