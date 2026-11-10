@@ -41,7 +41,8 @@ exports.listarChats = async (req, res) => {
     const wa = waRes.rows[0];
     const canalListo = !!wa && (
       (wa.proveedor === 'meta' && wa.meta_phone_id && wa.meta_api_token) ||
-      (wa.proveedor === '360dialog' && wa.dialog360_token)
+      (wa.proveedor === '360dialog' && wa.dialog360_token) ||
+      (wa.proveedor === 'baileys' && baileysManager.estadoDe(empresaId).estado !== 'sin_sesion')
     );
     // Canal sin configurar (o Baileys, pendiente de su fase): la Caja no muestra la burbuja
     if (!canalListo) return res.json({ success: true, habilitado: false, ia_activa: false, chats: [], no_leidos: 0 });
