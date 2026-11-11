@@ -57,6 +57,7 @@ exports.listarChats = async (req, res) => {
              mensajes -> -1 ->> 'rol' AS ultimo_rol
       FROM omnichannel_chats
       WHERE empresa_id = $1
+        AND (cerrado_en IS NULL OR ultimo_mensaje > cerrado_en)
       ORDER BY ultimo_mensaje DESC
       LIMIT 100
     `, [empresaId]);
@@ -203,5 +204,28 @@ exports.cambiarPausaIA = async (req, res) => {
   } catch (error) {
     console.error('🚨 Error en cambiarPausaIA:', error.message);
     res.status(500).json({ success: false, error: 'No se pudo cambiar el modo del chat.' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// PUT /omnichannel/chats/:id/cerrar — oculta la conversación de la bandeja.
+// Conserva el historial; reaparece sola si el cliente vuelve a escribir.
+// ─────────────────────────────────────────────────────────────
+exports.cerrarChat = async (req, res) => {
+  try {
+    const empresaId = req.empresa_id;
+    if (!idValido(req.params.id)) return res.status(400).json({ success: false, error: 'Chat inválido.' });
+
+    const r = await db.query(
+      'UPDATE omnichannel_chats SET cerrado_en = NOW(), no_leidos = 0 WHERE id = $1 AND empresa_id = $2 RETURNING id',
+      [req.params.id, empresaId]
+    );
+    if (!r.rows[0]) return res.status(404).json({ success: false, error: 'Conversación no encontrada.' });
+
+    emitir(empresaId, { tipo: 'cierre', chat_id: r.rows[0].id });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('🚨 Error en cerrarChat:', error.message);
+    res.status(500).json({ success: false, error: 'No se pudo cerrar la conversación.' });
   }
 };

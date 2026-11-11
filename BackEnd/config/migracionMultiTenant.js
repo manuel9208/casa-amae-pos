@@ -877,6 +877,7 @@ exports.agregarEmpresaIdATablas = async () => {
       ALTER TABLE omnichannel_chats ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id);
       ALTER TABLE ia_configuracion ADD COLUMN IF NOT EXISTS kiosco_ia_activo BOOLEAN DEFAULT false;
       ALTER TABLE whatsapp_configuraciones ADD COLUMN IF NOT EXISTS dialog360_token TEXT DEFAULT '';
+      ALTER TABLE omnichannel_chats ADD COLUMN IF NOT EXISTS cerrado_en TIMESTAMPTZ;
 
     `);
     console.log('✅ [MIGRACIÓN MULTI-TENANT] Columnas empresa_id verificadas/creadas correctamente (Bloque B).');

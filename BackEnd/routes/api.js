@@ -521,6 +521,7 @@ router.get('/omnichannel/chats', resolveTenant, requerirPersonalPOS, omnichannel
 router.get('/omnichannel/chats/:id', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.obtenerChat);
 router.post('/omnichannel/chats/:id/mensajes', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.enviarMensajeCajero);
 router.put('/omnichannel/chats/:id/pausa', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.cambiarPausaIA);
+router.put('/omnichannel/chats/:id/cerrar', resolveTenant, requerirPersonalPOS, omnichannelChatCtrl.cerrarChat);
 router.get('/omnichannel/status-publico', resolveTenant, omnichannelCtrl.getStatusPublico);
 
 // 📱 FASE 4b: Baileys (solo admin del negocio, siempre por empresa)

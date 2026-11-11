@@ -13,6 +13,7 @@ import ModalInventarioCaja from './caja/modales/ModalInventarioCaja';
 import { apiFetch } from '../utils/apiFetch';
 import { useSonidosCaja } from './caja/useSonidosCaja'; // 🔔 sonidos de pedido nuevo y mensaje de WhatsApp
 import ChatWhatsAppCaja from './caja/ChatWhatsAppCaja'; // 🆕 Chat de WhatsApp (Human Handoff)
+import ModalEnvioTicketWhatsApp from './caja/modales/ModalEnvioTicketWhatsApp'; // 🧾 ¿Enviar ticket por WhatsApp?
 
 const Caja = ({ user, onLogout, onGoToKiosco }) => {
   const c = useCajaCentral(user, onLogout, onGoToKiosco);
@@ -386,6 +387,11 @@ const Caja = ({ user, onLogout, onGoToKiosco }) => {
           </div>
         )}
       </div>
+      <ModalEnvioTicketWhatsApp
+        pendiente={c.confirmacionTicket}
+        onElegir={c.resolverConfirmacionTicket}
+        onCancelar={() => c.setConfirmacionTicket(null)}
+      />
       <TicketImpresion ticketImprimir={c.ticketImprimir} configGlobal={c.configGlobal} apiUrl={c.apiUrl} />
     </>
   );

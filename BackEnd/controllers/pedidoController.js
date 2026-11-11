@@ -1080,7 +1080,18 @@ if (estadoReal === 'Preparando') { updateFields.push(`tiempo_inicio_preparacion 
             dispararEvento(empresaId, 'cancelado', { numero_pedido: pedidoActual.numero_pedido, cliente_id: pedidoActual.cliente_id, pedido: pedidoActual }); // 🆕 FASE 3
         }
 
-        res.json(pedidoActual);
+        // 🧾 Ticket por WhatsApp (opcional: lo decide el cajero en Caja). Nunca rompe la actualización del pedido.
+        let ticketWhatsapp = null;
+        if (req.body.enviar_ticket_whatsapp === true) {
+            try {
+                ticketWhatsapp = await require('../utils/whatsappTicketCaja').enviarTicketPedido(empresaId, id);
+            } catch (errTicket) {
+                console.error(`⚠️ Ticket por WhatsApp falló (empresa ${empresaId}):`, errTicket.message);
+                ticketWhatsapp = { ok: false, motivo: 'envio_fallido' };
+            }
+        }
+
+        res.json(ticketWhatsapp ? { ...pedidoActual, ticket_whatsapp: ticketWhatsapp } : pedidoActual);
     } catch (error) {
         console.error("Error al actualizar estado:", error);
         res.status(500).json({ error: 'Error al actualizar estado' });

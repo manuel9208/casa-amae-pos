@@ -274,7 +274,10 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     cargarDataDinamica();
 
     const baseUrl = apiUrl ? apiUrl.replace('/api', '') : 'http://localhost:4000';
-    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    const socket = io(baseUrl, {
+      transports: ['websocket', 'polling'],
+      auth: { empresa_slug: process.env.REACT_APP_EMPRESA_SLUG } // 🆕 identifica la empresa dueña del socket
+    });
 
     socket.on('nuevo_pedido', () => cargarDataDinamica());
     socket.on('pedido_actualizado', () => cargarDataDinamica());
@@ -697,8 +700,48 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     } catch (error) {}
   };
 
+  // 🧾 Paso previo: el cajero decide si manda o no el ticket por WhatsApp (modal propio, sin confirm() nativo)
+  const [confirmacionTicket, setConfirmacionTicket] = useState(null);
+
+  const confirmarPedidoRecoger = (id) => {
+    const pedido = pedidos.find(p => p.id === id) || { id };
+    setConfirmacionTicket({ tipo: 'recoger', id, pedido });
+  };
+
+  const confirmarPedidoDomicilio = (pedidoModificado) => {
+    // Se guarda una copia de la zona abierta para que la impresión siga funcionando aunque el modal de zona se cierre
+    setConfirmacionTicket({ tipo: 'domicilio', pedido: pedidoModificado, zona: modalZonaEnvio });
+  };
+
+  const resolverConfirmacionTicket = (enviar) => {
+    const pendiente = confirmacionTicket;
+    if (!pendiente) return;
+    setConfirmacionTicket(null);
+    if (pendiente.tipo === 'recoger') ejecutarConfirmarPedidoRecoger(pendiente.id, enviar);
+    else ejecutarConfirmarPedidoDomicilio(pendiente.pedido, enviar, pendiente.zona);
+  };
+
+  // Avisa al cajero si el ticket salió o por qué no (la orden ya quedó confirmada en ambos casos)
+  const avisarResultadoTicketWA = async (res, numeroPedido) => {
+    try {
+      const data = await res.json();
+      if (data?.ticket_whatsapp?.ok) {
+        mostrarAlertaCaja('Ticket enviado', `El ticket de la orden #${numeroPedido} salió por WhatsApp.`, 'success');
+      } else {
+        const motivos = {
+          sin_telefono: 'el pedido no tiene un teléfono válido',
+          canal_no_configurado: 'el canal de WhatsApp no está configurado',
+          envio_fallido: 'WhatsApp no aceptó el mensaje (revisa que el canal esté conectado)'
+        };
+        mostrarAlertaCaja('Ticket no enviado', `La orden se confirmó, pero ${motivos[data?.ticket_whatsapp?.motivo] || 'no se pudo enviar el ticket por WhatsApp'}.`, 'error');
+      }
+    } catch (e) {
+      mostrarAlertaCaja('Ticket no enviado', 'La orden se confirmó, pero no se pudo verificar el envío del ticket por WhatsApp.', 'error');
+    }
+  };
+
   // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Entregar/Completar en Mesa
-  const confirmarPedidoRecoger = async (id) => {
+  const ejecutarConfirmarPedidoRecoger = async (id, enviarTicketWA = false) => {
     // 🍳 BANDERA: Flujo sin Cocina -> en vez de 'Preparando', va directo a 'Listo'
     // (cae automáticamente en Entregas/Cobrar sin pasar por el KDS). Si usaCocina=true,
     // sigue siendo exactamente 'Preparando' como hoy.
@@ -720,10 +763,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
        apiFetch(`${apiUrl}/pedidos/${id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id })
+            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, cajero_id: operadorActual?.id, enviar_ticket_whatsapp: enviarTicketWA === true })
         })
         .then(res => {
             if (!res.ok) throw new Error('Respuesta no exitosa');
+            if (enviarTicketWA) avisarResultadoTicketWA(res, pedidoConfirmado?.numero_pedido ?? id);
         })
         .catch(() => {
             mostrarAlertaCaja('Sin Conexión con el Servidor', `No se pudo confirmar la orden #${id}. Cocina podría no recibir el aviso. Verifica tu conexión.`, 'error');
@@ -732,7 +776,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
   };
 
   // 🔥 OPTIMIZACIÓN: Interfaz Optimista para Mandar a Repartir
-  const confirmarPedidoDomicilio = async (pedidoModificado) => {
+  const ejecutarConfirmarPedidoDomicilio = async (pedidoModificado, enviarTicketWA = false, zonaSnapshot = modalZonaEnvio) => {
     // 🍳 BANDERA: Flujo sin Cocina -> en vez de 'Preparando', va directo a 'Listo'
     // (cae automáticamente en Entregas, listo para asignar repartidor). Si usaCocina=true,
     // sigue siendo exactamente 'Preparando' como hoy.
@@ -748,8 +792,8 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         ...p, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t 
     } : p));
 
-    if (modalZonaEnvio && configGlobal?.ticket_impresion_activa) {
-        lanzarImpresion({ ...modalZonaEnvio, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t });
+    if (zonaSnapshot && configGlobal?.ticket_impresion_activa) {
+        lanzarImpresion({ ...zonaSnapshot, estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t });
     }  
     setModalZonaEnvio(null);
 
@@ -757,10 +801,11 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
     try {
        apiFetch(`${apiUrl}/pedidos/${pedidoModificado.id}/estado`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id })
+            body: JSON.stringify({ estado_preparacion: estadoDestino, metodo_pago: metodoPagoAjustado, costo_envio, total: t, cajero_id: operadorActual?.id, enviar_ticket_whatsapp: enviarTicketWA === true })
         })
         .then(res => {
             if (!res.ok) throw new Error('Respuesta no exitosa');
+            if (enviarTicketWA) avisarResultadoTicketWA(res, pedidoModificado.numero_pedido);
         })
         .catch(() => {
             mostrarAlertaCaja('Sin Conexión con el Servidor', `No se pudo asignar la zona de envío de la orden #${pedidoModificado.numero_pedido}. Verifica tu conexión.`, 'error');
@@ -1210,6 +1255,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
         registrarCompraRapida, registrarGastoCajaLibre, confirmarAgregarExtra, abrirIdentificador,
         onGoToKiosco: onGoToKioscoLocal,
         forzarLiberacionMesas,
+        confirmacionTicket, setConfirmacionTicket, resolverConfirmacionTicket, // 🧾 ¿Enviar ticket por WhatsApp?
         pedidosAuditados, combosActivos,
         // 🍽️ NUEVO: Agregar Platillo a pedido existente
         modalAgregarPlatillo, setModalAgregarPlatillo,

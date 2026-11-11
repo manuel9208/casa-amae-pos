@@ -37,6 +37,7 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert, sonar }) => {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [cambiandoPausa, setCambiandoPausa] = useState(false);
+  const [cerrandoId, setCerrandoId] = useState(null);
 
   const showAlertRef = useRef(showAlert);
   const sonarRef = useRef(sonar);
@@ -201,6 +202,30 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert, sonar }) => {
     }
   };
 
+  const cerrarChat = async (id) => {
+    if (cerrandoId) return;
+    setCerrandoId(id);
+    try {
+      const res = await apiFetch(`${apiUrl}/omnichannel/chats/${id}/cerrar`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setChats(prev => prev.filter(c => c.id !== id));
+        if (chatIdRef.current === id) volverALista();
+        cargarLista();
+      } else {
+        alerta('No se pudo cerrar', data.error || 'Intenta de nuevo.', 'error');
+      }
+    } catch (err) {
+      alerta('Error de red', 'No se pudo cerrar la conversación.', 'error');
+    } finally {
+      setCerrandoId(null);
+    }
+  };
+
   if (!habilitado) return null;
 
   const mensajes = detalle?.mensajes || [];
@@ -245,10 +270,10 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert, sonar }) => {
                   <p className="mt-3 text-sm font-bold text-slate-400">Aún no hay conversaciones</p>
                 </div>
               ) : chats.map(c => (
+                <div key={c.id} className={`flex items-center transition-colors ${chatId === c.id ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}>
                 <button
-                  key={c.id}
                   onClick={() => abrirChat(c.id)}
-                  className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors active:bg-slate-100 ${chatId === c.id ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
+                  className="flex-1 min-w-0 text-left pl-4 pr-1 py-3 flex items-center gap-3 active:bg-slate-100"
                 >
                   <div className="w-11 h-11 rounded-full bg-slate-100 text-slate-500 font-black flex items-center justify-center shrink-0">
                     {inicialChat(c)}
@@ -269,6 +294,17 @@ const ChatWhatsAppCaja = ({ apiUrl, showAlert, sonar }) => {
                     <div className="mt-1"><ChipModo pausa={c.pausa_ia} iaActiva={iaActiva} /></div>
                   </div>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => cerrarChat(c.id)}
+                  disabled={cerrandoId === c.id}
+                  title="Cerrar conversación"
+                  aria-label="Cerrar conversación"
+                  className="shrink-0 self-start mt-3 mr-2 p-1.5 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition active:scale-90 disabled:opacity-40"
+                >
+                  <X size={14} />
+                </button>
+                </div>
               ))}
             </div>
           </aside>
