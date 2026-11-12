@@ -344,7 +344,7 @@ const iniciar = async (empresaId, opciones = {}) => {
       generateHighQualityLinkPreview: false
     });
     s.sock = sock;
-    console.log(`[BAILEYS] Socket creado para empresa ${empresaId} (version: ${version ? version.join('.') : 'por defecto'}).`);
+    console.log(`[BAILEYS] Socket creado para empresa ${empresaId} (version: ${version ? version.join('.') : 'por defecto'}, dispositivo: ${navegadorBaileys()[0]}, modo: ${s.modo}).`);
 
     // Si en 45 s no llegó ni QR ni conexión, se corta y se avisa (en vez de quedarse "Conectando" sin fin)
     setTimeout(() => {
