@@ -378,6 +378,7 @@ const iniciar = async (empresaId, opciones = {}) => {
             sock.requestPairingCode(s.telefono)
               .then((codigo) => {
                 if (s.sock !== sock) return;
+                console.log(`[BAILEYS] empresa ${empresaId} -> código de vinculación generado para ***${String(s.telefono).slice(-4)} (${codigo.length} caracteres)`);
                 s.codigoVinculacion = codigo;
                 emitir(empresaId, { tipo: 'canal' });
               })
