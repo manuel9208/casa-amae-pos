@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { QrCode, Loader2, CheckCircle2, AlertTriangle, Unplug, RefreshCw, ShieldAlert } from 'lucide-react';
+import { QrCode, Loader2, CheckCircle2, AlertTriangle, Unplug, RefreshCw, ShieldAlert, Smartphone } from 'lucide-react';
 import { apiFetch } from '../../../utils/apiFetch';
 
 // =========================================================================
 // 📱 Vinculación de número por QR (Baileys). Autónomo: solo usa apiUrl/showAlert.
 // =========================================================================
 const BaileysVinculacion = ({ apiUrl, showAlert }) => {
-  const [info, setInfo] = useState({ estado: 'sin_sesion', numero: null, motivo: null, qr: null });
+  const [info, setInfo] = useState({ estado: 'sin_sesion', numero: null, motivo: null, qr: null, codigo: null, modoSesion: 'qr' });
+  const [modo, setModo] = useState('qr');   // 'qr' | 'codigo'
+  const [telefono, setTelefono] = useState('');
   const [permiso, setPermiso] = useState(true);
   const [cargando, setCargando] = useState(true);
   const [accionando, setAccionando] = useState(false);
@@ -17,7 +19,8 @@ const BaileysVinculacion = ({ apiUrl, showAlert }) => {
   const alerta = useCallback((...args) => showAlertRef.current && showAlertRef.current(...args), []);
 
   const aplicar = (data) => setInfo({
-    estado: data.estado, numero: data.numero || null, motivo: data.motivo || null, qr: data.qr || null
+    estado: data.estado, numero: data.numero || null, motivo: data.motivo || null, qr: data.qr || null,
+    codigo: data.codigo || null, modoSesion: data.modo || 'qr'
   });
 
   const cargarEstado = useCallback(async () => {
@@ -42,12 +45,17 @@ const BaileysVinculacion = ({ apiUrl, showAlert }) => {
   }, [cargarEstado, info.estado]);
 
   const conectar = async (forzar = false) => {
+    const soloDigitos = telefono.replace(/\D/g, '');
+    if (modo === 'codigo' && (soloDigitos.length < 10 || soloDigitos.length > 15)) {
+      alerta('Número incompleto', 'Escribe el número del celular con lada de país y solo dígitos (ej. 52 + 10 dígitos).', 'error');
+      return;
+    }
     setAccionando(true);
     try {
       const res = await apiFetch(`${apiUrl}/omnichannel/baileys/conectar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ forzar: forzar === true })
+        body: JSON.stringify({ forzar: forzar === true, modo, telefono: modo === 'codigo' ? soloDigitos : undefined })
       });
       const data = await res.json();
       if (res.ok && data.success) aplicar(data);
@@ -122,7 +130,25 @@ const BaileysVinculacion = ({ apiUrl, showAlert }) => {
             </div>
           )}
 
-          {estado === 'esperando_qr' && (
+          {estado === 'esperando_qr' && info.modoSesion === 'codigo' && (
+            <div className="flex flex-col md:flex-row items-center gap-6">
+              <div className="bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-8 text-center min-w-[260px]">
+                {info.codigo
+                  ? <p className="text-3xl sm:text-4xl font-black font-mono tracking-widest text-slate-800">{info.codigo.replace(/^(.{4})(.{4})$/, '$1-$2')}</p>
+                  : <Loader2 className="animate-spin mx-auto text-slate-300" size={32} />}
+                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mt-3">Código de vinculación</p>
+              </div>
+              <ol className="text-sm text-slate-600 space-y-2 list-decimal list-inside leading-relaxed">
+                <li>Abre WhatsApp en el celular del negocio.</li>
+                <li>Entra a <b>Ajustes → Dispositivos vinculados</b>.</li>
+                <li>Pulsa <b>Vincular un dispositivo</b>.</li>
+                <li>Elige <b>Vincular con el número de teléfono</b> y escribe el código.</li>
+                <li className="text-slate-400 list-none -ml-4 text-xs">Caduca en pocos minutos; si no alcanzas, genera otro.</li>
+              </ol>
+            </div>
+          )}
+
+          {estado === 'esperando_qr' && info.modoSesion !== 'codigo' && (
             <div className="flex flex-col md:flex-row items-center gap-6">
               <div className="bg-white p-3 rounded-2xl border-2 border-slate-100 shadow-sm shrink-0">
                 {info.qr
@@ -161,9 +187,26 @@ const BaileysVinculacion = ({ apiUrl, showAlert }) => {
                   <p className="text-xs text-amber-800 font-medium leading-relaxed">{info.motivo}</p>
                 </div>
               )}
-              <button onClick={conectar} disabled={accionando} className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black shadow-lg shadow-green-600/20 transition active:scale-95 disabled:opacity-50">
-                {accionando ? <Loader2 className="animate-spin" size={18} /> : estado === 'desconectado' ? <RefreshCw size={18} /> : <QrCode size={18} />}
-                {estado === 'desconectado' ? 'Reconectar / nuevo QR' : 'Generar código QR'}
+              <div className="inline-flex w-full sm:w-auto p-1 rounded-2xl bg-slate-100">
+                {[{ id: 'qr', texto: 'Código QR', Icono: QrCode }, { id: 'codigo', texto: 'Código de 8 dígitos', Icono: Smartphone }].map(({ id, texto, Icono }) => (
+                  <button key={id} type="button" onClick={() => setModo(id)}
+                    className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition ${modo === id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>
+                    <Icono size={14} /> {texto}
+                  </button>
+                ))}
+              </div>
+              {modo === 'codigo' && (
+                <div className="space-y-1">
+                  <label className="block text-xs font-black text-slate-500 uppercase tracking-widest ml-1">Número del celular del negocio</label>
+                  <input type="tel" inputMode="numeric" value={telefono}
+                    onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                    placeholder="52 + 10 dígitos, sin +"
+                    className="w-full sm:w-72 bg-slate-50 border-2 border-slate-100 rounded-xl p-3 text-slate-700 font-mono text-sm focus:border-green-500 outline-none transition-all" />
+                </div>
+              )}
+              <button onClick={() => conectar()} disabled={accionando} className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black shadow-lg shadow-green-600/20 transition active:scale-95 disabled:opacity-50">
+                {accionando ? <Loader2 className="animate-spin" size={18} /> : estado === 'desconectado' ? <RefreshCw size={18} /> : modo === 'codigo' ? <Smartphone size={18} /> : <QrCode size={18} />}
+                {estado === 'desconectado' ? 'Reconectar / nuevo código' : modo === 'codigo' ? 'Generar código de 8 dígitos' : 'Generar código QR'}
               </button>
             </div>
           )}

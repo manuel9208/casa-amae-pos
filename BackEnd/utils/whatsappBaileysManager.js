@@ -7,6 +7,7 @@
 // Variables de entorno:
 //   BAILEYS_ENABLED=true    -> habilita la vinculación (apagado por defecto)
 //   BAILEYS_LOG=warn|info   -> nivel de log de Baileys (por defecto 'silent')
+//   BAILEYS_BROWSER=ubuntu|windows -> nombre con el que aparece el dispositivo (por defecto 'MiSistemaPOS')
 // =========================================================================
 const db = require('../config/db');
 
@@ -39,14 +40,28 @@ let versionCache = { valor: undefined, ts: 0 };
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 const habilitado = () => process.env.BAILEYS_ENABLED === 'true';
 
-const cargarLib = () => {
+const cargarLib = async () => {
   if (libCache) return libCache;
   try {
-    libCache = require('@whiskeysockets/baileys');
+    // import() dinámico: funciona igual con Baileys 6 (CommonJS) y 7 (ESM)
+    const mod = await import('@whiskeysockets/baileys');
+    const base = (mod.default && typeof mod.default === 'object') ? mod.default : mod;
+    const makeWASocket = typeof base.default === 'function' ? base.default : base.makeWASocket;
+    if (typeof makeWASocket !== 'function') throw new Error('no se encontró makeWASocket');
+    libCache = { ...base, makeWASocket };
     return libCache;
   } catch (e) {
-    throw new Error('Falta instalar la dependencia @whiskeysockets/baileys en el backend (npm install).');
+    console.error('🚨 [BAILEYS] No se pudo cargar la librería:', e.message);
+    throw new Error('No se pudo cargar @whiskeysockets/baileys. Revisa que esté instalada (npm install) y los logs del servidor.');
   }
+};
+
+// Nombre con el que aparece el dispositivo en WhatsApp (configurable por variable de entorno)
+const navegadorBaileys = () => {
+  const modo = String(process.env.BAILEYS_BROWSER || '').toLowerCase();
+  if (modo === 'ubuntu') return ['Ubuntu', 'Chrome', '22.04.4'];
+  if (modo === 'windows') return ['Windows', 'Chrome', '10.0.22631'];
+  return ['MiSistemaPOS', 'Chrome', '1.0.0'];
 };
 
 // 🔒 Solo a la sala de la empresa. Payload sin datos personales.
@@ -230,12 +245,19 @@ const manejarMensajes = async (empresaId, { messages, type }) => {
 // Cierre de conexión / reconexión
 // ─────────────────────────────────────────────────────────────
 const manejarCierre = async (empresaId, s, creds, lastDisconnect) => {
+  if (s.cerrando) return;   // desvinculación iniciada desde el POS: cerrarSesion se encarga de todo
   const code = lastDisconnect?.error?.output?.statusCode;
   detenerSocket(s);
   s.qr = null;
   s.numero = null;
+  s.codigoVinculacion = null;
 
-  if (code === 401 || code === 500) {            // desvinculado desde el celular / sesión inválida
+  if (s.pareando && code !== 515) {               // el emparejamiento por código no se completó
+    await borrarSesion(empresaId);                // limpia las credenciales provisionales que deja Baileys
+    s.pareando = false;
+    s.estado = 'sin_sesion';
+    s.motivo = 'El código de 8 dígitos expiró o no se completó. Genera uno nuevo.';
+  } else if (code === 401 || code === 500) {      // desvinculado desde el celular / sesión inválida
     await borrarSesion(empresaId);
     s.estado = 'sin_sesion';
     s.motivo = code === 401 ? 'El dispositivo fue desvinculado desde el celular. Vuelve a vincularlo.' : 'La sesión guardada era inválida. Vuelve a vincular.';
@@ -268,14 +290,17 @@ const manejarCierre = async (empresaId, s, creds, lastDisconnect) => {
 // ─────────────────────────────────────────────────────────────
 // API pública
 // ─────────────────────────────────────────────────────────────
-const iniciar = async (empresaId) => {
+const iniciar = async (empresaId, opciones = {}) => {
   if (!habilitado()) {
     throw new Error('La vinculación por QR está desactivada en este servidor (BAILEYS_ENABLED).');
   }
-  const lib = cargarLib();
+  const lib = await cargarLib();
   let s = sesiones.get(empresaId);
   if (!s) {
-    s = { sock: null, estado: 'sin_sesion', qr: null, numero: null, motivo: null, intentos: 0, timer: null, iniciando: false };
+    s = {
+      sock: null, estado: 'sin_sesion', qr: null, numero: null, motivo: null, intentos: 0, timer: null, iniciando: false,
+      modo: 'qr', telefono: null, codigoVinculacion: null, pareando: false, cerrando: false
+    };
     sesiones.set(empresaId, s);
   }
   if (s.iniciando) return s;
@@ -288,6 +313,11 @@ const iniciar = async (empresaId) => {
     s.estado = 'conectando';
     s.qr = null;
     s.motivo = null;
+    s.cerrando = false;
+    s.modo = opciones.modo || s.modo || 'qr';
+    if (opciones.telefono) s.telefono = opciones.telefono;
+    s.codigoVinculacion = null;
+    let codigoPedido = false;
 
     const { state, saveCreds } = await usarEstadoPostgres(empresaId, lib);
     // 🔇 Mensajes conocidos e inofensivos de Baileys (chats @bot / dispositivos vinculados, sesiones que se renegocian solas)
@@ -301,14 +331,14 @@ const iniciar = async (empresaId) => {
     });
     const logger = require('pino')({ level: process.env.BAILEYS_LOG || 'silent' }, destinoLog); // BAILEYS_LOG=warn|info|debug para diagnosticar
     const version = await obtenerVersion(lib);
-    const makeWASocket = lib.default || lib.makeWASocket;
+    const makeWASocket = lib.makeWASocket;
 
     const sock = makeWASocket({
       version,
       logger,
       auth: { creds: state.creds, keys: lib.makeCacheableSignalKeyStore(state.keys, logger) },
       printQRInTerminal: false,
-      browser: ['MiSistemaPOS', 'Chrome', '1.0.0'],
+      browser: navegadorBaileys(),
       markOnlineOnConnect: false,          // el celular sigue recibiendo sus notificaciones
       syncFullHistory: false,
       generateHighQualityLinkPreview: false
@@ -340,12 +370,37 @@ const iniciar = async (empresaId) => {
       if (connection || qr) console.log(`[BAILEYS] empresa ${empresaId} -> connection=${connection || '-'} qr=${qr ? 'si' : 'no'} codigo=${lastDisconnect?.error?.output?.statusCode || '-'} motivo=${lastDisconnect?.error?.message || '-'}`);
       if (qr) {
         s.estado = 'esperando_qr';
-        s.qr = qr;
+        if (s.modo === 'codigo' && s.telefono) {
+          s.qr = null;
+          if (!codigoPedido && !state.creds.registered) {
+            codigoPedido = true;
+            s.pareando = true;
+            sock.requestPairingCode(s.telefono)
+              .then((codigo) => {
+                if (s.sock !== sock) return;
+                s.codigoVinculacion = codigo;
+                emitir(empresaId, { tipo: 'canal' });
+              })
+              .catch((e) => {
+                s.pareando = false;
+                console.error(`🚨 [BAILEYS] Empresa ${empresaId}: no se pudo generar el código de vinculación: ${e.message}`);
+                if (s.sock !== sock) return;
+                detenerSocket(s);
+                s.estado = 'desconectado';
+                s.motivo = 'No se pudo generar el código de 8 dígitos. Revisa el número (con lada de país) o usa el QR.';
+                emitir(empresaId, { tipo: 'canal' });
+              });
+          }
+        } else {
+          s.qr = qr;
+        }
         emitir(empresaId, { tipo: 'canal' });
       }
       if (connection === 'open') {
         s.estado = 'conectado';
         s.qr = null;
+        s.pareando = false;
+        s.codigoVinculacion = null;
         s.motivo = null;
         s.intentos = 0;
         s.numero = digitosDeJid(sock.user?.id);
@@ -374,24 +429,28 @@ const iniciar = async (empresaId) => {
 };
 
 // Corta un intento atorado y empieza de cero SIN borrar la sesión guardada en Postgres
-const reiniciar = async (empresaId) => {
+const reiniciar = async (empresaId, opciones = {}) => {
   const s = sesiones.get(empresaId);
   if (s) {
     clearTimeout(s.timer);
     detenerSocket(s);
+    if (s.pareando) await borrarSesion(empresaId);   // descarta credenciales provisionales de un código a medias
+    s.pareando = false;
+    s.codigoVinculacion = null;
     s.iniciando = false;
     s.estado = 'sin_sesion';
     s.qr = null;
     s.motivo = null;
     s.intentos = 0;
   }
-  return iniciar(empresaId);
+  return iniciar(empresaId, opciones);
 };
 
 const cerrarSesion = async (empresaId) => {
   const s = sesiones.get(empresaId);
   if (s) {
     clearTimeout(s.timer);
+    s.cerrando = true;   // evita que manejarCierre escriba el aviso "desvinculado desde el celular"
     try { if (s.sock && s.estado === 'conectado') await s.sock.logout(); } catch (e) { /* ya cerrada */ }
     detenerSocket(s);
     s.estado = 'sin_sesion';
@@ -399,16 +458,24 @@ const cerrarSesion = async (empresaId) => {
     s.numero = null;
     s.motivo = null;
     s.intentos = 0;
+    s.pareando = false;
+    s.codigoVinculacion = null;
   }
   await borrarSesion(empresaId);
+  if (s) s.cerrando = false;
   emitir(empresaId, { tipo: 'canal' });
 };
 
 const estadoDe = (empresaId) => {
   const s = sesiones.get(empresaId);
   return s
-    ? { estado: s.estado, numero: s.numero, motivo: s.motivo }
-    : { estado: 'sin_sesion', numero: null, motivo: null };
+    ? { estado: s.estado, numero: s.numero, motivo: s.motivo, modo: s.modo }
+    : { estado: 'sin_sesion', numero: null, motivo: null, modo: 'qr' };
+};
+
+const obtenerCodigo = (empresaId) => {
+  const s = sesiones.get(empresaId);
+  return s && s.estado === 'esperando_qr' ? s.codigoVinculacion : null;
 };
 
 const obtenerQr = (empresaId) => {
@@ -466,4 +533,4 @@ const restaurarSesiones = async () => {
   if (r.rows.length) console.log(`📱 [BAILEYS] ${r.rows.length} sesión(es) restaurada(s).`);
 };
 
-module.exports = { iniciar, reiniciar, cerrarSesion, estadoDe, obtenerQr, enviarTexto, restaurarSesiones };
+module.exports = { iniciar, reiniciar, cerrarSesion, estadoDe, obtenerQr, obtenerCodigo, enviarTexto, restaurarSesiones };
