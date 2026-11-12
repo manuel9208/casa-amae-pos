@@ -34,22 +34,32 @@ const CONEXION_TIMEOUT_MS = 45000;    // sin QR ni conexión en este tiempo => s
 const sesiones = new Map();   // empresaId -> estado en memoria
 const propios = new Set();    // ids de mensajes enviados por el POS (para no tratarlos como "del celular")
 const mapaLid = new Map();    // `${empresaId}:${digitos}` -> jid @lid (si WhatsApp no entrega el teléfono)
-let libCache = null;
+const libsCache = new Map();   // 'principal' | 'alterno' -> librería ya cargada
 let versionCache = { valor: undefined, ts: 0 };
 
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));
 const habilitado = () => process.env.BAILEYS_ENABLED === 'true';
 
-const cargarLib = async () => {
-  if (libCache) return libCache;
+// Paquete principal y paquete alterno (para pruebas). Las empresas listadas en
+// BAILEYS_ALTERNO_EMPRESAS (ej. "1" o "1,3") usan el alterno; las demás no cambian.
+const PAQUETES = { principal: '@whiskeysockets/baileys', alterno: 'baileys-alterno' };
+const paqueteDe = (empresaId) => {
+  const ids = String(process.env.BAILEYS_ALTERNO_EMPRESAS || '').split(',').map(x => x.trim()).filter(Boolean);
+  return ids.includes(String(empresaId)) ? 'alterno' : 'principal';
+};
+
+const cargarLib = async (empresaId) => {
+  const clave = paqueteDe(empresaId);
+  if (libsCache.has(clave)) return libsCache.get(clave);
   try {
     // import() dinámico: funciona igual con Baileys 6 (CommonJS) y 7 (ESM)
-    const mod = await import('@whiskeysockets/baileys');
+    const mod = await import(PAQUETES[clave]);
     const base = (mod.default && typeof mod.default === 'object') ? mod.default : mod;
     const makeWASocket = typeof base.default === 'function' ? base.default : base.makeWASocket;
     if (typeof makeWASocket !== 'function') throw new Error('no se encontró makeWASocket');
-    libCache = { ...base, makeWASocket };
-    return libCache;
+    const lib = { ...base, makeWASocket };
+    libsCache.set(clave, lib);
+    return lib;
   } catch (e) {
     console.error('🚨 [BAILEYS] No se pudo cargar la librería:', e.message);
     throw new Error('No se pudo cargar @whiskeysockets/baileys. Revisa que esté instalada (npm install) y los logs del servidor.');
@@ -184,9 +194,8 @@ const detenerSocket = (s) => {
 // ─────────────────────────────────────────────────────────────
 // Mensajes entrantes -> enrutador omnicanal (mismo flujo que Meta)
 // ─────────────────────────────────────────────────────────────
-const manejarMensajes = async (empresaId, { messages, type }) => {
+const manejarMensajes = async (empresaId, { messages, type }, lib) => {
   if (type !== 'notify') return; // los mensajes enviados por el propio POS llegan como "append"
-  const lib = libCache;
   const router = require('./whatsappRouterIA');
 
   for (const m of messages) {
@@ -294,7 +303,7 @@ const iniciar = async (empresaId, opciones = {}) => {
   if (!habilitado()) {
     throw new Error('La vinculación por QR está desactivada en este servidor (BAILEYS_ENABLED).');
   }
-  const lib = await cargarLib();
+  const lib = await cargarLib(empresaId);
   let s = sesiones.get(empresaId);
   if (!s) {
     s = {
@@ -344,7 +353,7 @@ const iniciar = async (empresaId, opciones = {}) => {
       generateHighQualityLinkPreview: false
     });
     s.sock = sock;
-    console.log(`[BAILEYS] Socket creado para empresa ${empresaId} (version: ${version ? version.join('.') : 'por defecto'}, dispositivo: ${navegadorBaileys()[0]}, modo: ${s.modo}).`);
+    console.log(`[BAILEYS] Socket creado para empresa ${empresaId} (version: ${version ? version.join('.') : 'por defecto'}, dispositivo: ${navegadorBaileys()[0]}, modo: ${s.modo}, paquete: ${paqueteDe(empresaId)}).`);
 
     // Si en 45 s no llegó ni QR ni conexión, se corta y se avisa (en vez de quedarse "Conectando" sin fin)
     setTimeout(() => {
@@ -416,7 +425,7 @@ const iniciar = async (empresaId, opciones = {}) => {
 
     sock.ev.on('messages.upsert', (evt) => {
       if (s.sock !== sock) return;
-      manejarMensajes(empresaId, evt).catch(e => console.error('🚨 [BAILEYS] Error en upsert:', e.message));
+      manejarMensajes(empresaId, evt, lib).catch(e => console.error('🚨 [BAILEYS] Error en upsert:', e.message));
     });
 
     return s;
