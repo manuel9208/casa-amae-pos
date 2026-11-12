@@ -112,7 +112,10 @@ const App = () => {
   };
 
   const cerrarSesion = useCallback(async (forzado = false) => {
-    const idUsuarioCerrar = usuarioActivo?.id || JSON.parse(localStorage.getItem('pos_sesion') || 'null')?.data?.id;
+    // 🔒 Solo los EMPLEADOS tienen turno/dispositivos que cerrar. Antes, para un cliente caía al id del
+// cliente y /logout operaba sobre el usuario que tuviera ese mismo id numérico.
+const sesionGuardada = JSON.parse(localStorage.getItem('pos_sesion') || 'null');
+const idUsuarioCerrar = usuarioActivo?.id || (sesionGuardada?.tipo === 'empleado' ? sesionGuardada?.data?.id : null);
 
     setUsuarioActivo(null); setClienteActivo(null); setModoInvitado(false);
     setTelefono(''); setPassword(''); setEmpleadoFase2(null);
@@ -120,7 +123,9 @@ const App = () => {
 
     localStorage.removeItem('pos_sesion');
     localStorage.removeItem('pos_entorno_activo');
-    localStorage.removeItem('pos_vista_tv'); 
+    localStorage.removeItem('pos_vista_tv');
+    localStorage.removeItem('pos_token_cliente'); // 🔐 token del cliente del Kiosco (clave definida en apiFetch.js)
+    localStorage.removeItem('pos_token_canje'); // 🎁 prueba de canje de puntos
     
     if (forzado) {
         setSesionExpirada(true);

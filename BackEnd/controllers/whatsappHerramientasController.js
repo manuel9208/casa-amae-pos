@@ -9,6 +9,7 @@
 
 const db = require('../config/db');
 const pedidoController = require('./pedidoController');
+const menuIA = require('../utils/menuIA');
 const { mensajePorEstado } = require('../utils/whatsappHelpers');
 
 // =========================================================================
@@ -71,32 +72,9 @@ exports.TOOLS_DECLARATION = [
 // 1. buscar_producto
 // =========================================================================
 exports.buscarProducto = async (empresaId, nombreBuscado) => {
-    const termino = `%${String(nombreBuscado || '').trim()}%`;
-    const result = await db.query(
-        `SELECT p.id, p.nombre, p.descripcion, p.precio_base, p.categoria, p.disponible, p.usa_stock, p.stock_preparado,
-                c.disponible as categoria_disponible
-         FROM productos p
-         LEFT JOIN clasificaciones c ON c.nombre = p.categoria AND c.empresa_id = p.empresa_id
-         WHERE p.empresa_id = $1 AND LOWER(p.nombre) LIKE LOWER($2)
-         ORDER BY p.id ASC LIMIT 5`,
-        [empresaId, termino]
-    );
-    if (result.rows.length === 0) return { encontrado: false };
-
-    const disponibles = result.rows.filter(p => p.disponible && p.categoria_disponible !== false);
-    if (disponibles.length === 0) return { encontrado: false, motivo: 'sin_disponibilidad' };
-
-    const p = disponibles[0];
-    if (p.usa_stock && Number(p.stock_preparado) <= 0) return { encontrado: false, motivo: 'sin_stock' };
-
-    return {
-        encontrado: true,
-        producto_id: p.id,
-        nombre: p.nombre,
-        descripcion: p.descripcion,
-        precio_base: Number(p.precio_base),
-        categoria: p.categoria
-    };
+    const r = await menuIA.resolverProducto(empresaId, nombreBuscado);
+    console.log(`🔎 [WA-IA] buscar_producto empresa ${empresaId}: "${nombreBuscado}" -> ${r.encontrado ? `${r.nombre}${r.ambiguo ? ' (ambiguo)' : ''}` : (r.motivo || 'sin resultado')}`);
+    return r;
 };
 
 // =========================================================================

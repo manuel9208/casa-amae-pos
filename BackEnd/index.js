@@ -21,6 +21,7 @@ const {
   agregarEmpresaIdATablas
 } = require('./config/migracionMultiTenant');
 const { migrarOmnicanal } = require('./config/migracionOmnicanal'); // 🆕 Módulo Omnicanal (migración aislada)
+const { migrarDatosEmpresa } = require('./config/migracionDatosEmpresa'); // 🏢 Datos de la Empresa (migración aislada)
 
 const app = express();
 
@@ -104,7 +105,7 @@ global.ioInstance = io;
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Empresa-Slug', 'X-Superadmin-Key']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Empresa-Slug', 'X-Superadmin-Key', 'X-Cliente-Token', 'X-Canje-Token']
 }));
 
 app.use(express.json({
@@ -161,6 +162,7 @@ async function iniciarServidor() {
     await crearTablasBaseSiNoExisten(); // Bloque A: tablas nuevas completas
     await agregarEmpresaIdATablas();    // Bloque B: empresa_id en tablas existentes
     await migrarOmnicanal();            // 🆕 Omnicanal: columnas/índices aislados (no se revierten con el Bloque B)
+    await migrarDatosEmpresa();         // 🏢 Datos de la Empresa: nunca lanza error (no tumba el arranque)
 
     console.log('✅ [MULTI-TENANT] Base de datos verificada correctamente. Procediendo a levantar el servidor...');
 

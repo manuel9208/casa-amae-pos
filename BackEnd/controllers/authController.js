@@ -1,13 +1,14 @@
 const db = require('../config/db');
 const { metodoAsistenciaActivo, validarUbicacionServidor, asegurarColumnasUbicacion } = require('../utils/asistenciaHelper');
 const { validarAccesoMDM } = require('../utils/mdmValidator');
+const { sanitizarCliente, sanitizarEmpleadoPreLogin } = require('../utils/sanitizarCliente'); // 🔒 sin credenciales en respuestas públicas
 
 exports.identificar = async (req, res) => {
   const { telefono } = req.body;
   const empresaId = req.empresa_id; // 🆕 TENANT
   try {
     const empleado = await db.query('SELECT * FROM usuarios WHERE telefono = $1 AND empresa_id = $2', [telefono, empresaId]); // 🔒 FILTRO EMPRESA
-    if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: empleado.rows[0] });
+    if (empleado.rows.length > 0) return res.json({ tipo: 'empleado', data: sanitizarEmpleadoPreLogin(empleado.rows[0]) }); // 🔒 sin password/pin/nfc_uid antes del login
 
     const cliente = await db.query(`
       SELECT c.*,
@@ -15,7 +16,7 @@ exports.identificar = async (req, res) => {
       FROM clientes c WHERE telefono = $1 AND empresa_id = $2
     `, [telefono, empresaId]); // 🔒 FILTRO EMPRESA
 
-    if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: cliente.rows[0] });
+    if (cliente.rows.length > 0) return res.json({ tipo: 'cliente', data: sanitizarCliente(cliente.rows[0]) }); // 🔒 sin NIP ni códigos 2FA
 
     return res.json({ tipo: 'nuevo' });
   } catch (error) {

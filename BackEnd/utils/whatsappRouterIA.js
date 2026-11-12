@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const { resolverVariable } = require('./envResolver');
 const { generarRespuestaTexto } = require('../controllers/iaController');
+const menuIA = require('./menuIA');
 const { enviarTextoPorProveedor, normalizarTelefonoMX } = require('./whatsappHelpers');
 const {
   construirSystemPrompt, detectarPeticionHumano, sanitizarEntrada,
@@ -130,17 +131,15 @@ const obtenerContextoNegocio = async (empresaId) => {
   const c = cacheContexto.get(empresaId);
   if (c && Date.now() - c.ts < 60000) return c.data;
 
-  const [conf, prods] = await Promise.all([
+  const [conf, catalogo, asist] = await Promise.all([
     db.query(
       'SELECT nombre_negocio, negocio_abierto, horarios_semana FROM configuracion WHERE empresa_id = $1 LIMIT 1',
       [empresaId]
     ),
-    db.query(
-      `SELECT nombre, categoria, precio_base, descripcion FROM productos
-       WHERE empresa_id = $1 AND disponible = true ORDER BY categoria, nombre LIMIT 200`,
-      [empresaId]
-    )
+    menuIA.obtenerCatalogo(empresaId),
+    db.query('SELECT nombre_asistente FROM kiosco_asistente_empresa WHERE empresa_id = $1', [empresaId]).catch(() => ({ rows: [] }))
   ]);
+  const nombreKiosco = String(asist.rows[0]?.nombre_asistente || '').trim();
 
   const cfg = conf.rows[0] || {};
   const urlPedidos = String(await resolverVariable(empresaId, 'FRONTEND_URL') || '').trim().replace(/\/$/, '');
@@ -149,10 +148,8 @@ const obtenerContextoNegocio = async (empresaId) => {
     nombreNegocio: cfg.nombre_negocio || 'el negocio',
     abierto: cfg.negocio_abierto === true || String(cfg.negocio_abierto) === 'true',
     horarioTexto: formatearHorario(cfg.horarios_semana),
-    menuTexto: prods.rows
-      .map(p => `- ${p.nombre} (${p.categoria || 'General'}): $${Number(p.precio_base).toFixed(2)}${p.descripcion ? ' — ' + String(p.descripcion).slice(0, 80) : ''}`)
-      .join('\n')
-      .slice(0, 6000)
+    menuTexto: menuIA.construirMenuTexto(catalogo),
+    nombreAsistente: (nombreKiosco && nombreKiosco !== 'Asistente') ? nombreKiosco : null // mismo nombre que el Kiosco
   };
   cacheContexto.set(empresaId, { ts: Date.now(), data });
   return data;
@@ -278,7 +275,7 @@ exports.procesarMensajeEntrante = async ({ value, mensaje, phoneNumberId, cfgOve
       if (pedidosIA && geminiOk) {
         const resPed = await require('./whatsappPedidosIA').procesarPedidoPorIA({
           empresaId, waId, textoCliente: textoLimpio, iaCfg,
-          nombreAgente: cfg.nombre_agente || 'Ana', contexto: ctx, io: global.ioInstance
+          nombreAgente: ctx.nombreAsistente || cfg.nombre_agente || 'Ana', contexto: ctx, io: global.ioInstance
         });
         for (const parte of resPed.mensajes) {
           await dormir(calcularDelayEscrituraMs(parte));
@@ -296,7 +293,7 @@ exports.procesarMensajeEntrante = async ({ value, mensaje, phoneNumberId, cfgOve
       const nombreCliente = await resolverNombreCliente(empresaId, waId, nombrePerfil);
       const systemPrompt = construirSystemPrompt({
         nombreNegocio: ctx.nombreNegocio,
-        nombreAgente: cfg.nombre_agente || 'Ana',
+        nombreAgente: ctx.nombreAsistente || cfg.nombre_agente || 'Ana',
         nombreCliente,
         horarioTexto: ctx.horarioTexto,
         menuTexto: ctx.menuTexto,

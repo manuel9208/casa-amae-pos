@@ -281,8 +281,14 @@ const ModalPersonalizar = ({
     // "return precioOpcion" de abajo sin restar el precio base, provocando el cobro
     // doble (ej. Shakespeare $98 base + $98 sabor = $196 en vez de $98).
     if (!currentItem._esPromo) {
+        // Misma regla que Caja (asistenteCalculos.js), para que ambos cobren igual:
+        //  - precioExtra == base -> 0 (el sabor trae el precio completo, ej. Shakespeare $98)
+        //  - precioExtra  > base -> la diferencia sobre la base
+        //  - precioExtra  < base -> se toma como recargo (0 = "mismo precio que la base")
         const baseReal = Number(currentItem.precio_base || 0);
-        return precioOpcion - baseReal;
+        if (precioOpcion === baseReal) return 0;
+        if (precioOpcion > baseReal) return precioOpcion - baseReal;
+        return precioOpcion;
     }
 
     return precioOpcion;

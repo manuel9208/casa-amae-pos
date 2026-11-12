@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
-import { apiFetch } from '../utils/apiFetch';
+import { apiFetch, asegurarTokenCliente } from '../utils/apiFetch';
 import { useBiometria } from '../hooks/useBiometria'; // 👈 NUEVO
 
 // ✅ CORRECTO (Asegúrate de que Fingerprint esté aquí)
@@ -266,6 +266,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
   const verificarMisPedidos = useCallback(async (isInitial = false) => {
     if (!clienteActivo || ordenExterna || !navigator.onLine) return;
     try { 
+      await asegurarTokenCliente(apiUrl, clienteActivo); // 🔐 la sesión restaurada (9 h) puede no traer token: se renueva con el teléfono
       const r = await apiFetch(`${apiUrl}/clientes/${clienteActivo.id}/pedidos?t=${new Date().getTime()}`); 
       const data = await r.json(); 
       const nuevosPedidos = Array.isArray(data) ? data : [];
@@ -494,7 +495,9 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
           setModalNip(false); 
           setNipInput('');
       } else { 
-          setErrorNip('NIP Incorrecto. Intenta de nuevo.'); 
+          let mensajeNip = 'NIP Incorrecto. Intenta de nuevo.';
+          if (res.status === 429) { try { mensajeNip = (await res.json()).error || mensajeNip; } catch (e) {} } // demasiados intentos
+          setErrorNip(mensajeNip);
       } 
     } catch (err) { setErrorNip('Error al verificar NIP'); } 
   };
@@ -538,7 +541,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
         const data = await res.json();
 
         if (res.ok) {
-            setMensajeRecuperacion({ tipo: 'success', texto: '¡Listo! Te hemos enviado un correo con tu NIP y hemos asociado el correo a tu cuenta.' });
+            setMensajeRecuperacion({ tipo: 'success', texto: '¡Listo! Te hemos enviado tu NIP al correo registrado en tu cuenta.' });
             setTimeout(() => {
                 setModalRecuperarNip(false);
                 setCorreoRecuperacion('');
@@ -884,7 +887,7 @@ const Kiosco = ({ user, clienteActivo, ordenExterna, onVolverAdmin, onLogout, mo
             </div>
             <h2 className="text-2xl font-black text-slate-800 mb-2">Recuperar NIP</h2>
             <p className="text-slate-500 font-medium mb-6 text-sm leading-relaxed">
-              Ingresa tu correo electrónico. Lo asociaremos a tu cuenta y te enviaremos tu NIP de seguridad para que puedas usar tus puntos.
+              Escribe el correo registrado en tu cuenta y te enviaremos tu NIP de seguridad para que puedas usar tus puntos.
             </p>
 
             {mensajeRecuperacion && (

@@ -13,6 +13,7 @@ import GestorLogisticaMapas from './configuracion/GestorLogisticaMapas';
 import GestorCorreos from './configuracion/GestorCorreos';
 import AnimacionesKiosco from './configuracion/AnimacionesKiosco';
 import AsistenteKioscoConfig from './configuracion/AsistenteKioscoConfig';
+import GestorDatosEmpresa from './configuracion/GestorDatosEmpresa';
 import { apiFetch } from '../../utils/apiFetch';
 
 const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, refrescarDatos, showAlert, showConfirm }) => {
@@ -211,6 +212,9 @@ const AdminConfiguracion = ({ configGlobal, setConfigGlobal, baseUrl, apiUrl, re
       {/* 🤖 Personaje Asistente IA del Kiosco: módulo hermano e independiente,
           mismo patrón de guardado automático propio. */}
       <AsistenteKioscoConfig apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />
+
+      {/* 🏢 Datos de la Empresa: sección independiente (guarda por registro, fuera del <form> de arriba) */}
+      <GestorDatosEmpresa apiUrl={apiUrl} showAlert={showAlert} showConfirm={showConfirm} />
     </div>
   );
 };

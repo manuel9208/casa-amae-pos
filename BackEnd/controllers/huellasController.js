@@ -8,6 +8,8 @@ const {
 const nodemailer = require('nodemailer');
 const { metodoAsistenciaActivo, validarUbicacionServidor, asegurarColumnasUbicacion } = require('../utils/asistenciaHelper');
 const { validarAccesoMDM } = require('../utils/mdmValidator');
+const { sanitizarCliente } = require('../utils/sanitizarCliente'); // 🔒 sin NIP en la respuesta del login con huella
+const { emitirTokenCanje } = require('../utils/sesionTokenCliente');
 
 const rpName = 'Sistema POS';
 // 🆕 MULTI-TENANT: RP_ID y FRONTEND_URL ya NO se leen una sola vez al
@@ -322,7 +324,7 @@ exports.verificarAutenticacion = async (req, res) => {
           const clienteData = cliRes.rows[0];
           clienteData.tiene_huella = true;
 
-          return res.json({ success: true, tipo: 'cliente', data: clienteData });
+          return res.json({ success: true, tipo: 'cliente', data: sanitizarCliente(clienteData), token_canje: emitirTokenCanje({ id: clienteData.id, empresa_id }) }); // 🎁 la huella también es prueba de canje
         }
       }
     } else {

@@ -1,5 +1,12 @@
 const db = require('../config/db');
 const nodemailer = require('nodemailer');
+const { sanitizarCliente } = require('../utils/sanitizarCliente'); // 🔒 el propio cliente nunca recibe su NIP/códigos
+const { emitirTokenCanje } = require('../utils/sesionTokenCliente');
+
+// 🔒 Anti fuerza bruta del NIP (4 dígitos): 5 fallos por cliente y empresa cada 15 min (memoria del proceso)
+const intentosNip = new Map();
+const MAX_FALLOS_NIP = 5;
+const VENTANA_NIP_MS = 15 * 60 * 1000;
 
 exports.registrar = async (req, res) => {
   const { telefono, nombre, apellido, correo, fecha_nacimiento, nip, direccion } = req.body;
@@ -19,16 +26,28 @@ exports.registrar = async (req, res) => {
 exports.verificarNip = async (req, res) => {
   const { empresa_id } = req;
   const { cliente_id, nip } = req.body;
+  const llaveIntentos = `${empresa_id}_${cliente_id}`;
+  const registroIntentos = intentosNip.get(llaveIntentos);
+  if (registroIntentos && registroIntentos.hasta > Date.now() && registroIntentos.n >= MAX_FALLOS_NIP) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Espera unos minutos o canjea con tu huella.' });
+  }
   try {
     const result = await db.query('SELECT nip FROM clientes WHERE id = $1 AND empresa_id = $2', [cliente_id, empresa_id]);
     if (result.rows.length > 0) {
       const dbNip = String(result.rows[0].nip).trim();
       const inputNip = String(nip).trim();
-      if (dbNip === inputNip) return res.json({ success: true });
+      if (dbNip === inputNip) {
+        intentosNip.delete(llaveIntentos);
+        return res.json({ success: true, token_canje: emitirTokenCanje({ id: cliente_id, empresa_id }) }); // 🎁 prueba firmada de NIP
+      }
     }
+    const previo = intentosNip.get(llaveIntentos);
+    const vigente = previo && previo.hasta > Date.now();
+    intentosNip.set(llaveIntentos, { n: vigente ? previo.n + 1 : 1, hasta: vigente ? previo.hasta : Date.now() + VENTANA_NIP_MS });
     res.status(401).json({ error: 'NIP Incorrecto' });
-  } catch (error) { 
-    res.status(500).json({ error: 'Error del servidor' }); 
+  } catch (error) {
+    console.error('🚨 [verificarNip] Error:', error.message); // antes el catch no dejaba rastro
+    res.status(500).json({ error: 'Error del servidor' });
   }
 };
 
@@ -44,15 +63,23 @@ exports.recuperarNip = async (req, res) => {
     await db.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS smtp_email TEXT, ADD COLUMN IF NOT EXISTS smtp_password TEXT, ADD COLUMN IF NOT EXISTS smtp_host TEXT, ADD COLUMN IF NOT EXISTS smtp_port TEXT;`);
 
     const result = await db.query(
-      'UPDATE clientes SET correo = $1 WHERE id = $2 AND empresa_id = $3 RETURNING *',
-      [correo, cliente_id, empresa_id]
+      'SELECT * FROM clientes WHERE id = $1 AND empresa_id = $2',
+      [cliente_id, empresa_id]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Cliente no encontrado en la base de datos.' });
     }
 
+    // 🔒 El correo ya NO se sobrescribe: debe coincidir con el registrado en la cuenta.
     const cliente = result.rows[0];
+    const correoRegistrado = String(cliente.correo || '').trim().toLowerCase();
+    if (!correoRegistrado) {
+      return res.status(400).json({ error: 'Tu cuenta aún no tiene un correo registrado. Pide al personal que lo registre y vuelve a intentarlo.' });
+    }
+    if (correoRegistrado !== String(correo).trim().toLowerCase()) {
+      return res.status(403).json({ error: 'El correo no coincide con el registrado en tu cuenta.' });
+    }
     const nipCliente = cliente.nip;
 
     const configRes = await db.query('SELECT smtp_email, smtp_password, smtp_host, smtp_port, nombre_negocio FROM configuracion WHERE empresa_id = $1', [empresa_id]);
@@ -90,7 +117,7 @@ exports.recuperarNip = async (req, res) => {
 
     await transporter.sendMail({
       from: `"${configData.nombre_negocio || 'El Restaurante'}" `,
-      to: correo,
+      to: cliente.correo, // 🔒 siempre al correo registrado, nunca al del body
       subject: '🎁 Tu NIP de Seguridad',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; text-align: center;">
@@ -105,7 +132,7 @@ exports.recuperarNip = async (req, res) => {
       `
     });
 
-    res.json({ success: true, mensaje: 'Correo asociado y NIP enviado.' });
+    res.json({ success: true, mensaje: 'NIP enviado al correo registrado.' });
 
   } catch (error) {
     console.error("Error al recuperar NIP:", error);
@@ -296,7 +323,7 @@ exports.obtenerClientePorId = async (req, res) => {
       [id, empresa_id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
-    res.json(result.rows[0]);
+    res.json(req.actorCliente ? sanitizarCliente(result.rows[0]) : result.rows[0]); // personal sigue viendo el registro completo
   } catch (error) {
     console.error("Error al obtener cliente por ID:", error);
     res.status(500).json({ error: 'Error al obtener cliente' });
@@ -373,7 +400,7 @@ exports.actualizarCliente = async (req, res) => {
       'UPDATE clientes SET nombre=$1, apellido=$2, telefono=$3, correo=$4, puntos=$5, nip=$6, direccion=$7, fecha_nacimiento=$8 WHERE id=$9 AND empresa_id=$10 RETURNING *',
       [nNombre, nApellido, nTelefono, nCorreo, nPuntos, nNip, nDireccion, nFechaNacimiento, id, empresa_id]
     );
-    res.json(result.rows[0]);
+    res.json(req.actorCliente ? sanitizarCliente(result.rows[0]) : result.rows[0]);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Error al actualizar cliente' });

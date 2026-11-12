@@ -612,7 +612,12 @@ exports.crearPedido = async (req, res) => {
         }
 
         if (cliente_id && descuento_puntos > 0) {
-            await client.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2 AND empresa_id = $3', [descuento_puntos, cliente_id, empresaId]); // 🔒 FILTRO EMPRESA
+            // 🔒 Atómico: solo descuenta si el saldo alcanza (nunca queda negativo ni se gastan puntos que no existen)
+            const resPuntos = await client.query('UPDATE clientes SET puntos = puntos - $1 WHERE id = $2 AND empresa_id = $3 AND puntos >= $1 RETURNING id', [descuento_puntos, cliente_id, empresaId]); // 🔒 FILTRO EMPRESA
+            if (resPuntos.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Puntos insuficientes para este canje.' });
+            }
         }  
         if (cupon_codigo) {
             await client.query('UPDATE cupones SET usos_actuales = COALESCE(usos_actuales, 0) + 1 WHERE codigo = $1 AND empresa_id = $2', [cupon_codigo, empresaId]); // 🔒 FILTRO EMPRESA

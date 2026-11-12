@@ -57,6 +57,10 @@ const omnichannelCtrl = require('../controllers/omnichannelController'); // 🆕
 const omnichannelChatCtrl = require('../controllers/omnichannelChatController'); // 🆕 FASE 5: Chat de WhatsApp en Caja (Human Handoff)
 const { requerirPersonalPOS } = require('../middlewares/requerirPersonalPOS');
 const { inyectarTokenSesion } = require('../middlewares/inyectarTokenSesion'); // 🔐 token de sesión en logins de empleados
+const { inyectarTokenCliente } = require('../middlewares/inyectarTokenCliente'); // 🔐 token de sesión del cliente del Kiosco
+const { requerirPersonalOClienteDueno } = require('../middlewares/requerirPersonalOClienteDueno'); // 🔐 personal o el propio cliente
+const { protegerCreacionPedido } = require('../middlewares/protegerCreacionPedido'); // 🔐 estado y canje de puntos en POST /pedidos
+const { requerirDuenoParaHuella } = require('../middlewares/requerirDuenoParaHuella'); // 🔐 solo el dueño (o admin) registra huellas
 const baileysCtrl = require('../controllers/baileysController'); // 🆕 FASE 4b: vinculación Baileys (QR)
 const dialog360Ctrl = require('../controllers/dialog360WebhookController'); // 🆕 360dialog: webhook entrante por empresa // 🆕 FASE 5: guard de sesión para datos de clientes
 
@@ -67,6 +71,7 @@ const { uploadAsistenteKiosco } = require('../middlewares/uploadAsistenteKiosco'
 
 const empresasController = require('../controllers/empresasController');
 const notificacionesConfigCtrl = require('../controllers/notificacionesConfigController');
+const datosEmpresaCtrl = require('../controllers/datosEmpresaController'); // 🏢 Datos de la Empresa (sucursales, contactos, info extra)
 const whatsappCtrl = require('../controllers/whatsappController'); // 🆕 FASE 4 (punto 3 roadmap): webhook de consulta de estado por WhatsApp
 
 
@@ -186,21 +191,21 @@ router.post('/suscripciones', resolveTenant, notificacionCtrl.guardarSuscripcion
 // ==========================================
 // AUTENTICACIÓN Y CLIENTES NORMALES
 // ==========================================
-router.post('/identificar', resolveTenant, authCtrl.identificar);
+router.post('/identificar', resolveTenant, inyectarTokenCliente, authCtrl.identificar);
 router.post('/login', resolveTenant, inyectarTokenSesion, authCtrl.login);
 router.post('/logout', resolveTenant, authCtrl.logout);
-router.post('/clientes/registro', resolveTenant, clienteCtrl.registrar);
+router.post('/clientes/registro', resolveTenant, inyectarTokenCliente, clienteCtrl.registrar);
 router.post('/clientes/verificar-nip', resolveTenant, clienteCtrl.verificarNip);
 router.post('/clientes/solicitar-codigo-nip', resolveTenant, clienteCtrl.solicitarCodigoNip);
 router.post('/clientes/cambiar-nip-codigo', resolveTenant, clienteCtrl.cambiarNipConCodigo);
 router.post('/clientes/cambiar-correo-codigo', resolveTenant, clienteCtrl.cambiarCorreoConCodigo);
-router.post('/clientes/recuperar-nip', resolveTenant, clienteCtrl.recuperarNip);
-router.get('/clientes', resolveTenant, clienteCtrl.obtenerClientes);
-router.put('/clientes/:id', resolveTenant, clienteCtrl.actualizarCliente);
-router.get('/clientes/buscar', resolveTenant, clienteCtrl.buscarClientes); // 🔍 NUEVO: Búsqueda optimizada en servidor (SQL)
-router.get('/clientes/reportes', resolveTenant, clienteCtrl.obtenerReportes);
-router.get('/clientes/:id', resolveTenant, clienteCtrl.obtenerClientePorId); // 🆕 FIX 404: Obtener un cliente puntual por ID
-router.delete('/clientes/:id', resolveTenant, clienteCtrl.eliminarCliente);
+router.post('/clientes/recuperar-nip', resolveTenant, requerirPersonalOClienteDueno({ origen: 'body', campo: 'cliente_id' }), clienteCtrl.recuperarNip);
+router.get('/clientes', resolveTenant, requerirPersonalPOS, clienteCtrl.obtenerClientes);
+router.put('/clientes/:id', resolveTenant, requerirPersonalOClienteDueno({ campo: 'id', camposProhibidosCliente: ['puntos', 'nip', 'telefono', 'correo'] }), clienteCtrl.actualizarCliente);
+router.get('/clientes/buscar', resolveTenant, requerirPersonalPOS, clienteCtrl.buscarClientes); // 🔍 NUEVO: Búsqueda optimizada en servidor (SQL)
+router.get('/clientes/reportes', resolveTenant, requerirPersonalPOS, clienteCtrl.obtenerReportes);
+router.get('/clientes/:id', resolveTenant, requerirPersonalOClienteDueno({ campo: 'id' }), clienteCtrl.obtenerClientePorId); // 🆕 FIX 404: Obtener un cliente puntual por ID
+router.delete('/clientes/:id', resolveTenant, requerirPersonalPOS, clienteCtrl.eliminarCliente);
 
 // ==========================================
 // USUARIOS (EMPLEADOS) Y RECURSOS HUMANOS
@@ -264,11 +269,11 @@ router.put('/productos/:id/opciones', resolveTenant, recetaCtrl.actualizarOpcion
 // ==========================================
 router.get('/pedidos/historial', resolveTenant, pedidoCtrl.obtenerHistorialAuditoria);
 router.get('/pedidos/hoy', resolveTenant, pedidoCtrl.obtenerPedidosHoy);
-router.post('/pedidos', resolveTenant, pedidoCtrl.crearPedido);
+router.post('/pedidos', resolveTenant, protegerCreacionPedido, pedidoCtrl.crearPedido);
 router.put('/pedidos/:id', resolveTenant, pedidoCtrl.actualizarPedido);
 router.put('/pedidos/:id/estado', resolveTenant, pedidoCtrl.actualizarEstado);
 router.put('/pedidos/:id/alerta', resolveTenant, pedidoCtrl.actualizarAlerta);
-router.get('/clientes/:cliente_id/pedidos', resolveTenant, pedidoCtrl.obtenerPedidosCliente);
+router.get('/clientes/:cliente_id/pedidos', resolveTenant, requerirPersonalOClienteDueno({ campo: 'cliente_id' }), pedidoCtrl.obtenerPedidosCliente);
 router.post('/pedidos/:id/agregar-items', resolveTenant, pedidoCtrl.agregarItemsAPedido);
 
 // ==========================================
@@ -473,11 +478,11 @@ router.post('/biometria/equipos', resolveTenant, equipoCtrl.registrarEquipo);
 router.put('/biometria/equipos/:id', resolveTenant, equipoCtrl.actualizarEquipo);
 router.delete('/biometria/equipos/:id', resolveTenant, equipoCtrl.eliminarEquipo);
 // Motor Biométrico (Huellas)
-router.post('/huellas/generar-registro', resolveTenant, huellasCtrl.generarOpcionesRegistro);
-router.post('/huellas/verificar-registro', resolveTenant, huellasCtrl.verificarRegistro);
+router.post('/huellas/generar-registro', resolveTenant, requerirDuenoParaHuella, huellasCtrl.generarOpcionesRegistro);
+router.post('/huellas/verificar-registro', resolveTenant, requerirDuenoParaHuella, huellasCtrl.verificarRegistro);
 router.post('/huellas/enviar-codigo', resolveTenant, huellasCtrl.enviarCodigoVerificacion);
 router.post('/huellas/generar-login', resolveTenant, huellasCtrl.generarOpcionesAutenticacion);
-router.post('/huellas/verificar-login', resolveTenant, inyectarTokenSesion, huellasCtrl.verificarAutenticacion);
+router.post('/huellas/verificar-login', resolveTenant, inyectarTokenSesion, inyectarTokenCliente, huellasCtrl.verificarAutenticacion);
 router.delete('/huellas/cliente/:id', resolveTenant, huellasCtrl.eliminarHuellaCliente);
 router.delete('/huellas/empleado/:id', resolveTenant, huellasCtrl.eliminarHuellaEmpleado);
 
@@ -601,6 +606,12 @@ router.put('/admin-global/empresas/:id/whatsapp-flag', verificarAdminGlobal, emp
 // 🆕 Fase 3 — Catálogo de Notificaciones (eventos × roles × canales), editable por el propio negocio.
 router.get('/notificaciones-config', resolveTenant, notificacionesConfigCtrl.obtenerConfiguracionNotificaciones);
 router.put('/notificaciones-config/:evento', resolveTenant, notificacionesConfigCtrl.actualizarConfiguracionEvento);
+
+// 🏢 Datos de la Empresa: lectura para el personal del POS, escritura solo admin/gerente (se valida en el controlador)
+router.get('/datos-empresa', resolveTenant, requerirPersonalPOS, datosEmpresaCtrl.obtenerTodo);
+router.post('/datos-empresa/:entidad', resolveTenant, requerirPersonalPOS, datosEmpresaCtrl.crear);
+router.put('/datos-empresa/:entidad/:id', resolveTenant, requerirPersonalPOS, datosEmpresaCtrl.actualizar);
+router.delete('/datos-empresa/:entidad/:id', resolveTenant, requerirPersonalPOS, datosEmpresaCtrl.eliminar);
 
 // ==========================================
 // 🤖 CRON JOB (EL VIGILANTE CONTINUO DE HORARIOS Y STOCK)

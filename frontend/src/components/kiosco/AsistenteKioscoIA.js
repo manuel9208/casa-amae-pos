@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Player } from '@lottiefiles/react-lottie-player';
 import { X, Send, Bot, Loader2 } from 'lucide-react';
-import { apiFetch } from '../../utils/apiFetch';
+import { apiFetch, asegurarTokenCliente, limpiarTokenCliente } from '../../utils/apiFetch';
 
 // =========================================================================
 // 🤖 ASISTENTE IA DEL KIOSCO — Punto 5 del roadmap WhatsApp/IA
@@ -61,6 +61,14 @@ const esConsultaDeEstadoPedido = (texto) => {
 const esConsultaDePuntos = (texto) => {
   const t = texto.toLowerCase();
   return /\bpuntos?\b/.test(t) && !esConsultaDeEstadoPedido(texto);
+};
+
+// 🏢 Preguntas sobre datos del negocio (teléfonos, dirección, horarios, pagos). Tienen prioridad sobre los
+// flujos locales A/B: "¿teléfono para pedidos?" contiene "pedidos" pero NO es "estado de mi pedido".
+const esConsultaDeDatosNegocio = (texto) => {
+  const t = texto.toLowerCase();
+  if (/\bmi(s)?\s+(ultimo|último|pedido|pedidos|orden|ordenes|órdenes|puntos?)\b/.test(t)) return false;
+  return /(tel[eé]fono|celular|whats|correo|email|fax|direcci[oó]n|ubicaci[oó]n|d[oó]nde (est[aá]n|queda|se ubican)|c[oó]mo llego|sucursal|horario|a qu[eé] hora|abren|cierran|clabe|n[uú]mero de cuenta|n[uú]mero de tarjeta|datos bancarios|transferencia|dep[oó]sito|facebook|instagram|contacto)/.test(t);
 };
 
 const extraerNumeroPedido = (texto) => {
@@ -181,29 +189,20 @@ const AsistenteKioscoIA = ({ apiUrl, configGlobal, clienteActivo, misPedidos, pr
     setEstadoAnimo('pensando');
     try {
       const identificador_sesion = obtenerIdentificadorSesion(clienteActivo);
+      await asegurarTokenCliente(apiUrl, clienteActivo); // 🔐 renueva en silencio el token si la sesión restaurada no lo tiene
       const res = await apiFetch(`${apiUrl}/kiosco-chat-ia/consultar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pregunta: texto,
           identificador_sesion,
-          cliente_id: clienteActivo?.id || null, // 🆕 habilita respuestas directas de puntos/pedidos del lado del backend como red de seguridad
-          productos: (productos || []).map(p => ({
-            nombre: p.nombre,
-            categoria: p.categoria,
-            precio_base: p.precio_base, // 🔧 FIX: la columna real es "precio_base", ya no "precio"
-            descripcion: p.descripcion
-          })),
-          clasificaciones: (clasificaciones || []).map(c => ({ nombre: c.nombre })),
-          catalogoIngredientes: (catalogoIngredientes || []).map(i => ({
-            nombre: i.nombre,
-            precio: i.precio ?? i.precio_extra ?? i.precioExtra ?? 0,
-            tipo: i.tipo
-          })), // 🆕 extras/ingredientes con precio — antes nunca se enviaban
+          cliente_id: clienteActivo?.id || null,
+          historial: (mensajes || []).slice(-6).map(m => ({ rol: m.rol, texto: String(m.texto || '').slice(0, 300) })), // 🧠 turnos previos (sin la pregunta actual)
           nombre_negocio: configGlobal?.nombre_negocio
         })
       });
       const data = await res.json();
+      if (clienteActivo && data.identidad === 'invitado') limpiarTokenCliente(); // el servidor no aceptó el token: se renueva en la próxima pregunta
 
       if (res.ok && data.success) {
         setMensajes(prev => [...prev, { rol: 'asistente', texto: data.respuesta }]);
@@ -216,7 +215,7 @@ const AsistenteKioscoIA = ({ apiUrl, configGlobal, clienteActivo, misPedidos, pr
       setMensajes(prev => [...prev, { rol: 'asistente', texto: 'Tuve un problema de conexión. Intenta de nuevo en un momento.' }]);
       setEstadoAnimo('confundido');
     }
-  }, [apiUrl, clienteActivo, productos, clasificaciones, catalogoIngredientes, configGlobal]);
+  }, [apiUrl, clienteActivo, mensajes, configGlobal]);
 
   const enviarMensaje = (e) => {
     e.preventDefault();
@@ -226,7 +225,9 @@ const AsistenteKioscoIA = ({ apiUrl, configGlobal, clienteActivo, misPedidos, pr
     setMensajes(prev => [...prev, { rol: 'usuario', texto }]);
     setInputTexto('');
 
-    if (esConsultaDeEstadoPedido(texto)) {
+    if (esConsultaDeDatosNegocio(texto)) {
+      consultarIAMenu(texto);
+    } else if (esConsultaDeEstadoPedido(texto)) {
       resolverConsultaPedido(texto);
     } else if (esConsultaDePuntos(texto)) {
       resolverConsultaPuntos();
