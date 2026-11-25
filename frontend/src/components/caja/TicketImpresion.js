@@ -1,5 +1,6 @@
 import React from 'react';
 import { MessageCircle } from 'lucide-react'; 
+import { normalizarPagosMixtos } from '../../utils/pagosMixtos'; // ⚠️ ajusta los "../" según la ubicación de este archivo
 
 const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
   if (!ticketImprimir || !configGlobal) return null;  
@@ -140,10 +141,10 @@ const TicketImpresion = ({ ticketImprimir, configGlobal, apiUrl }) => {
           </p>
           
           <p className="mt-1">Pago: {stripEmojis(ticketImprimir.metodo_pago)}</p>
-          {ticketImprimir.metodo_pago === 'Mixto' && ticketImprimir.pagos_mixtos && (
+          {ticketImprimir.metodo_pago === 'Mixto' && normalizarPagosMixtos(ticketImprimir.pagos_mixtos).length > 0 && (
             <div className="mt-1 text-[9px] text-gray-700 space-y-0.5">
-              {(typeof ticketImprimir.pagos_mixtos === 'string' ? JSON.parse(ticketImprimir.pagos_mixtos) : ticketImprimir.pagos_mixtos).map((pm, idx) => (
-                <p key={idx}>- {stripEmojis(pm.metodo)}: ${Number(pm.monto).toFixed(2)}</p>
+              {normalizarPagosMixtos(ticketImprimir.pagos_mixtos).map((pm, idx) => (
+                <p key={idx}>- {stripEmojis(pm.metodo)}: ${pm.monto.toFixed(2)}</p>
               ))}
             </div>
           )}

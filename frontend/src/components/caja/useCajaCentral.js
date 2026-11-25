@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { esPedidoPagado } from './pedidoEstadoUtils';
 import { apiFetch } from '../../utils/apiFetch';
+import { normalizarPagosMixtos } from '../../utils/pagosMixtos';
 import { useConfigOperativa } from '../../hooks/useConfigOperativa'; // 👈 NUEVO
 
 const getMazatlanDateStr = () => {
@@ -431,6 +432,12 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       }
 
       receipt += `TOTAL: $${Number(pedido.total).toFixed(2)}\n`;
+      receipt += `PAGO: ${stripEmojis(pedido.metodo_pago || 'Efectivo')}\n`;
+      if (pedido.metodo_pago === 'Mixto') {
+          normalizarPagosMixtos(pedido.pagos_mixtos).forEach(pm => {
+              receipt += `  > ${stripEmojis(pm.metodo)}: $${pm.monto.toFixed(2)}\n`;
+          });
+      }
       
       if (configGlobal?.ticket_mensaje_final) {
           receipt += `\n`;
@@ -610,7 +617,7 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
       
       // 👇 FIX MÁSTER: Agregamos "ordenCobrada._esCobroDirecto" como condición válida para imprimir
       if ((ordenCobrada._esCobroDirecto || (!estadoRechazo && !yaCocinada)) && configGlobal?.ticket_impresion_activa) {
-          const ordenActualizada = { ...ordenCobrada, estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, descuento_puntos: puntosUsados > 0 ? puntosUsados : ordenCobrada.descuento_puntos };
+          const ordenActualizada = { ...ordenCobrada, estado_preparacion: estadoFinal, metodo_pago: metodoPagoFinal, pagos_mixtos: pagosMixtos || ordenCobrada.pagos_mixtos, descuento_puntos: puntosUsados > 0 ? puntosUsados : ordenCobrada.descuento_puntos };
           lanzarImpresion(ordenActualizada);
       }
       
@@ -1113,7 +1120,9 @@ export const useCajaCentral = (user, onLogout, onGoToKiosco) => {
           total: mergeSeguro(nuevosDatos.total, pedidoRef.total),
           costo_envio: mergeSeguro(nuevosDatos.costo_envio, pedidoRef.costo_envio),
           descuento_puntos: pedidoRef.descuento_puntos,
-          cupon_codigo: pedidoRef.cupon_codigo
+          cupon_codigo: pedidoRef.cupon_codigo,
+          // Solo viaja si el modal lo mandó (null = limpiar el desglose)
+          ...(nuevosDatos.pagos_mixtos !== undefined ? { pagos_mixtos: nuevosDatos.pagos_mixtos } : {})
         };
 
         const res = await apiFetch(`${apiUrl}/pedidos/${id}`, {

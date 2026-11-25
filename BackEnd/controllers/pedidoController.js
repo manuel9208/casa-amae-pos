@@ -690,7 +690,7 @@ exports.actualizarPedido = async (req, res) => {
     const datosPuros = limpiarNulos(req.body);
     const empresaId = req.empresa_id; // 🆕 TENANT
     
-    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio, cupon_codigo, descuento_puntos } = datosPuros;
+    const { cliente_id, tipo_consumo, metodo_pago, direccion_entrega, total, carrito, estado_preparacion, mesa, costo_envio, cupon_codigo, descuento_puntos, pagos_mixtos } = datosPuros;
     
     try {
         const carritoStr = typeof carrito === 'string' ? carrito : JSON.stringify(carrito || []);
@@ -720,6 +720,19 @@ exports.actualizarPedido = async (req, res) => {
         if (mesa !== undefined) { updateFields.push(`mesa = $${paramIndex++}`); params.push(mesa); }
         if (costo_envio !== undefined) { updateFields.push(`costo_envio = $${paramIndex++}`); params.push(costoEnvioFinal); }
         if (cupon_codigo !== undefined) { updateFields.push(`cupon_codigo = $${paramIndex++}`); params.push(cupon_codigo); }
+
+        // Desglose del pago mixto. Acepta arreglo/objeto/texto JSON (incluso con doble codificación)
+        // y lo guarda siempre como JSON limpio. null = limpiar el desglose.
+        if (pagos_mixtos !== undefined) {
+            let pm = pagos_mixtos;
+            for (let i = 0; i < 2 && typeof pm === 'string'; i++) {
+                try { pm = JSON.parse(pm); } catch (e) { break; }
+            }
+            if (pm === null || typeof pm === 'object') {
+                updateFields.push(`pagos_mixtos = $${paramIndex++}`);
+                params.push(pm === null ? null : JSON.stringify(pm));
+            }
+        }
         
         if (descuento_puntos !== undefined) {
             const puntosNuevos = Number(descuento_puntos);

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Smartphone, XCircle, Home, PackagePlus, MapPin, Phone, CreditCard, RotateCcw, Truck, User, CheckCircle2, AlertTriangle, Star, Clock } from 'lucide-react';
 import { useBuscadorClientes } from '../useBuscadorClientes';  
 import { apiFetch } from '../../../utils/apiFetch';
+import { normalizarPagosMixtos, montoDeMetodo } from '../../../utils/pagosMixtos';
 
 const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdicionPedido, onGoToKiosco, isSubmitting, configGlobal, apiUrl }) => {
   const [editNombre, setEditNombre] = useState('');
@@ -35,10 +36,13 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
       setEditMetodoPago(modalEditarPedido.metodo_pago || 'Efectivo');
       setEditClienteId(modalEditarPedido.cliente_id || null);  
 
-      // 👇 FIX: Cargar el desglose original si ya existía en la BD
-      setMontoEfectivo(modalEditarPedido.monto_efectivo || '');
-      setMontoTarjeta(modalEditarPedido.monto_tarjeta || '');
-      setMontoTransferencia(modalEditarPedido.monto_transferencia || '');
+      // Cargar el desglose original desde pagos_mixtos (única fuente real del desglose)
+      const desgloseOriginal = modalEditarPedido.metodo_pago === 'Mixto'
+        ? normalizarPagosMixtos(modalEditarPedido.pagos_mixtos)
+        : [];
+      setMontoEfectivo(montoDeMetodo(desgloseOriginal, 'efectivo'));
+      setMontoTarjeta(montoDeMetodo(desgloseOriginal, 'tarjeta'));
+      setMontoTransferencia(montoDeMetodo(desgloseOriginal, 'transf'));
 
       const isOriginalDomicilio = modalEditarPedido.tipo_consumo === 'Domicilio';
       const costoEnvioActual = isOriginalDomicilio ? (Number(modalEditarPedido.costo_envio) || 0) : 0;
@@ -158,26 +162,25 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
   const isPagado = !['Pendiente', 'Por Cobrar', 'Cancelado'].includes(modalEditarPedido?.metodo_pago) && estado !== 'Pendiente';  
   
   const canEditMetodo = !isCancelado && estado !== 'Pendiente';  
+  // 🛡️ FIX: si el pedido ya trae un método que no es de los elegibles a mano (ej. 'Por Cobrar', 'Puntos'),
+  // se muestra solo como opción actual para que no se sobrescriba a Efectivo al guardar.
+  const METODOS_ELEGIBLES = ['Efectivo', 'Tarjeta', 'Transferencia', 'Mixto'];
+  const metodoOriginal = modalEditarPedido?.metodo_pago;
+  const mostrarMetodoOriginal = !!metodoOriginal && !METODOS_ELEGIBLES.includes(metodoOriginal);
   const totalActualizado = totalBase + (editConsumo === 'Domicilio' ? Number(editCostoEnvio || 0) : 0);  
 
   // 👇 FIX: Función matemática que calcula la diferencia en vivo para el Pago Mixto
+  // Si no se está editando el consumo (orden terminada), el total válido es el guardado en BD
+  const totalCobro = canEditConsumo ? totalActualizado : Number(modalEditarPedido?.total || 0);
+
   const calcularRestanteMixto = () => {
     const sum = Number(montoEfectivo || 0) + Number(montoTarjeta || 0) + Number(montoTransferencia || 0);
-    return (totalActualizado - sum).toFixed(2);
+    return (totalCobro - sum).toFixed(2);
   };
 
-  const ejecutarGuardadoAvanzado = async (payload) => {
-    try {
-        await apiFetch(`${apiUrl}/pedidos/${modalEditarPedido.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        guardarEdicionPedido(modalEditarPedido.id, payload);
-    } catch (e) {
-        console.error("Error al forzar actualización", e);
-        guardarEdicionPedido(modalEditarPedido.id, payload); // Fallback
-    }
+  // Un solo guardado: guardarEdicionPedido (useCajaCentral) hace el PUT, refresca y avisa.
+  const ejecutarGuardadoAvanzado = (payload) => {
+    guardarEdicionPedido(modalEditarPedido.id, payload);
   };
 
   const submitEdicionPedido = (e) => {
@@ -243,35 +246,22 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
         payload.total = totalBase + finalEnvio;
       }  
 
-      // 👇 FIX: Blindaje Total para el envío del Método de Pago al backend
       if (canEditMetodo) {
         payload.metodo_pago = editMetodoPago;
-        const finalTotal = (payload.total !== undefined) ? payload.total : totalActualizado;
 
         if (editMetodoPago === 'Mixto') {
-            if (Number(calcularRestanteMixto()) !== 0) {
-                setErrorValidacion("Para el Pago Mixto, la suma del desglose debe ser exactamente igual al Nuevo Total.");
+            if (Math.abs(Number(calcularRestanteMixto())) > 0.009) {
+                setErrorValidacion("Para el Pago Mixto, la suma del desglose debe ser exactamente igual al Total.");
                 return;
             }
-            payload.monto_efectivo = Number(montoEfectivo || 0);
-            payload.monto_tarjeta = Number(montoTarjeta || 0);
-            payload.monto_transferencia = Number(montoTransferencia || 0);
-        } else if (editMetodoPago === 'Efectivo') {
-            payload.monto_efectivo = finalTotal;
-            payload.monto_tarjeta = 0;
-            payload.monto_transferencia = 0;
-        } else if (editMetodoPago === 'Tarjeta') {
-            payload.monto_efectivo = 0;
-            payload.monto_tarjeta = finalTotal;
-            payload.monto_transferencia = 0;
-        } else if (editMetodoPago === 'Transferencia') {
-            payload.monto_efectivo = 0;
-            payload.monto_tarjeta = 0;
-            payload.monto_transferencia = finalTotal;
+            // Mismo formato que usa procesarPago, el ticket y la tarjeta de comandas
+            payload.pagos_mixtos = [
+                { metodo: 'Efectivo', monto: Number(montoEfectivo || 0) },
+                { metodo: 'Tarjeta', monto: Number(montoTarjeta || 0) },
+                { metodo: 'Transferencia', monto: Number(montoTransferencia || 0) }
+            ].filter(p => p.monto > 0);
         } else {
-            payload.monto_efectivo = 0;
-            payload.monto_tarjeta = 0;
-            payload.monto_transferencia = 0;
+            payload.pagos_mixtos = null; // deja de ser Mixto: se limpia el desglose viejo
         }
       }
     }  
@@ -567,7 +557,9 @@ const ModalEditarPedido = ({ modalEditarPedido, setModalEditarPedido, guardarEdi
                   <option value="Efectivo">Efectivo</option>
                   <option value="Tarjeta">Tarjeta / Terminal</option>
                   <option value="Transferencia">Transferencia</option>
-                  <option value="Por Cobrar">Por Cobrar (Repartidor)</option>
+                  {mostrarMetodoOriginal && (
+                    <option value={metodoOriginal}>{metodoOriginal} (actual)</option>
+                  )}
                   <option value="Mixto">Pago Mixto</option>
                 </select>
 

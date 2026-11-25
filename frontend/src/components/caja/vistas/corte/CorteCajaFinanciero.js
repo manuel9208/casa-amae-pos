@@ -59,7 +59,8 @@ const CorteCajaFinanciero = (props) => {
 
     const isSuperAdmin = String(usuarioActivo?.usuario || '').toLowerCase().trim() === 'admin';
     const rolUser = String(usuarioActivo?.rol || '').toLowerCase().trim();
-    const esAdminOGerente = isSuperAdmin || ['admin', 'gerente', 'administrador global'].includes(rolUser);
+    const ROLES_DIRECTIVOS = ['admin', 'administrador', 'gerente', 'administrador global', 'jefe'];
+    const esAdminOGerente = isSuperAdmin || ROLES_DIRECTIVOS.includes(rolUser);
 
     const isTurnoCerrado = (val) => val === true || String(val).toLowerCase() === 'true';
 
